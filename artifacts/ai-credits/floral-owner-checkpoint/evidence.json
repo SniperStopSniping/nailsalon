@@ -1,0 +1,448 @@
+{
+  "date": "2026-10-18",
+  "environment": "isolated loopback Development; no hosted deployment",
+  "sourceCommit": "2f4a52b0",
+  "fictionalSalon": "Fleur Studio",
+  "reference": "User-supplied KlawedByKayla screenshot; third-party inspiration; original retained outside Git",
+  "ownerInputs": "Three tier services, prices, durations, hours, private address, public intersection and contacts supplied through actual chat; two explicitly uploaded repository demo photographs",
+  "firstArtifactId": "1af2f4d1-c89b-4b77-b01d-f6f50dc83e38",
+  "finalArtifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+  "calls": [
+    {
+      "id": "4a610358-8468-406b-8e69-039468cb48b0",
+      "operation_id": "4f2216d1-c252-4597-83a2-c7dbb0c67a01",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4950,
+      "output_tokens": 688,
+      "cost_micro_usd": 963,
+      "charged_micro_cad": 1926,
+      "credit_cost_micro_cad": "2697",
+      "elapsed_ms": 7573,
+      "validation": "passed"
+    },
+    {
+      "id": "22cd07ba-23d7-41dc-98d1-045589278c8d",
+      "operation_id": "e477bb4d-0373-4931-bed5-0f899442caeb",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5593,
+      "output_tokens": 394,
+      "cost_micro_usd": 897,
+      "charged_micro_cad": 1794,
+      "credit_cost_micro_cad": "2512",
+      "elapsed_ms": 6418,
+      "validation": "passed"
+    },
+    {
+      "id": "33064b74-9022-4b8d-84ce-f7ca4ce3e8f9",
+      "operation_id": "615589da-4a51-4d22-a309-0f726d0a887a",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5068,
+      "output_tokens": 6236,
+      "cost_micro_usd": 75029,
+      "charged_micro_cad": 150058,
+      "credit_cost_micro_cad": "210082",
+      "elapsed_ms": 98516,
+      "validation": "passed"
+    },
+    {
+      "id": "97a8ba08-0ac3-42e2-865b-32423688fd86",
+      "operation_id": "a6f1fdff-1217-4fe8-80e0-8e7d55846524",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5701,
+      "output_tokens": 261,
+      "cost_micro_usd": 844,
+      "charged_micro_cad": 1688,
+      "credit_cost_micro_cad": "2364",
+      "elapsed_ms": 3999,
+      "validation": "passed"
+    },
+    {
+      "id": "c68f76bd-efb2-4dcd-a48b-22b80938fd4f",
+      "operation_id": "260f5c7b-7653-4bad-bf13-22041b048718",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 11031,
+      "output_tokens": 7392,
+      "cost_micro_usd": 101496,
+      "charged_micro_cad": 202992,
+      "credit_cost_micro_cad": "284189",
+      "elapsed_ms": 98752,
+      "validation": "passed"
+    }
+  ],
+  "estimatedProviderMicroUsd": 179229,
+  "trialChargedMicroCad": 358458,
+  "testRetailMicroCad": 501844,
+  "manualSourceRepair": false,
+  "automatedModelRepair": false,
+  "realClerk": false,
+  "realStripe": false,
+  "steps": [
+    {
+      "step": "message",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 1,
+      "afterRevision": 2,
+      "artifactId": null,
+      "elapsedMs": 40355,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [],
+      "failure": null,
+      "appointments": []
+    },
+    {
+      "step": "photos",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 2,
+      "afterRevision": 3,
+      "artifactId": null,
+      "elapsedMs": 7586,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [],
+      "failure": null,
+      "appointments": []
+    },
+    {
+      "step": "message",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 3,
+      "afterRevision": 5,
+      "artifactId": "1af2f4d1-c89b-4b77-b01d-f6f50dc83e38",
+      "elapsedMs": 154573,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [],
+      "failure": null,
+      "appointments": []
+    },
+    {
+      "step": "message",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 5,
+      "afterRevision": 6,
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "elapsedMs": 119281,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [],
+      "failure": null,
+      "appointments": []
+    },
+    {
+      "step": "publish",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 6,
+      "afterRevision": 7,
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "elapsedMs": 27032,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [],
+      "failure": null,
+      "appointments": []
+    },
+    {
+      "step": "book",
+      "browser": "webkit",
+      "status": "passed",
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "elapsedMs": 43575,
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "privateAddressChecks": [
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/service",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/service",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/time",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/api/appointments/availability",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/api/appointments/availability",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/time",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/confirm",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        }
+      ],
+      "failure": null,
+      "appointments": [
+        {
+          "id": "appt_e3ffb4cd-6cc7-4bea-b00b-5ac0d4be7dd9",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        }
+      ]
+    },
+    {
+      "step": "book",
+      "browser": "chromium",
+      "status": "failed",
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "elapsedMs": 18726,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/service",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/service",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/time",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "readFailed": true
+        },
+        {
+          "path": "/api/appointments/availability",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/confirm",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "readFailed": true
+        }
+      ],
+      "failure": "The private address check failed before appointment creation.",
+      "appointments": [
+        {
+          "id": "appt_e3ffb4cd-6cc7-4bea-b00b-5ac0d4be7dd9",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        }
+      ]
+    },
+    {
+      "step": "book",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "elapsedMs": 45357,
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "privateAddressChecks": [
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/service",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/service",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/time",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/api/appointments/availability",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false
+        },
+        {
+          "path": "/paid-ai-fleur-69dcada7/book/confirm",
+          "status": 200,
+          "beforeAppointmentCreation": true,
+          "leaked": false,
+          "anonymousGetFallback": true
+        },
+        {
+          "confirmedCustomerManagePage": true,
+          "exactAddressVisibleAfterConfirmation": true
+        }
+      ],
+      "failure": null,
+      "appointments": [
+        {
+          "id": "appt_e3ffb4cd-6cc7-4bea-b00b-5ac0d4be7dd9",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_0c5f29c8-d19b-4dfe-a5e0-2a002baca64f",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        }
+      ]
+    },
+    {
+      "step": "start-editing",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 7,
+      "afterRevision": 8,
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "elapsedMs": 6477,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [],
+      "failure": null,
+      "appointments": [
+        {
+          "id": "appt_e3ffb4cd-6cc7-4bea-b00b-5ac0d4be7dd9",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_0c5f29c8-d19b-4dfe-a5e0-2a002baca64f",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        }
+      ]
+    },
+    {
+      "step": "manual-wording",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 8,
+      "afterRevision": 9,
+      "artifactId": "c5e59f58-a343-4855-9636-6d90947d04cf",
+      "elapsedMs": 58502,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [],
+      "failure": null,
+      "appointments": [
+        {
+          "id": "appt_e3ffb4cd-6cc7-4bea-b00b-5ac0d4be7dd9",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_0c5f29c8-d19b-4dfe-a5e0-2a002baca64f",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        }
+      ]
+    },
+    {
+      "step": "restore",
+      "browser": "chromium",
+      "status": "passed",
+      "beforeRevision": 9,
+      "afterRevision": 10,
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "elapsedMs": 25657,
+      "bookingSubmissionCount": 0,
+      "privateAddressChecks": [],
+      "failure": null,
+      "appointments": [
+        {
+          "id": "appt_e3ffb4cd-6cc7-4bea-b00b-5ac0d4be7dd9",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        },
+        {
+          "id": "appt_0c5f29c8-d19b-4dfe-a5e0-2a002baca64f",
+          "total_price": 7000,
+          "total_duration_minutes": 90
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    "business-input.png",
+    "first-mobile.png",
+    "first-desktop.png",
+    "final-mobile.png",
+    "final-desktop.png",
+    "final-mobile-tiers.png",
+    "final-desktop-tiers.png",
+    "webkit-original-booking.png",
+    "confirmed-customer-address.png",
+    "exact-review.png",
+    "publication-recovered.png",
+    "manual-wording-mobile.png",
+    "restored-mobile.png"
+  ],
+  "limitations": [
+    "System/local font fallback still needs cross-platform consistency verification",
+    "Different hero proportions, decorative flowers and section copy from reference; inspiration interpretation rather than exact recreation",
+    "Legacy synthetic owner session and CAD10 recovery credit; signup/payment acceptance still open",
+    "Chromium privacy observer initially stopped before any appointment POST when cancelled prefetch bodies could not be read; subsequent explicit anonymous GET verification passed",
+    "Known invalid local Clerk development-script errors are retained in raw evidence, not represented as successful Clerk authentication"
+  ],
+  "typedMenu": [
+    {
+      "name": "Tier One Nail Art",
+      "priceCents": 7000,
+      "durationMinutes": 90
+    },
+    {
+      "name": "Tier Two Nail Art",
+      "priceCents": 8500,
+      "durationMinutes": 105
+    },
+    {
+      "name": "Tier Three Nail Art",
+      "priceCents": 10000,
+      "durationMinutes": 120
+    }
+  ],
+  "localBudget": {
+    "capMicroCad": 11384406,
+    "chargedMicroCad": 8745788,
+    "pendingCalls": 0
+  },
+  "hostedAllocationMicroCad": 68615594,
+  "sharedCapMicroCad": 80000000
+}

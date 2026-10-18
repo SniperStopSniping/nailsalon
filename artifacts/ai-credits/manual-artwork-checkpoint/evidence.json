@@ -35,14 +35,21 @@
     "native dimensions through browser transport",
     "visible pixels and exact alpha unchanged for these PNG fixtures",
     "original IndexedDB bytes retained",
-    "Instagram and background retained after autosave and reload"
+    "Instagram and background retained after autosave and reload",
+    "customer preview contains the real Instagram URL with external-window target"
   ],
   "screenshots": [
+    "chromium-small-customer-preview.png",
     "chromium-small-manual-links.png",
+    "chromium-tall-customer-preview.png",
     "chromium-tall-manual-links.png",
+    "chromium-wide-customer-preview.png",
     "chromium-wide-manual-links.png",
+    "webkit-small-customer-preview.png",
     "webkit-small-manual-links.png",
+    "webkit-tall-customer-preview.png",
     "webkit-tall-manual-links.png",
+    "webkit-wide-customer-preview.png",
     "webkit-wide-manual-links.png"
   ]
 }

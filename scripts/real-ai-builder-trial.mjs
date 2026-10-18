@@ -79,6 +79,7 @@ const failures = [];
 const contactChecks = [];
 const interactionChecks = [];
 const serverProbes = [];
+const privateAddressChecks = [];
 let pdfUpload;
 let mediaUpload;
 page.on('request', (request) => {
@@ -838,8 +839,50 @@ try {
     await restrictNetwork(customer);
     const booking = await customer.newPage();
     let bookingBody;
+    const privateAddress = process.env.LUSTER_REAL_AI_PRIVATE_ADDRESS;
+    const privacyReads = [];
+    let beforeCreation = true;
+    if (privateAddress) {
+      assert.equal(before.document.business.exactAddress, privateAddress);
+      assert.notEqual(before.document.business.locationDisplayMode, 'full_address');
+      const normalizedAddress = privateAddress.toLowerCase().replace(/[^a-z0-9]/gu, '');
+      booking.on('response', (response) => {
+        const url = new URL(response.url());
+        const eligible = beforeCreation && url.origin === origin && ['document', 'fetch', 'xhr'].includes(response.request().resourceType())
+          && /text|json|x-component/u.test(response.headers()['content-type'] ?? '');
+        if (eligible) {
+          privacyReads.push((async () => {
+            let text;
+            let fallbackRead = false;
+            try {
+              text = await response.text();
+            } catch {
+              // Chromium can discard a cancelled router-prefetch body. Verify
+              // that exact anonymous GET separately, retaining its RSC headers;
+              // never silently count an unread response as a privacy success.
+              const headers = { ...response.request().headers() };
+              delete headers['if-none-match'];
+              delete headers['if-modified-since'];
+              const verified = await customer.request.get(response.url(), { headers, maxRedirects: 0, timeout: 60_000 });
+              assert(verified.ok(), 'The anonymous privacy response could not be verified.');
+              text = await verified.text();
+              fallbackRead = true;
+            }
+            let decoded = text;
+            try {
+              decoded = decodeURIComponent(text);
+            } catch { /* Ordinary HTML need not be URL-encoded. */ }
+            const leaked = decoded.toLowerCase().replace(/[^a-z0-9]/gu, '').includes(normalizedAddress);
+            privateAddressChecks.push({ path: url.pathname, status: response.status(), beforeAppointmentCreation: true, leaked, ...(fallbackRead ? { anonymousGetFallback: true } : {}) });
+          })().catch(() => {
+            privateAddressChecks.push({ path: url.pathname, status: response.status(), beforeAppointmentCreation: true, readFailed: true });
+          }));
+        }
+      });
+    }
     booking.on('request', (request) => {
       if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/appointments') {
+        beforeCreation = false;
         bookingSubmissionCount += 1;
         bookingBody = request.postDataJSON();
       }
@@ -939,6 +982,11 @@ try {
         await policy.check();
       }
       await booking.screenshot({ path: path.join(output, 'original-booking-confirm.png'), fullPage: true });
+      await Promise.all(privacyReads);
+      if (privateAddress) {
+        assert(privateAddressChecks.length >= 4, 'Observe the actual website and original booking responses before claiming address privacy.');
+        assert(privateAddressChecks.every(check => !check.leaked && !check.readFailed), 'The private address check failed before appointment creation.');
+      }
       const created = booking.waitForResponse(response => new URL(response.url()).pathname === '/api/appointments' && response.request().method() === 'POST', { timeout: 180_000 });
       await booking.getByRole('button', { name: /confirm appointment/iu }).click();
       bookingResponseStatus = (await created).status();
@@ -961,6 +1009,16 @@ try {
         assert.deepEqual(snapshots, [{ add_on_id: selectedExtra.id, unit_price_cents_snapshot: selectedExtra.price_cents, line_total_cents_snapshot: selectedExtra.price_cents, line_duration_minutes_snapshot: selectedExtra.duration_minutes }]);
       }
       assert((await database.query('SELECT 1 FROM technician_services WHERE service_id=$1 AND technician_id=$2', [service.id, booked[0].technician_id])).rowCount, 'The appointment artist must be assigned to the selected service.');
+      if (privateAddress && before.document.business.locationDisplayMode === 'after_booking') {
+        // Follow the real capability link issued by this booking. Never read or
+        // log its token from the database, or turn a public page into a shortcut.
+        await booking.getByRole('link', { name: 'Manage appointment', exact: true }).click();
+
+        await expect(booking.getByText(privateAddress, { exact: false }).first()).toBeVisible({ timeout: 60_000 });
+
+        privateAddressChecks.push({ confirmedCustomerManagePage: true, exactAddressVisibleAfterConfirmation: true });
+        await booking.screenshot({ path: path.join(output, 'confirmed-customer-address.png'), fullPage: true });
+      }
       if (profile.https) {
         assert(bookingBody);
         // Negative API probe only. Successful appointment creation above always
@@ -1004,7 +1062,7 @@ try {
     : [];
   const artifacts = (await database.query('SELECT id,parent_id,source_hash FROM custom_site_artifact WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
   const appointments = (await database.query('SELECT id,total_price,total_duration_minutes FROM appointment WHERE salon_id=$1 ORDER BY created_at', [fixture.salonId])).rows;
-  const evidence = { step, trialScope, browserName, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
+  const evidence = { step, trialScope, browserName, origin, renderer, optimizedHttps: profile.https, salonSlug, lostPublishResponse: process.env.LUSTER_REAL_AI_LOSE_PUBLISH_RESPONSE === 'true', operationId, status: failure ? 'failed' : 'passed', failure, startedAt, elapsedMs: Date.now() - startedAt.getTime(), beforeRevision: before?.revision, afterRevision: after?.revision, artifactId: after?.document.website.config.customFrontendId ?? null, calls, artifacts, appointments, historicalBefore, liveServicePricesBefore, liveServicePricesAfter: await livePrices(), liveAddOnsBefore, liveAddOnsAfter: await liveExtras(), liveSettingsBefore, liveSettingsAfter: await liveSettingsFingerprint(), bookingResponseStatus, bookingSubmissionCount, serverProbes, privateAddressChecks, contactChecks, interactionChecks, pdfUpload, mediaUpload, browserErrors: failures, funding: 'Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed.' };
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify(evidence, null, 2));
   process.stdout.write(`${JSON.stringify({ step, status: evidence.status, revision: after?.revision, providerMicroUsd: calls.reduce((sum, item) => sum + (item.cost_micro_usd ?? 0), 0), output, ...(failure ? { failure } : {}) })}\n`);
   await context.close();

@@ -123,7 +123,21 @@ for (const [name, width, height] of [['tall', 1200, 4000], ['wide', 1600, 800], 
 
     expect(design.settings).toMatchObject({ background: { mode: 'custom' }, images: [{ width, height, interactiveAreas: [expect.objectContaining({ action: { type: 'instagram', destination: { username: 'manual.test.studio' } } })] }] });
 
-    await page.screenshot({ path: testInfo.outputPath(`${name}-manual-links.png`), fullPage: true });
+    await dialog.getByText('Size & background', { exact: true }).click();
+    await dialog.getByRole('heading', { name: '1 link added' }).scrollIntoViewIfNeeded();
+    await dialog.screenshot({ path: testInfo.outputPath(`${name}-manual-links.png`) });
+    await dialog.getByRole('button', { name: 'Preview website', exact: true }).click();
+    const preview = page.getByRole('dialog', { name: 'Preview your design & links', exact: true });
+    const instagram = preview.getByRole('link', { name: 'Instagram @manual.test.studio', exact: true });
+
+    await expect(instagram).toHaveAttribute('href', 'https://www.instagram.com/manual.test.studio/');
+    await expect(instagram).toHaveAttribute('target', '_blank');
+
+    await instagram.scrollIntoViewIfNeeded();
+
+    await expect(instagram).toBeVisible();
+
+    await preview.screenshot({ path: testInfo.outputPath(`${name}-customer-preview.png`) });
     await page.reload();
 
     expect(await page.evaluate(key => localStorage.getItem(key), documentStorageKey)).toBe(documentBefore);

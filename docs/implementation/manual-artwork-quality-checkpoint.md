@@ -12,3 +12,5 @@ This preserves supplied pixels and aspect ratio; it cannot recover unreadable te
 - TypeScript, scoped ESLint and whitespace checks passed.
 
 Screenshots and the safe evidence manifest are in `artifacts/ai-credits/manual-artwork-checkpoint/`. The synthetic striped fixture is deliberately a pixel/geometry probe, not a website-generation demonstration.
+
+The browser cases were subsequently extended and all six passed again: the actual customer preview exposes `https://www.instagram.com/manual.test.studio/` as an external-window link. Evidence now captures the uploaded page/link controls and the customer preview separately. The initial extended observer looked for the shorter accessible name `Instagram`; the real link correctly includes the handle, and the observer was corrected. No application link repair was necessary.
