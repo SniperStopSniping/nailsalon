@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "sourceSha": "eb7327ce3913400195d9ff210690a60b8bd9dbde",
+  "recommendationRevision": 26,
+  "confirmedAndApprovedRevision": 27,
+  "ownerConfirmedDisplayedPriceAndTime": true,
+  "ownerAcknowledgedPreservedExistingAppointments": true,
+  "harnessCorrection": "Publication correctly required the existing-appointments acknowledgment after adding a staff service choice",
+  "exactApprovalAndPublication": true,
+  "temporaryServiceId": "draft_express_natural_manicure",
+  "canonicalServiceId": "22fa1c6c-e5c7-4cd7-a39f-be5ce17d606e",
+  "canonicalServiceCount": 3,
+  "newServicesCreated": 1,
+  "priorServicesPreserved": true,
+  "eligibleSoloAssignment": true,
+  "historicalAppointmentsPreserved": 2,
+  "mediaFinalized": true,
+  "newModelCalls": 0,
+  "productionTouched": false
+}

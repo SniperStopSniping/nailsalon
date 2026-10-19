@@ -1,0 +1,11 @@
+{
+  "revision": 26,
+  "existingSourceArtifact": "95e03ac8-2fd3-4c23-8d4a-305af5a49063",
+  "proposedServiceName": "Express natural-nail manicure",
+  "priceCents": 3500,
+  "durationMinutes": 45,
+  "privateServiceCards": 3,
+  "liveServiceRecords": 2,
+  "sourceRegeneration": false,
+  "productionTouched": false
+}

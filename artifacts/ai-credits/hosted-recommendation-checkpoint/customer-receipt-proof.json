@@ -1,0 +1,7 @@
+{
+  "originalManageCapabilityFromBookingResponse": true,
+  "isolatedOrigin": true,
+  "serviceNameShown": true,
+  "amountShown": true,
+  "durationShown": true
+}
