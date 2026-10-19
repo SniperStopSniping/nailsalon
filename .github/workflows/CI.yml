@@ -1459,6 +1459,11 @@ jobs:
         if: matrix.suite == 'owner-operations'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerSettingsPlan/playwright.config.ts --output=test-results/owner-settings-plan-components
 
+      - name: Verify deletion recovery and keyboard review in desktop and mobile browsers
+        if: matrix.suite == 'owner-operations'
+        timeout-minutes: 5
+        run: node node_modules/@playwright/test/cli.js test --config tests/browser/salonDeletion/playwright.config.ts --output=test-results/salon-deletion-review
+
       - name: Verify Next Visit settings and guest rebooking in mobile browsers
         if: matrix.suite == 'customer-booking'
         run: node node_modules/playwright/cli.js test --config tests/browser/nextVisitOffer/playwright.config.ts --output=test-results/next-visit-components

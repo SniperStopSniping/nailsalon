@@ -55,10 +55,15 @@ test('shows pending cleanup, retained categories and a separately acknowledged c
   await expect(dialog).not.toContainText('Remove ALL data');
 
   await page.keyboard.press('Tab');
+
   await expect(dialog.getByRole('button', { name: 'Close modal' })).toBeFocused();
+
   await page.keyboard.press('Shift+Tab');
+
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+
   await page.keyboard.press('Tab');
+
   await expect(dialog.getByRole('button', { name: 'Close modal' })).toBeFocused();
 
   const confirm = dialog.getByRole('button', { name: 'Delete Permanently' });
@@ -136,6 +141,7 @@ test('Escape closes the modal and returns focus to its opener', async ({ page })
   const opener = page.getByRole('button', { name: 'Open deletion review' });
   await opener.click();
   const dialog = page.getByRole('dialog', { name: 'Delete Salon' });
+
   await expect(dialog.locator('h2')).toBeFocused();
 
   await page.keyboard.press('Escape');
@@ -184,16 +190,22 @@ test('Escape cannot dismiss while the destructive request is pending', async ({ 
   const dialog = page.getByRole('dialog', { name: 'Delete Salon' });
   await dialog.getByLabel(/to confirm permanent deletion/).fill('disposable-test-salon');
   await dialog.getByRole('button', { name: 'Delete Permanently' }).click();
+
   await expect(dialog.getByRole('button', { name: 'Delete Permanently' })).toBeDisabled();
 
   await page.keyboard.press('Escape');
+
   await expect(dialog).toBeVisible();
   await expect(opener).not.toBeFocused();
 
   expect(typeof releaseDelete).toBe('function');
+
   releaseDelete!();
+
   await expect(dialog.getByRole('status')).toBeVisible();
+
   await page.keyboard.press('Escape');
+
   await expect(dialog).toBeHidden();
   await expect(opener).toBeFocused();
 });
