@@ -159,7 +159,7 @@ it('labels owner-supplied service values without calling them AI recommendations
   document.serviceSources = { draft_gel: { name: 'owner', priceCents: 'owner', durationMinutes: 'owner' } };
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
   await screen.findByText('Saved as draft');
-  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Details' })));
 
   expect(screen.getByText(/Supplied by you · Needs your review/)).toBeVisible();
   expect(screen.queryByText(/haven’t been checked against local market prices/)).not.toBeInTheDocument();
@@ -542,11 +542,18 @@ it('explains a dropped connection in plain language and keeps an unsent message'
 
 it('saves a first booking link in the shared draft and shows it in exact review without publishing', async () => {
   const baseFetch = globalThis.fetch;
+  let finishSaving!: () => void;
+  const saving = new Promise<void>((resolve) => {
+    finishSaving = resolve;
+  });
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
     const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
     if (request?.action === 'edit' && request.edit.operations[0]?.type === 'site_url') {
       document.siteSlug = request.edit.operations[0].slug;
       revision++;
+      const response = await baseFetch(url, options);
+      await saving;
+      return response;
     }
     return baseFetch(url, options);
   }));
@@ -556,6 +563,11 @@ it('saves a first booking link in the shared draft and shows it in exact review 
   fireEvent.change(screen.getByRole('textbox', { name: 'Booking link name' }), { target: { value: 'studio-bookings' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save booking link' }));
   await waitFor(() => expect(requests.some(request => request.action === 'edit')).toBe(true));
+
+  expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled();
+
+  await act(async () => finishSaving());
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Review' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Review' }));
 
   expect(await screen.findByText('Your booking website: /en/studio-bookings/book')).toBeVisible();
