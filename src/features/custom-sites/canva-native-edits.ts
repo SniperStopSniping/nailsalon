@@ -13,4 +13,4 @@ export const canvaNativePhotoChangesSchema = z.array(canvaNativeEditSchema.pick(
 export const canvaNativeUploadSchema = canvaNativeEditSchema.omit({ change: true }).extend({ alt: z.string().trim().min(1).max(500), replaceId: z.string().uuid().optional(), createGallery: z.literal(true).optional() }).strict();
 export type CanvaNativeChange = z.infer<typeof canvaNativeChangeSchema>;
 export type CanvaNativePhotoChange = z.infer<typeof canvaNativePhotoChangesSchema>[number];
-export type NativePhotoChoice = { mediaId: string; role: 'profile' | 'gallery'; width: number; height: number; alt: string; name: string };
+export type NativePhotoChoice = { mediaId: string; storageKind?: 'asset'; role: 'profile' | 'gallery'; width: number; height: number; alt: string; name: string };

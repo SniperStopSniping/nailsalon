@@ -42,9 +42,10 @@ export async function uploadCanvaNativePhoto(actor: SetupActor, raw: unknown, fi
       throw new SetupError('NOT_READY', 'Open your saved Canva website before adding a photo.');
     }
     const { artifact } = await assertCustomArtifact(tx, actor.salonId, base.document.website.config.customFrontendId);
-    const origin = artifact.source.canva?.manualOrigin;
-    const block = artifact.source.canva?.nativeContent?.find(block => block.id === input.blockId) ?? (origin && input.createGallery && input.blockId === 'native-photo-gallery' ? { type: 'gallery' as const, images: [] } : undefined);
-    if (!origin || !block || block.type === 'reviews') {
+    const design = artifact.source.canva;
+    const origin = design?.manualOrigin;
+    const block = design?.nativeContent?.find(block => block.id === input.blockId) ?? (design && input.createGallery && input.blockId === 'native-photo-gallery' ? { type: 'gallery' as const, images: [] } : undefined);
+    if (!design || !block || block.type === 'reviews') {
       throw new SetupError('INVALID', 'Choose your saved About or Gallery section for this photo.');
     }
     const images = block.type === 'gallery' ? block.images : block.image ? [block.image] : [];
@@ -68,6 +69,9 @@ export async function uploadCanvaNativePhoto(actor: SetupActor, raw: unknown, fi
   }
   return db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
+    if (!target.origin) {
+      return editCanvaNativeContent(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, blockId: input.blockId, change: { type: 'use', mediaId: asset!.id, ...(input.replaceId ? { replaceId: input.replaceId } : {}), ...(input.createGallery ? { createGallery: true } : {}), alt: input.alt } }, tx);
+    }
     const localItemId = `native-photo-${asset!.id}`;
     const where = and(eq(media.salonId, actor.salonId), eq(media.siteId, target.origin.siteId), eq(media.revisionId, target.origin.revisionId), eq(media.role, target.role), eq(media.localItemId, localItemId));
     const key = onboardingArtworkStorageKey({ salonId: actor.salonId, siteId: target.origin.siteId }, asset!.id);

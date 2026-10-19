@@ -9,9 +9,6 @@ import { canvaNativePhotoChangesSchema } from './canva-native-edits';
 /** Shared manual/chat reducer. Choices are authorized server metadata, never model dimensions or URLs. */
 export function applyCanvaNativePhotoChanges(design: CanvaDesign, raw: CanvaNativePhotoChange[], choices: NativePhotoChoice[], allowNewGallery = false): CanvaDesign {
   const changes = canvaNativePhotoChangesSchema.parse(raw);
-  if (!design.manualOrigin) {
-    throw new SetupError('INVALID', 'Open your saved Canva website before changing its photos.');
-  }
   const result = structuredClone(design);
   for (const { blockId, change } of changes) {
     let block = result.nativeContent?.find(item => item.id === blockId);
@@ -32,11 +29,11 @@ export function applyCanvaNativePhotoChanges(design: CanvaDesign, raw: CanvaNati
       }
       block.layout = change.layout;
     } else if (change.type === 'use') {
-      const choice = choices.find(item => item.mediaId === change.mediaId && item.role === (block.type === 'about' ? 'profile' : 'gallery'));
+      const choice = choices.find(item => item.mediaId === change.mediaId && item.role === (block.type === 'about' ? 'profile' : 'gallery') && (design.manualOrigin || item.storageKind === 'asset'));
       if (!choice) {
         throw new SetupError('INVALID', 'Choose a saved photo belonging to this website and section.');
       }
-      const image = { mediaId: choice.mediaId, role: choice.role, width: choice.width, height: choice.height, alt: change.alt };
+      const image = { mediaId: choice.mediaId, ...(choice.storageKind ? { storageKind: choice.storageKind } : {}), role: choice.role, width: choice.width, height: choice.height, alt: change.alt };
       if (block.type === 'about') {
         if (change.replaceId && block.image?.mediaId !== change.replaceId) {
           throw new SetupError('INVALID', 'That photo changed. Reload before replacing it.');

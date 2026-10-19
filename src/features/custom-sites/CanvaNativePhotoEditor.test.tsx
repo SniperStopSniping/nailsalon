@@ -155,9 +155,12 @@ it('requires upload rights and sends a new replacement photo to the chosen secti
   expect(payload.source.canva!.pages[0]!.alt).toBe('Owner artwork');
 });
 
-it('offers a first photo gallery without making the owner return to onboarding', async () => {
+it.each(['manual', 'ai'])('offers a first photo gallery for %s Canva without making the owner return to onboarding', async (mode) => {
   const { payload } = fixture();
   payload.source.canva!.nativeContent = [];
+  if (mode === 'ai') {
+    payload.source = compileCanvaDesign({ ...payload.source.canva!, manualOrigin: undefined });
+  }
   const onUpload = vi.fn().mockResolvedValue(undefined);
   render(<CanvaNativePhotoEditor payload={payload} choices={[]} disabled={false} onSave={vi.fn()} uploadsEnabled onUpload={onUpload} />);
   openEditor();

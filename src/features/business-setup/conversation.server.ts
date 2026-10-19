@@ -176,8 +176,8 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
         parts.push(asset.mimeType === 'application/pdf' ? { type: 'input_file', filename: 'business-design.pdf', file_data: url } : { type: 'input_image', image_url: url, detail: 'high' });
       }
       const nativeDesign = currentArtifact?.source.canva;
-      const nativeChoices = nativeDesign?.manualOrigin ? await canvaNativePhotoChoices(actor.salonId, nativeDesign) : [];
-      const nativePhotos = nativeDesign?.manualOrigin
+      const nativeChoices = nativeDesign ? await canvaNativePhotoChoices(actor.salonId, nativeDesign) : [];
+      const nativePhotos = nativeDesign
         ? {
             sections: (nativeDesign.nativeContent ?? []).flatMap(block => block.type === 'reviews' ? [] : [{ blockId: block.id, type: block.type, title: block.title, ...(block.type === 'gallery' ? { layout: block.layout } : {}), photos: (block.type === 'gallery' ? block.images : block.image ? [block.image] : []).map((photo, index) => ({ mediaId: photo.mediaId, position: index + 1, description: photo.alt.slice(0, 160), role: photo.role })) }]),
             availablePhotos: nativeChoices.slice(0, 24).map(photo => ({ mediaId: photo.mediaId, role: photo.role, description: photo.alt.slice(0, 160), name: photo.name.slice(0, 120) })),
@@ -215,7 +215,7 @@ export async function runSetupConversation(actor: SetupActor, raw: unknown, prov
       const validatePolicy = (operations: ReturnType<typeof setupOperationSchema.parse>[], photoChanges: ReturnType<typeof canvaNativePhotoChangesSchema.parse>) => {
         assertSavedPolicyPresentation(admitted.head.revision.document, input.message, input.scope, operations);
         if (photoChanges.length) {
-          if (!nativeDesign?.manualOrigin || input.scope === 'service_price') {
+          if (!nativeDesign || input.scope === 'service_price') {
             throw new z.ZodError([{ code: 'custom', path: ['nativePhotoChangesJson'], message: 'Separate native photos are not editable in this request.' }]);
           }
           try {

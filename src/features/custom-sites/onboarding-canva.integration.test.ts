@@ -31,18 +31,22 @@ import { addSection } from '../../../prototypes/site-builder-v2-booking-integrat
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import { reviewCanvaArtwork, saveCustomSource } from './artifacts.server';
-import { uploadOnboardingArtwork } from './assets.server';
+import { uploadCustomAsset, uploadOnboardingArtwork } from './assets.server';
 import { compileCanvaDesign } from './canva';
+import { canvaDataFingerprint, canvaPriceLabelsFingerprint } from './canva-data.server';
+import { generateCanvaSource } from './canva-generate.server';
 import { canvaNativePhotoChoices, editCanvaNativeContent } from './canva-native-edit.server';
 import type { CanvaNativePhotoChange } from './canva-native-edits';
 import { uploadCanvaNativePhoto } from './canva-native-upload.server';
 import { customSiteArtworkPolicy, customSiteDataFromLive } from './live-data.server';
 import { linkedOnboardingCanvaDraft } from './manual-origin.server';
+import { assertCanvaNativeMedia } from './native-media.server';
 import { readAuthorizedCanvaNativeMedia } from './native-media-access.server';
 import * as nativeRenderer from './native-renderer.server';
 import { importOnboardingCanva } from './onboarding-canva.server';
 import { customSitePayload, setupCustomSitePayload } from './payload.server';
 import { restoreCustomSource } from './restore.server';
+import { customSiteDataFromSetup } from './setup-data';
 import { revokeCustomPreview, shareCustomPreview, sharedCustomPreview } from './share.server';
 
 vi.mock('server-only', () => ({}));
@@ -1015,4 +1019,228 @@ it('saves an explicit price and a native photo change in one draft while keeping
   expect(result.head.revision.document.services.find(service => service.id === test.serviceId)!.priceCents).toBe(7500);
   expect(source.canva!.nativeContent!.find(block => block.type === 'gallery')).toMatchObject({ images: [{ mediaId: test.gallery.images[1]!.mediaId }] });
   expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, test.serviceId)))[0]!.price).toBe(6500);
+});
+
+// Deterministic source fixture for AI's preserved-artwork mode. This is not
+// evidence of a real-provider generation; the hosted owner trial is separate.
+async function aiCanvaPhotoFixture() {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const test = await fixture();
+  const imported = await importOnboardingCanva(test.actor, test.input);
+  const original = (await records(test.actor.salonId)).artifacts[0]!;
+  const data = customSiteDataFromSetup(imported.head.revision.document);
+  const source = compileCanvaDesign({ version: 1, pages: original.source.canva!.pages.map(({ assetId, width, height, alt }) => ({ assetId, width, height, alt })), areas: [], visibleText: '', notes: [], ownerReviewed: false, dataFingerprint: canvaDataFingerprint(data), priceLabelsFingerprint: canvaPriceLabelsFingerprint(data) }, data.details);
+  const saved = await saveCustomSource(test.actor, { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), source, assetIds: original.assetIds });
+  return { ...test, saved, source };
+}
+
+async function nativeUploadFile(width = 1200, height = 480, name = 'My salon work.png') {
+  const bytes = await sharp({ create: { width, height, channels: 3, background: '#c8d5bb' } }).png().toBuffer();
+  return new File([new Uint8Array(bytes)], name, { type: 'image/png' });
+}
+
+it('adds wide and portrait photos to AI Canva through the shared draft without aliases or live changes, and retries once', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const before = await database.select().from(schema.onboardingSiteMediaSchema).where(eq(schema.onboardingSiteMediaSchema.salonId, test.actor.salonId));
+  const services = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, test.actor.salonId));
+  const request = { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My wide nail-art photograph' };
+  const file = await nativeUploadFile();
+  const first = await uploadCanvaNativePhoto(test.actor, request, file);
+  const replay = await uploadCanvaNativePhoto(test.actor, request, file);
+  const second = await uploadCanvaNativePhoto(test.actor, { ...request, expectedRevision: first.head.revision.revision, operationId: randomUUID(), createGallery: undefined, alt: 'My portrait nail-art photograph' }, await nativeUploadFile(480, 960));
+  const payload = await setupCustomSitePayload(test.actor.salonId, second.head.revision.document);
+  const gallery = payload!.source.canva!.nativeContent![0]!;
+
+  expect(replay.artifactId).toBe(first.artifactId);
+  expect(gallery).toMatchObject({ type: 'gallery', images: [{ storageKind: 'asset', width: 1200, height: 480 }, { storageKind: 'asset', width: 480, height: 960 }] });
+  expect(payload!.source.canva!.manualOrigin).toBeUndefined();
+  expect(payload!.source.canva!.pages).toEqual(test.source.canva!.pages);
+  expect(payload!.source.css).toContain(test.source.css);
+  expect(payload!.nativeMedia!.mediaIds).toHaveLength(2);
+  expect(Object.keys(payload!.images)).toHaveLength(Object.keys((await setupCustomSitePayload(test.actor.salonId, test.saved.head.revision.document))!.images).length);
+  expect(await database.select().from(schema.onboardingSiteMediaSchema).where(eq(schema.onboardingSiteMediaSchema.salonId, test.actor.salonId))).toEqual(before);
+  expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, test.actor.salonId))).toEqual(services);
+  expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]).toMatchObject({ publicationStatus: 'draft', onlineBookingEnabled: false });
+  expect((await records(test.actor.salonId)).assets).toHaveLength(3);
+
+  const read = { artifactId: second.artifactId, mediaId: payload!.nativeMedia!.mediaIds[0]! };
+
+  expect(await readAuthorizedCanvaNativeMedia(read)).toBeNull();
+  expect(await readAuthorizedCanvaNativeMedia(read, test.actor.adminId)).toBeInstanceOf(Buffer);
+});
+
+it('uses the conversation photo action on AI Canva, preserves it through link generation and restores source revisions', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const uploaded = await uploadCanvaNativePhoto(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My own work' }, await nativeUploadFile());
+  const before = await setupCustomSitePayload(test.actor.salonId, uploaded.head.revision.document);
+  const id = before!.nativeMedia!.mediaIds[0]!;
+  const provider = nativeChatProvider([{ blockId: 'native-photo-gallery', change: { type: 'describe', mediaId: id, alt: 'My green manicure close-up' } }, { blockId: 'native-photo-gallery', change: { type: 'layout', layout: 'editorial' } }]);
+  const result = await runSetupConversation(test.actor, { expectedRevision: uploaded.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Describe my Gallery photo as my green manicure close-up and make the first photo large.' }, provider);
+  const context = nativeChatContext(provider.createResponse.mock.calls[0]![0]);
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect(context.websiteEditingMode).toBe('preserved_artwork');
+  expect(context.nativePhotos.availablePhotos).toContainEqual(expect.objectContaining({ mediaId: id, role: 'gallery' }));
+  expect(JSON.stringify(context.nativePhotos)).not.toContain('storageKey');
+  expect(JSON.stringify(context.nativePhotos)).not.toContain('data:image');
+
+  const payload = await setupCustomSitePayload(test.actor.salonId, result.head.revision.document);
+
+  expect(payload!.source.canva!.nativeContent![0]).toMatchObject({ layout: 'editorial', images: [{ mediaId: id, alt: 'My green manicure close-up', storageKind: 'asset' }] });
+  expect(payload!.source.canva!.pages).toEqual(before!.source.canva!.pages);
+  expect(await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.salonId, test.actor.salonId))).toHaveLength(0);
+
+  const linkProvider = { createResponse: vi.fn(async () => ({ status: 'completed' as const, usage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 100 }, items: [{ type: 'message' as const, text: JSON.stringify({ areas: [], removeAreaIds: [], visibleText: '', notes: [], altText: ['Original Canva artwork'] }) }] })) };
+  const linked = await generateCanvaSource(test.actor, { expectedRevision: result.head.revision.revision, operationId: randomUUID(), referenceIds: [], message: 'Keep my links and native photos.', startOver: false }, result.head.revision.document, payload!.source, Date.now() + 120000, linkProvider);
+
+  expect(linked.source.canva!.nativeContent).toEqual(payload!.source.canva!.nativeContent);
+  expect(linked.assetIds).not.toContain(id);
+  expect(linkProvider.createResponse).toHaveBeenCalledTimes(1);
+
+  const restored = await restoreCustomSource(test.actor, { expectedRevision: result.head.revision.revision, operationId: randomUUID(), artifactId: uploaded.artifactId });
+  const restoredPayload = await setupCustomSitePayload(test.actor.salonId, restored.head.revision.document);
+
+  expect(restoredPayload!.source.canva!.nativeContent![0]).toMatchObject({ layout: 'grid', images: [{ mediaId: id, alt: 'My own work' }] });
+  expect(restored.head.revision.document.business).toEqual(result.head.revision.document.business);
+  expect(restored.head.revision.document.services).toEqual(result.head.revision.document.services);
+});
+
+it('denies foreign, wrong-role, wrong-storage and forged-dimension AI Canva bindings before saving', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const foreign = await aiCanvaPhotoFixture();
+  const file = await nativeUploadFile();
+  const own = await uploadCustomAsset(test.actor, file, 'photo');
+  const other = await uploadCustomAsset(foreign.actor, file, 'photo');
+  const logo = await uploadCustomAsset(test.actor, await nativeUploadFile(600, 600, 'My logo.png'), 'logo');
+  const originCount = (await records(test.actor.salonId)).artifacts.length;
+  const choices = await canvaNativePhotoChoices(test.actor.salonId, test.source.canva);
+
+  expect(choices).toContainEqual(expect.objectContaining({ mediaId: own.id, storageKind: 'asset', width: 1200, height: 480 }));
+  expect(choices.some(choice => choice.mediaId === other.id || choice.mediaId === logo.id)).toBe(false);
+
+  for (const image of [
+    { mediaId: other.id, storageKind: 'asset' as const, width: 1200, height: 480 },
+    { mediaId: logo.id, storageKind: 'asset' as const, width: 600, height: 600 },
+    { mediaId: own.id, storageKind: 'asset' as const, width: 99, height: 480 },
+    { mediaId: own.id, width: 1200, height: 480 },
+  ]) {
+    await expect((async () => {
+      const source = compileCanvaDesign({ ...test.source.canva!, nativeContent: [{ id: 'gallery', type: 'gallery', title: 'My work', beforePage: 1, layout: 'grid', images: [{ ...image, role: 'gallery', alt: 'Forged photo' }] }] });
+      await saveCustomSource(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), source, assetIds: test.saved.artifact.assetIds });
+    })()).rejects.toThrow();
+  }
+
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(originCount);
+  expect((await openSetup(test.actor)).revision.revision).toBe(test.saved.head.revision.revision);
+});
+
+it('publishes and shares only exact reviewed AI Canva asset photos and keeps reads working with enrollment off', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const uploaded = await uploadCanvaNativePhoto(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My own work' }, await nativeUploadFile());
+  const payload = await setupCustomSitePayload(test.actor.salonId, uploaded.head.revision.document);
+  const token = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+  await shareCustomPreview(test.actor, { expectedRevision: uploaded.head.revision.revision, token, artworkPreviewAcknowledged: true });
+  const read = { artifactId: uploaded.artifactId, mediaId: payload!.nativeMedia!.mediaIds[0]! };
+
+  expect(await readAuthorizedCanvaNativeMedia({ ...read, shareToken: token })).toBeInstanceOf(Buffer);
+
+  await revokeCustomPreview(test.actor, token);
+
+  expect(await readAuthorizedCanvaNativeMedia({ ...read, shareToken: token })).toBeNull();
+  expect(await readAuthorizedCanvaNativeMedia(read)).toBeNull();
+
+  const reviewed = await reviewCanvaArtwork(test.actor, { expectedRevision: uploaded.head.revision.revision, operationId: randomUUID() });
+  const review = await reviewSetup(test.actor);
+
+  expect(review.blockers).toEqual([]);
+
+  const approval = await approveSetup(test.actor, review.revision, review.hash);
+  const request = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
+  const readiness = vi.spyOn(nativeRenderer, 'assertNativePhotoRendererReady').mockResolvedValue(undefined);
+  await publishSetup(test.actor, request);
+  const replay = await publishSetup(test.actor, request);
+  const publicRead = { ...read, artifactId: reviewed.artifact.id };
+
+  expect(replay.receipt.revision).toBe(review.revision);
+  expect(readiness).toHaveBeenCalledTimes(1);
+  expect(await readAuthorizedCanvaNativeMedia(publicRead)).toBeInstanceOf(Buffer);
+  expect(await readAuthorizedCanvaNativeMedia(read)).toBeNull();
+
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'false');
+
+  expect(await readAuthorizedCanvaNativeMedia(publicRead)).toBeInstanceOf(Buffer);
+  expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, test.actor.salonId))).toHaveLength(1);
+});
+
+it('rechecks AI Canva native photo bytes before publishing without committing approval to a broken photo', async () => {
+  const test = await aiCanvaPhotoFixture();
+  vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', 'false');
+  const uploaded = await uploadCanvaNativePhoto(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My own work' }, await nativeUploadFile());
+  await reviewCanvaArtwork(test.actor, { expectedRevision: uploaded.head.revision.revision, operationId: randomUUID() });
+  const review = await reviewSetup(test.actor);
+  const approval = await approveSetup(test.actor, review.revision, review.hash);
+  const payload = await setupCustomSitePayload(test.actor.salonId, (await openSetup(test.actor)).revision.document);
+  const id = payload!.nativeMedia!.mediaIds[0]!;
+  const [photo] = await database.select().from(schema.customSiteAssetSchema).where(eq(schema.customSiteAssetSchema.id, id));
+  const originalRead = onboardingStorage.readOnboardingMediaFile;
+  const fault = vi.spyOn(onboardingStorage, 'readOnboardingMediaFile').mockImplementation((key, scope) => key === photo!.storageKey ? Promise.resolve(Buffer.from('broken private image')) : originalRead(key, scope));
+
+  await expect(publishSetup(test.actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() })).rejects.toThrow();
+  expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, test.actor.salonId))).toHaveLength(0);
+  expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]!.publicationStatus).toBe('draft');
+
+  fault.mockRestore();
+
+  expect(await assertCanvaNativeMedia(database as unknown as DatabaseSessionHandle, test.actor.salonId, payload!.source.canva)).toHaveLength(1);
+});
+
+it('finishes a retained AI Canva photo save without a second provider call or duplicate asset', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const uploaded = await uploadCanvaNativePhoto(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My own work' }, await nativeUploadFile());
+  const payload = await setupCustomSitePayload(test.actor.salonId, uploaded.head.revision.document);
+  const id = payload!.nativeMedia!.mediaIds[0]!;
+  const provider = nativeChatProvider([{ blockId: 'native-photo-gallery', change: { type: 'remove', mediaId: id } }]);
+  const input = { expectedRevision: uploaded.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Remove the Gallery photo.' };
+  const before = await records(test.actor.salonId);
+  const stopped = vi.spyOn(setupDrafts, 'editSetup').mockRejectedValueOnce(new Error('Synthetic photo save interruption'));
+  try {
+    await expect(runSetupConversation(test.actor, input, provider)).rejects.toThrow('Finish saving');
+  } finally {
+    stopped.mockRestore();
+  }
+
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(before.artifacts.length);
+
+  const result = await recoverNativePhotoConversation(test.actor, input.operationId);
+  const replay = await recoverNativePhotoConversation(test.actor, input.operationId);
+  const saved = await setupCustomSitePayload(test.actor.salonId, result.head.revision.document);
+
+  expect(saved!.source.canva!.nativeContent![0]).toMatchObject({ type: 'gallery', images: [] });
+  expect(replay.head.revision.revision).toBe(result.head.revision.revision);
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect((await records(test.actor.salonId)).assets).toHaveLength(before.assets.length);
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(before.artifacts.length + 1);
+  expect(await readAuthorizedCanvaNativeMedia({ artifactId: uploaded.artifactId, mediaId: id }, test.actor.adminId)).toBeInstanceOf(Buffer);
+});
+
+it('reuses an owned library photo across About and Gallery and replaces About without changing salon or staff portraits', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const uploaded = await uploadCanvaNativePhoto(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My own work' }, await nativeUploadFile());
+  const payload = await setupCustomSitePayload(test.actor.salonId, uploaded.head.revision.document);
+  const gallery = payload!.source.canva!.nativeContent![0]!;
+  if (gallery.type !== 'gallery') {
+    throw new Error('Gallery fixture');
+  }
+  const source = compileCanvaDesign({ ...payload!.source.canva!, nativeContent: [gallery, { id: 'about-owner', beforePage: 0, type: 'about', title: 'About your artist', textSectionIds: [], image: { ...gallery.images[0]!, role: 'profile' }, showBusinessName: true, showInstagram: false, showBookingButton: true }] }, uploaded.head.revision.document.website.content.websiteDetails);
+  const saved = await saveCustomSource(test.actor, { expectedRevision: uploaded.head.revision.revision, operationId: randomUUID(), source, assetIds: test.saved.artifact.assetIds });
+  const before = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId));
+  const staff = await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.salonId, test.actor.salonId));
+  const replaced = await uploadCanvaNativePhoto(test.actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), blockId: 'about-owner', replaceId: gallery.images[0]!.mediaId, alt: 'My new portrait' }, await nativeUploadFile(500, 750, 'My portrait.png'));
+  const changed = await setupCustomSitePayload(test.actor.salonId, replaced.head.revision.document);
+
+  expect(changed!.source.canva!.nativeContent![0]).toEqual(gallery);
+  expect(changed!.source.canva!.nativeContent![1]).toMatchObject({ type: 'about', image: { role: 'profile', storageKind: 'asset', width: 500, height: 750, alt: 'My new portrait' } });
+  expect(changed!.nativeMedia!.mediaIds).toHaveLength(2);
+  expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]!.logoUrl).toBe(before[0]!.logoUrl);
+  expect(await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.salonId, test.actor.salonId))).toEqual(staff);
 });

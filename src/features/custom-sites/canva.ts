@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { parseSafeHttpsUrl } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/actions';
 import { clampNormalizedRect, rectanglesHaveInteriorOverlap, validateNormalizedRect } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/geometry';
-import { CANVA_NATIVE_CSS, canvaNativeContentSchema, compileCanvaNativeContent } from './canva-native-content';
+import { CANVA_NATIVE_CSS, canvaNativeContentSchema, canvaNativeImages, compileCanvaNativeContent } from './canva-native-content';
 import { canvaPageWidth } from './canva-quality';
 import type { CustomSiteSource } from './contracts';
 import { manualLinkHref, manualLinkTargetsBooking } from './manual-link';
@@ -104,7 +104,7 @@ export const canvaDesignSchema = z.object({
   /** Added without invalidating already-published legacy artwork. */
   priceLabelsFingerprint: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   ownerReviewed: z.boolean(),
-}).strict().refine(value => value.areas.every(area => area.page < value.pages.length) && (value.controls ?? []).every(control => control.afterPage < value.pages.length) && (value.nativeContent ?? []).every(block => block.beforePage <= value.pages.length) && (!value.nativeContent?.length || value.manualOrigin), 'Choose an existing page and saved manual website for each section.').superRefine((value, context) => {
+}).strict().refine(value => value.areas.every(area => area.page < value.pages.length) && (value.controls ?? []).every(control => control.afterPage < value.pages.length) && (value.nativeContent ?? []).every(block => block.beforePage <= value.pages.length) && (value.manualOrigin || canvaNativeImages(value.nativeContent).every(image => image.storageKind === 'asset')), 'Choose an existing page and authorized saved photos for each section.').superRefine((value, context) => {
   const ids = [...value.areas.map(area => area.id), ...(value.controls ?? []).map(control => control.id)];
   if (new Set(ids).size !== ids.length) {
     context.addIssue({ code: 'custom', message: 'Give each link a separate name.' });
@@ -181,7 +181,7 @@ export function compileCanvaDesign(raw: CanvaDesign, details?: WebsiteDetails): 
   const geometry: string[] = [];
   const pages = design.pages.map((page, index) => {
     geometry.push(`#luster-canva-page-${index}{max-width:${canvaPageWidth(page)}px}`);
-    return `<section id="luster-canva-page-${index}" class="canva-page"><img src="asset:${page.assetId}" width="${page.width}" height="${page.height}" alt="${escape(page.alt)}">${design.areas.filter(area => area.page === index).map((area) => {
+    return `${compileCanvaNativeContent(design.nativeContent ?? [], index)}<section id="luster-canva-page-${index}" class="canva-page"><img src="asset:${page.assetId}" width="${page.width}" height="${page.height}" alt="${escape(page.alt)}">${design.areas.filter(area => area.page === index).map((area) => {
       geometry.push(`#canva-${area.id}{left:${area.geometry.x}%;top:${area.geometry.y}%;width:${area.geometry.width}%;height:${area.geometry.height}%}`);
       const contact = ['instagram', 'email', 'phone'].includes(area.action.type);
       const tag = contact || area.action.type === 'website' ? 'a' : 'button';
@@ -192,8 +192,9 @@ export function compileCanvaDesign(raw: CanvaDesign, details?: WebsiteDetails): 
   // An equivalent live menu/contact layer remains keyboard/screen-reader
   // accessible; focusing it reveals it without altering the exported artwork.
   const contactText = ['instagram', 'email', 'phone'].filter(key => details?.[key as keyof WebsiteDetails]).map(key => `<a data-luster-link="${key}"><span data-luster-field="details.${key}"></span></a>`).join('');
-  const sections = (details?.sections ?? []).map(section => `<h2 data-luster-field="details.title_${section.id}"></h2><p data-luster-field="details.section_${section.id}"></p>`).join('');
-  return { title: 'Your Canva design', html: `<main class="canva-site">${pages}<aside class="canva-accessible" aria-label="Business details and booking"><h1 data-luster-field="business.name"></h1><p data-luster-field="business.hoursLabel"></p><p data-luster-field="details.locationDirections"></p>${contactText}${sections}<div data-luster-services></div><template data-luster-service><article><h2 data-luster-field="service.name"></h2><span data-luster-field="service.priceLabel"></span><span data-luster-field="service.durationMinutes"></span><button data-luster-book>Book this service</button></article></template></aside></main>`, css: `${css}\n${geometry.join('\n')}`, javascript: '', analysis: 'Your uploaded artwork is preserved. Clickable areas scale with each image, and booking uses Luster. Text inside the artwork is changed by uploading an updated Canva export.', limitations: ['The artwork scales as a whole on mobile; its text does not reflow.', ...design.notes].slice(0, 12), canva: design };
+  const nativeTextIds = new Set((design.nativeContent ?? []).flatMap(block => block.type === 'about' ? block.textSectionIds : []));
+  const sections = (details?.sections ?? []).filter(section => !nativeTextIds.has(section.id)).map(section => `<h2 data-luster-field="details.title_${section.id}"></h2><p data-luster-field="details.section_${section.id}"></p>`).join('');
+  return { title: 'Your Canva design', html: `<main class="canva-site">${pages}${compileCanvaNativeContent(design.nativeContent ?? [], design.pages.length)}<aside class="canva-accessible" aria-label="Business details and booking"><h1 data-luster-field="business.name"></h1><p data-luster-field="business.hoursLabel"></p><p data-luster-field="details.locationDirections"></p>${contactText}${sections}<div data-luster-services></div><template data-luster-service><article><h2 data-luster-field="service.name"></h2><span data-luster-field="service.priceLabel"></span><span data-luster-field="service.durationMinutes"></span><button data-luster-book>Book this service</button></article></template></aside></main>`, css: `${css}\n${geometry.join('\n')}${design.nativeContent?.length ? `\n${CANVA_NATIVE_CSS}` : ''}`, javascript: '', analysis: 'Your uploaded artwork is preserved. Clickable areas scale with each image, and booking uses Luster. Text inside the artwork is changed by uploading an updated Canva export.', limitations: ['The artwork scales as a whole on mobile; its text does not reflow.', ...design.notes].slice(0, 12), canva: design };
 }
 
 /** Manual artwork shares the renderer, catalog bindings and exact-review guard. */

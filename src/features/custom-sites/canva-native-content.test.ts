@@ -51,4 +51,26 @@ describe('trusted native content beside Canva artwork', () => {
     expect(canvaNativeContentSchema.safeParse([{ ...block, images: [block.images[0], { ...block.images[0], width: 99 }] }]).success).toBe(false);
     expect(canvaNativeContentSchema.safeParse([{ ...block, images: [{ ...block.images[0], url: 'https://attacker.invalid' }] }]).success).toBe(false);
   });
+
+  it('keeps AI artwork layout unchanged when adding asset photos and permits one owned photo in About and Gallery', () => {
+    const block = gallery();
+    if (block.type !== 'gallery') {
+      throw new Error('Fixture');
+    }
+    const image = { ...block.images[0]!, storageKind: 'asset' as const };
+    const { value, assetId } = source([]);
+    const original = compileCanvaDesign({ ...value.canva!, manualOrigin: undefined });
+    const changed = compileCanvaDesign({ ...original.canva!, nativeContent: [{ ...block, images: [image] }, { id: 'about-owner', type: 'about', beforePage: 0, title: 'Your artist', image: { ...image, role: 'profile' }, textSectionIds: [], showBusinessName: true, showInstagram: true, showBookingButton: true }] });
+
+    expect(changed.html).toContain('class="canva-site"');
+    expect(changed.html).not.toContain('class="canva-manual-site"');
+    expect(changed.css).toContain(original.css);
+    expect(changed.canva!.pages).toEqual(original.canva!.pages);
+    expect(changed.canva!.areas).toEqual(original.canva!.areas);
+    expect(canvaNativeImages(changed.canva!.nativeContent)).toHaveLength(1);
+    expect(validateCustomSource(changed, new Set([assetId])).html).toContain('aria-label="Gallery"');
+    expect(changed.html.indexOf('aria-label="Gallery"')).toBeGreaterThan(changed.html.indexOf('class="canva-page"'));
+    expect(() => compileCanvaDesign({ ...original.canva!, nativeContent: [block] })).toThrow();
+    expect(canvaNativeContentSchema.safeParse([{ ...block, images: [image, { ...image, storageKind: undefined }] }]).success).toBe(false);
+  });
 });

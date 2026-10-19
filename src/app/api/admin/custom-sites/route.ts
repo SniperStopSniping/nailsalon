@@ -93,7 +93,7 @@ export async function GET(request: Request) {
     const recoverable = new Set((await db.select({ operationId: calls.operationId }).from(calls).where(and(eq(calls.salonId, access.actor.salonId), eq(calls.status, 'completed')))).map(call => call.operationId));
     const payload = await setupCustomSitePayload(access.actor.salonId, document);
     const nativePhotos = await canvaNativePhotoChoices(access.actor.salonId, payload?.source.canva);
-    return Response.json({ head, payload, nativePhotos, nativePhotoUploadsEnabled: canvaNativePhotosEnabled() && Boolean(payload?.source.canva?.manualOrigin), preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
+    return Response.json({ head, payload, nativePhotos, nativePhotoUploadsEnabled: canvaNativePhotosEnabled() && Boolean(payload?.source.canva), preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
   } catch (e) {
     return errorResponse(e, 'load');
   }

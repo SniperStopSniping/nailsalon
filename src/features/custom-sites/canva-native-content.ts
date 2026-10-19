@@ -2,6 +2,9 @@ import { z } from 'zod';
 
 export const canvaNativeImageSchema = z.object({
   mediaId: z.string().uuid(),
+  // Missing means the original onboarding-media binding. Never infer storage
+  // from an ID supplied by the browser or model.
+  storageKind: z.literal('asset').optional(),
   role: z.enum(['profile', 'gallery']),
   width: z.number().int().positive().max(40000),
   height: z.number().int().positive().max(40000),
@@ -24,7 +27,9 @@ export const canvaNativeContentSchema = z.array(z.discriminatedUnion('type', [
   }
   const seen = new Map<string, string>();
   for (const image of images) {
-    const signature = JSON.stringify({ role: image.role, width: image.width, height: image.height });
+    // One owned library photo can be placed in About and Gallery. Legacy
+    // onboarding images remain tied to their original section role.
+    const signature = JSON.stringify({ role: image.storageKind ? undefined : image.role, storageKind: image.storageKind, width: image.width, height: image.height });
     if (seen.has(image.mediaId) && seen.get(image.mediaId) !== signature) {
       context.addIssue({ code: 'custom', message: 'Keep repeated image references consistent.' });
     }
@@ -55,4 +60,4 @@ export function compileCanvaNativeContent(blocks: CanvaNativeContent, beforePage
     return `<section id="${block.id}" class="canva-native-section" aria-label="Reviews">${title}<div class="canva-native-reviews">${block.reviews.map(review => `<blockquote>${block.showRatings && review.rating !== null ? `<span role="img" aria-label="Rated ${review.rating} out of 5">${'★'.repeat(Math.round(review.rating))}</span>` : ''}<p>${escape(review.quote)}</p><footer><cite>${escape(review.authorName)}</cite></footer></blockquote>`).join('')}</div></section>`;
   }).join('');
 }
-export const CANVA_NATIVE_CSS = `.canva-native-section{max-width:1120px;margin:0 auto;padding:32px 20px;color:#30282b;font:16px/1.6 Arial,sans-serif;overflow-wrap:anywhere}.canva-native-chunk-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.canva-native-section p{white-space:pre-line}.canva-native-section h2{font:600 clamp(24px,4vw,36px)/1.2 Georgia,serif}.canva-native-section figure{margin:0;background:#f4eef1}.canva-native-section img{display:block;width:100%;height:auto;object-fit:contain}.canva-native-section figcaption{padding:12px}.canva-native-about{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:center}.canva-native-gallery,.canva-native-reviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:16px;align-items:start}.canva-native-gallery-editorial>figure:first-child{grid-column:1/-1}.canva-native-gallery-carousel{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:16px}.canva-native-gallery-carousel>figure{min-width:0;flex:0 0 min(80%,420px);scroll-snap-align:start}.canva-native-reviews blockquote{margin:0;padding:20px;border:1px solid #d5c6cc;border-radius:12px}@media(max-width:600px){.canva-native-about{grid-template-columns:minmax(0,1fr)}.canva-native-section{padding:24px 16px}.canva-native-gallery{gap:12px}}`;
+export const CANVA_NATIVE_CSS = `.canva-native-section{max-width:1120px;margin:0 auto;padding:32px 20px;color:#30282b;font:16px/1.6 Arial,sans-serif;overflow-wrap:anywhere}.canva-native-chunk-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.canva-native-section .canva-manual-controls{display:flex;gap:8px;flex-wrap:wrap}.canva-native-section .canva-manual-cta{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:12px 20px;border:0;border-radius:12px;background:#72364e;color:#fff;font:600 16px/1.3 Arial,sans-serif;text-decoration:none}.canva-native-section .canva-manual-cta:focus-visible{outline:3px solid #3685ff;outline-offset:3px}.canva-native-section p{white-space:pre-line}.canva-native-section h2{font:600 clamp(24px,4vw,36px)/1.2 Georgia,serif}.canva-native-section figure{margin:0;background:#f4eef1}.canva-native-section img{display:block;width:100%;height:auto;object-fit:contain}.canva-native-section figcaption{padding:12px}.canva-native-about{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:center}.canva-native-gallery,.canva-native-reviews{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:16px;align-items:start}.canva-native-gallery-editorial>figure:first-child{grid-column:1/-1}.canva-native-gallery-carousel{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:16px}.canva-native-gallery-carousel>figure{min-width:0;flex:0 0 min(80%,420px);scroll-snap-align:start}.canva-native-reviews blockquote{margin:0;padding:20px;border:1px solid #d5c6cc;border-radius:12px}@media(max-width:600px){.canva-native-about{grid-template-columns:minmax(0,1fr)}.canva-native-section{padding:24px 16px}.canva-native-gallery{gap:12px}}`;

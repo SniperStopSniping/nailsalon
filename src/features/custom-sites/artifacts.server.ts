@@ -51,7 +51,7 @@ export async function storeCustomArtifact(actor: SetupActor, input: { source: Cu
       throw new SetupError('INVALID', 'Your public website details contain your private service address. Remove it or review address visibility first.');
     }
     if (source.canva) {
-      await assertCanvaNativeMedia(tx, actor.salonId, source.canva);
+      await assertCanvaNativeMedia(tx, actor.salonId, source.canva, true);
       const trusted = validateCustomSource(compileCanvaDesign(source.canva, head.revision.document.website.content.websiteDetails), new Set(media.filter(a => a.role !== 'reference').map(a => a.id)));
       if (source.html !== trusted.html || source.css !== trusted.css || source.javascript !== '') {
         throw new SetupError('INVALID', 'Keep the Canva artwork intact. Use the clickable-area controls to change its links.');

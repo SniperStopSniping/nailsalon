@@ -72,7 +72,19 @@ it('requires enrollment for a first Gallery while allowing edits of already save
   expect(() => applyCanvaNativePhotoChanges(empty, [change], photos)).toThrow('Adding a Gallery is unavailable');
   expect(applyCanvaNativePhotoChanges(empty, [change], photos, true).nativeContent).toMatchObject([{ id: 'native-photo-gallery', beforePage: 1, images: [{ mediaId: photos[0]!.mediaId }] }]);
   expect(applyCanvaNativePhotoChanges(design, [{ blockId: 'gallery', change: { type: 'layout', layout: 'carousel' } }], [], false).nativeContent![1]).toMatchObject({ layout: 'carousel' });
-  expect(() => applyCanvaNativePhotoChanges({ ...design, manualOrigin: undefined }, [change], photos, true)).toThrow('saved Canva website');
+  expect(() => applyCanvaNativePhotoChanges({ ...design, manualOrigin: undefined }, [change], photos, true)).toThrow('belonging to this website');
+});
+
+it('uses explicit owned library bindings for AI Canva artwork without inventing a manual origin', () => {
+  const { design, photos } = fixture();
+  const ai = { ...design, manualOrigin: undefined, nativeContent: [] };
+  const choices = photos.map(photo => ({ ...photo, storageKind: 'asset' as const }));
+  const changed = applyCanvaNativePhotoChanges(ai, [{ blockId: 'native-photo-gallery', change: { type: 'use', createGallery: true, mediaId: photos[0]!.mediaId, alt: 'My nail work' } }], choices, true);
+
+  expect(changed.nativeContent).toMatchObject([{ images: [{ storageKind: 'asset', mediaId: photos[0]!.mediaId }] }]);
+  expect(changed.manualOrigin).toBeUndefined();
+  expect(changed.pages).toEqual(ai.pages);
+  expect(compileCanvaDesign(changed).html).toContain('data-luster-native-image');
 });
 
 it('refuses model-supplied URLs, approval fields, dimensions and oversized command batches', () => {

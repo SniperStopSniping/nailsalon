@@ -6,7 +6,7 @@ import { SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor, SetupTransaction } from '@/features/business-setup/drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon } from '@/features/business-setup/drafts.server';
 import { db } from '@/libs/DB';
-import { businessSetupRevisionSchema as revisions, onboardingSiteMediaSchema as media } from '@/models/Schema';
+import { businessSetupRevisionSchema as revisions, customSiteAssetSchema as assets, onboardingSiteMediaSchema as media } from '@/models/Schema';
 
 import { assertCustomArtifact, storeCustomArtifact } from './artifacts.server';
 import type { CanvaDesign } from './canva';
@@ -14,12 +14,41 @@ import { compileCanvaDesign } from './canva';
 import { applyCanvaNativePhotoChanges } from './canva-native-changes';
 import type { CanvaNativePhotoChange, NativePhotoChoice } from './canva-native-edits';
 import { canvaNativeEditSchema } from './canva-native-edits';
+import { canvaNativeAssetMetadata } from './native-media.server';
 import { canvaNativePhotosEnabled } from './native-renderer.server';
+
+async function libraryChoices(tx: SetupTransaction | typeof db, salonId: string, ids?: string[]): Promise<NativePhotoChoice[]> {
+  if (ids && !ids.length) {
+    return [];
+  }
+  const rows = await tx.select().from(assets).where(and(eq(assets.salonId, salonId), eq(assets.role, 'photo'), eq(assets.mimeType, 'image/webp'), ids ? inArray(assets.id, ids) : undefined)).orderBy(desc(assets.createdAt), assets.id).limit(24);
+  const choices: NativePhotoChoice[] = [];
+  for (const asset of rows) {
+    let metadata;
+    try {
+      metadata = await canvaNativeAssetMetadata(asset);
+    } catch (error) {
+      // An invalid library item is not an available choice. Storage/provider
+      // outages still surface rather than silently emptying the library.
+      if (error instanceof SetupError && ['INVALID', 'NOT_READY'].includes(error.code)) {
+        continue;
+      }
+      throw error;
+    }
+    for (const role of ['profile', 'gallery'] as const) {
+      choices.push({ mediaId: asset.id, storageKind: 'asset', role, width: metadata.width, height: metadata.height, alt: asset.name.slice(0, 500) || 'Salon photo', name: asset.name });
+    }
+  }
+  return choices;
+}
 
 /** Called only after owner authorization and artifact assertion; no storage URLs escape. */
 export async function canvaNativePhotoChoices(salonId: string, design: CanvaDesign | undefined): Promise<NativePhotoChoice[]> {
-  if (!design?.manualOrigin) {
+  if (!design) {
     return [];
+  }
+  if (!design.manualOrigin) {
+    return libraryChoices(db, salonId);
   }
   // Include replacement history, without increasing the per-site display limit
   // or the existing asset library's storage budget.
@@ -37,14 +66,14 @@ export async function prepareCanvaNativePhotoChanges(actor: SetupActor, input: {
   }
   const { artifact } = await assertCustomArtifact(tx, actor.salonId, base.document.website.config.customFrontendId);
   const design = artifact.source.canva;
-  if (!design?.manualOrigin) {
+  if (!design) {
     throw new SetupError('INVALID', 'Open your saved Canva website before changing its photos.');
   }
   const useIds = [...new Set(input.changes.flatMap(item => item.change.type === 'use' ? [item.change.mediaId] : []))];
   // Recheck exact origin/role/ready metadata at save time, after any model call.
   // Uploads use this same transaction so an uncommitted new alias is visible.
-  const rows = useIds.length ? await tx.select().from(media).where(and(eq(media.salonId, actor.salonId), eq(media.siteId, design.manualOrigin.siteId), eq(media.revisionId, design.manualOrigin.revisionId), eq(media.claimStatus, 'ready'), eq(media.mimeType, 'image/webp'), inArray(media.id, useIds), inArray(media.role, ['gallery', 'profile']))) : [];
-  const choices: NativePhotoChoice[] = rows.flatMap(row => row.storageKey && row.width && row.height && (row.role === 'gallery' || row.role === 'profile') ? [{ mediaId: row.id, role: row.role, width: row.width, height: row.height, alt: row.altText || row.fileName, name: row.fileName }] : []);
+  const rows = useIds.length && design.manualOrigin ? await tx.select().from(media).where(and(eq(media.salonId, actor.salonId), eq(media.siteId, design.manualOrigin.siteId), eq(media.revisionId, design.manualOrigin.revisionId), eq(media.claimStatus, 'ready'), eq(media.mimeType, 'image/webp'), inArray(media.id, useIds), inArray(media.role, ['gallery', 'profile']))) : [];
+  const choices: NativePhotoChoice[] = design.manualOrigin ? rows.flatMap(row => row.storageKey && row.width && row.height && (row.role === 'gallery' || row.role === 'profile') ? [{ mediaId: row.id, role: row.role, width: row.width, height: row.height, alt: row.altText || row.fileName, name: row.fileName }] : []) : await libraryChoices(tx, actor.salonId, useIds);
   const changed = applyCanvaNativePhotoChanges(design, input.changes, choices, canvaNativePhotosEnabled());
   const source = compileCanvaDesign(changed, base.document.website.content.websiteDetails);
   return storeCustomArtifact(actor, { ...input, source, assetIds: artifact.assetIds }, tx);
