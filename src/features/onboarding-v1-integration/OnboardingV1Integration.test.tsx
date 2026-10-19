@@ -964,6 +964,22 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     // Observe jsdom's error event directly: its console forwarding may retain
     // the original console method before Vitest installs this test's spy.
     const navigationErrors: Error[] = [];
+    const expectedNavigationError = 'Error: Not implemented: navigation (except hash changes)';
+    const originalConsoleError = console.error;
+    // Older jsdom forwards through the current console.error; newer versions
+    // may retain the original method. Allow only this test's expected warning
+    // on either graph. Unexpected console errors still reach fail-on-console.
+    const forwardedNavigationErrors: unknown[][] = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+      if (args.length <= 2 && args.slice(1).every(value => value === undefined) && String(args[0]).split('\n')[0] === expectedNavigationError) {
+        forwardedNavigationErrors.push(args);
+        return;
+      }
+      originalConsoleError(...args);
+    });
+    onTestFinished(() => {
+      errorSpy.mockRestore();
+    });
     const virtualConsole = (globalThis as typeof globalThis & {
       jsdom: { virtualConsole: EventEmitter };
     }).jsdom.virtualConsole;
@@ -1022,9 +1038,10 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claim).not.toHaveBeenCalled();
     expect(navigationErrors).toHaveLength(2);
     expect(navigationErrors.map(error => String(error).split('\n')[0])).toEqual([
-      'Error: Not implemented: navigation (except hash changes)',
-      'Error: Not implemented: navigation (except hash changes)',
+      expectedNavigationError,
+      expectedNavigationError,
     ]);
+    expect([0, 2]).toContain(forwardedNavigationErrors.length);
   });
 
   it('continues past a failed cover upload without retrying or losing the saved site', async () => {
