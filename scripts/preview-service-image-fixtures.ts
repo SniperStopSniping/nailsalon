@@ -28,8 +28,9 @@ const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
 // The reviewed wallet/publication tail adds one direct salon edge. Its account
 // and every salon-owned wallet row prevent fixture reset, like saved AI work.
-const FINAL_MIGRATION = '0112_ai_operator_expense_budget';
-const MIGRATION_COUNT = 112;
+// Reviewed deletion recovery is tenant-independent; prior reset fences remain.
+const FINAL_MIGRATION = '0113_salon_deletion_cleanup';
+const MIGRATION_COUNT = 113;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
