@@ -4,38 +4,88 @@ export const CLIENT_LIFECYCLE_MIGRATION_RETRYABLE_SQLSTATES = new Set([
   '55P03',
 ]);
 
-export function databaseErrorCode(error: unknown): string | null {
-  if (!error || typeof error !== 'object') {
-    return null;
+const MAX_DATABASE_ERROR_CAUSE_DEPTH = 8;
+
+type DatabaseError = {
+  code: string;
+  message: string;
+};
+
+export class ClientLifecycleMigrationGuardError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ClientLifecycleMigrationGuardError';
   }
-  const candidate = error as { code?: unknown; cause?: unknown };
-  if (typeof candidate.code === 'string') {
-    return candidate.code;
-  }
-  return candidate.cause === error ? null : databaseErrorCode(candidate.cause);
 }
 
-function databaseErrorMessage(error: unknown): string {
-  if (!error || typeof error !== 'object') {
-    return '';
+function findDatabaseError(error: unknown): DatabaseError | null {
+  let current = error;
+  const seen = new Set<object>();
+
+  for (let depth = 0; depth < MAX_DATABASE_ERROR_CAUSE_DEPTH; depth += 1) {
+    if (!current || typeof current !== 'object' || seen.has(current)) {
+      return null;
+    }
+    seen.add(current);
+
+    const candidate = current as {
+      code?: unknown;
+      message?: unknown;
+      cause?: unknown;
+    };
+    if (typeof candidate.code === 'string') {
+      return {
+        code: candidate.code,
+        message: typeof candidate.message === 'string'
+          ? candidate.message
+          : '',
+      };
+    }
+    current = candidate.cause;
   }
-  const candidate = error as { message?: unknown; cause?: unknown };
-  if (typeof candidate.message === 'string') {
-    return candidate.message;
+
+  return null;
+}
+
+export function databaseErrorCode(error: unknown): string | null {
+  return findDatabaseError(error)?.code ?? null;
+}
+
+export function clientLifecycleMigrationFailureMessage(error: unknown): string {
+  if (error instanceof ClientLifecycleMigrationGuardError) {
+    return error.message;
   }
-  return candidate.cause === error ? '' : databaseErrorMessage(candidate.cause);
+
+  const databaseError = findDatabaseError(error);
+  if (databaseError) {
+    if (
+      databaseError.code === '55P03'
+      && /canceling statement due to lock timeout/i.test(databaseError.message)
+    ) {
+      return 'Client lifecycle migration failed after PostgreSQL lock timeout (SQLSTATE 55P03).';
+    }
+    if (/^[0-9A-Z]{5}$/.test(databaseError.code)) {
+      return `Client lifecycle migration failed due to PostgreSQL error (SQLSTATE ${databaseError.code}).`;
+    }
+    return 'Client lifecycle migration failed due to a database error.';
+  }
+
+  return error && typeof error === 'object'
+    ? 'Client lifecycle migration failed due to a database error.'
+    : 'Client lifecycle migration failed.';
 }
 
 export function isRetryableClientLifecycleMigrationError(
   error: unknown,
 ): boolean {
-  const code = databaseErrorCode(error);
+  const databaseError = findDatabaseError(error);
+  const code = databaseError?.code;
   if (code === '40P01' || code === '40001') {
     return true;
   }
   return code === '55P03'
     && /canceling statement due to lock timeout/i.test(
-      databaseErrorMessage(error),
+      databaseError.message,
     );
 }
 
