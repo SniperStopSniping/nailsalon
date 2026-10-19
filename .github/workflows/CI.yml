@@ -332,6 +332,11 @@ jobs:
               # Identical reviewed graph after main's 1.143.3 release bump.
               # Only root version metadata changed; Node24 remains pinned.
               f672f9951f0de6f8229cca3fde5981a4bdc8522a:af4bf5fe330d46ebb4dbd1947d0b326a9b70fa35) ;;
+              # Storybook: use the patched local Webpack compiler version
+              # supported by Next's private-local Webpack integration.
+              cf9ee4410133e7254924abfee7a7a70e0592a25b:c7279e61b579800514e86c260774a902c25b26b4) ;;
+              # Same reviewed Storybook graph after the 1.143.3 version bump.
+              e54cedc2954e844cd209b29008f1173848d3dcd1:7f5a9efb7172d716423849f868d04f752498c992) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
