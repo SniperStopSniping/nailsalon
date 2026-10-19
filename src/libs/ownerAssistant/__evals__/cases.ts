@@ -446,15 +446,15 @@ const CONVERSATION_CASES: readonly EvalDialogueCase[] = [
   {
     id: 'C21',
     group: 'conversation',
-    title: 'Toronto-only refusal of the diagnosis tool',
+    title: 'Availability diagnosis uses Vancouver booking rules',
     salon: 'west',
     turns: [
       {
         message: 'Why can\'t clients book Friday?',
         expectTools: ['diagnose_day_availability'],
         expectOutcome: 'answer',
-        mustNotMention: ['slots are free', 'fully booked'],
-        note: 'The salon is on America/Vancouver, so the only cause is timezone_unsupported. The assistant must report that it cannot check this day rather than inventing a reason.',
+        mustNotMention: ['only supports Toronto', 'timezone is not supported', 'fully booked'],
+        note: 'The salon is on America/Vancouver. Diagnose its Friday through the original booking engine in that timezone and report only the measured availability.',
       },
     ],
   },
