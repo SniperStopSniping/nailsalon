@@ -68,7 +68,7 @@ const scaledGeometry = (geometry: CanvaArea['geometry'], scale: number) => ({
   width: Number((geometry.width * scale).toFixed(6)),
   height: Number((geometry.height * scale).toFixed(6)),
 });
-export const canvaModelAreasSchema = z.array(canvaAreaSchema.extend({ geometry: modelGeometry }).refine(area => area.action.type !== 'manual_link', 'Use saved business contact actions.')).max(40)
+export const canvaModelAreasSchema = z.array(canvaAreaSchema.extend({ geometry: modelGeometry }).refine(area => area.action.type !== 'manual_link', 'Use saved business contact actions.')).max(80)
   .transform(areas => areas.map(area => ({ ...area, geometry: scaledGeometry(area.geometry, 100) })))
   .pipe(canvaAreasSchema);
 export function canvaAreasForModel(areas: CanvaArea[]) {
@@ -124,9 +124,12 @@ export function unusableCanvaAreas(areas: CanvaArea[], pages: { width: number; h
   });
 }
 /** Enlarge invisible touch targets, never artwork or overlapping neighbours. */
-export function comfortableCanvaAreas(areas: CanvaArea[], pages: { width: number; height: number }[]) {
+export function comfortableCanvaAreas(areas: CanvaArea[], pages: { width: number; height: number }[], changedIds?: ReadonlySet<string>) {
   const result = structuredClone(areas);
   for (const area of result) {
+    if (changedIds && !changedIds.has(area.id)) {
+      continue;
+    }
     const page = pages[area.page]!;
     const minimumWidth = 44 / Math.min(360, page.width) * 100;
     const minimumHeight = minimumWidth * page.width / page.height;

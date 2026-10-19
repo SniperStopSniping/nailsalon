@@ -182,8 +182,9 @@ export async function resumeCustomSite(actor: SetupActor, operationId: string) {
     }
     const priorId = head.revision.document.website.config.customFrontendId;
     const [prior] = priorId && !job.request.startOver ? await db.select().from(artifacts).where(and(eq(artifacts.salonId, actor.salonId), eq(artifacts.id, priorId))) : [];
-    if (head.revision.document.designBrief?.mode === 'keep_design') {
-      const generated = await generateCanvaSource(actor, job.request, head.revision.document, undefined, Date.now() + 270000);
+    const mode = head.revision.document.designBrief?.mode;
+    if (mode === 'keep_design' || (prior?.source.canva && mode !== 'rebuild')) {
+      const generated = await generateCanvaSource(actor, job.request, head.revision.document, prior?.source, Date.now() + 270000, undefined, true);
       const artifact = await storeCustomArtifact(actor, { ...generated, expectedRevision: job.expectedRevision, operationId: job.id });
       await db.update(jobs).set({ artifactId: artifact.id, status: 'generated', phase: 'applying' }).where(eq(jobs.id, job.id));
       return generateCustomSite(actor, job.request);

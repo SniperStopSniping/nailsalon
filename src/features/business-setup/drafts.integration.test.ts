@@ -31,6 +31,7 @@ import sharp from '@/libs/safeSharp.server';
 import * as schema from '@/models/Schema';
 
 import { darkSource, editorialSource } from '../../../tests/browser/businessSetup/custom-design-fixtures';
+import * as setupModel from './ai-trial.server';
 import { estimateSetupAiCost, runSetupModel } from './ai-trial.server';
 import { applySetupOperations, CLOSED_HOURS, setupReadiness, setupServiceSchema } from './contracts';
 import { runSetupConversation } from './conversation.server';
@@ -2378,6 +2379,72 @@ describe('AI clickable Canva artwork', () => {
     expect(supplied.previousAreas[0].geometry).toEqual({ x: 0.1, y: 0.75, width: 0.8, height: 0.1 });
     expect(next.artifactId).not.toBe(first.artifactId);
     expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, first.artifactId)))[0]!.source).toEqual(firstArtifact.source);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('edits all ten saved manual pages without losing layout, native controls, anchors or omitted links', async () => {
+    const { actor, input } = await prepared();
+    const first = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const [original] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, first.artifactId));
+    const design = original!.source.canva!;
+    const areas: CanvaArea[] = Array.from({ length: 50 }, (_, index) => ({ id: `manual_${index}`, page: Math.floor(index / 5), label: `Saved booking ${index}`, geometry: { x: 10, y: 10 + (index % 5) * 15, width: 70, height: 5 }, action: index === 0 ? { type: 'manual_link', href: '#manual-first-page' } : { type: 'book' }, ...(index === 49 ? { appearance: 'button' as const } : {}) }));
+    const source = compileCanvaDesign({ ...design, pages: Array.from({ length: 10 }, (_, index) => ({ ...design.pages[0]!, id: `manual_page_${index}`, alt: `Saved page ${index}`, presentation: { displayMode: 'contained', background: '#e8daba', gapAfter: 16 }, anchors: index === 0 ? ['manual-first-page'] : [] })), areas, manualOrigin: { siteId: randomUUID(), revisionId: randomUUID(), revision: 4 }, manualVisibility: { hours: false, location: false }, controls: [{ id: 'native_cta', afterPage: 9, label: 'Book your visit', action: { type: 'book' } }], visibleText: 'Saved Instagram and booking policies', notes: ['Owner arranged this layout.'] });
+    const manual = await saveCustomSource(actor, { source, assetIds: original!.assetIds, expectedRevision: first.head.revision.revision, operationId: randomUUID() });
+    const checked = await reviewCanvaArtwork(actor, { expectedRevision: manual.head.revision.revision, operationId: randomUUID() });
+    const { appearance: _appearance, ...update } = areas[49]!;
+    const createResponse = vi.fn().mockResolvedValue(result({ ...answer([{ ...update, label: 'Choose your appointment' }]), visibleText: 'Saved Instagram', altText: Array.from({ length: 10 }, (_, index) => `Design page ${index + 1}`) }));
+    const generated = await generateCustomSite(actor, { ...input, expectedRevision: checked.head.revision.revision, operationId: randomUUID(), message: 'Change the last booking link label. Keep the rest.' }, { createResponse });
+    const [saved] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+    const next = saved!.source.canva!;
+    const supplied = JSON.parse(createResponse.mock.calls[0]![0].input[1].content);
+
+    expect(supplied.pages).toHaveLength(10);
+    expect(supplied.previousAreas).toHaveLength(50);
+    expect(next.pages.map(({ alt: _alt, ...page }) => page)).toEqual(source.canva!.pages.map(({ alt: _alt, ...page }) => page));
+    expect(next.areas.slice(0, 49)).toEqual(areas.slice(0, 49));
+    expect(next.areas[49]).toEqual({ ...areas[49], label: 'Choose your appointment' });
+    expect(next).toMatchObject({ controls: source.canva!.controls, manualOrigin: source.canva!.manualOrigin, manualVisibility: source.canva!.manualVisibility, visibleText: source.canva!.visibleText, notes: source.canva!.notes, ownerReviewed: false });
+    expect(generated.head.revision.document.services).toEqual(checked.head.revision.document.services);
+    expect(generated.head.revision.document.hours).toEqual(checked.head.revision.document.hours);
+    expect(saved!.source.css).toContain('background:#e8daba;padding-bottom:16px');
+    expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, checked.artifact.id)))[0]!.source).toEqual(checked.artifact.source);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(createResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers a retained Canva link edit after a source-save failure without resetting manual source or paying again', async () => {
+    const { actor, input } = await prepared();
+    const first = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const [original] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, first.artifactId));
+    const source = compileCanvaDesign({ ...original!.source.canva!, pages: original!.source.canva!.pages.map(page => ({ ...page, id: 'saved-page', presentation: { displayMode: 'full_width', background: '#e8daba', gapAfter: 8 } })), controls: [{ id: 'native_cta', afterPage: 0, label: 'Book now', action: { type: 'book' } }] });
+    const saved = await saveCustomSource(actor, { source, assetIds: original!.assetIds, expectedRevision: first.head.revision.revision, operationId: randomUUID() });
+    const operationId = randomUUID();
+    const createResponse = vi.fn().mockResolvedValue(result({ ...answer([]), removeAreaIds: ['booking'] }));
+    const failure = vi.spyOn(customArtifacts, 'storeCustomArtifact').mockRejectedValueOnce(new Error('Synthetic Canva source-save interruption'));
+    try {
+      await expect(generateCustomSite(actor, { ...input, expectedRevision: saved.head.revision.revision, operationId, message: 'Remove the booking area on the image. Keep my separate button.' }, { createResponse })).rejects.toMatchObject({ code: 'NOT_READY' });
+    } finally {
+      failure.mockRestore();
+    }
+    const [retained] = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId));
+    await database.update(schema.setupAiCallSchema).set({ rawOutput: JSON.stringify({ ...answer([]), removeAreaIds: ['unknown-link'] }) }).where(eq(schema.setupAiCallSchema.id, retained!.id));
+    const modelGuard = vi.spyOn(setupModel, 'runSetupModel').mockRejectedValue(new Error('Unexpected provider call during replay'));
+    try {
+      await expect(resumeCustomSite(actor, operationId)).rejects.toMatchObject({ code: 'NOT_READY' });
+      expect(modelGuard).not.toHaveBeenCalled();
+      expect((await openSetup(actor)).revision.revision).toBe(saved.head.revision.revision);
+    } finally {
+      modelGuard.mockRestore();
+      await database.update(schema.setupAiCallSchema).set({ rawOutput: retained!.rawOutput }).where(eq(schema.setupAiCallSchema.id, retained!.id));
+    }
+    const recovered = await resumeCustomSite(actor, operationId);
+    const replayed = await resumeCustomSite(actor, operationId);
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, recovered.artifactId));
+
+    expect(replayed.artifactId).toBe(recovered.artifactId);
+    expect(artifact!.source.canva).toMatchObject({ areas: [], pages: source.canva!.pages, controls: source.canva!.controls, ownerReviewed: false });
+    expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, operationId)))).toHaveLength(1);
+    expect(createResponse).toHaveBeenCalledTimes(1);
     expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
   });
 
