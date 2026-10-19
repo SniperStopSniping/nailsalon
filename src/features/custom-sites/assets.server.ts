@@ -20,6 +20,9 @@ import { assetRoleSchema } from './contracts';
 export const MAX_REFERENCE_BYTES = 3000000;
 export const MAX_WEBSITE_IMAGE_BYTES = 300000;
 export const MAX_WEBSITE_MEDIA_BYTES = 2000000;
+// Migration 0102 bounds the isolated pilot's base64 text to 1,000,000
+// characters. Match its decoded-byte budget before inserting an image.
+const MAX_PRIVATE_PREVIEW_IMAGE_BYTES = 750000;
 
 /** Reserve room for all six website images, base64 framing and source/data. */
 export function assertWebsiteAssetBudget(media: { role: string; byteSize: number }[]) {
@@ -69,6 +72,7 @@ async function authorizeAssetContext(tx: SetupTransaction, actor: SetupActor, co
 async function uploadAsset(actor: SetupActor, file: File, role: ReturnType<typeof assetRoleSchema.parse>, context: AssetContext) {
   const manualArtwork = context.type === 'onboarding' || (context.type === 'setup' && context.artwork === true);
   const maximum = context.type === 'onboarding' ? ONBOARDING_MEDIA_MAX_FILE_BYTES : MAX_REFERENCE_BYTES;
+  const privatePreview = process.env.APP_ENV === 'preview' && process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES === 'true';
   if (file.size <= 0 || file.size > maximum) {
     throw new SetupError('INVALID', manualArtwork ? 'This design needs to be prepared again before uploading.' : 'Choose a file under 3 MB.');
   }
@@ -98,11 +102,11 @@ async function uploadAsset(actor: SetupActor, file: File, role: ReturnType<typeo
   } else {
     try {
       const imagePreparation = manualArtwork
-        ? { artwork: true as const, maxOutputBytes: maximum, preserveDimensions: true as const }
+        ? { artwork: true as const, maxOutputBytes: privatePreview ? Math.min(maximum, MAX_PRIVATE_PREVIEW_IMAGE_BYTES) : maximum, preserveDimensions: true as const }
         : role === 'reference'
           ? { artwork: true as const, maxOutputBytes: 750000 }
           : { ...(role === 'logo' ? { artwork: true as const } : {}), maxOutputBytes: MAX_WEBSITE_IMAGE_BYTES };
-      if (process.env.APP_ENV === 'preview' && process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES === 'true') {
+      if (privatePreview) {
         // Isolated pilot only: bounded private bytes in the existing Preview DB.
         // No production storage credentials, public upload URLs or ephemeral disk.
         normalizedBytes = (await normalizeOnboardingImage(file, imagePreparation)).normalized;

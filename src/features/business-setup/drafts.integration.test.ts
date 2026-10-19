@@ -784,6 +784,68 @@ describe('private multimodal design references', () => {
     await expect(uploadCustomAsset(actor, file(), 'photo', { artwork: true })).rejects.toMatchObject({ code: 'INVALID' });
   }, 15000);
 
+  it('rejects oversized private Preview artwork clearly before its storage constraint can fail', async () => {
+    const actor = await fixture();
+    const previousEnvironment = process.env.APP_ENV;
+    const previousPrivateImages = process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES;
+    vi.stubEnv('APP_ENV', 'preview');
+    vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', 'true');
+    try {
+      const pixels = Buffer.alloc(2000 * 900);
+      let seed = 91;
+      for (let index = 0; index < pixels.length; index++) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        pixels[index] = seed >>> 24;
+      }
+      const png = await sharp(pixels, { raw: { width: 2000, height: 900, channels: 1 } }).png({ palette: true, colours: 256, dither: 0 }).toBuffer();
+
+      const result = await uploadCustomAsset(actor, new File([new Uint8Array(png)], 'detailed-canva.png', { type: 'image/png' }), 'reference', { artwork: true })
+        .then(() => ({ code: 'SAVED', message: '' }), error => ({ code: error.code, message: error.code === 'INVALID' ? error.message : 'Internal storage failure' }));
+
+      expect(result).toMatchObject({ code: 'INVALID', message: expect.stringContaining('too large to save clearly') });
+      expect(await database.select().from(schema.customSiteAssetSchema).where(eq(schema.customSiteAssetSchema.salonId, actor.salonId))).toHaveLength(0);
+      expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+      expect((await openSetup(actor)).revision.revision).toBe(2);
+    } finally {
+      vi.stubEnv('APP_ENV', previousEnvironment);
+      vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', previousPrivateImages);
+    }
+  }, 15000);
+
+  it('keeps native pixels in private Preview when the artwork fits its bounded storage', async () => {
+    const actor = await fixture();
+    const previousEnvironment = process.env.APP_ENV;
+    const previousPrivateImages = process.env.CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES;
+    vi.stubEnv('APP_ENV', 'preview');
+    vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', 'true');
+    try {
+      const width = 2000;
+      const height = 900;
+      const pixels = Buffer.alloc(width * height, 220);
+      let seed = 91;
+      for (let index = 0; index < pixels.length / 4; index++) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        pixels[index] = seed >>> 24;
+      }
+      const png = await sharp(pixels, { raw: { width, height, channels: 1 } }).png({ palette: true, colours: 256, dither: 0 }).toBuffer();
+      const uploaded = await uploadCustomAsset(actor, new File([new Uint8Array(png)], 'my-canva.png', { type: 'image/png' }), 'reference', { artwork: true });
+      const [asset] = await ownedAssets(database as any, actor.salonId, [uploaded.id]);
+      const dataUrl = await assetDataUrl(asset!);
+      const stored = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+      const image = await canvaWebsiteImage(actor, asset!);
+
+      expect(asset!.imageBase64!.length).toBeLessThanOrEqual(1000000);
+      expect(asset!.storageKey).toBeNull();
+      expect(await sharp(stored).metadata()).toMatchObject({ width, height });
+      expect(createHash('sha256').update(await sharp(stored).ensureAlpha().raw().toBuffer()).digest('hex')).toBe(createHash('sha256').update(await sharp(png).ensureAlpha().raw().toBuffer()).digest('hex'));
+      expect(image.hash).toBe(asset!.hash);
+      expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toHaveLength(0);
+    } finally {
+      vi.stubEnv('APP_ENV', previousEnvironment);
+      vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', previousPrivateImages);
+    }
+  }, 15000);
+
   it('retains a damaged historical asset and allows a fresh upload to repair it without changing source history', async () => {
     const actor = await fixture();
     const bytes = await sharp({ create: { width: 120, height: 160, channels: 3, background: '#aabbcc' } }).png().toBuffer();
