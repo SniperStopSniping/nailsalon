@@ -1,38 +1,18 @@
 import { defineConfig } from 'checkly';
 import { EmailAlertChannel, Frequency } from 'checkly/constructs';
 
+import { resolveChecklyTarget } from './src/libs/checklyTrust.mjs';
+
 const sendDefaults = {
   sendFailure: true,
   sendRecovery: true,
   sendDegraded: true,
 };
 
-const environmentURL = process.env.ENVIRONMENT_URL?.trim();
-if (!environmentURL) {
-  throw new Error(
-    'ENVIRONMENT_URL is required; Checkly never defaults to a Production target.',
-  );
-}
-
-let parsedEnvironmentURL: URL;
-try {
-  parsedEnvironmentURL = new URL(environmentURL);
-} catch {
-  throw new Error('ENVIRONMENT_URL must be a valid HTTP(S) URL.');
-}
-if (
-  parsedEnvironmentURL.protocol !== 'http:'
-  && parsedEnvironmentURL.protocol !== 'https:'
-) {
-  throw new Error('ENVIRONMENT_URL must be a valid HTTP(S) URL.');
-}
-if (
-  parsedEnvironmentURL.username
-  || parsedEnvironmentURL.password
-  || parsedEnvironmentURL.hash
-) {
-  throw new Error('ENVIRONMENT_URL must not contain credentials or a fragment.');
-}
+const targetURL = resolveChecklyTarget(
+  process.env.CHECKLY_TEST_ENVIRONMENT,
+  process.env.ENVIRONMENT_URL,
+);
 
 export const emailChannel = new EmailAlertChannel('email-channel-1', {
   address: process.env.CHECKLY_ALERT_EMAIL || 'support@lustergel.app',
@@ -54,10 +34,7 @@ export const config = defineConfig({
     },
     playwrightConfig: {
       use: {
-        baseURL: parsedEnvironmentURL.toString(),
-        extraHTTPHeaders: {
-          'x-vercel-protection-bypass': process.env.VERCEL_BYPASS_TOKEN,
-        },
+        baseURL: targetURL,
       },
     },
   },

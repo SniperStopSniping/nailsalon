@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { impersonateSalonAsSuperAdmin } from './support/appointment-ops';
-import { appPath, authStatePaths, e2eConfig } from './support/config';
+import { appPath, authStatePaths, e2eConfig, e2eOrigin } from './support/config';
 
 test.use({ storageState: authStatePaths.superAdmin, viewport: { width: 390, height: 844 } });
 
@@ -29,6 +29,6 @@ test('owner corrects a mistaken no-show from More without exposing another salon
 
     await expect(page.getByText('Corrected to cancelled')).toBeVisible();
   } finally {
-    await page.request.delete('/api/super-admin/impersonate');
+    await page.request.delete('/api/super-admin/impersonate', { headers: { Origin: e2eOrigin } });
   }
 });

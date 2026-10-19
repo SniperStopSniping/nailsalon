@@ -21,6 +21,15 @@ const {
 
 const resolveDefaults = () => communicationSettingsSchema.parse({});
 
+it('keeps legacy stored rule metadata readable while strict writes reject unknown fields', () => {
+  const rule = { id: 'legacy_rule', offsetMinutes: 1440, channels: 'email', enabled: true, previousLabel: 'Day before' };
+  const settings = resolveCommunicationSettingsFromSettings({ communications: { reminders: { rules: [rule] } } } as never);
+
+  expect(settings.killSwitch).toBe(false);
+  expect(settings.reminders.rules).toEqual([{ id: 'legacy_rule', offsetMinutes: 1440, channels: 'email', enabled: true }]);
+  expect(communicationSettingsUpdateSchema.safeParse({ reminders: { rules: [rule] } }).success).toBe(false);
+});
+
 describe('contract defaults (§9.4 step 3, §11.1, §11.4)', () => {
   it('lets the salon disable voice booking-link texts independently of other SMS', () => {
     const settings = resolveCommunicationSettingsFromSettings({ communications: { sms: { enabled: true }, events: { voice_booking_link: { enabled: false, channels: 'sms' } } } } as never);

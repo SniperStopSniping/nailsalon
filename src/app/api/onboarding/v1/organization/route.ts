@@ -60,6 +60,31 @@ export async function POST(request: Request): Promise<Response> {
     const organization = await client.organizations.createOrganization({
       createdBy: user.id,
       name: input.businessName?.trim() || FALLBACK_ORGANIZATION_NAME,
+    }).catch((error: unknown) => {
+      // A provider quota needs operator action, not another account or a
+      // membership bypass. Keep the pending session and local draft intact.
+      const providerError = error && typeof error === 'object'
+        ? error as { status?: unknown; errors?: unknown }
+        : null;
+      if (
+        providerError?.status === 403
+        && Array.isArray(providerError.errors)
+        && providerError.errors.some(item => item && typeof item === 'object'
+          && 'code' in item && item.code === 'organization_quota_exceeded')
+      ) {
+        // Log only fixed classification metadata, never the provider payload.
+        console.error('[onboarding-v1] organization setup unavailable', {
+          operation: 'organization-create',
+          providerStatus: 403,
+          providerCode: 'organization_quota_exceeded',
+        });
+        throw new OnboardingPersistenceError(
+          'ORGANIZATION_SETUP_UNAVAILABLE',
+          'We couldn’t finish setting up your business right now. Your work is still safe on this device. Please contact Luster support.',
+          503,
+        );
+      }
+      throw error;
     });
     return Response.json({
       data: {

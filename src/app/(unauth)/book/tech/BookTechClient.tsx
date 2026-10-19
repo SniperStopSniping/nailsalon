@@ -393,7 +393,7 @@ export function BookTechClient({
           }}
         >
           <p className="text-xs text-neutral-400">
-            All our artists are highly trained professionals
+            Choose an artist to see their available times.
           </p>
         </div>
       </div>

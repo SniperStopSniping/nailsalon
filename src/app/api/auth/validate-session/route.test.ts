@@ -2,19 +2,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
-  clearClientSessionCookies,
   getClientSession,
   refreshClientSession,
   setClientSessionCookies,
 } = vi.hoisted(() => ({
-  clearClientSessionCookies: vi.fn(),
   getClientSession: vi.fn(),
   refreshClientSession: vi.fn(),
   setClientSessionCookies: vi.fn(),
 }));
 
 vi.mock('@/libs/clientAuth', () => ({
-  clearClientSessionCookies,
   getClientSession,
   legacyCustomerAuthDisabledResponse: () => Response.json({
     error: {
@@ -33,7 +30,7 @@ describe('GET /api/auth/validate-session', () => {
     vi.clearAllMocks();
   });
 
-  it('clears legacy cookies and returns 410 without validating or renewing', async () => {
+  it('returns 410 without changing cookies, validating, or renewing', async () => {
     const response = await GET();
 
     expect(response.status).toBe(410);
@@ -43,7 +40,6 @@ describe('GET /api/auth/validate-session', () => {
         message: 'Customer sign-in is unavailable. Book as a guest or use your secure appointment management link.',
       },
     });
-    expect(clearClientSessionCookies).toHaveBeenCalledOnce();
     expect(getClientSession).not.toHaveBeenCalled();
     expect(refreshClientSession).not.toHaveBeenCalled();
     expect(setClientSessionCookies).not.toHaveBeenCalled();

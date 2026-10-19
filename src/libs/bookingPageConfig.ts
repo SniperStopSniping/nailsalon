@@ -252,6 +252,8 @@ export const QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS: QuickBookProfileVisibility
 // =============================================================================
 
 export type BookingPageConfigSide = {
+  /** Immutable, tenant-checked generated frontend; approved with the shared draft. */
+  customFrontendId?: string;
   layout: BookingPageLayout;
   /** Free customer-site colour selected during onboarding; not a premium token override. */
   sitePalettePreset?: CustomerSitePalettePreset;
@@ -869,6 +871,7 @@ function resolveSide(
 ): BookingPageConfigSide {
   const source = isRecord(rawSide) ? rawSide : {};
 
+  const customFrontendId = z.string().uuid().safeParse(source.customFrontendId);
   const layout = resolveWithDefault(layoutSchema, source.layout, BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.layout);
   const sitePalettePreset = hasOwn(source, 'sitePalettePreset')
     ? resolveCustomerSitePalettePreset(source.sitePalettePreset)
@@ -933,6 +936,7 @@ function resolveSide(
 
   return {
     layout,
+    ...(customFrontendId.success ? { customFrontendId: customFrontendId.data } : {}),
     ...(sitePalettePreset ? { sitePalettePreset } : {}),
     ...(siteStylePreset ? { siteStylePreset } : {}),
     ...(siteHeadingFont ? { siteHeadingFont } : {}),

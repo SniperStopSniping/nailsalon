@@ -26,8 +26,10 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0097_founding_lifetime_core';
-const MIGRATION_COUNT = 97;
+// The reviewed wallet/publication tail adds one direct salon edge. Its account
+// and every salon-owned wallet row prevent fixture reset, like saved AI work.
+const FINAL_MIGRATION = '0112_ai_operator_expense_budget';
+const MIGRATION_COUNT = 112;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -444,6 +446,12 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   // 0097 records lifetime core-software rights independently of paid usage.
   ['public', 'founding_lifetime_claim', 'founding_lifetime_claim_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'founding_lifetime_claim', 'founding_lifetime_claim_claimed_by_admin_id_admin_user_id_fk', ['claimed_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'SET NULL'],
+  // AI draft/design evidence prevents fixture reset; never cascade away paid results.
+  ['public', 'business_setup_workspace', 'business_setup_workspace_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'custom_site_asset', 'custom_site_asset_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'custom_site_artifact', 'custom_site_artifact_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'custom_site_generation', 'custom_site_generation_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'ai_credit_account', 'ai_credit_account_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
 ] as const satisfies readonly IncomingForeignKeyIdentity[];
 const FIXTURE_TARGET_ROWS: Record<string, readonly Row[]> = { salon: FIXTURE.salons, salon_location: FIXTURE.locations, service: FIXTURE.services, add_on: FIXTURE.addOns, technician: FIXTURE.technicians, admin_user: [FIXTURE.admin], service_add_on: FIXTURE.rules, technician_services: FIXTURE.assignments, admin_salon_membership: FIXTURE.memberships };
 function uniqueRelations(relations: ReadonlyArray<readonly [string, string]>): Array<readonly [string, string]> {

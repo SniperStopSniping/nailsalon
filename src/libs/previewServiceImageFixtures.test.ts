@@ -7,7 +7,7 @@ import { TLSSocket } from 'node:tls';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { vi } from 'vitest';
+import { beforeAll, vi } from 'vitest';
 
 import { PREVIEW_SERVICE_IMAGE_FIXTURE as FIXTURE } from '../../scripts/fixtures/preview-service-image-fixtures';
 import {
@@ -161,10 +161,32 @@ class AttestedPGlite implements FixtureDatabase {
   }
 }
 
+let migratedDataDir: Blob | File | null = null;
+
+beforeAll(async () => {
+  const template = new PGlite();
+  try {
+    await template.waitReady;
+    await migrate(drizzle(template), { migrationsFolder: path.join(process.cwd(), 'migrations') });
+    migratedDataDir = await template.dumpDataDir();
+  } finally {
+    await template.close();
+  }
+});
+
 async function migratedDatabase() {
-  const client = new PGlite();
-  await migrate(drizzle(client), { migrationsFolder: path.join(process.cwd(), 'migrations') });
-  return { client, database: new AttestedPGlite(client) };
+  if (!migratedDataDir) {
+    throw new Error('Migrated PGlite snapshot is unavailable.');
+  }
+
+  const client = new PGlite({ loadDataDir: migratedDataDir });
+  try {
+    await client.waitReady;
+    return { client, database: new AttestedPGlite(client) };
+  } catch (error) {
+    await client.close();
+    throw error;
+  }
 }
 
 async function countRows(client: PGlite, text: string, values: unknown[] = []) {
@@ -483,8 +505,7 @@ describe('Preview service-image fixture target contract', () => {
 
 describe('Preview service-image fixture behavior', () => {
   it('documents the exact migration-ledger SELECT-only role contract without ownership or role membership', async () => {
-    const client = new PGlite();
-    await migrate(drizzle(client), { migrationsFolder: path.join(process.cwd(), 'migrations') });
+    const { client } = await migratedDatabase();
     try {
       await client.query('CREATE ROLE fixture_ledger_migrator NOLOGIN');
       await client.query('CREATE ROLE fixture_ledger_reader NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT');
@@ -502,7 +523,7 @@ describe('Preview service-image fixture behavior', () => {
         has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'TRIGGER') AS can_trigger`);
 
       expect(privileges.rows[0]).toEqual({ can_select: true, can_insert: false, can_update: false, can_delete: false, can_truncate: false, can_reference: false, can_trigger: false });
-      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(97);
+      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(112);
 
       for (const statement of [
         'INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (\'denied\', 0)',
@@ -528,6 +549,28 @@ describe('Preview service-image fixture behavior', () => {
     } finally {
       await client.query('RESET ROLE').catch(() => {});
       await client.close();
+    }
+  });
+
+  it('restores each test database from an isolated migrated snapshot', async () => {
+    const first = await migratedDatabase();
+    try {
+      await first.client.query('CREATE TABLE snapshot_isolation_probe (id text PRIMARY KEY)');
+      await first.client.query('INSERT INTO snapshot_isolation_probe (id) VALUES ($1)', ['first-test-only']);
+    } finally {
+      await first.client.close();
+    }
+
+    const second = await migratedDatabase();
+    try {
+      const probe = await second.client.query<{ count: string }>(`SELECT count(*) AS count
+        FROM pg_catalog.pg_class relation
+        JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public' AND relation.relname = 'snapshot_isolation_probe'`);
+
+      expect(Number(probe.rows[0]!.count)).toBe(0);
+    } finally {
+      await second.client.close();
     }
   });
 
@@ -677,6 +720,42 @@ describe('Preview service-image fixture behavior', () => {
     }
   });
 
+  it.each([
+    ['business_setup_workspace', 'INSERT INTO business_setup_workspace(id,salon_id,head_revision,baseline_hash,baseline) VALUES (\'protected-ai\',$1,1,\'hash\',\'{}\')'],
+    ['custom_site_asset', 'INSERT INTO custom_site_asset(id,salon_id,actor_id,role,name,mime_type,pdf_base64,byte_size,hash) VALUES (\'protected-ai\',$1,\'owner\',\'reference\',\'reference.pdf\',\'application/pdf\',\'YQ==\',1,\'hash\')'],
+    ['custom_site_artifact', 'INSERT INTO custom_site_artifact(id,salon_id,actor_id,source,source_hash,asset_ids,operation_id) VALUES (\'protected-ai\',$1,\'owner\',\'{}\',\'hash\',\'[]\',\'operation\')'],
+    ['custom_site_generation', 'INSERT INTO custom_site_generation(id,salon_id,actor_id,request_hash,expected_revision,message,status,reserved_micro_usd) VALUES (\'protected-ai\',$1,\'owner\',\'hash\',1,\'design\',\'failed\',1)'],
+  ])('refuses reset when %s contains saved owner work or paid generation evidence', async (table, insert) => {
+    const { client, database } = await migratedDatabase();
+    try {
+      await runFixture('apply', fixtureEnvironment(), database);
+      await client.query(insert, [FIXTURE.salons[0]!.id]);
+      await expectCode(runFixture('reset', fixtureEnvironment(), database), 'COLLISION_REJECTED');
+
+      expect(await countRows(client, `SELECT count(*) FROM ${table} WHERE id = 'protected-ai'`)).toBe(1);
+      expect(await countRows(client, 'SELECT count(*) FROM service WHERE salon_id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)])).toBe(12);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('preserves an AI wallet account instead of cascading it away during fixture reset', async () => {
+    const { client, database } = await migratedDatabase();
+    try {
+      await runFixture('apply', fixtureEnvironment(), database);
+      await client.query('INSERT INTO ai_credit_account(salon_id, plan_env) VALUES ($1, $2)', [FIXTURE.salons[0]!.id, 'test']);
+      const writesBefore = database.writes.length;
+
+      await expectCode(runFixture('reset', fixtureEnvironment(), database), 'COLLISION_REJECTED');
+
+      expect(database.writes).toHaveLength(writesBefore);
+      expect(await countRows(client, 'SELECT count(*) FROM ai_credit_account WHERE salon_id = $1', [FIXTURE.salons[0]!.id])).toBe(1);
+      expect(await countRows(client, 'SELECT count(*) FROM service WHERE salon_id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)])).toBe(12);
+    } finally {
+      await client.close();
+    }
+  });
+
   it('fails closed when row-level security could hide an expected dependent row', async () => {
     const { client, database } = await migratedDatabase();
     try {
@@ -724,12 +803,11 @@ describe('Preview service-image fixture behavior', () => {
     }
   });
 
-  it('plans without writes, applies idempotently, verifies variants, maps an optional Development owner, and resets exactly', async () => {
+  it('plans without writes and applies idempotently', async () => {
     const { client, database } = await migratedDatabase();
     const logs: string[] = [];
     const env = fixtureEnvironment();
     try {
-      await client.query('INSERT INTO salon (id, name, slug, internal_notes) VALUES ($1, $2, $3, $4)', ['4df571c3-f8c8-4991-a5ce-e0ad1f66d638', 'Synthetic Unrelated Survivor', 'synthetic-unrelated-survivor', 'unrelated-test']);
       await runFixture('plan', env, database, message => logs.push(message));
 
       expect(database.writes).toHaveLength(0);
@@ -742,9 +820,41 @@ describe('Preview service-image fixture behavior', () => {
 
       await runFixture('verify', env, database);
 
+      const output = logs.join('\n');
+
+      expect(output).toContain(PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendVisible);
+
+      for (const sensitive of [SYNTHETIC_PASSWORD, SYNTHETIC_HOST, SYNTHETIC_ROLE, FIXTURE.salons[0]!.slug, FIXTURE.admin.email]) {
+        expect(output).not.toContain(sensitive);
+      }
+
+      expect(database.writes.filter(sql => /^(?:INSERT|UPDATE|DELETE)/i.test(sql.trim())).every(sql => /\bpublic\./.test(sql))).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('rejects drift during verification and applies the fixture again', async () => {
+    const { client, database } = await migratedDatabase();
+    const env = fixtureEnvironment();
+    try {
+      await runFixture('apply', env, database);
       await client.query('UPDATE public.service SET description = \'drifted synthetic test value\' WHERE id = $1', [FIXTURE.services[0]!.id]);
       await expectCode(runFixture('verify', env, database), 'STATE_REJECTED');
       await runFixture('apply', env, database);
+      await runFixture('verify', env, database);
+
+      expect(database.writes.filter(sql => /^(?:INSERT|UPDATE|DELETE)/i.test(sql.trim())).every(sql => /\bpublic\./.test(sql))).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('verifies fixture variants and the absence of unrelated side effects', async () => {
+    const { client, database } = await migratedDatabase();
+    const logs: string[] = [];
+    try {
+      await runFixture('apply', fixtureEnvironment(), database, message => logs.push(message));
 
       const salons = await client.query<{ id: string; settings: { merchandising: Record<string, unknown> } }>('SELECT id, settings FROM salon WHERE id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)]);
       const settingsById = new Map(salons.rows.map(row => [row.id, row.settings]));
@@ -765,14 +875,54 @@ describe('Preview service-image fixture behavior', () => {
 
       expect(sideEffects.rows[0]?.count).toBe(0);
 
+      const output = logs.join('\n');
+
+      expect(output).toContain(PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendVisible);
+
+      for (const sensitive of [SYNTHETIC_PASSWORD, SYNTHETIC_HOST, SYNTHETIC_ROLE, FIXTURE.salons[0]!.slug, FIXTURE.admin.email]) {
+        expect(output).not.toContain(sensitive);
+      }
+
+      expect(database.writes.filter(sql => /^(?:INSERT|UPDATE|DELETE)/i.test(sql.trim())).every(sql => /\bpublic\./.test(sql))).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('maps only the confirmed Development owner and rejects a conflicting owner mapping', async () => {
+    const { client, database } = await migratedDatabase();
+    const logs: string[] = [];
+    const env = fixtureEnvironment();
+    try {
+      await runFixture('apply', env, database);
+
       const mappedEnv = fixtureEnvironment({ LUSTER_PREVIEW_CLERK_USER_ID: `  ${SYNTHETIC_CLERK_ID}\t`, LUSTER_PREVIEW_ADMIN_CONFIRM: 'MAP_SYNTHETIC_DEVELOPMENT_USER', LUSTER_PREVIEW_CLERK_ENV: 'development' });
       await runFixture('apply', mappedEnv, database, message => logs.push(message));
-      await runFixture('verify', mappedEnv, database);
+      await runFixture('verify', mappedEnv, database, message => logs.push(message));
 
       expect((await client.query<{ clerk_user_id: string | null }>('SELECT clerk_user_id FROM admin_user WHERE id = $1', [FIXTURE.admin.id])).rows[0]?.clerk_user_id).toBe(SYNTHETIC_CLERK_ID);
 
       await expectCode(runFixture('apply', fixtureEnvironment({ LUSTER_PREVIEW_CLERK_USER_ID: 'user_SyntheticDevelopmentFixture0002', LUSTER_PREVIEW_ADMIN_CONFIRM: 'MAP_SYNTHETIC_DEVELOPMENT_USER', LUSTER_PREVIEW_CLERK_ENV: 'development' }), database), 'COLLISION_REJECTED');
 
+      const output = logs.join('\n');
+
+      for (const sensitive of [SYNTHETIC_PASSWORD, SYNTHETIC_HOST, SYNTHETIC_ROLE, SYNTHETIC_CLERK_ID, FIXTURE.salons[0]!.slug, FIXTURE.admin.email]) {
+        expect(output).not.toContain(sensitive);
+      }
+
+      expect(database.writes.filter(sql => /^(?:INSERT|UPDATE|DELETE)/i.test(sql.trim())).every(sql => /\bpublic\./.test(sql))).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('refuses reset while audit, session, or hidden-reference evidence exists', async () => {
+    const { client, database } = await migratedDatabase();
+    const env = fixtureEnvironment();
+    try {
+      await runFixture('apply', env, database);
+      const mappedEnv = fixtureEnvironment({ LUSTER_PREVIEW_CLERK_USER_ID: SYNTHETIC_CLERK_ID, LUSTER_PREVIEW_ADMIN_CONFIRM: 'MAP_SYNTHETIC_DEVELOPMENT_USER', LUSTER_PREVIEW_CLERK_ENV: 'development' });
+      await runFixture('apply', mappedEnv, database);
       await client.query('INSERT INTO audit_log (id, salon_id, actor_type, actor_id, action) VALUES (\'fixture-reset-audit-test\', $1, \'admin\', $2, \'settings_updated\')', [FIXTURE.salons[0]!.id, FIXTURE.admin.id]);
       await expectCode(runFixture('reset', env, database), 'COLLISION_REJECTED');
 
@@ -787,24 +937,39 @@ describe('Preview service-image fixture behavior', () => {
       await client.query('DELETE FROM admin_session WHERE id = \'fixture-reset-session-test\'');
 
       database.hideIncomingReferences = true;
-      await expectCode(runFixture('reset', env, database), 'SESSION_REJECTED');
+      await expectCode(runFixture('reset', fixtureEnvironment(), database), 'SESSION_REJECTED');
       database.hideIncomingReferences = false;
 
-      await runFixture('reset', env, database);
+      expect(database.writes.filter(sql => /^(?:INSERT|UPDATE|DELETE)/i.test(sql.trim())).every(sql => /\bpublic\./.test(sql))).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('resets only the exact fixture twice and preserves unrelated rows', async () => {
+    const { client, database } = await migratedDatabase();
+    const logs: string[] = [];
+    const env = fixtureEnvironment();
+    try {
+      await client.query('INSERT INTO salon (id, name, slug, internal_notes) VALUES ($1, $2, $3, $4)', ['4df571c3-f8c8-4991-a5ce-e0ad1f66d638', 'Synthetic Unrelated Survivor', 'synthetic-unrelated-survivor', 'unrelated-test']);
+      const mappedEnv = fixtureEnvironment({ LUSTER_PREVIEW_CLERK_USER_ID: SYNTHETIC_CLERK_ID, LUSTER_PREVIEW_ADMIN_CONFIRM: 'MAP_SYNTHETIC_DEVELOPMENT_USER', LUSTER_PREVIEW_CLERK_ENV: 'development' });
+      await runFixture('apply', mappedEnv, database);
+      await runFixture('reset', env, database, message => logs.push(message));
       await runFixture('reset', env, database);
 
       expect(await countRows(client, 'SELECT count(*) FROM salon WHERE id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)])).toBe(0);
+      expect(await countRows(client, 'SELECT count(*) FROM admin_user WHERE id = $1', [FIXTURE.admin.id])).toBe(0);
       expect(await countRows(client, 'SELECT count(*) FROM salon WHERE slug = \'synthetic-unrelated-survivor\'')).toBe(1);
 
       const output = logs.join('\n');
 
       expect(output).toMatch(/salons=2, services=12, technicians=2, add-ons=2, side-effects=0/);
-      expect(output).toContain(PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendVisible);
-      expect(database.writes.filter(sql => /^(?:INSERT|UPDATE|DELETE)/i.test(sql.trim())).every(sql => /\bpublic\./.test(sql))).toBe(true);
 
       for (const sensitive of [SYNTHETIC_PASSWORD, SYNTHETIC_HOST, SYNTHETIC_ROLE, SYNTHETIC_CLERK_ID, FIXTURE.salons[0]!.slug, FIXTURE.admin.email]) {
         expect(output).not.toContain(sensitive);
       }
+
+      expect(database.writes.filter(sql => /^(?:INSERT|UPDATE|DELETE)/i.test(sql.trim())).every(sql => /\bpublic\./.test(sql))).toBe(true);
     } finally {
       await client.close();
     }

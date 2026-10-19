@@ -34,8 +34,8 @@ export type ServiceTemplate = {
   defaultDurationMinutes: number;
   /** Library shelf (never 'popular' — Popular is a curated view, not a shelf). */
   templateCategory: Exclude<ServiceTemplateCategory, 'popular'>;
-  bookingCategory: BookingCategory;
-  serviceCategory: ServiceCategory;
+  bookingCategory: Exclude<BookingCategory, 'other'>;
+  serviceCategory: Exclude<ServiceCategory, 'other'>;
   serviceType: 'base_service' | 'combo' | 'addon';
   /** Present ⇒ shown in the Popular Services view, ascending. */
   popularityRank?: number;
@@ -98,8 +98,8 @@ function expand(
   rows: Row[],
   defaults: {
     templateCategory: Exclude<ServiceTemplateCategory, 'popular'>;
-    bookingCategory: BookingCategory;
-    serviceCategory: ServiceCategory;
+    bookingCategory: ServiceTemplate['bookingCategory'];
+    serviceCategory: ServiceTemplate['serviceCategory'];
     serviceType: ServiceTemplate['serviceType'];
     addOnCategory?: AddOnCategory;
   },
