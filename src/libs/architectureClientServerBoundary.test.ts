@@ -44,6 +44,12 @@ type BoundaryViolation = {
   chain: string[];
 };
 
+type BoundaryAnalysis = {
+  seeds: Set<string>;
+  clients: string[];
+  violations: BoundaryViolation[];
+};
+
 function isServerOnlySeed(repoRelativePath: string, sourceText: string): boolean {
   if (/\.server\.tsx?$/.test(repoRelativePath)) {
     return true;
@@ -51,39 +57,159 @@ function isServerOnlySeed(repoRelativePath: string, sourceText: string): boolean
   return getValueImportSpecifiers(sourceText, repoRelativePath).includes('server-only');
 }
 
-function findClientServerBoundaryViolations(files: Map<string, string>): BoundaryViolation[] {
-  const productionFiles = [...files.entries()].filter(([file]) => !isTestOrStoryFile(file));
+const analysisCache = new WeakMap<Map<string, string>, BoundaryAnalysis>();
+const comparePaths = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
+
+function analyzeClientServerBoundary(files: Map<string, string>): BoundaryAnalysis {
+  const cached = analysisCache.get(files);
+  if (cached) {
+    return cached;
+  }
+
+  // Sort once so tie-breaking is stable across filesystem enumeration order.
+  // The source inventory remains complete; only its traversal order changes.
+  const productionFiles = [...files.entries()]
+    .filter(([file]) => !isTestOrStoryFile(file))
+    .sort(([left], [right]) => comparePaths(left, right));
   const exists = (candidate: string) => files.has(candidate);
 
-  const seeds = new Set(
-    productionFiles
-      .filter(([file, text]) => isServerOnlySeed(file, text))
-      .map(([file]) => file),
-  );
+  const seeds = new Set<string>();
+  const clients: string[] = [];
+  const graph = new Map<string, string[]>();
+  const reverseGraph = new Map<string, string[]>();
 
-  const graph = new Map<string, string[]>(
-    productionFiles.map(([file, text]) => [
-      file,
-      getValueImportSpecifiers(text, file)
-        .map(specifier => resolveModuleSpecifier(file, specifier, exists))
-        .filter((resolved): resolved is string => resolved !== null),
-    ]),
-  );
+  // Each production file is inspected once for its value imports. Reuse those
+  // specifiers both to identify `server-only` seeds and to build the graph.
+  for (const [file, text] of productionFiles) {
+    const specifiers = getValueImportSpecifiers(text, file);
+    if (/\.server\.tsx?$/.test(file) || specifiers.includes('server-only')) {
+      seeds.add(file);
+    }
+    if (hasUseClientDirective(text, file)) {
+      clients.push(file);
+    }
+
+    const edges: string[] = [];
+    for (const specifier of specifiers) {
+      const target = resolveModuleSpecifier(file, specifier, exists);
+      if (!target) {
+        continue;
+      }
+      edges.push(target);
+      const importers = reverseGraph.get(target) ?? [];
+      importers.push(file);
+      reverseGraph.set(target, importers);
+    }
+    graph.set(file, edges);
+  }
+
+  // Reverse multi-source BFS computes the nearest reachable seed for every
+  // importer in one graph walk. `nextTowardSeed` preserves the forward chain
+  // from each client to its seed; sorted seeds/importers give stable ties.
+  const nextTowardSeed = new Map<string, string>();
+  const queue = [...seeds].sort(comparePaths);
+  for (const importers of reverseGraph.values()) {
+    importers.sort(comparePaths);
+  }
+  for (let head = 0; head < queue.length; head += 1) {
+    const target = queue[head]!;
+    for (const importer of reverseGraph.get(target) ?? []) {
+      if (seeds.has(importer) || nextTowardSeed.has(importer)) {
+        continue;
+      }
+      nextTowardSeed.set(importer, target);
+      queue.push(importer);
+    }
+  }
 
   const violations: BoundaryViolation[] = [];
+  for (const clientFile of clients) {
+    if (seeds.has(clientFile)) {
+      // Preserve the original rule for an unusual module that is both a
+      // client entry and a seed: only a seed reached over an import edge is
+      // reported. Such modules are rare, so keep this exceptional forward
+      // search out of the normal reverse-BFS path.
+      const cameFrom = new Map<string, string>([[clientFile, clientFile]]);
+      const seedQueue = [clientFile];
+      let hitSeed: string | null = null;
+      for (let head = 0; head < seedQueue.length && !hitSeed; head += 1) {
+        const current = seedQueue[head]!;
+        for (const next of graph.get(current) ?? []) {
+          if (cameFrom.has(next)) {
+            continue;
+          }
+          cameFrom.set(next, current);
+          if (seeds.has(next)) {
+            hitSeed = next;
+            break;
+          }
+          seedQueue.push(next);
+        }
+      }
+      if (hitSeed) {
+        const chain = [hitSeed];
+        let cursor = hitSeed;
+        while (cursor !== clientFile) {
+          cursor = cameFrom.get(cursor)!;
+          chain.unshift(cursor);
+        }
+        violations.push({ clientFile, chain });
+      }
+      continue;
+    }
+    const firstHop = nextTowardSeed.get(clientFile);
+    if (!firstHop) {
+      continue;
+    }
+    const chain = [clientFile];
+    let cursor = firstHop;
+    chain.push(cursor);
+    while (!seeds.has(cursor)) {
+      const next = nextTowardSeed.get(cursor);
+      if (!next) {
+        throw new Error(`client/server boundary predecessor map is inconsistent at ${cursor}`);
+      }
+      cursor = next;
+      chain.push(cursor);
+    }
+    if (chain.length > 0) {
+      violations.push({ clientFile, chain });
+    }
+  }
+
+  const analysis = { seeds, clients, violations };
+  analysisCache.set(files, analysis);
+  return analysis;
+}
+
+function findClientServerBoundaryViolations(files: Map<string, string>): BoundaryViolation[] {
+  return analyzeClientServerBoundary(files).violations;
+}
+
+/** Simple forward-BFS oracle retained for the small synthetic graph fixtures. */
+function findClientServerBoundaryViolationsReference(files: Map<string, string>): BoundaryViolation[] {
+  const productionFiles = [...files.entries()].filter(([file]) => !isTestOrStoryFile(file));
+  const exists = (candidate: string) => files.has(candidate);
+  const seeds = new Set(
+    productionFiles.filter(([file, text]) => isServerOnlySeed(file, text)).map(([file]) => file),
+  );
+  const graph = new Map<string, string[]>(productionFiles.map(([file, text]) => [
+    file,
+    getValueImportSpecifiers(text, file)
+      .map(specifier => resolveModuleSpecifier(file, specifier, exists))
+      .filter((resolved): resolved is string => resolved !== null),
+  ]));
+  const violations: BoundaryViolation[] = [];
+
   for (const [file, text] of productionFiles) {
     if (!hasUseClientDirective(text, file)) {
       continue;
     }
-
-    // Breadth-first so the reported chain is the SHORTEST path — the most
-    // legible one when a failure needs to be read and fixed.
     const cameFrom = new Map<string, string>([[file, file]]);
     const queue = [file];
     let hitSeed: string | null = null;
-
-    while (queue.length > 0 && !hitSeed) {
-      const current = queue.shift()!;
+    for (let head = 0; head < queue.length && !hitSeed; head += 1) {
+      const current = queue[head]!;
       for (const next of graph.get(current) ?? []) {
         if (cameFrom.has(next)) {
           continue;
@@ -96,19 +222,16 @@ function findClientServerBoundaryViolations(files: Map<string, string>): Boundar
         queue.push(next);
       }
     }
-
     if (hitSeed) {
-      const chain: string[] = [hitSeed];
+      const chain = [hitSeed];
       let cursor = hitSeed;
       while (cursor !== file) {
-        const previous = cameFrom.get(cursor)!;
-        chain.unshift(previous);
-        cursor = previous;
+        cursor = cameFrom.get(cursor)!;
+        chain.unshift(cursor);
       }
       violations.push({ clientFile: file, chain });
     }
   }
-
   return violations;
 }
 
@@ -276,24 +399,77 @@ describe('client/server boundary — dynamic import() regression fixture', () =>
   });
 });
 
+describe('client/server boundary — shortest path across cycles and diamonds', () => {
+  const fixtureFiles = new Map<string, string>([
+    [
+      'src/server/fixtureDb.server.ts',
+      `import 'server-only';\nexport const db = {};\n`,
+    ],
+    [
+      'src/libs/fixtureDiamondLeft.ts',
+      `import '@/libs/fixtureCycleA';\nexport const left = true;\n`,
+    ],
+    [
+      'src/libs/fixtureDiamondRight.ts',
+      `import '@/server/fixtureDb.server';\nexport const right = true;\n`,
+    ],
+    [
+      'src/libs/fixtureCycleA.ts',
+      `import '@/libs/fixtureCycleB';\nexport const a = true;\n`,
+    ],
+    [
+      'src/libs/fixtureCycleB.ts',
+      `import '@/libs/fixtureCycleA';\nimport '@/server/fixtureDb.server';\nexport const b = true;\n`,
+    ],
+    [
+      'src/components/FixtureClient.tsx',
+      `'use client';\nimport '@/libs/fixtureDiamondLeft';\nimport '@/libs/fixtureDiamondRight';\n`,
+    ],
+    [
+      'src/components/FixtureClientSeed.tsx',
+      `'use client';\nimport 'server-only';\nimport '@/server/fixtureDb.server';\n`,
+    ],
+  ]);
+
+  it('terminates on cycles and reports the shortest valid client-to-seed chain', () => {
+    const violations = findClientServerBoundaryViolations(fixtureFiles);
+
+    expect(violations).toEqual([
+      {
+        clientFile: 'src/components/FixtureClient.tsx',
+        chain: [
+          'src/components/FixtureClient.tsx',
+          'src/libs/fixtureDiamondRight.ts',
+          'src/server/fixtureDb.server.ts',
+        ],
+      },
+      {
+        clientFile: 'src/components/FixtureClientSeed.tsx',
+        chain: [
+          'src/components/FixtureClientSeed.tsx',
+          'src/server/fixtureDb.server.ts',
+        ],
+      },
+    ]);
+    expect(violations).toEqual(findClientServerBoundaryViolationsReference(fixtureFiles));
+  });
+});
+
 // =============================================================================
 // Repo-wide enforcement — the actual CI-enforced guard, over real src/ files.
 // =============================================================================
 
 describe('client/server boundary — repo-wide enforcement', () => {
   const allFiles = readSourceFiles(walkTsFiles());
+  const analysis = analyzeClientServerBoundary(allFiles);
 
   it('the scan is not vacuous: at least one server-only seed and one `use client` module exist', () => {
-    const productionFiles = [...allFiles.entries()].filter(([file]) => !isTestOrStoryFile(file));
-    const seedCount = productionFiles.filter(([file, text]) => isServerOnlySeed(file, text)).length;
-    const clientCount = productionFiles.filter(([file, text]) => hasUseClientDirective(text, file)).length;
-
-    expect(seedCount).toBeGreaterThan(0);
-    expect(clientCount).toBeGreaterThan(0);
+    expect(analysis.seeds.size).toBeGreaterThan(0);
+    expect(analysis.clients.length).toBeGreaterThan(0);
   });
 
   it('no `use client` module runtime-imports a server-only module, directly or transitively', () => {
-    const violations = findClientServerBoundaryViolations(allFiles);
+    const violations = analysis.violations;
 
     if (violations.length > 0) {
       const report = violations
@@ -311,7 +487,7 @@ describe('client/server boundary — repo-wide enforcement', () => {
     expect(allFiles.has(salonProvider)).toBe(true);
     expect(hasUseClientDirective(allFiles.get(salonProvider)!, salonProvider)).toBe(true);
 
-    const violations = findClientServerBoundaryViolations(allFiles);
+    const violations = analysis.violations;
 
     expect(violations.find(v => v.clientFile === salonProvider)).toBeUndefined();
   });
