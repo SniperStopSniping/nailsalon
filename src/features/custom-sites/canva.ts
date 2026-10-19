@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { parseSafeHttpsUrl } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/actions';
 import { clampNormalizedRect, rectanglesHaveInteriorOverlap, validateNormalizedRect } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/geometry';
+import { CANVA_NATIVE_CSS, canvaNativeContentSchema, compileCanvaNativeContent } from './canva-native-content';
 import { canvaPageWidth } from './canva-quality';
 import type { CustomSiteSource } from './contracts';
 import { manualLinkHref, manualLinkTargetsBooking } from './manual-link';
@@ -95,6 +96,7 @@ export const canvaDesignSchema = z.object({
   controls: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9_-]{0,59}$/u), afterPage: z.number().int().min(0).max(9), label: z.string().trim().min(1).max(200), action: canvaActionSchema }).strict()).max(10).optional(),
   manualVisibility: z.object({ hours: z.boolean(), location: z.boolean() }).strict().optional(),
   manualOrigin: z.object({ siteId: z.string().uuid(), revisionId: z.string().uuid(), revision: z.number().int().positive() }).strict().optional(),
+  nativeContent: canvaNativeContentSchema.optional(),
   areas: canvaAreasSchema,
   visibleText: z.string().max(16000),
   notes: z.array(z.string().max(500)).max(12),
@@ -102,7 +104,7 @@ export const canvaDesignSchema = z.object({
   /** Added without invalidating already-published legacy artwork. */
   priceLabelsFingerprint: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   ownerReviewed: z.boolean(),
-}).strict().refine(value => value.areas.every(area => area.page < value.pages.length) && (value.controls ?? []).every(control => control.afterPage < value.pages.length), 'Choose an existing page for each clickable area.').superRefine((value, context) => {
+}).strict().refine(value => value.areas.every(area => area.page < value.pages.length) && (value.controls ?? []).every(control => control.afterPage < value.pages.length) && (value.nativeContent ?? []).every(block => block.beforePage <= value.pages.length) && (!value.nativeContent?.length || value.manualOrigin), 'Choose an existing page and saved manual website for each section.').superRefine((value, context) => {
   const ids = [...value.areas.map(area => area.id), ...(value.controls ?? []).map(control => control.id)];
   if (new Set(ids).size !== ids.length) {
     context.addIssue({ code: 'custom', message: 'Give each link a separate name.' });
@@ -220,15 +222,16 @@ function compileManualCanvaDesign(design: CanvaDesign, details?: WebsiteDetails)
     }).join('');
     const controls = (design.controls ?? []).filter(control => control.afterPage === index).map(control => link(control, false)).join('');
     const anchors = (page.anchors ?? []).map(id => `<span id="${escape(id)}"></span>`).join('');
-    return `<section class="canva-manual-panel" id="canva-panel-${index}">${anchors}<div id="luster-canva-page-${index}" class="canva-page"><img src="asset:${page.assetId}" width="${page.width}" height="${page.height}" alt="${escape(page.alt)}">${areas}</div>${controls ? `<nav class="canva-manual-controls" aria-label="Design links">${controls}</nav>` : ''}</section>`;
+    return `${compileCanvaNativeContent(design.nativeContent ?? [], index)}<section class="canva-manual-panel" id="canva-panel-${index}">${anchors}<div id="luster-canva-page-${index}" class="canva-page"><img src="asset:${page.assetId}" width="${page.width}" height="${page.height}" alt="${escape(page.alt)}">${areas}</div>${controls ? `<nav class="canva-manual-controls" aria-label="Design links">${controls}</nav>` : ''}</section>`;
   }).join('');
   const contacts = ['instagram', 'email', 'phone'].filter(key => details?.[key as keyof WebsiteDetails]).map(key => `<a data-luster-link="${key}"><span data-luster-field="details.${key}"></span></a>`).join('');
-  const sections = (details?.sections ?? []).map(section => `<section><h2 data-luster-field="details.title_${section.id}"></h2><p data-luster-field="details.section_${section.id}"></p></section>`).join('');
+  const nativeTextIds = new Set((design.nativeContent ?? []).flatMap(block => block.type === 'about' ? block.textSectionIds : []));
+  const sections = (details?.sections ?? []).filter(section => !nativeTextIds.has(section.id)).map(section => `<section><h2 data-luster-field="details.title_${section.id}"></h2><p data-luster-field="details.section_${section.id}"></p></section>`).join('');
   const css = `.canva-manual-site{container:luster-canva-manual/inline-size;width:100%;margin:0;color:#30282b;font-family:Arial,sans-serif}.canva-manual-panel{width:100%}.canva-page{position:relative;width:100%;margin:0 auto}.canva-page img{display:block;width:100%;height:auto}.canva-area{position:absolute;display:block;z-index:1;padding:0;border:0;background:transparent;color:transparent;text-decoration:none;cursor:pointer}.canva-raised-button,.canva-manual-cta{display:flex;align-items:center;justify-content:center;text-align:center;color:#fff;background:#72364e;border-radius:12px;font:600 16px/1.3 Arial,sans-serif;text-decoration:none;overflow-wrap:anywhere}.canva-manual-cta{min-height:44px;padding:12px 20px;border:0}.canva-manual-controls{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;padding:16px}.canva-area:focus-visible,.canva-manual-cta:focus-visible{outline:3px solid #3685ff;outline-offset:3px}[data-luster-canva-area][hidden]{display:none!important}.canva-live-details{max-width:1120px;margin:0 auto;padding:24px 20px;overflow-wrap:anywhere}.canva-live-details p{white-space:pre-line}.canva-live-contacts{display:flex;gap:16px;flex-wrap:wrap}.canva-live-details [data-luster-services]{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:16px}.canva-live-details article{padding:20px;border:1px solid #d5c6cc;border-radius:12px}.canva-live-details article span{display:block;margin:8px 0}.canva-live-details button{min-height:44px;padding:10px 18px;background:#72364e;color:white;border:0;border-radius:8px;font:inherit}.canva-live-details a{color:#72364e;min-height:44px;display:inline-flex;align-items:center}img{max-width:100%}`;
   return {
     title: 'Your Canva design',
-    html: `<main class="canva-manual-site">${pages}<section class="canva-live-details" id="luster-canva-booking" aria-label="Current business details and booking"><h1 data-luster-field="business.name"></h1>${design.manualVisibility?.hours === false ? '' : '<p data-luster-field="business.hoursLabel"></p>'}${design.manualVisibility?.location === false ? '' : '<p data-luster-field="business.city"></p><p data-luster-field="business.address"></p><p data-luster-field="details.locationDirections"></p>'}<nav class="canva-live-contacts" aria-label="Contact">${contacts}</nav>${sections}<section data-luster-booking-policy><h2 data-luster-field="booking.policyTitle"></h2><p data-luster-field="booking.policyText"></p></section><h2>Services &amp; booking</h2><div data-luster-services></div><template data-luster-service><article><h3 data-luster-field="service.name"></h3><p data-luster-field="service.description"></p><span data-luster-field="service.priceLabel"></span><span data-luster-field="service.durationMinutes"></span><span>minutes</span><button data-luster-book>Book this service</button></article></template></section></main>`,
-    css: `${css}\n${styles.join('\n')}`,
+    html: `<main class="canva-manual-site">${pages}${compileCanvaNativeContent(design.nativeContent ?? [], design.pages.length)}<section class="canva-live-details" id="luster-canva-booking" aria-label="Current business details and booking"><h1 data-luster-field="business.name"></h1>${design.manualVisibility?.hours === false ? '' : '<p data-luster-field="business.hoursLabel"></p>'}${design.manualVisibility?.location === false ? '' : '<p data-luster-field="business.city"></p><p data-luster-field="business.address"></p><p data-luster-field="details.locationDirections"></p>'}<nav class="canva-live-contacts" aria-label="Contact">${contacts}</nav>${sections}<section data-luster-booking-policy><h2 data-luster-field="booking.policyTitle"></h2><p data-luster-field="booking.policyText"></p></section><h2>Services &amp; booking</h2><div data-luster-services></div><template data-luster-service><article><h3 data-luster-field="service.name"></h3><p data-luster-field="service.description"></p><span data-luster-field="service.priceLabel"></span><span data-luster-field="service.durationMinutes"></span><span>minutes</span><button data-luster-book>Book this service</button></article></template></section></main>`,
+    css: `${css}\n${styles.join('\n')}${design.nativeContent?.length ? `\n${CANVA_NATIVE_CSS}` : ''}`,
     javascript: '',
     analysis: 'Your original artwork and manually placed links are preserved. The service menu below uses your current Luster booking details.',
     limitations: ['Text and photographs inside the artwork are changed in Canva and uploaded again. The artwork scales without reflowing its text.', ...design.notes].slice(0, 12),

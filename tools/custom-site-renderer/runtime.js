@@ -5,6 +5,9 @@
   let initialized = false;
   let channel;
   let worker;
+  const nativeImages = new Map();
+  const visiblePhotos = new WeakSet();
+  const pendingPhotos = new Set();
   const root = document.getElementById('site-root');
   // The renderer boot hash covers this fixed bundle. It is never supplied by
   // the model, payload, admin origin or an external font server.
@@ -12,6 +15,32 @@
   fonts.textContent = TRUSTED_FONT_CSS;
   document.head.append(fonts);
   const send = data => parent.postMessage({ channel, ...data }, PARENT_ORIGIN);
+  function photoStatus(node, failed) {
+    const status = node.closest('figure')?.querySelector('[data-luster-native-status]');
+    if (status) {
+      status.hidden = !failed;
+    }
+  }
+  addEventListener('message', (event) => {
+    if (!initialized || event.source !== parent || event.origin !== PARENT_ORIGIN || event.data?.type !== 'native-image' || event.data.channel !== channel) {
+      return;
+    }
+    const nodes = nativeImages.get(event.data.mediaId);
+    if (!nodes || !pendingPhotos.has(event.data.mediaId)) {
+      return;
+    }
+    pendingPhotos.delete(event.data.mediaId);
+    const value = event.data.dataUrl;
+    const valid = typeof value === 'string' && value.length <= 5000100 && /^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
+    for (const node of nodes) {
+      if (visiblePhotos.has(node)) {
+        photoStatus(node, !valid);
+        if (valid) {
+          node.src = value;
+        }
+      }
+    }
+  });
   function emailHref(value) {
     // Bound the work and parse the separators directly. Overlapping domain
     // quantifiers can backtrack on hostile input; query/header injection is
@@ -168,6 +197,18 @@
       }
     });
     root.querySelectorAll('img').forEach((node) => {
+      if (node.hasAttribute('data-luster-native-image')) {
+        const id = node.dataset.lusterNativeImage;
+        if (typeof id === 'string' && /^[a-f0-9-]{36}$/i.test(id)) {
+          nativeImages.set(id, [...(nativeImages.get(id) ?? []), node]);
+          node.addEventListener('load', () => photoStatus(node, false));
+          node.addEventListener('error', () => {
+            photoStatus(node, true);
+            send({ type: 'native-image-error', mediaId: id });
+          });
+        }
+        return;
+      }
       const page = node.closest('.canva-page');
       const toggle = loaded => page?.querySelectorAll('[data-luster-canva-area]').forEach((area) => {
         area.hidden = !loaded;
@@ -184,6 +225,36 @@
         node.removeAttribute('src');
       }
     });
+    function requestPhoto(node) {
+      visiblePhotos.add(node);
+      const id = node.dataset.lusterNativeImage;
+      if (!node.hasAttribute('src') && !pendingPhotos.has(id)) {
+        pendingPhotos.add(id);
+        send({ type: 'native-image-request', mediaId: id });
+      }
+    }
+    if (typeof IntersectionObserver === 'function') {
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            requestPhoto(entry.target);
+          } else {
+            visiblePhotos.delete(entry.target);
+            // Keep intrinsic width/height so unloading offscreen data never
+            // collapses the layout. The parent retains only a bounded LRU.
+            entry.target.removeAttribute('src');
+          }
+        }
+      }, { rootMargin: '600px' });
+      for (const nodes of nativeImages.values()) {
+        nodes.forEach(node => observer.observe(node));
+      }
+      addEventListener('pagehide', () => observer.disconnect());
+    } else {
+      for (const nodes of nativeImages.values()) {
+        nodes.forEach(requestPhoto);
+      }
+    }
     root.addEventListener('click', (event) => {
       if (!event.isTrusted) {
         return;
@@ -294,8 +365,8 @@
     if (initialized) {
       clearInterval(ready);
     } else {
-      parent.postMessage({ type: 'renderer-ready' }, PARENT_ORIGIN);
+      parent.postMessage({ type: 'renderer-ready', capabilities: ['native-images-v1'] }, PARENT_ORIGIN);
     }
   }, 250);
-  parent.postMessage({ type: 'renderer-ready' }, PARENT_ORIGIN);
+  parent.postMessage({ type: 'renderer-ready', capabilities: ['native-images-v1'] }, PARENT_ORIGIN);
 })();

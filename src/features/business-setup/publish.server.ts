@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
 import { assetDataUrl } from '@/features/custom-sites/assets.server';
 import { publicCustomSiteBookingPolicy } from '@/features/custom-sites/booking-policy';
+import { assertCanvaNativeMedia, readCanvaNativeMedia } from '@/features/custom-sites/native-media.server';
+import { assertNativePhotoRendererReady } from '@/features/custom-sites/native-renderer.server';
 import { customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
 import { assertBookingPolicyCoverage, assertWebsiteDetailsCoverage } from '@/features/custom-sites/website-coverage.server';
 import { db } from '@/libs/DB';
@@ -61,9 +63,18 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
     return { ...replay, mediaFinalized: replay.receipt.mediaFinalized };
   }
   if (customArtifactId) {
-    const { media } = await assertCustomArtifact(db, actor.salonId, customArtifactId);
+    const { media, artifact } = await assertCustomArtifact(db, actor.salonId, customArtifactId);
     for (const asset of media.filter(a => a.role !== 'reference')) {
       await assetDataUrl(asset);
+    }
+    // Existing photo objects stay private. The exact committed publication
+    // authorizes their read route, so there is no external promotion to undo.
+    const nativeMedia = await assertCanvaNativeMedia(db, actor.salonId, artifact.source.canva);
+    if (nativeMedia.length) {
+      await assertNativePhotoRendererReady();
+    }
+    for (const image of nativeMedia) {
+      await readCanvaNativeMedia(image, true);
     }
   }
   if (needsDepositActivation && !checkEndpointRateLimit('admin/salon/settings/deposit-enable', actor.salonId, 'BILLING').allowed) {

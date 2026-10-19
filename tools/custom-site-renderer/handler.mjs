@@ -17,11 +17,11 @@ const hash = createHash('sha256').update(boot).digest('base64');
 const csp = `default-src 'none'; script-src 'sha256-${hash}' blob:; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; worker-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${parent.origin}; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox`;
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Custom salon website</title></head><body><div id="site-root"></div><script>${boot}</script></body></html>`;
 export default (req, res) => {
-  if (!['/renderer', '/api/renderer'].includes(req.url) || req.method !== 'GET') {
+  if (!['/renderer', '/api/renderer'].includes(req.url) || !['GET', 'HEAD'].includes(req.method)) {
     res.writeHead(404);
     res.end();
     return;
   }
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': csp, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()', 'Cross-Origin-Resource-Policy': 'cross-origin' });
-  res.end(html);
+  res.writeHead(200, { 'X-Luster-Renderer-Capabilities': 'native-images-v1', 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': csp, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()', 'Cross-Origin-Resource-Policy': 'cross-origin' });
+  res.end(req.method === 'HEAD' ? undefined : html);
 };

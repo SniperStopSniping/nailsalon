@@ -80,7 +80,8 @@ export async function revokeCustomPreview(actor: SetupActor, token: string) {
   });
 }
 
-export async function sharedCustomPreview(token: string) {
+/** Server-only authorization reused for individual photo reads. */
+export async function sharedCustomPreviewAccess(token: string) {
   if (!previewShareInput.shape.token.safeParse(token).success) {
     return null;
   }
@@ -101,7 +102,15 @@ export async function sharedCustomPreview(token: string) {
   if (artworkSharingBlockers(document, artifact.source, true).length) {
     return null;
   }
-  document.business.exactAddress = '';
-  const payload = await setupCustomSitePayload(row.share.salonId, document);
-  return payload ? { ...payload, source: publicCustomSiteSource(payload.source) } : null;
+  return { salonId: row.share.salonId, document, artifact };
+}
+
+export async function sharedCustomPreview(token: string) {
+  const access = await sharedCustomPreviewAccess(token);
+  if (!access) {
+    return null;
+  }
+  access.document.business.exactAddress = '';
+  const payload = await setupCustomSitePayload(access.salonId, access.document);
+  return payload ? { ...payload, source: publicCustomSiteSource(payload.source), ...(payload.nativeMedia ? { nativeMedia: { ...payload.nativeMedia, shareToken: token } } : {}) } : null;
 }

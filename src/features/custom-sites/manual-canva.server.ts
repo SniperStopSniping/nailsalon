@@ -9,6 +9,7 @@ import { SetupError } from '../business-setup/contracts';
 import type { CanvaAction, CanvaDesign } from './canva';
 import { canvaDesignSchema, compileCanvaDesign } from './canva';
 import { canvaDataFingerprint, canvaPriceLabelsFingerprint } from './canva-data.server';
+import type { CanvaNativeContent } from './canva-native-content';
 import type { CustomSiteData } from './contracts';
 import { manualLinkHref } from './manual-link';
 import { containsPrivateAddress } from './private-address';
@@ -27,6 +28,7 @@ export function manualCanvaSource(input: {
   visibility?: CanvaDesign['manualVisibility'];
   privateAddress?: string;
   internalAnchors?: ReadonlyMap<string, string>;
+  nativeContent?: CanvaNativeContent;
 }) {
   const pages: CanvaDesign['pages'] = [];
   const areas: CanvaDesign['areas'] = [];
@@ -103,6 +105,6 @@ export function manualCanvaSource(input: {
       controls.push({ id: stableId('cta', section.id), afterPage: page, label: cta.label, action: cta.type === 'book_now' ? { type: 'book' } : action(cta.action) });
     }
   }
-  const design = canvaDesignSchema.parse({ version: 1, pages, areas, controls, manualOrigin: input.origin, ...(input.visibility ? { manualVisibility: input.visibility } : {}), visibleText: visible.filter(Boolean).join('\n').slice(0, 16000), notes: [], dataFingerprint: canvaDataFingerprint(input.data), priceLabelsFingerprint: canvaPriceLabelsFingerprint(input.data), ownerReviewed: false });
+  const design = canvaDesignSchema.parse({ version: 1, pages, areas, controls, manualOrigin: input.origin, ...(input.nativeContent?.length ? { nativeContent: input.nativeContent } : {}), ...(input.visibility ? { manualVisibility: input.visibility } : {}), visibleText: visible.filter(Boolean).join('\n').slice(0, 16000), notes: [], dataFingerprint: canvaDataFingerprint(input.data), priceLabelsFingerprint: canvaPriceLabelsFingerprint(input.data), ownerReviewed: false });
   return compileCanvaDesign(design, input.data.details);
 }

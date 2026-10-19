@@ -5,9 +5,10 @@ import { parseFragment, serialize } from 'parse5';
 
 import { SetupError } from '@/features/business-setup/contracts';
 
+import { canvaNativeImages } from './canva-native-content';
 import { customSiteSourceSchema } from './contracts';
 
-const TAGS = new Set('main section article aside header footer nav div span p h1 h2 h3 h4 h5 h6 strong em b i small br hr ul ol li dl dt dd figure figcaption blockquote button a img picture details summary template label time mark svg path circle ellipse rect line polyline polygon g title desc'.split(' '));
+const TAGS = new Set('main section article aside header footer nav div span p h1 h2 h3 h4 h5 h6 strong em b i small br hr ul ol li dl dt dd figure figcaption blockquote cite button a img picture details summary template label time mark svg path circle ellipse rect line polyline polygon g title desc'.split(' '));
 const ATTRS = new Set('id class role title alt width height viewBox viewbox preserveAspectRatio preserveaspectratio d fill stroke stroke-width stroke-linecap stroke-linejoin cx cy r rx ry x y x1 y1 x2 y2 points transform opacity tabindex hidden open type'.split(' '));
 const FIELDS = new Set(['business.name', 'business.city', 'business.address', 'business.bio', 'business.hoursLabel', 'service.name', 'service.description', 'service.priceLabel', 'service.durationMinutes', 'booking.policyTitle', 'booking.policyText']);
 const IMAGE_HINTS: Record<string, readonly string[]> = { loading: ['lazy', 'eager'], decoding: ['async', 'sync', 'auto'], fetchpriority: ['high', 'low', 'auto'] };
@@ -33,6 +34,7 @@ export function customSourceImageIds(html: string) {
 }
 export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>, requireLiveFields = false) {
   const source = customSiteSourceSchema.parse(raw);
+  const nativeImages = new Set(canvaNativeImages(source.canva?.nativeContent).map(image => image.mediaId));
   const fail = (message: string): never => {
     throw new SetupError('INVALID', message);
   };
@@ -118,6 +120,9 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
         continue;
       }
       if (attr.name === 'data-luster-canva-control' && ['a', 'button'].includes(node.tagName ?? '') && source.canva?.controls?.some(control => control.id === attr.value)) {
+        continue;
+      }
+      if (((attr.name === 'data-luster-native-image' && node.tagName === 'img') || (attr.name === 'data-luster-native-status' && node.tagName === 'figcaption')) && nativeImages.has(attr.value)) {
         continue;
       }
       if (attr.name === 'data-luster-canva-area' && ['a', 'button'].includes(node.tagName ?? '') && source.canva?.areas.some(area => area.id === attr.value)) {

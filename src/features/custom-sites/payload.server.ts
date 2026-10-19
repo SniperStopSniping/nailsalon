@@ -10,6 +10,7 @@ import { assertCustomArtifact } from './artifacts.server';
 import { assetDataUrl } from './assets.server';
 import { publicCustomSiteBookingPolicy } from './booking-policy';
 import { canvaFactsMatch, canvaServiceKey } from './canva-data.server';
+import { canvaNativeImages } from './canva-native-content';
 import type { CustomSiteData, CustomSitePayload, CustomSiteSource } from './contracts';
 import { customSiteDataFromSetup } from './setup-data';
 import { customSourceImageIds } from './validate.server';
@@ -68,7 +69,8 @@ export async function customSitePayload(salonId: string, artifactId: string, dat
       }
     }
   }
-  return { source: data.preview ? artifact.source : publicCustomSiteSource(artifact.source), data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: !canvaFactsMatch(artifact.source, facts, true), canvaReviewRequired: !artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, facts, true) } : {}) };
+  const nativeImages = canvaNativeImages(artifact.source.canva?.nativeContent);
+  return { source: data.preview ? artifact.source : publicCustomSiteSource(artifact.source), data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(nativeImages.length ? { nativeMedia: { artifactId: artifact.id, mediaIds: nativeImages.map(image => image.mediaId) } } : {}), ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: !canvaFactsMatch(artifact.source, facts, true), canvaReviewRequired: !artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, facts, true) } : {}) };
 }
 
 /** OCR and model critique are private editing evidence, not public site data. */

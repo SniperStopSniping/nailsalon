@@ -14,6 +14,7 @@ import { assertWebsiteAssetBudget, ownedAssets } from './assets.server';
 import { compileCanvaDesign } from './canva';
 import { canvaDataFingerprint, canvaPriceLabelsFingerprint, canvaTargetBlockers } from './canva-data.server';
 import type { CustomSiteSource } from './contracts';
+import { assertCanvaNativeMedia } from './native-media.server';
 import { containsPrivateAddress } from './private-address';
 import { customSiteDataFromSetup } from './setup-data';
 import { validateCustomSource } from './validate.server';
@@ -26,6 +27,7 @@ export async function assertCustomArtifact(tx: SetupTransaction | typeof db, sal
   const media = await ownedAssets(tx, salonId, artifact.assetIds);
   assertWebsiteAssetBudget(media);
   validateCustomSource(artifact.source, new Set(media.filter(a => a.role !== 'reference' && a.mimeType.startsWith('image/')).map(a => a.id)));
+  await assertCanvaNativeMedia(tx, salonId, artifact.source.canva);
   return { artifact, media };
 }
 export async function storeCustomArtifact(actor: SetupActor, input: { source: CustomSiteSource; assetIds: string[]; operationId: string; expectedRevision: number }, transaction?: SetupTransaction) {
@@ -49,6 +51,7 @@ export async function storeCustomArtifact(actor: SetupActor, input: { source: Cu
       throw new SetupError('INVALID', 'Your public website details contain your private service address. Remove it or review address visibility first.');
     }
     if (source.canva) {
+      await assertCanvaNativeMedia(tx, actor.salonId, source.canva);
       const trusted = validateCustomSource(compileCanvaDesign(source.canva, head.revision.document.website.content.websiteDetails), new Set(media.filter(a => a.role !== 'reference').map(a => a.id)));
       if (source.html !== trusted.html || source.css !== trusted.css || source.javascript !== '') {
         throw new SetupError('INVALID', 'Keep the Canva artwork intact. Use the clickable-area controls to change its links.');

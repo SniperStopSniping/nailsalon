@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { CustomSitePayload } from './contracts';
+import { nativeImageLoader } from './native-image-loader';
 
 export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, managePath }: { payload: CustomSitePayload; rendererOrigin: string; bookingPath?: string; managePath?: string }) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -25,6 +26,23 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
   useEffect(() => {
     const channel = channelRef.current ?? crypto.randomUUID();
     channelRef.current = channel;
+    const { nativeMedia, ...rendererPayload } = payload;
+    let photoFailed = false;
+    let pendingPhotos = 0;
+    const photos = nativeMedia
+      ? nativeImageLoader(nativeMedia, (mediaId, dataUrl) => {
+        if (!dataUrl) {
+          photoFailed = true;
+          setStatus('A photo could not be loaded.');
+        }
+        frame.current?.contentWindow?.postMessage({ type: 'native-image', channel, mediaId, dataUrl }, '*');
+      }, (count) => {
+        pendingPhotos = count;
+        if (rendered.current && !photoFailed) {
+          setStatus(count ? 'Loading photos…' : '');
+        }
+      })
+      : null;
     const slow = window.setTimeout(() => {
       if (!rendered.current) {
         setStatus('The website is taking longer to load.');
@@ -37,9 +55,13 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         return;
       }
       if (event.data?.type === 'renderer-ready') {
+        if (nativeMedia && (!Array.isArray(event.data.capabilities) || !event.data.capabilities.includes('native-images-v1'))) {
+          setStatus('Website photos are temporarily unavailable.');
+          return;
+        }
         // Opaque origins cannot be named as targetOrigin. The destination is
         // exclusively the server-validated static renderer's WindowProxy.
-        frame.current?.contentWindow?.postMessage({ type: 'initialize', channel, payload }, '*');
+        frame.current?.contentWindow?.postMessage({ type: 'initialize', channel, payload: rendererPayload }, '*');
         return;
       }
       if (event.data?.channel !== channel) {
@@ -48,7 +70,15 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
       switch (event.data.type) {
         case 'rendered': window.clearTimeout(slow);
           rendered.current = true;
-          setStatus('');
+          setStatus(photoFailed ? 'A photo could not be loaded.' : pendingPhotos ? 'Loading photos…' : '');
+          break;
+        case 'native-image-request': photos?.request(event.data.mediaId);
+          break;
+        case 'native-image-error':
+          if (nativeMedia?.mediaIds.includes(event.data.mediaId)) {
+            photoFailed = true;
+            setStatus('A photo could not be loaded.');
+          }
           break;
         case 'interaction-stopped': setStatus('An animation stopped safely. The website and booking buttons still work.');
           break;
@@ -80,6 +110,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
     window.addEventListener('message', message);
     return () => {
       window.clearTimeout(slow);
+      photos?.dispose();
       window.removeEventListener('message', message);
     };
   }, [payload, rendererOrigin, bookingPath, managePath, attempt]);
@@ -94,7 +125,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
       {status && (
         <div className="p-3 text-center text-sm">
           <p role="status">{status}</p>
-          {status === 'The website is taking longer to load.' && (
+          {['The website is taking longer to load.', 'A photo could not be loaded.', 'Website photos are temporarily unavailable.'].includes(status) && (
             <button type="button" className="mt-2 min-h-11 rounded-lg border px-4 py-2" onClick={reloadWebsite}>
               {payload.data.preview ? 'Reload preview' : 'Reload website'}
             </button>

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compileCanvaDesign } from './canva';
 import type { CustomSitePayload } from './contracts';
 import { CustomWebsiteFrame } from './CustomWebsiteFrame';
+import * as nativeLoader from './native-image-loader';
 
 const payload: CustomSitePayload = {
   source: { title: 'Custom site', html: '', css: '', javascript: '', analysis: '', limitations: [] },
@@ -16,9 +17,75 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('custom website trusted parent bridge', () => {
+  it('shows actual photo loading, reports failure and offers a safe preview reload', () => {
+    vi.spyOn(nativeLoader, 'nativeImageLoader').mockReturnValue({ request: vi.fn(), dispose: vi.fn() });
+    const media = { artifactId: 'a0000000-0000-4000-8000-000000000001', mediaIds: ['b0000000-0000-4000-8000-000000000001'] };
+    render(<CustomWebsiteFrame payload={{ ...payload, data: { ...payload.data, preview: true }, nativeMedia: media }} rendererOrigin="https://renderer.example" />);
+    const frame = screen.getByTitle('Custom site') as HTMLIFrameElement;
+    const send = vi.spyOn(frame.contentWindow!, 'postMessage');
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'renderer-ready', capabilities: ['native-images-v1'] } })));
+    const channel = send.mock.calls[0]![0].channel;
+    const ready = vi.mocked(nativeLoader.nativeImageLoader).mock.calls[0]![1];
+    const activity = vi.mocked(nativeLoader.nativeImageLoader).mock.calls[0]![2]!;
+    act(() => {
+      activity(1);
+      window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'rendered', channel } }));
+    });
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading photos');
+
+    act(() => activity(0));
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    act(() => ready(media.mediaIds[0]!, null));
+
+    expect(screen.getByRole('status')).toHaveTextContent('A photo could not be loaded.');
+    expect(screen.getByRole('button', { name: 'Reload preview' })).toBeEnabled();
+    expect(screen.queryByRole('link', { name: 'Open booking menu' })).not.toBeInTheDocument();
+    expect(send).toHaveBeenLastCalledWith({ type: 'native-image', channel, mediaId: media.mediaIds[0], dataUrl: null }, '*');
+  });
+
+  it('keeps photo authorization out of the isolated frame and requires a compatible renderer', () => {
+    const photos = { request: vi.fn(), dispose: vi.fn() };
+    vi.spyOn(nativeLoader, 'nativeImageLoader').mockReturnValue(photos);
+    const nativeMedia = { artifactId: 'a0000000-0000-4000-8000-000000000001', mediaIds: ['b0000000-0000-4000-8000-000000000001'], shareToken: 'secret-read-only-share-token' };
+    const { unmount } = render(<CustomWebsiteFrame payload={{ ...payload, nativeMedia }} rendererOrigin="https://renderer.example" />);
+    const frame = screen.getByTitle('Custom site') as HTMLIFrameElement;
+    const send = vi.spyOn(frame.contentWindow!, 'postMessage');
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'renderer-ready' } })));
+
+    expect(send).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('photos are temporarily unavailable');
+
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'renderer-ready', capabilities: { includes: 'native-images-v1' } } })));
+
+    expect(send).not.toHaveBeenCalled();
+
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'renderer-ready', capabilities: ['native-images-v1'] } })));
+    const initialization = send.mock.calls[0]![0];
+
+    expect(initialization.payload).not.toHaveProperty('nativeMedia');
+    expect(JSON.stringify(initialization)).not.toContain(nativeMedia.shareToken);
+    expect(nativeLoader.nativeImageLoader).toHaveBeenCalledWith(nativeMedia, expect.any(Function), expect.any(Function));
+
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'native-image-request', channel: 'wrong', mediaId: nativeMedia.mediaIds[0] } })));
+
+    expect(photos.request).not.toHaveBeenCalled();
+
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'native-image-request', channel: initialization.channel, mediaId: nativeMedia.mediaIds[0] } })));
+
+    expect(photos.request).toHaveBeenCalledWith(nativeMedia.mediaIds[0]);
+
+    unmount();
+
+    expect(photos.dispose).toHaveBeenCalledOnce();
+  });
+
   it('labels stale Canva artwork and shows the current proposed booking values separately', () => {
     const source = compileCanvaDesign({ version: 1, pages: [{ assetId: 'a0000000-0000-4000-8000-000000000001', width: 300, height: 600, alt: 'Original export' }], areas: [], visibleText: 'Gel $65', notes: [], dataFingerprint: 'a'.repeat(64), ownerReviewed: true });
     const input: CustomSitePayload = { ...payload, source, canvaFactsChanged: true, data: { ...payload.data, preview: true, services: [{ id: 'draft-gel', name: 'Gel', description: null, priceCents: 7200, priceLabel: '$72.00', durationMinutes: 60 }] } };
@@ -124,7 +191,7 @@ it('recovers a stalled website in a new opaque frame without accepting the old c
   const initialization = freshSend.mock.calls[0]![0];
 
   expect(initialization.channel).not.toBe(oldChannel);
-  expect(initialization.payload).toBe(payload);
+  expect(initialization.payload).toStrictEqual(payload);
 
   act(() => window.dispatchEvent(new MessageEvent('message', { source: freshFrame.contentWindow, origin: 'null', data: { type: 'rendered', channel: initialization.channel } })));
 
