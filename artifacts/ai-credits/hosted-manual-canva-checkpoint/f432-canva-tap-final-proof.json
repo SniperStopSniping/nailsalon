@@ -1,0 +1,27 @@
+{
+  "sourceSha": "f43270ffd1133bd3bd84cb38597a0eed0802bec9",
+  "actualHostedOwnerUi": true,
+  "oneClick": true,
+  "before": {
+    "width": 111.99787621359224,
+    "height": 41.57665857605178
+  },
+  "after": {
+    "width": 111.99787621359224,
+    "height": 44.00131472491909
+  },
+  "sourceImageUnchanged": true,
+  "reviewStayedRequiredUntilVisibleOwnerApproval": true,
+  "ownerVisuallyCheckedPosition": true,
+  "manualAreaSaved": true,
+  "customerPhoneLink": {
+    "height": 53,
+    "href": "https://www.instagram.com/luster_ai_test_only/",
+    "rel": "noopener noreferrer",
+    "target": "_blank",
+    "width": 135
+  },
+  "aiCalls": 0,
+  "serverPublication": false,
+  "measurementCorrection": "The editor's inner drag button has a four-pixel inset; the semantic area rectangle and final customer anchor are the relevant tap targets. An initial inner-button measurement was retained privately."
+}
