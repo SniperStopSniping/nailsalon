@@ -54,13 +54,25 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
   assert.equal(typeof core.parseStringToURLObject, 'function', 'Sentry must expose its current URL parser');
   const paths = ['/', '/api/health', '/api/public/customer-booking/check?token=synthetic-only', '/salon/menu?category=gel&extra=1', '/set%20care'];
 
-  for (const url of paths) {
-    await t.test(`Sentry parses request URL ${url}`, () => {
-      const parsed = core.parseStringToURLObject(url);
-      assert.ok(parsed);
-      assert.equal(parsed.pathname, url.split(/[?#]/, 1)[0]);
-      assert.equal(parsed.search, url.includes('?') ? `?${url.split('?')[1].split('#')[0]}` : '');
-    });
+  for (const protocol of ['http', 'https']) {
+    for (const url of paths) {
+      await t.test(`Sentry normalizes ${protocol} request URL ${url}`, () => {
+        const request = core.httpRequestToRequestData({
+          url,
+          method: 'GET',
+          headers: { host: 'example.invalid' },
+          socket: { encrypted: protocol === 'https' },
+        });
+        assert.equal(request.url, `${protocol}://example.invalid${url}`);
+        assert.equal(request.method, 'GET');
+        for (const input of [url, request.url]) {
+          const parsed = core.parseStringToURLObject(input);
+          assert.ok(parsed);
+          assert.equal(parsed.pathname, url.split(/[?#]/, 1)[0]);
+          assert.equal(parsed.search, url.includes('?') ? `?${url.split('?')[1].split('#')[0]}` : '');
+        }
+      });
+    }
   }
   await setImmediate();
   assert.ok(!warnings.includes('DEP0169'), 'The installed monitoring dependency still calls deprecated URL parsing');
