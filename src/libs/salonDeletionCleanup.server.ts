@@ -16,7 +16,7 @@ export function salonDeletionConfirmationDigest(jobId: string, slug: string): st
 type CleanupRow = typeof cleanup.$inferSelect;
 
 export function salonDeletionStatus(row: CleanupRow): SalonDeletionStatus {
-  const reviewRequired = row.pendingAssets.filter(asset => asset.kind === 'review').length;
+  const reviewRequired = row.pendingAssets.filter(asset => asset.kind !== 'onboarding').length;
   return {
     jobId: row.id,
     status: row.pendingAssets.length === 0 ? 'completed' : row.pendingAssets.length === reviewRequired ? 'review_required' : 'pending',
@@ -66,7 +66,7 @@ export async function runSalonDeletionCleanup(jobId: string, now = new Date()): 
   // retry an already-removed provider object (ok / not found are idempotent).
   let pendingAssets = claimed.pendingAssets;
   let removed = claimed.mediaRemoved;
-  for (const asset of claimed.pendingAssets.filter(item => item.kind !== 'review').slice(0, 10)) {
+  for (const asset of claimed.pendingAssets.filter(item => item.kind === 'onboarding').slice(0, 10)) {
     // A slow provider request may outlive a lease. Do not start another deletion
     // after ownership changes; the fenced write below protects stale progress.
     const current = await getSalonDeletionCleanup(jobId);
@@ -112,7 +112,7 @@ export async function cleanupPendingSalonDeletions(): Promise<{ checked: number;
     isNull(cleanup.completedAt),
     lte(cleanup.nextAttemptAt, now),
     or(isNull(cleanup.leaseExpiresAt), lte(cleanup.leaseExpiresAt, now)),
-    sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${cleanup.pendingAssets}) AS asset WHERE asset->>'kind' <> 'review')`,
+    sql`EXISTS (SELECT 1 FROM jsonb_array_elements(${cleanup.pendingAssets}) AS asset WHERE asset->>'kind' = 'onboarding')`,
   )).orderBy(asc(cleanup.nextAttemptAt)).limit(5);
   let completed = 0;
   for (const job of due) {

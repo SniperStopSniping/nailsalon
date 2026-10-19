@@ -4,9 +4,8 @@ import { sql } from 'drizzle-orm';
 
 import { deleteOnboardingMediaFile, isOnboardingMediaStorageProvider } from '@/features/onboarding-v1-integration/media-storage.server';
 import type { DbTransaction } from '@/libs/auditLog';
-import { cloudinary, isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { assertManagedPortfolioImagePublicId } from '@/libs/portfolioImageStorage.server';
-import { deleteCloudinaryServiceImageByPublicId, deleteManagedServiceImage, parseManagedServiceImagePublicId } from '@/libs/serviceImageStorage.server';
+import { parseManagedServiceImagePublicId } from '@/libs/serviceImageStorage.server';
 import type { SalonDeletionAsset } from '@/models/salonDeletion';
 
 type ImageReference = { salonId: string; ownerId: string; source: string; reference: string; imageUrl: string | null };
@@ -136,50 +135,12 @@ export async function assertSalonDeletionAssetUnreferenced(executor: Pick<DbTran
   }
 }
 
+/** Public URL writers are not fenced against deletion: fail closed, including legacy jobs. */
 export async function removeSalonDeletionAsset(asset: SalonDeletionAsset, salonId: string): Promise<void> {
-  if (asset.kind === 'review') {
-    throw new Error('Manual ownership review required');
+  if (asset.kind !== 'onboarding') {
+    throw new Error('Public or unverified media requires manual review');
   }
-  if (asset.kind === 'onboarding') {
-    await deleteOnboardingMediaFile(asset.key, { salonId });
-    return;
-  }
-  if (asset.kind === 'local_service') {
-    if (!await deleteManagedServiceImage({ ...asset, salonId })) {
-      throw new Error('Local media cleanup not confirmed');
-    }
-    return;
-  }
-  if (!isCloudinaryConfigured()) {
-    throw new Error('Image storage unavailable');
-  }
-  // Ownership was captured from tenant rows before the purge. Validate the
-  // immutable key again before every provider call, including retries.
-  const expected = ownedPublicId({ salonId, ownerId: asset.publicId.split('/')[3] ?? '', source: asset.source, reference: asset.publicId, imageUrl: null }, salonId);
-  if (!expected && asset.source !== 'service') {
-    // photos/{appointment}/... does not contain a salon id. Its proof is the
-    // joined appointment inventory, stored only by collectSalonDeletionAssets.
-    if (asset.source !== 'appointment' || !/^photos\/[\w-]{1,160}\/(?:before|after)\/[\w-]{16}_[a-z0-9]+$/.test(asset.publicId)) {
-      throw new Error('Media ownership could not be verified');
-    }
-  }
-  if (asset.source === 'service' && parseManagedServiceImagePublicId(asset.publicId)?.salonId !== salonId) {
-    throw new Error('Service media ownership could not be verified');
-  }
-  if (asset.source === 'service') {
-    const service = parseManagedServiceImagePublicId(asset.publicId)!;
-    // Preserve the existing active-metadata, deployment and asset-id checks.
-    // Its boolean alone is not proof: false also means already absent, and
-    // a successful API call may contain per-asset failures. Verify absence.
-    await deleteCloudinaryServiceImageByPublicId({ publicId: asset.publicId, salonId, serviceId: service.serviceId });
-    const remaining = await cloudinary.api.resources_by_ids([asset.publicId], { resource_type: 'image', type: 'upload' }) as unknown as { resources?: unknown[] };
-    if (!Array.isArray(remaining.resources) || remaining.resources.length !== 0) {
-      throw new Error('Service media cleanup not confirmed');
-    }
-    return;
-  }
-  const result = await cloudinary.uploader.destroy(asset.publicId, { resource_type: 'image', type: 'upload', invalidate: true });
-  if (result.result !== 'ok' && result.result !== 'not found') {
-    throw new Error('Provider did not confirm media removal');
-  }
+  // This adapter verifies salon/site ownership of private immutable keys and
+  // accepts only confirmed ok/not-found removal. No public-asset delete here.
+  await deleteOnboardingMediaFile(asset.key, { salonId });
 }

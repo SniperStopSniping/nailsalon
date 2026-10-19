@@ -26,43 +26,17 @@ describe('salon deletion provider confirmations', () => {
     provider.destroy.mockResolvedValue({ result: 'ok' });
   });
 
-  it.each(['ok', 'not found'])('accepts only confirmed idempotent removal: %s', async (result) => {
-    provider.destroy.mockResolvedValueOnce({ result });
-    const publicId = `salons/${salonId}/appointments/fake_appointment/fake_photo`;
-    await removeSalonDeletionAsset({ kind: 'cloudinary', publicId, source: 'appointment' }, salonId);
-
-    expect(provider.destroy).toHaveBeenCalledWith(publicId, { invalidate: true, resource_type: 'image', type: 'upload' });
-  });
-
-  it('keeps unexpected provider results retryable and does not swallow errors', async () => {
-    provider.destroy.mockResolvedValueOnce({ result: 'error' });
-
-    await expect(removeSalonDeletionAsset({ kind: 'cloudinary', publicId: `salons/${salonId}/appointments/appt/photo`, source: 'appointment' }, salonId)).rejects.toThrow('Provider did not confirm');
-
-    provider.configured.mockReturnValue(false);
-
-    await expect(removeSalonDeletionAsset({ kind: 'cloudinary', publicId: `salons/${salonId}/appointments/appt/photo`, source: 'appointment' }, salonId)).rejects.toThrow('Image storage unavailable');
-  });
-
-  it('refuses another salon’s keys and manual-review references', async () => {
-    await expect(removeSalonDeletionAsset({ kind: 'cloudinary', publicId: 'salons/other/appointments/appt/photo', source: 'appointment' }, salonId)).rejects.toThrow('ownership');
-    await expect(removeSalonDeletionAsset({ kind: 'review', reference: 'https://external.example.test/image', reason: 'Unknown ownership' }, salonId)).rejects.toThrow('review');
+  it.each([
+    { kind: 'cloudinary', publicId: `salons/${salonId}/appointments/appt/photo`, source: 'appointment' },
+    { kind: 'cloudinary', publicId: `salons/${salonId}/services/service_svc_abcdefghijklmnop_webp`, source: 'service' },
+    { kind: 'local_service', imageUrl: `/uploads/services/${salonId}/service_svc_abcdefghijklmnop.webp`, serviceId: 'svc' },
+    { kind: 'review', reference: 'https://external.example.test/image', reason: 'Unknown ownership' },
+  ] as const)('refuses unfenced public and unverified media: $kind', async (asset) => {
+    await expect(removeSalonDeletionAsset(asset, salonId)).rejects.toThrow('requires manual review');
     expect(provider.destroy).not.toHaveBeenCalled();
-  });
-
-  it('retains the existing service metadata guards and independently verifies absence', async () => {
-    const publicId = `salons/${salonId}/services/service_svc_${'a'.repeat(16)}_webp`;
-    const asset = { kind: 'cloudinary', publicId, source: 'service' } as const;
-    provider.serviceDelete.mockResolvedValue(false);
-    provider.resources.mockResolvedValueOnce({ resources: [{ public_id: publicId }] });
-
-    await expect(removeSalonDeletionAsset(asset, salonId)).rejects.toThrow('not confirmed');
-    expect(provider.serviceDelete).toHaveBeenCalledWith({ publicId, salonId, serviceId: 'svc' });
-    expect(provider.destroy).not.toHaveBeenCalled();
-
-    provider.resources.mockResolvedValueOnce({ resources: [] });
-
-    await expect(removeSalonDeletionAsset(asset, salonId)).resolves.toBeUndefined();
+    expect(provider.resources).not.toHaveBeenCalled();
+    expect(provider.serviceDelete).not.toHaveBeenCalled();
+    expect(provider.onboardingDelete).not.toHaveBeenCalled();
   });
 
   it('uses the owned private-media adapter for onboarding files', async () => {

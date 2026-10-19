@@ -3,7 +3,8 @@
 This packet is not released. Migration 0113 depends on the reviewed 0098–0112
 sequence in PR #465. Do not apply 0113 first: Drizzle's timestamp ledger could
 then skip those earlier migrations. The CI migration-order check intentionally
-fails on this isolated draft until those predecessors are integrated. The combined release must rehearse the full
+fails on this isolated draft until those predecessors are integrated. The same
+CI-invoked guard pins the exact 0113 SQL SHA-256 postimage and rejects mutations. The combined release must rehearse the full
 0097 → 0113 sequence and verify the resulting ledger and schema before shipping.
 
 ## Three separate requests
@@ -46,17 +47,27 @@ nulling behavior; the purge preview counts are not a count of all retained data.
 
 The job has no foreign key to the deleted salon. It captures owned onboarding,
 appointment, portfolio and service-media references before database deletion.
-Unknown providers, external URLs and references shared by another tenant remain
-flagged for ownership review; they are never silently counted as removed.
-Existing service-image metadata/asset ownership checks remain in use.
+Automatic removal is restricted to owner-bound private onboarding media.
+**All public Cloudinary and local service images require manual review**, even
+when their ownership is known. Unknown providers, external URLs and shared
+references also remain under review; none are silently counted as removed.
+This rule includes older jobs already containing `cloudinary` or `local_service`
+assets. Their status is `review_required`, and neither the cron nor a manual
+retry can delete them automatically.
 
 Each run leases one job, attempts at most ten assets, saves successful removals
 individually and retains failures for bounded exponential-backoff retries.
 Provider `not found` is treated as idempotent success where the adapter can
 confirm absence. A failed checkpoint leaves the key available for a safe retry.
-The worker rechecks live references before each provider removal, so a newly
-added reference is not silently erased. The existing authenticated media cleanup
-cron invokes the worker; no n8n is used.
+A reference check and a provider delete are separate operations. A safe local
+reproduction against the initial PR466 head showed an owner's supported raw-logo
+PATCH could add a public-image reference during that window. It used real PGlite
+and route validation/persistence with mocked identity/provider calls, and is not
+proof of live loss. Public auto-deletion is therefore withheld until a separately
+reviewed writer fence can make the reference/write/delete rules consistent. No
+race-free guarantee is made for unfenced public writers. The private onboarding
+adapter still enforces immutable salon/site key ownership. The existing
+authenticated media cleanup cron invokes its retries; no n8n is used.
 Verify scheduler invocations in the deployed environment before calling this
 operationally proven.
 
@@ -73,7 +84,9 @@ operationally proven.
   not certify provider backup erasure, all historical unreferenced uploads,
   user-held copies, remote calendar event deletion or person-account deletion.
 - `review_required` needs an authorized operator to inspect the stored references,
-  prove ownership and determine the correct deletion/retention action. There is
+  verify ownership and current references, and determine a safe deletion/retention
+  action. Rechecking a public URL immediately before deletion is not an atomic
+  write fence and does not by itself resolve the reproduced race. There is
   no bulk "mark complete" control. Keep the case open until that review and its
   evidence are complete; do not edit counters merely to produce a green status.
 
