@@ -1,0 +1,22 @@
+{
+  "sourceSha": "1f10deb7de7cdee5a7b8044b4a41b9a6b4699cda",
+  "accepted": false,
+  "reason": "Explicit artist was discarded by legacy founding/free-solo normalization; client success UI displayed requested rather than committed artist.",
+  "postedArtistId": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+  "responseArtistId": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+  "responseStatus": 201,
+  "appointment": {
+    "id": "appt_a55f6583-e09f-42da-acbc-367495236968",
+    "technician_id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+    "start_time": "2026-10-21T16:15:00.000Z",
+    "end_time": "2026-10-21T17:15:00.000Z",
+    "total_price": 5000,
+    "total_duration_minutes": 60,
+    "buffer_minutes": 10,
+    "status": "confirmed"
+  },
+  "previousAppointmentsUnchanged": 9,
+  "aiCallsDuringBooking": 0,
+  "manualSourceRepair": false,
+  "productionTouched": false
+}

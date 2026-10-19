@@ -1,0 +1,17 @@
+{
+  "sourceSha": "081b5d8358f654e323c9712d9a1d4ad581fb29ff",
+  "gitBranch": "codex/ai-website-release-20261019",
+  "deploymentId": "dpl_523yDY7m26pzBDwHzeZP9jM1Ju5M",
+  "target": "preview",
+  "projectId": "prj_G7i795a439CUZOr9W2gD2DT0E2AO",
+  "explicitTypeScriptPassed": true,
+  "staticPages": 164,
+  "healthGitSha": "081b5d8",
+  "dbRedisClerkReady": true,
+  "metadataOnlyPreviewBranchConfigurationChecked": true,
+  "nativePublicOwnerLoginOriginMatchesTestAlias": true,
+  "secretValuesInspected": false,
+  "earlierFullShaRefBuildNotUsedForAcceptance": true,
+  "genericHealth": "degraded: deliberately unconfigured test integrations",
+  "productionTouched": false
+}
