@@ -2011,6 +2011,21 @@ jobs:
             'D5_REAL_POSTGRES_TESTS_EXECUTED=6 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d5-postgres-concurrency.log
 
+      - name: Run runtime PostgreSQL pool cooldown regressions and prove zero skips
+        shell: bash
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          D5_POOL_COOLDOWN_REQUIRED: 'true'
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/runtimeDatabasePoolClient.integration.test.ts \
+            | tee runtime-database-pool-cooldown-postgres.log
+          grep -Fqx \
+            'RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=4 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0' \
+            runtime-database-pool-cooldown-postgres.log
+
       - name: Run D5 Calendar claim and revert races and prove zero skips
         shell: bash
         env:
