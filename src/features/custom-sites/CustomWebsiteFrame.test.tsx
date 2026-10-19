@@ -12,7 +12,11 @@ const payload: CustomSitePayload = {
   data: { business: { name: 'Synthetic', city: 'Toronto', address: null, bio: '', hours: {} }, services: [], currency: 'CAD', preview: false },
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('custom website trusted parent bridge', () => {
   it('labels stale Canva artwork and shows the current proposed booking values separately', () => {
@@ -89,4 +93,61 @@ it('keeps booking disabled in private previews without telling a published owner
   expect(screen.queryByRole('link', { name: 'Open booking menu' })).not.toBeInTheDocument();
 
   send.mockRestore();
+});
+
+it('recovers a stalled website in a new opaque frame without accepting the old channel', () => {
+  vi.useFakeTimers();
+  render(<CustomWebsiteFrame payload={payload} rendererOrigin="https://renderer.example" bookingPath="/salon/book/service" />);
+  const oldFrame = screen.getByTitle('Custom site') as HTMLIFrameElement;
+  const oldWindow = oldFrame.contentWindow!;
+  const oldSend = vi.spyOn(oldWindow, 'postMessage');
+  act(() => window.dispatchEvent(new MessageEvent('message', { source: oldWindow, origin: 'null', data: { type: 'renderer-ready' } })));
+  const oldChannel = oldSend.mock.calls[0]![0].channel;
+  act(() => vi.advanceTimersByTime(15000));
+
+  expect(screen.getByRole('status')).toHaveTextContent('taking longer to load');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Reload website' }));
+  const freshFrame = screen.getByTitle('Custom site') as HTMLIFrameElement;
+
+  expect(freshFrame).not.toBe(oldFrame);
+  expect(freshFrame).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+  expect(freshFrame).toHaveAttribute('src', 'https://renderer.example/renderer');
+  expect(screen.getByRole('link', { name: 'Open booking menu' })).toHaveAttribute('href', '/salon/book/service?nativeBooking=1');
+
+  act(() => window.dispatchEvent(new MessageEvent('message', { source: oldWindow, origin: 'null', data: { type: 'rendered', channel: oldChannel } })));
+
+  expect(screen.getByRole('status')).toHaveTextContent('Loading your custom website');
+
+  const freshSend = vi.spyOn(freshFrame.contentWindow!, 'postMessage');
+  act(() => window.dispatchEvent(new MessageEvent('message', { source: freshFrame.contentWindow, origin: 'null', data: { type: 'renderer-ready' } })));
+  const initialization = freshSend.mock.calls[0]![0];
+
+  expect(initialization.channel).not.toBe(oldChannel);
+  expect(initialization.payload).toBe(payload);
+
+  act(() => window.dispatchEvent(new MessageEvent('message', { source: freshFrame.contentWindow, origin: 'null', data: { type: 'rendered', channel: initialization.channel } })));
+
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Reload website' })).not.toBeInTheDocument();
+});
+
+it('keeps a recovered private preview private and unable to navigate to live booking', () => {
+  vi.useFakeTimers();
+  const input = { ...payload, data: { ...payload.data, preview: true } };
+  render(<CustomWebsiteFrame payload={input} rendererOrigin="https://renderer.example" bookingPath="/salon/book/service" />);
+  act(() => vi.advanceTimersByTime(15000));
+  fireEvent.click(screen.getByRole('button', { name: 'Reload preview' }));
+  const frame = screen.getByTitle('Custom site') as HTMLIFrameElement;
+  const send = vi.spyOn(frame.contentWindow!, 'postMessage');
+  act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'renderer-ready' } })));
+  const initialization = send.mock.calls[0]![0];
+
+  expect(initialization.payload.data.preview).toBe(true);
+  expect(screen.queryByRole('link', { name: 'Open booking menu' })).not.toBeInTheDocument();
+
+  act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'preview-booking', channel: initialization.channel } })));
+
+  expect(screen.getByRole('status')).toHaveTextContent('Booking is disabled in this private preview.');
+  expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
 });
