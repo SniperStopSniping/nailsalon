@@ -452,6 +452,11 @@ describe('durable salon deletion recovery', () => {
     const response = await DELETE(deleteRequest({ hard: true, body: { confirmSlug: SLUG } }), { params });
 
     expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Cannot delete salon: related records still reference it',
+      constraint: 'deletion_test_blocker_salon_id_fkey',
+      table: 'deletion_test_blocker',
+    });
     expect((await counts()).salons).toBe(1);
     expect(await db.select().from(schema.salonDeletionCleanupSchema)).toHaveLength(0);
     expect(mediaCleanup).not.toHaveBeenCalled();
