@@ -773,12 +773,13 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
             </div>
           </div>
           {head && (
-            <>
+            <details>
+              <summary>Check booking details</summary>
               <TeamBookingSummary published={published} document={head.revision.document} />
               <AddOnBookingSummary published={published} document={head.revision.document} />
               <BookingExtrasSummary published={published} document={head.revision.document} />
               {head.revision.document.website.config.customFrontendId && <BookingSetupSummary published={published} document={head.revision.document} />}
-            </>
+            </details>
           )}
           {head && (
             <CustomDesignStudio

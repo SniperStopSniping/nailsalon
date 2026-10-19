@@ -805,6 +805,10 @@ it('labels a published website consistently and returns to draft labels only aft
 
   expect(within(preview).getByRole('heading', { name: 'Your website' })).toBeVisible();
   expect(await within(preview).findByText('Published', { exact: true })).toBeVisible();
+  expect(within(preview).getByText('Booking setup', { exact: true })).not.toBeVisible();
+
+  fireEvent.click(within(preview).getByText('Check booking details', { exact: true }));
+
   expect(within(preview).getByText('Booking setup', { exact: true })).toBeVisible();
   expect(within(preview).getByText('Private preview. Booking is disabled here.')).toBeVisible();
   expect(within(preview).queryByText('Saved as draft', { exact: true })).not.toBeInTheDocument();
