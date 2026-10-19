@@ -126,9 +126,16 @@ export async function POST(request: Request) {
       const form = await new Response(bytes, { headers: { 'Content-Type': request.headers.get('content-type')! } }).formData();
       const file = form.get('file');
       if (!(file instanceof File) || form.get('rightsConfirmed') !== 'true') {
-        throw new SetupError('INVALID', 'Confirm you may use these files. Reference content is used for inspiration only.');
+        throw new SetupError('INVALID', 'Confirm you have permission to use these files.');
       }
-      return Response.json({ asset: await uploadCustomAsset(access.actor, file, form.get('role')) }, { headers });
+      const purpose = z.literal('canva_artwork').optional().parse(form.get('purpose') ?? undefined);
+      if (purpose && form.get('role') !== 'reference') {
+        throw new SetupError('INVALID', 'Choose a Canva design image for this upload.');
+      }
+      const asset = purpose
+        ? await uploadCustomAsset(access.actor, file, 'reference', { artwork: true })
+        : await uploadCustomAsset(access.actor, file, form.get('role'));
+      return Response.json({ asset }, { headers });
     }
     const parsed = requestSchema.parse(JSON.parse(bytes.toString('utf8')));
     if (parsed.action === 'review_canva') {

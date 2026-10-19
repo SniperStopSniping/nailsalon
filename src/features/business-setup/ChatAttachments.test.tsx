@@ -175,3 +175,33 @@ it('requires ownership confirmation again when an inspiration upload becomes web
   expect(screen.getByRole('checkbox', { name: /These are my files/u })).not.toBeChecked();
   expect(screen.getByRole('button', { name: 'Add to chat' })).toBeDisabled();
 });
+
+it('marks only owner-uploaded images for native Canva artwork preparation', async () => {
+  const requests: Array<{ url: string; body: BodyInit | null | undefined }> = [];
+  const ownedImage = new File(['image'], 'owned.png', { type: 'image/png' });
+  prepared.mockResolvedValueOnce([ownedImage]);
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    requests.push({ url, body: options.body });
+    return options.body instanceof FormData
+      ? { ok: true, json: async () => ({ asset: { id: 'owned-image', name: 'owned.png', role: 'reference', mimeType: 'image/webp' } }) }
+      : { ok: true, json: async () => ({}) };
+  }));
+  render(<ChatAttachments salonSlug="synthetic" revision={2} brief={brief} assets={[]} selected={[]} open onClose={vi.fn()} disabled={false} onBusyChange={vi.fn()} onSaved={async () => {}} initialPurpose="own" />);
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [ownedImage] } });
+  fireEvent.click(screen.getByRole('checkbox', { name: /These are my files/u }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add to chat' }));
+  await waitFor(() => expect(requests).toHaveLength(2));
+
+  expect((requests[0]!.body as FormData).get('purpose')).toBe('canva_artwork');
+  expect((requests[0]!.body as FormData).get('role')).toBe('reference');
+
+  cleanup();
+  requests.length = 0;
+  render(<ChatAttachments salonSlug="synthetic" revision={2} brief={brief} assets={[]} selected={[]} open onClose={vi.fn()} disabled={false} onBusyChange={vi.fn()} onSaved={async () => {}} initialPurpose="inspiration" />);
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['image'], 'inspiration.png', { type: 'image/png' })] } });
+  fireEvent.click(screen.getByRole('checkbox', { name: /I may upload these files/u }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add to chat' }));
+  await waitFor(() => expect(requests).toHaveLength(2));
+
+  expect((requests[0]!.body as FormData).has('purpose')).toBe(false);
+});

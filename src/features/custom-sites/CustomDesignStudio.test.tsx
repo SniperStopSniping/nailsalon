@@ -322,6 +322,7 @@ it('retries a sharper replacement with one uploaded asset and the same operation
       uploads++;
 
       expect(options.body.get('rightsConfirmed')).toBe('true');
+      expect(options.body.get('purpose')).toBe('canva_artwork');
 
       return { ok: true, json: async () => ({ asset: { id: 'b0000000-0000-4000-8000-000000000001', role: 'reference', name: 'sharper.png', mimeType: 'image/png' } }) };
     }

@@ -8,6 +8,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
   const frame = useRef<HTMLIFrameElement>(null);
   const channelRef = useRef<string | null>(null);
   const rendered = useRef(false);
+  const [attempt, setAttempt] = useState(0);
   const [height, setHeight] = useState(800);
   const [status, setStatus] = useState('Loading your custom website…');
   const bookingHref = !payload.data.preview && bookingPath?.startsWith('/') && !bookingPath.startsWith('//')
@@ -81,10 +82,25 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
       window.clearTimeout(slow);
       window.removeEventListener('message', message);
     };
-  }, [payload, rendererOrigin, bookingPath, managePath]);
+  }, [payload, rendererOrigin, bookingPath, managePath, attempt]);
+  function reloadWebsite() {
+    rendered.current = false;
+    channelRef.current = null;
+    setStatus('Loading your custom website…');
+    setAttempt(value => value + 1);
+  }
   return (
     <div>
-      {status && <p role="status" className="p-3 text-center text-sm">{status}</p>}
+      {status && (
+        <div className="p-3 text-center text-sm">
+          <p role="status">{status}</p>
+          {status === 'The website is taking longer to load.' && (
+            <button type="button" className="mt-2 min-h-11 rounded-lg border px-4 py-2" onClick={reloadWebsite}>
+              {payload.data.preview ? 'Reload preview' : 'Reload website'}
+            </button>
+          )}
+        </div>
+      )}
       {payload.data.preview && payload.source.canva && (
         <div className="p-3 text-sm">
           {payload.canvaFactsChanged && (
@@ -102,7 +118,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         </div>
       )}
       {/* Separate site AND opaque origin: no cookies, persistent storage or cross-salon channels. */}
-      <iframe ref={frame} title={payload.source.title} src={`${rendererOrigin}/renderer`} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" style={{ width: '100%', height, border: 0, display: 'block' }} />
+      <iframe key={attempt} ref={frame} title={payload.source.title} src={`${rendererOrigin}/renderer`} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" style={{ width: '100%', height, border: 0, display: 'block' }} />
       {bookingHref && <p className="p-3 text-center text-sm"><a className="underline" href={bookingHref}>Open booking menu</a></p>}
     </div>
   );

@@ -17,6 +17,14 @@ vi.mock('@/features/business-setup/drafts.server', () => ({ editSetup: state.edi
 function request(body: unknown, origin = 'http://localhost:3197') {
   return new Request('http://localhost:3197/api/admin/custom-sites?salonSlug=ignored-browser-slug', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 }
+function artworkRequest({ role = 'reference', purpose = 'canva_artwork', rightsConfirmed = 'true' } = {}) {
+  const form = new FormData();
+  form.set('file', new File(['synthetic image bytes'], 'design.png', { type: 'image/png' }));
+  form.set('role', role);
+  form.set('purpose', purpose);
+  form.set('rightsConfirmed', rightsConfirmed);
+  return new Request('http://localhost:3197/api/admin/custom-sites?salonSlug=ignored-browser-slug', { method: 'POST', headers: { origin: 'http://localhost:3197' }, body: form });
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -124,4 +132,20 @@ it('requires explicit same-design consent and scopes sharper artwork replacement
   expect(state.replaceCanva).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, input);
   expect(state.generate).not.toHaveBeenCalled();
   expect(state.business).not.toHaveBeenCalled();
+});
+
+it('accepts only explicit owned Canva reference artwork and rejects malformed purpose before upload', async () => {
+  state.upload.mockResolvedValue({ id: 'owned-artwork', role: 'reference', mimeType: 'image/webp' });
+
+  expect((await POST(artworkRequest())).status).toBe(200);
+  expect(state.upload).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, expect.any(File), 'reference', { artwork: true });
+
+  state.upload.mockClear();
+
+  expect((await POST(artworkRequest({ role: 'photo' }))).status).toBe(400);
+  expect(state.upload).not.toHaveBeenCalled();
+  expect((await POST(artworkRequest({ purpose: 'other' }))).status).toBe(400);
+  expect(state.upload).not.toHaveBeenCalled();
+  expect((await POST(artworkRequest({ rightsConfirmed: 'false' }))).status).toBe(400);
+  expect(state.upload).not.toHaveBeenCalled();
 });
