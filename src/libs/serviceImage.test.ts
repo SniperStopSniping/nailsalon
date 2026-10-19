@@ -44,6 +44,14 @@ afterEach(() => {
 });
 
 describe('resolveServiceCardImage', () => {
+  it('uses neutral artwork for a non-nail service and keeps its own uploaded photo', () => {
+    expect(resolveServiceCardImage({ name: 'Lash extensions', bookingCategory: 'other' })).toBe('/assets/images/services/other-service.svg');
+
+    const uploaded = 'https://res.cloudinary.com/demo/image/upload/lashes.jpg';
+
+    expect(resolveServiceCardImage({ name: 'Lash extensions', bookingCategory: 'other', imageUrl: uploaded })).toBe(uploaded);
+  });
+
   it('keeps a salon-uploaded Cloudinary image', () => {
     const uploaded = 'https://res.cloudinary.com/demo/image/upload/mani.jpg';
 

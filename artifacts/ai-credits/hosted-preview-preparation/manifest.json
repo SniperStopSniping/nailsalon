@@ -1,0 +1,38 @@
+{
+  "applicationSourceSha": "6584d6b421f5c059ac0ebbb292478e84a652754c",
+  "preparedFromCandidate": "37459a5e27cafb04c6afd217689004f3f600d85f",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "d81fcd91714922901de60434d6941502db2a28f3cae5ff0f722f147a2de144b2"
+    },
+    {
+      "path": "backup-proof.json",
+      "sha256": "1dd5669a0a6303034da42e9414614d4d405bcbe50357f3a8459aeb19fb75f92d"
+    },
+    {
+      "path": "configuration-proof.json",
+      "sha256": "264aa26de05da825c873b9aedcd4ff52372de7a513db22716e9c704524773331"
+    },
+    {
+      "path": "migration-proof.json",
+      "sha256": "12212aac7bc2567bd6b3e7b9b17bf1160032a6d67869b56859fec6d8edf2ad66"
+    },
+    {
+      "path": "migration-replay-proof.json",
+      "sha256": "9f7b617e4e351f97212a983574cec2a271ef0388104ea046b2cd3b4e73e10998"
+    },
+    {
+      "path": "renderer-proof.json",
+      "sha256": "db8fd749de59311a213a31ab0d1ee2da3b7a855d153d088ebae6e44ffac7f67e"
+    },
+    {
+      "path": "sandbox-webhook-proof.json",
+      "sha256": "8164988569066f4f104d646573c24fc487d70d75ebf73ebd90e70f89f87cfb90"
+    },
+    {
+      "path": "scanner-proof.json",
+      "sha256": "d5ac32b832edba99c798d1820a06a1c15b8a1023e7059aafd0e82537c388cf14"
+    }
+  ]
+}

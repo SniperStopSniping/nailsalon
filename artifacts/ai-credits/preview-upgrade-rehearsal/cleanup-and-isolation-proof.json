@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "readOnly": true,
+  "scratchDatabaseCount": 0,
+  "paidOwner": {
+    "revision": 8,
+    "status": "published",
+    "creditBalanceMicroCad": 9775907,
+    "purchaseEntries": 1,
+    "recoveryEntries": 0,
+    "appointments": 1,
+    "modelCalls": 7
+  },
+  "operatorBudgetUnchanged": {
+    "capMicroCad": 11384406,
+    "chargedMicroCad": 9896702,
+    "pending": 0
+  },
+  "newProviderCalls": 0,
+  "hostedAccess": false,
+  "productionChanged": false
+}

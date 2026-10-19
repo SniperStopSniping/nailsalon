@@ -216,10 +216,12 @@ const usePersistentFlow = () => {
 
 export function OnboardingV1Integration({
   authProviders = FALLBACK_AUTH_PROVIDER_AVAILABILITY,
+  aiBuilderEnabled = false,
   initialResumeDraft,
   locale,
 }: {
   authProviders?: OnboardingAuthProviderAvailability;
+  aiBuilderEnabled?: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
 }) {
@@ -252,6 +254,7 @@ export function OnboardingV1Integration({
   return mounted
     ? (
         <OnboardingV1Runtime
+          aiBuilderEnabled={aiBuilderEnabled}
           key={setupGeneration}
           authProviders={authProviders}
           initialResumeDraft={resuming ? initialResumeDraft : undefined}
@@ -269,11 +272,13 @@ export function OnboardingV1Integration({
 
 function OnboardingV1Runtime({
   authProviders,
+  aiBuilderEnabled,
   initialResumeDraft,
   locale,
   onSwitchSetup,
 }: {
   authProviders: OnboardingAuthProviderAvailability;
+  aiBuilderEnabled: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
   onSwitchSetup: () => void;
@@ -322,6 +327,7 @@ function OnboardingV1Runtime({
     >
       <FeedbackProvider testMode={false}>
         <OnboardingIntegrationController
+          aiBuilderEnabled={aiBuilderEnabled}
           authProviders={authProviders}
           existingCustomMediaByLogicalId={existingCustomMediaByLogicalId}
           initialResumeDraft={initialResumeDraft}
@@ -336,6 +342,7 @@ function OnboardingV1Runtime({
 
 function OnboardingIntegrationController({
   authProviders,
+  aiBuilderEnabled,
   existingCustomMediaByLogicalId,
   initialResumeDraft,
   lab,
@@ -344,6 +351,7 @@ function OnboardingIntegrationController({
 }: {
   authProviders: OnboardingAuthProviderAvailability;
   existingCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId;
+  aiBuilderEnabled: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   lab: ReturnType<typeof useLabDocument>;
   locale: string;
@@ -1345,6 +1353,7 @@ function OnboardingIntegrationController({
         <OnboardingApp
           forceReview={forceReview}
           integration={{
+            onBuildAi: aiBuilderEnabled ? () => window.location.assign(`/${locale}/ai-website`) : undefined,
             checkSiteSlugAvailability,
             renderSetupRecovery: (saveBeforeSwitch, onMenuAction) => <DeviceSetupRecovery previous beforeSwitch={saveBeforeSwitch} onMenuAction={onMenuAction} onSwitch={onSwitchSetup} />,
             hasSavedSite: savedSiteVerified,

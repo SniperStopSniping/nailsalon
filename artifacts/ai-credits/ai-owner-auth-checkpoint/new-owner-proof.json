@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "sourceSha": "0879b3b7ca62e2268c0c0d798b57e3d14acd2946",
+  "genuineSignup": true,
+  "actualOwnerSignupUi": true,
+  "pendingSessionObserved": true,
+  "organizationRequests": [
+    {
+      "method": "POST",
+      "path": "/api/onboarding/v1/organization",
+      "bearerPresent": true,
+      "sameOrigin": true
+    }
+  ],
+  "organizationResponses": [
+    {
+      "status": 200
+    }
+  ],
+  "organizationId": "org_3KtFjiIuJVL5aUFw0qyMFh89bU8",
+  "clerkUserId": "user_3KtFizglWSwZX852mkLEyeWePw0",
+  "salonId": "ai_setup_04f1e9b3227dc13f3701750c2abe0de2",
+  "salonSlug": "studio-04f1e9b3227dc13f",
+  "orgsBefore": 49,
+  "orgsAfter": 50,
+  "owner": true,
+  "emailVerified": true,
+  "sessionActive": true,
+  "onePrivateSalon": true,
+  "canonicalCounts": {
+    "service": 0,
+    "appointment": 0,
+    "ai_credit_ledger": 0
+  },
+  "publicStatus": 404,
+  "refresh": true,
+  "noSeededCredit": true,
+  "browserErrors": [],
+  "deniedHosts": [
+    "challenges.cloudflare.com"
+  ],
+  "productionChanged": false,
+  "hostedDeployment": false,
+  "modelCalls": 0
+}

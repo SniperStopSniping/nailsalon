@@ -1,0 +1,37 @@
+{
+  "testedAt": "2026-10-15T18:58:47.107Z",
+  "environment": "isolated Preview",
+  "fixture": "ai-extraction-77075efbeb0d",
+  "realProvider": true,
+  "message": "Just get all the info from my image",
+  "reply": "I read your image and added these details to your draft:\n• Aster Nail Studio\n• Toronto\n• Service address saved privately\n• Opening hours saved\n• BIAB: CAD 65.00 · 75 min\n• Gel manicure: CAD 50.00 · length not shown\nYou can correct anything here. Prices and times stay unconfirmed until your review.\n\nNail art is listed from $10, not as a fixed price.\n\nGel manicure: appointment length is not shown. Please add it before publishing.\n\nNail art add-on: needs a separate review as an add-on or unsupported service. It has not been added.\n\nDo you work solo or with a team? How long is a gel manicure appointment?",
+  "operationId": "588e60f4-fb14-4ff3-a941-5b593e2f3e7a",
+  "revision": 3,
+  "artifactId": null,
+  "elapsedMs": 8999,
+  "refreshResumes": true,
+  "noExtractionButtons": true,
+  "manualSourceEdits": false,
+  "calls": [
+    {
+      "operation_id": "588e60f4-fb14-4ff3-a941-5b593e2f3e7a",
+      "ordinal": 0,
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4554,
+      "output_tokens": 388,
+      "cost_micro_usd": 76318,
+      "charged_micro_cad": 152636,
+      "elapsed_ms": 7383,
+      "validation": "unchecked"
+    }
+  ],
+  "liveUnchanged": {
+    "publication_status": "draft",
+    "online_booking_enabled": false,
+    "live_services": 0,
+    "appointments": 0,
+    "publications": 0
+  }
+}

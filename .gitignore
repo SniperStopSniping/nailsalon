@@ -66,6 +66,8 @@ local
 /public/uploads/services/
 /public/uploads/onboarding-profile/
 /public/uploads/cover/
+# Pinned PDF.js assets are copied from node_modules by next.config.mjs.
+/public/assets/pdfjs/
 
 # vercel
 .vercel

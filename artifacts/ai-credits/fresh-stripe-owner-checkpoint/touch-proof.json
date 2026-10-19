@@ -1,0 +1,98 @@
+{
+  "passed": true,
+  "mode": "touch",
+  "message": "Make the booking buttons larger and easier to tap on mobile. Keep everything else the same.",
+  "operationId": "33d8f1cd-4b2c-40f9-897a-63179aae7678",
+  "beforeRevision": 4,
+  "afterRevision": 5,
+  "artifactId": "73ab231c-e712-49e3-b102-c0cb516e1471",
+  "elapsedMs": 59324,
+  "calls": [
+    {
+      "id": "a193c1d4-0941-43e2-8b51-94266081593d",
+      "operation_id": "33d8f1cd-4b2c-40f9-897a-63179aae7678",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5534,
+      "output_tokens": 122,
+      "cost_micro_usd": 753,
+      "credit_cost_micro_cad": "2109",
+      "charged_micro_cad": 1506,
+      "elapsed_ms": 4413,
+      "validation": "passed"
+    },
+    {
+      "id": "342df9c4-52ff-4489-8ea8-4d220f9c018a",
+      "operation_id": "a7af4c11-3ac0-407f-8fd7-7f454f190371",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 7600,
+      "output_tokens": 6505,
+      "cost_micro_usd": 4203,
+      "credit_cost_micro_cad": "11769",
+      "charged_micro_cad": 8406,
+      "elapsed_ms": 36980,
+      "validation": "passed"
+    }
+  ],
+  "priorWallet": {
+    "balance": "9789785",
+    "purchases": 1,
+    "recovery": 0
+  },
+  "nextWallet": {
+    "balance": "9775907",
+    "purchases": 1,
+    "recovery": 0
+  },
+  "reservation": {
+    "status": "settled",
+    "settled_micro_cad": "13878",
+    "reserved_micro_cad": "2000000",
+    "resolution": "completed"
+  },
+  "businessFirst": true,
+  "applicationSourceSha": "edba16273fd23ad8c85fae092c1d92d49146e209",
+  "temporaryHoldObserved": true,
+  "creditBalanceUpdatedAutomatically": true,
+  "noFocusOrPostCompletionRefreshRequired": true,
+  "creditStripAfter": "AI credits · $9.78",
+  "creditReads": 7,
+  "minimumMobileServiceTarget": 44,
+  "liveUnchanged": true,
+  "privateUntilApproval": true,
+  "refresh": true,
+  "noSeededCredit": true,
+  "manualSourceRepair": false,
+  "browserErrors": [],
+  "services": [
+    {
+      "id": "draft_biab",
+      "name": "BIAB",
+      "priceCents": 6500,
+      "durationMinutes": 75,
+      "confirmed": false,
+      "sources": {
+        "name": "owner",
+        "priceCents": "suggested",
+        "durationMinutes": "suggested"
+      }
+    },
+    {
+      "id": "draft_gel_manicure",
+      "name": "Gel manicure",
+      "priceCents": 5000,
+      "durationMinutes": 60,
+      "confirmed": false,
+      "sources": {
+        "name": "conversation",
+        "priceCents": "conversation",
+        "durationMinutes": "conversation"
+      }
+    }
+  ]
+}

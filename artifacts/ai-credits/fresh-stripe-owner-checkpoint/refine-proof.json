@@ -1,0 +1,92 @@
+{
+  "passed": true,
+  "mode": "refine",
+  "message": "Give the headline letters more breathing room. Only adjust its letter spacing; keep the rest of the design and all my business details the same.",
+  "operationId": "f00e5e3f-9a66-4c9b-b3bc-1d47a41a3e4a",
+  "beforeRevision": 3,
+  "afterRevision": 4,
+  "artifactId": "66b636fd-e621-4989-ad62-7c01dcbec74e",
+  "elapsedMs": 13984,
+  "calls": [
+    {
+      "id": "3922bd5c-e8cc-4fb8-b09e-64351f69606e",
+      "operation_id": "f00e5e3f-9a66-4c9b-b3bc-1d47a41a3e4a",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5468,
+      "output_tokens": 149,
+      "cost_micro_usd": 758,
+      "credit_cost_micro_cad": "2123",
+      "charged_micro_cad": 1516,
+      "elapsed_ms": 3030,
+      "validation": "passed"
+    },
+    {
+      "id": "7e9ae719-d88b-4e00-a6f3-1841a6619409",
+      "operation_id": "f6169458-7c98-4db7-af59-b5a391cd69ea",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 7817,
+      "output_tokens": 6339,
+      "cost_micro_usd": 4147,
+      "credit_cost_micro_cad": "11612",
+      "charged_micro_cad": 8294,
+      "elapsed_ms": 41251,
+      "validation": "passed"
+    }
+  ],
+  "priorWallet": {
+    "balance": "9803520",
+    "purchases": 1,
+    "recovery": 0
+  },
+  "nextWallet": {
+    "balance": "9789785",
+    "purchases": 1,
+    "recovery": 0
+  },
+  "reservation": {
+    "status": "settled",
+    "settled_micro_cad": "13735",
+    "reserved_micro_cad": "2000000",
+    "resolution": "completed"
+  },
+  "businessFirst": true,
+  "verifiedCompletedRefinementWithoutNewProviderCall": true,
+  "liveUnchanged": true,
+  "privateUntilApproval": true,
+  "refresh": true,
+  "noSeededCredit": true,
+  "manualSourceRepair": false,
+  "browserErrors": [],
+  "services": [
+    {
+      "id": "draft_biab",
+      "name": "BIAB",
+      "priceCents": 6500,
+      "durationMinutes": 75,
+      "confirmed": false,
+      "sources": {
+        "name": "owner",
+        "priceCents": "suggested",
+        "durationMinutes": "suggested"
+      }
+    },
+    {
+      "id": "draft_gel_manicure",
+      "name": "Gel manicure",
+      "priceCents": 5000,
+      "durationMinutes": 60,
+      "confirmed": false,
+      "sources": {
+        "name": "conversation",
+        "priceCents": "conversation",
+        "durationMinutes": "conversation"
+      }
+    }
+  ]
+}

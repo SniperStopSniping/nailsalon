@@ -1,0 +1,776 @@
+{
+  "applicationCommit": "4a3ec9a1",
+  "genuineOwnerEntry": "../clerk-owner-checkpoint/README.md",
+  "funding": "One synthetic CAD10 recovery grant after zero-credit refusal; no Stripe purchase.",
+  "providerUsage": {
+    "calls": 6,
+    "estimatedMicroUsd": 62413,
+    "conservativeBudgetMicroCad": 124826,
+    "retailCreditsMicroCad": 174759,
+    "cadEstimateExchangeRate": 1.4
+  },
+  "manualSourceRepairs": 0,
+  "automaticRepairs": 0,
+  "manualWordingTestRestoredBeforePublication": true,
+  "sourceResponsesRetainedPrivately": true,
+  "steps": [
+    {
+      "step": "message",
+      "status": "passed",
+      "beforeRevision": 1,
+      "afterRevision": 2,
+      "artifactId": null,
+      "calls": [
+        {
+          "id": "8acc7a07-3321-458c-b2fa-9ee584f5035e",
+          "operation_id": "36e494b7-ebe7-4e22-be36-9a31bb775d5e",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 4955,
+          "output_tokens": 540,
+          "cost_micro_usd": 890,
+          "charged_micro_cad": 1780,
+          "credit_cost_micro_cad": "2492",
+          "elapsed_ms": 6329,
+          "validation": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "message",
+      "status": "passed",
+      "beforeRevision": 2,
+      "afterRevision": 4,
+      "artifactId": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+      "calls": [
+        {
+          "id": "0c99831e-e6d9-47a6-97c4-2d1810944af1",
+          "operation_id": "5d012a68-7c32-4993-a2fa-7721baebd038",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5355,
+          "output_tokens": 228,
+          "cost_micro_usd": 784,
+          "charged_micro_cad": 1568,
+          "credit_cost_micro_cad": "2196",
+          "elapsed_ms": 4081,
+          "validation": "passed"
+        },
+        {
+          "id": "739c7b6d-0701-400f-b3d0-37a467c1cbc5",
+          "operation_id": "58012f20-0e42-4afb-8b20-ea8fc2540ac6",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 2552,
+          "output_tokens": 4900,
+          "cost_micro_usd": 55379,
+          "charged_micro_cad": 110758,
+          "credit_cost_micro_cad": "155062",
+          "elapsed_ms": 97263,
+          "validation": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "message",
+      "status": "passed",
+      "beforeRevision": 4,
+      "afterRevision": 5,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [
+        {
+          "id": "9bfd477d-72a6-4973-b5cb-32eab4f8f793",
+          "operation_id": "29829899-1d66-442d-86ad-b87221016267",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5445,
+          "output_tokens": 159,
+          "cost_micro_usd": 761,
+          "charged_micro_cad": 1522,
+          "credit_cost_micro_cad": "2131",
+          "elapsed_ms": 2772,
+          "validation": "passed"
+        },
+        {
+          "id": "f08c8002-24a8-47de-9ac4-efdc3695cc32",
+          "operation_id": "b22f0707-7dab-4548-89a8-1c3a3b4d647e",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 7154,
+          "output_tokens": 5849,
+          "cost_micro_usd": 3819,
+          "charged_micro_cad": 7638,
+          "credit_cost_micro_cad": "10694",
+          "elapsed_ms": 44547,
+          "validation": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "manual-wording",
+      "status": "passed",
+      "beforeRevision": 5,
+      "afterRevision": 6,
+      "artifactId": "f4ca6bcb-8c3c-486d-933c-e56507695419",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "restore",
+      "status": "passed",
+      "beforeRevision": 6,
+      "afterRevision": 7,
+      "artifactId": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "restore",
+      "status": "passed",
+      "beforeRevision": 7,
+      "afterRevision": 8,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "publish",
+      "status": "failed",
+      "beforeRevision": 8,
+      "afterRevision": 8,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "browserErrors": [],
+      "failure": "apiRequestContext.get: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - \u2192 GET http://localhost:3197/studio-ba5627cde7b576c3/book/service\u001b[22m\n\u001b[2m    - user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.7339.186 Safari/537.36\u001b[22m\n\u001b[2m    - accept: */*\u001b[22m\n\u001b[2m    - accept-encoding: gzip,deflate,br\u001b[22m\n",
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": true,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "publish",
+      "status": "passed",
+      "beforeRevision": 8,
+      "afterRevision": 9,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": true,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "book",
+      "status": "failed",
+      "beforeRevision": 9,
+      "afterRevision": 9,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+          "serviceName": "BIAB",
+          "targetWidth": 86.078125,
+          "targetHeight": 35.796875
+        }
+      ],
+      "browserErrors": [],
+      "failure": "page.waitForURL: Timeout 30000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================",
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "book",
+      "status": "failed",
+      "beforeRevision": 9,
+      "afterRevision": 9,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+          "serviceName": "BIAB",
+          "targetWidth": 86.078125,
+          "targetHeight": 35.796875
+        }
+      ],
+      "browserErrors": [],
+      "failure": "page.waitForURL: Timeout 60000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================",
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [],
+      "historicalBefore": []
+    },
+    {
+      "step": "book",
+      "status": "passed",
+      "beforeRevision": 9,
+      "afterRevision": 9,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+          "serviceName": "BIAB",
+          "targetWidth": 86.078125,
+          "targetHeight": 35.796875
+        },
+        {
+          "originalBooking": true,
+          "selectedStaff": "Synthetic AI Owner",
+          "staffEligibilityVerified": true
+        }
+      ],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "total_price": 6500,
+          "total_duration_minutes": 60
+        }
+      ],
+      "historicalBefore": [],
+      "bookingNavigation": [
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/service"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/service"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/service"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/service"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/time"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/time"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/time"
+        },
+        {
+          "event": "confirm-response",
+          "status": 307
+        },
+        {
+          "event": "confirm-response",
+          "status": 200,
+          "type": "text/x-component"
+        },
+        {
+          "event": "confirm-response",
+          "status": 200,
+          "type": "application/javascript; charset=UTF-8"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/confirm"
+        },
+        {
+          "event": "confirm-response",
+          "status": 200,
+          "type": "text/x-component"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/confirm"
+        }
+      ]
+    },
+    {
+      "step": "start-editing",
+      "status": "passed",
+      "beforeRevision": 9,
+      "afterRevision": 10,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "total_price": 6500,
+          "total_duration_minutes": 60
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+        }
+      ],
+      "bookingNavigation": []
+    },
+    {
+      "step": "message",
+      "status": "passed",
+      "beforeRevision": 10,
+      "afterRevision": 11,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [
+        {
+          "id": "ee502290-a16c-4094-aaac-21a2acea4a48",
+          "operation_id": "64464024-a35d-4ef3-ae9e-edfacd3f40ad",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5686,
+          "output_tokens": 137,
+          "cost_micro_usd": 780,
+          "charged_micro_cad": 1560,
+          "credit_cost_micro_cad": "2184",
+          "elapsed_ms": 2648,
+          "validation": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 697.359375
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 524.671875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "total_price": 6500,
+          "total_duration_minutes": 60
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+        }
+      ],
+      "bookingNavigation": []
+    },
+    {
+      "step": "public-preview",
+      "status": "passed",
+      "beforeRevision": 11,
+      "afterRevision": 11,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "total_price": 6500,
+          "total_duration_minutes": 60
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+        }
+      ],
+      "bookingNavigation": []
+    },
+    {
+      "step": "publish",
+      "status": "passed",
+      "beforeRevision": 11,
+      "afterRevision": 12,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "total_price": 6500,
+          "total_duration_minutes": 60
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+        }
+      ],
+      "bookingNavigation": []
+    },
+    {
+      "step": "book",
+      "status": "passed",
+      "beforeRevision": 12,
+      "afterRevision": 12,
+      "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "calls": [],
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+          "serviceName": "BIAB",
+          "targetWidth": 86.078125,
+          "targetHeight": 35.796875
+        },
+        {
+          "originalBooking": true,
+          "selectedStaff": "Synthetic AI Owner",
+          "staffEligibilityVerified": true
+        }
+      ],
+      "browserErrors": [],
+      "ownerAuthentication": "clerk-development",
+      "lostPublishResponse": false,
+      "appointments": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "total_price": 6500,
+          "total_duration_minutes": 60
+        },
+        {
+          "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+          "total_price": 7000,
+          "total_duration_minutes": 60
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+          "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+        }
+      ],
+      "bookingNavigation": [
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/service"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/service"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/service"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/service"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/time"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/time"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/time"
+        },
+        {
+          "event": "confirm-response",
+          "status": 307
+        },
+        {
+          "event": "confirm-response",
+          "status": 200,
+          "type": "text/x-component"
+        },
+        {
+          "event": "confirm-response",
+          "status": 200,
+          "type": "application/javascript; charset=UTF-8"
+        },
+        {
+          "event": "navigated",
+          "path": "/studio-ba5627cde7b576c3/book/confirm"
+        }
+      ]
+    }
+  ]
+}

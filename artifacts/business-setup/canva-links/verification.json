@@ -1,0 +1,281 @@
+{
+  "checkedAt": "2026-10-16T16:39:55.881Z",
+  "runtime": {
+    "commit": "3187765db78d8e435cae0dc5d795784c1c1a0800",
+    "deployment": "dpl_4V5DEyjLwcajRbmSAjQzmyDNhuy8",
+    "environment": "preview",
+    "renderer": "dpl_BMb84vLbnD2ZaEzmBn9AidtT2Thp",
+    "production": false
+  },
+  "input": {
+    "kind": "Original synthetic Canva-style PNG fixture",
+    "artworkGeneratedByModel": false,
+    "linkAreasGeneratedByModel": true,
+    "modelOutputManuallyRepaired": false
+  },
+  "provider": {
+    "realProvider": true,
+    "requests": [
+      {
+        "prompt": "This is my own Canva export. Keep the design unchanged and make the booking buttons, Instagram, email, phone and website clickable. I work solo in Toronto. Use the service and opening hours shown in it.",
+        "revision": 62,
+        "artifactId": "d180dc9c-210b-4f04-9256-94518838b7ba",
+        "elapsedMs": 21816,
+        "calls": [
+          {
+            "ordinal": 0,
+            "operation_id": "69e4e4b3-eb37-4775-9bfd-a1b12dabfa48",
+            "provider": "openai",
+            "model": "gpt-6-luna",
+            "status": "completed",
+            "validation": "passed",
+            "input_tokens": 4415,
+            "output_tokens": 716,
+            "cost_micro_usd": 910,
+            "charged_micro_cad": 1820,
+            "elapsed_ms": 8769,
+            "retained_output_characters": 1554
+          },
+          {
+            "ordinal": 0,
+            "operation_id": "2444cf0a-1ba0-43a5-b1a6-ee490ec9e49e",
+            "provider": "openai",
+            "model": "gpt-6-luna",
+            "status": "completed",
+            "validation": "passed",
+            "input_tokens": 1676,
+            "output_tokens": 805,
+            "cost_micro_usd": 612,
+            "charged_micro_cad": 1224,
+            "elapsed_ms": 10358,
+            "retained_output_characters": 1463
+          }
+        ]
+      },
+      {
+        "prompt": "Make the Instagram clickable area a little taller, while keeping the artwork and every other link unchanged.",
+        "revision": 63,
+        "artifactId": "35c5dc0a-1c97-467b-be91-33a26d82cbe4",
+        "elapsedMs": 12589,
+        "calls": [
+          {
+            "ordinal": 0,
+            "operation_id": "29fd7d1d-cc4e-4261-9e73-6a24bb211b4a",
+            "provider": "openai",
+            "model": "gpt-6-luna",
+            "status": "completed",
+            "validation": "passed",
+            "input_tokens": 4785,
+            "output_tokens": 225,
+            "cost_micro_usd": 711,
+            "charged_micro_cad": 1422,
+            "elapsed_ms": 4261,
+            "retained_output_characters": 467
+          },
+          {
+            "ordinal": 0,
+            "operation_id": "5ca2d154-c568-4323-9e9c-f582bb73ee54",
+            "provider": "openai",
+            "model": "gpt-6-luna",
+            "status": "completed",
+            "validation": "passed",
+            "input_tokens": 2024,
+            "output_tokens": 696,
+            "cost_micro_usd": 601,
+            "charged_micro_cad": 1202,
+            "elapsed_ms": 6609,
+            "retained_output_characters": 1537
+          }
+        ]
+      },
+      {
+        "prompt": "Make all the links easier to tap on a phone. Keep the artwork and every destination unchanged.",
+        "revision": 66,
+        "artifactId": "68206ea4-9f65-4ce6-89ce-1df1b36861a5",
+        "elapsedMs": 13904,
+        "calls": [
+          {
+            "ordinal": 0,
+            "operation_id": "8a2ef175-9340-4329-a945-bbb97e080615",
+            "provider": "openai",
+            "model": "gpt-6-luna",
+            "status": "completed",
+            "validation": "passed",
+            "input_tokens": 5029,
+            "output_tokens": 193,
+            "cost_micro_usd": 726,
+            "charged_micro_cad": 1452,
+            "elapsed_ms": 3126,
+            "retained_output_characters": 575
+          },
+          {
+            "ordinal": 0,
+            "operation_id": "b6a36263-7d9d-4d6f-9c05-0d437275c828",
+            "provider": "openai",
+            "model": "gpt-6-luna",
+            "status": "completed",
+            "validation": "passed",
+            "input_tokens": 2054,
+            "output_tokens": 833,
+            "cost_micro_usd": 674,
+            "charged_micro_cad": 1348,
+            "elapsed_ms": 8750,
+            "retained_output_characters": 1510
+          }
+        ]
+      }
+    ],
+    "estimatedUsd": 0.004234,
+    "conservativeCad": 0.008468,
+    "cumulativeAllowanceCad": 40.242008,
+    "approvedCapCad": 80,
+    "invoiceReconciled": false
+  },
+  "ownerJourney": {
+    "manualEditsThroughOwnerControls": true,
+    "restores": [
+      {
+        "artifactId": "d180dc9c-210b-4f04-9256-94518838b7ba",
+        "revision": 67,
+        "mode": "keep_design"
+      },
+      {
+        "artifactId": "68206ea4-9f65-4ce6-89ce-1df1b36861a5",
+        "revision": 68,
+        "mode": "keep_design"
+      }
+    ],
+    "refreshResumes": true,
+    "publishedRevision": 72,
+    "publishedArtifactId": "60a7450b-852f-4e9c-865b-c50f80d83f3f",
+    "sourceHash": "e5b7fea4c3de554c7b877e3575d10d828ff26118444406ba15081302b92895af",
+    "currentOwnerDraftRevision": 75,
+    "priceWarning": {
+      "proposedPrice": 7000,
+      "publicPriceUnchanged": 6500,
+      "restoredDraftPrice": 6500,
+      "revision": 75,
+      "livePriceChange": false
+    },
+    "completedOriginalBookings": 2,
+    "bookingHttpStatus": 201,
+    "approvedPriceCents": 6500,
+    "approvedDurationMinutes": 60,
+    "priorAppointmentDetailsPreserved": true
+  },
+  "visualAndSecurityProof": {
+    "savedUploadAndDisplayedImageSameHash": true,
+    "sourceHash": "e5b7fea4c3de554c7b877e3575d10d828ff26118444406ba15081302b92895af",
+    "revision": 72,
+    "artifactId": "60a7450b-852f-4e9c-865b-c50f80d83f3f",
+    "ownerReviewed": true,
+    "deliveryStates": [
+      {
+        "channel": "email",
+        "status": "failed",
+        "has_provider_message_id": false
+      },
+      {
+        "channel": "email",
+        "status": "failed",
+        "has_provider_message_id": false
+      },
+      {
+        "channel": "email",
+        "status": "failed",
+        "has_provider_message_id": false
+      },
+      {
+        "channel": "email",
+        "status": "failed",
+        "has_provider_message_id": false
+      }
+    ],
+    "outbox": [
+      {
+        "provider": "email",
+        "status": "failed",
+        "count": 2
+      },
+      {
+        "provider": "google_calendar",
+        "status": "failed",
+        "count": 2
+      }
+    ],
+    "noProviderMessageIds": true,
+    "publicBrowserUsesOriginalSavedBytes": true,
+    "renderedPixelComparison": {
+      "width": 600,
+      "height": 1400,
+      "maxChannelDifference": 0,
+      "meanChannelDifference": 0
+    },
+    "instagramAndWebsiteClicksNavigate": true,
+    "contactHrefChecks": {
+      "email": "mailto:studio@example.invalid",
+      "phone": "tel:+14165550100"
+    },
+    "mobileNoHorizontalOverflow": true,
+    "mobileTapAreas": [
+      {
+        "id": "gel-manicure",
+        "width": 136.5,
+        "height": 47.65625
+      },
+      {
+        "id": "book-appointment",
+        "width": 298.96875,
+        "height": 47.65625
+      },
+      {
+        "id": "instagram",
+        "width": 318.46875,
+        "height": 47.65625
+      },
+      {
+        "id": "email",
+        "width": 318.46875,
+        "height": 47.65625
+      },
+      {
+        "id": "phone",
+        "width": 318.46875,
+        "height": 47.65625
+      },
+      {
+        "id": "website",
+        "width": 318.46875,
+        "height": 47.65625
+      }
+    ],
+    "sharedPreviewRemainsBookingDisabled": true,
+    "ownerApisStillUnauthorizedWithoutSignIn": true
+  },
+  "links": {
+    "builder": "https://luster-ai-builder-test.vercel.app/ai-website-test",
+    "publicExample": "https://luster-ai-builder-test.vercel.app/ai-clear-verified-4893fc4c2704/book/service",
+    "readOnlyExample": "https://luster-ai-builder-test.vercel.app/website-preview/4224cc2b46ae275750019f55d2e856790414eaa9497c2716f04456697c1b5c8a"
+  },
+  "checks": {
+    "focusedTestsPassed": 238,
+    "postgresConcurrencyTestsSkipped": 7,
+    "rendererBrowserChecksPassed": 15,
+    "browserProjects": [
+      "desktop Chromium",
+      "mobile Chromium",
+      "mobile WebKit"
+    ],
+    "typeScript": "passed",
+    "scopedEslint": "passed",
+    "diffCheck": "passed",
+    "fullPrCi": "not green; draft, no merge"
+  },
+  "limitations": {
+    "preservedPdfRendering": false,
+    "artworkTextReflow": false,
+    "artworkEditedInCanva": true,
+    "physicalIphoneTest": false,
+    "fullEssentialReleaseComplete": false
+  }
+}

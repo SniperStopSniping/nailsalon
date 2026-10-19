@@ -1,0 +1,32 @@
+{
+  "passed": true,
+  "sourceSha": "c3253898b719219643080abdb713a06a031194d4",
+  "sameApplicationAsCheckpoint": "b50f4a4c",
+  "genuineOwnerSignInEvidence": "/tmp/luster-real-clerk-fresh-paid-resume-y6PflE",
+  "genuineProvider": "Stripe sandbox",
+  "packCad": 10,
+  "creditIncreaseMicroCad": 10000000,
+  "before": {
+    "balance": 0,
+    "aiCalls": 0,
+    "fingerprints": {
+      "service": "d41d8cd98f00b204e9800998ecf8427e",
+      "appointment": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+  },
+  "after": {
+    "balance": 10000000,
+    "aiCalls": 0,
+    "fingerprints": {
+      "service": "d41d8cd98f00b204e9800998ecf8427e",
+      "appointment": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+  },
+  "paid": true,
+  "appointmentsAndServicesUnchanged": true,
+  "modelCalls": 0,
+  "deniedHosts": [
+    "applepay.cdn-apple.com"
+  ],
+  "productionChanged": false
+}

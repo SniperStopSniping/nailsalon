@@ -1,11 +1,20 @@
 /* eslint-disable import/first */
+import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { requireAdminOwner, getSalonBySlug, logAuditEvent, publishWebsite } = vi.hoisted(() => ({
+vi.mock('@/features/business-setup/manual-website.server', () => ({
+  editSharedSetupWebsite: vi.fn(async () => false),
+  hasEditingSetup: vi.fn(async () => false),
+  getSetupEditingRevision: vi.fn(async () => null),
+}));
+
+const { requireAdminOwner, getSalonBySlug, logAuditEvent, publishWebsite, clerkMiddlewareFactory, intlMiddleware } = vi.hoisted(() => ({
   requireAdminOwner: vi.fn(),
   getSalonBySlug: vi.fn(),
   logAuditEvent: vi.fn(),
   publishWebsite: vi.fn(),
+  clerkMiddlewareFactory: vi.fn(),
+  intlMiddleware: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db: {} }));
@@ -14,7 +23,13 @@ vi.mock('@/libs/auditLog', () => ({ logAuditEvent }));
 vi.mock('@/libs/queries', () => ({ getSalonBySlug }));
 vi.mock('@/libs/bookingPageLifecycle', () => ({ publishWebsite }));
 vi.mock('@/libs/publicUrl', () => ({ buildSalonTenantPublicUrl: (path: string) => `https://salon-a.luster.com${path === '/' ? '' : path}` }));
+vi.mock('next-intl/middleware', () => ({ default: () => intlMiddleware }));
+vi.mock('@clerk/nextjs/server', () => ({
+  clerkMiddleware: clerkMiddlewareFactory,
+  createRouteMatcher: () => () => false,
+}));
 
+import middleware from '../../../../../middleware';
 import { POST } from './route';
 
 const DRAFT_SALON = {
@@ -37,12 +52,56 @@ function request(url: string) {
   return new Request(url, { method: 'POST' });
 }
 
+const middlewareEvent = {} as never;
+
+/**
+ * Composes the real middleware gate with the real publish handler. This is a
+ * focused boundary test, not a claim of Next production-runtime verification.
+ */
+async function publishThroughMiddleware(origin?: string) {
+  const headers = new Headers({ cookie: 'n5_admin_session=owner-session' });
+  if (origin !== undefined) {
+    headers.set('origin', origin);
+  }
+  const incoming = new NextRequest(
+    'https://x.test/api/admin/salon/publish?salonSlug=salon-a',
+    { method: 'POST', headers },
+  );
+  const gate = await middleware(incoming, middlewareEvent);
+  if (gate?.status === 403) {
+    return gate;
+  }
+  return POST(incoming);
+}
+
 describe('POST /api/admin/salon/publish', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    intlMiddleware.mockImplementation(() => NextResponse.next());
+    clerkMiddlewareFactory.mockImplementation((handler: (auth: unknown, request: NextRequest) => Response | Promise<Response>) => async (incoming: NextRequest) => (
+      handler(vi.fn(), incoming)
+    ));
     getSalonBySlug.mockResolvedValue(DRAFT_SALON);
     requireAdminOwner.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
     publishWebsite.mockResolvedValue({ salon: PUBLISHED_ROW, applied: true });
+  });
+
+  describe('CSRF middleware boundary around the publish side effect', () => {
+    it('denies a cross-site request before the publish handler or publication side effect runs', async () => {
+      const response = await publishThroughMiddleware('https://attacker.example');
+
+      expect(response.status).toBe(403);
+      expect(getSalonBySlug).not.toHaveBeenCalled();
+      expect(requireAdminOwner).not.toHaveBeenCalled();
+      expect(publishWebsite).not.toHaveBeenCalled();
+    });
+
+    it('allows an exact same-origin browser request to reach the real publish handler', async () => {
+      const response = await publishThroughMiddleware('https://x.test');
+
+      expect(response.status).toBe(200);
+      expect(publishWebsite).toHaveBeenCalledWith('salon_1');
+    });
   });
 
   describe('validation / auth', () => {

@@ -1,0 +1,23 @@
+{
+  "testedAt": "2026-10-15T04:26:33.204Z",
+  "salonSlug": "ai-test-1270644eedefa092",
+  "artifactId": "f0bb4cde-6589-4385-af21-4277d6db1e3b",
+  "receipt": {
+    "id": "1200071c-da12-4f12-ba92-29830de11026",
+    "salonId": "ai_trial_1270644eedefa092e7714a00ff5583ee",
+    "workspaceId": "9c1f5d8e-5428-4484-9b5f-965e46c51a2c",
+    "revision": 8,
+    "operationId": "ee7fd365-d752-4226-9c61-c33b289643bc",
+    "approvalId": "54d97a0a-29ac-460a-bcc5-7f95cf490fa7",
+    "actorId": "76351038-7034-4233-84a1-1f8b14766f03",
+    "serviceIds": {
+      "draft_gel": "72ba3e3e-cb9d-4df9-bd36-9160fd93a3a5",
+      "draft_biab": "e1465a2e-9022-4f25-8674-973f26fa2cbb"
+    },
+    "publishedAt": "2026-10-15T04:26:33.114Z",
+    "mediaFinalized": true
+  },
+  "privateBeforePublication": true,
+  "resumedOnNewMobileContext": true,
+  "restoredEarlierThenLatestDesign": true
+}

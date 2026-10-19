@@ -1,0 +1,151 @@
+{
+  "sourceSha": "37459a5e27cafb04c6afd217689004f3f600d85f",
+  "applicationSource": "6584d6b421f5c059ac0ebbb292478e84a652754c",
+  "environment": "preview",
+  "hostAndCertificateVerified": true,
+  "backup": {
+    "format": "PostgreSQL custom archive",
+    "clientVersion": "18.6",
+    "serverMajor": 17,
+    "bytes": 3466261,
+    "sha256": "91457d3c388e7343ff6198775307f559b5a98fe68955bf8f6666a8a63389bfd8",
+    "archiveListValidated": true,
+    "restorationPerformed": false,
+    "privateMode": 600
+  },
+  "guardedCommand": "scripts/development-database-command.ts migrate:preview",
+  "migrationExitCode": 0,
+  "appliedBefore": 106,
+  "appliedAfter": 112,
+  "ledgerExactMatch": true,
+  "existingDataProjectionUnchanged": true,
+  "budgetCapsUnchanged": true,
+  "walletCounts": {
+    "ai_credit_account": 0,
+    "ai_credit_purchase": 0,
+    "ai_credit_reservation": 0,
+    "ai_credit_ledger": 0
+  },
+  "defaults": {
+    "changed_calls": 0,
+    "changed_maps": 0
+  },
+  "before": {
+    "salon": {
+      "count": 16,
+      "fingerprint": "513b3a96d23fe2a1cd2e987c8d5e3e0f"
+    },
+    "service": {
+      "count": 31,
+      "fingerprint": "56946e7280b96b05cb87ce157aede81e"
+    },
+    "technician": {
+      "count": 10,
+      "fingerprint": "e3cd60b611ff43e10ae0a922ca8f1482"
+    },
+    "technician_services": {
+      "count": 28,
+      "fingerprint": "fb4d7cc9b6c69899b65aa424e1b01a41"
+    },
+    "appointment": {
+      "count": 17,
+      "fingerprint": "ebbb32dfa6ace97a67daf46b6baba4b5"
+    },
+    "client": {
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "custom_site_asset": {
+      "count": 37,
+      "fingerprint": "a2882985e708376dc12eaccf0e771a62"
+    },
+    "custom_site_artifact": {
+      "count": 58,
+      "fingerprint": "435e4b1022398d784e322e4822008335"
+    },
+    "business_setup_workspace": {
+      "count": 8,
+      "fingerprint": "fc7e689f9ebcd30118da843479a909a2"
+    },
+    "business_setup_revision": {
+      "count": 170,
+      "fingerprint": "32bdbaf3d1d66156ca9f9e6bacf9745e"
+    },
+    "business_setup_approval": {
+      "count": 5,
+      "fingerprint": "37c0b8d74548d2a3ff8d12bf69b99667"
+    },
+    "business_setup_publication": {
+      "count": 5,
+      "fingerprint": "8f9f46e959b25c273c56989f4e7e81ee"
+    },
+    "setup_ai_budget": {
+      "count": 1,
+      "fingerprint": "a233971dbf1e93ddab1e816b8e7cbb2c"
+    },
+    "setup_ai_call": {
+      "count": 127,
+      "fingerprint": "8d3396859522ea0f120f6d69729bb84d"
+    }
+  },
+  "after": {
+    "salon": {
+      "count": 16,
+      "fingerprint": "513b3a96d23fe2a1cd2e987c8d5e3e0f"
+    },
+    "service": {
+      "count": 31,
+      "fingerprint": "56946e7280b96b05cb87ce157aede81e"
+    },
+    "technician": {
+      "count": 10,
+      "fingerprint": "e3cd60b611ff43e10ae0a922ca8f1482"
+    },
+    "technician_services": {
+      "count": 28,
+      "fingerprint": "fb4d7cc9b6c69899b65aa424e1b01a41"
+    },
+    "appointment": {
+      "count": 17,
+      "fingerprint": "ebbb32dfa6ace97a67daf46b6baba4b5"
+    },
+    "client": {
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "custom_site_asset": {
+      "count": 37,
+      "fingerprint": "a2882985e708376dc12eaccf0e771a62"
+    },
+    "custom_site_artifact": {
+      "count": 58,
+      "fingerprint": "435e4b1022398d784e322e4822008335"
+    },
+    "business_setup_workspace": {
+      "count": 8,
+      "fingerprint": "fc7e689f9ebcd30118da843479a909a2"
+    },
+    "business_setup_revision": {
+      "count": 170,
+      "fingerprint": "32bdbaf3d1d66156ca9f9e6bacf9745e"
+    },
+    "business_setup_approval": {
+      "count": 5,
+      "fingerprint": "37c0b8d74548d2a3ff8d12bf69b99667"
+    },
+    "business_setup_publication": {
+      "count": 5,
+      "fingerprint": "8f9f46e959b25c273c56989f4e7e81ee"
+    },
+    "setup_ai_budget": {
+      "count": 1,
+      "fingerprint": "a233971dbf1e93ddab1e816b8e7cbb2c"
+    },
+    "setup_ai_call": {
+      "count": 127,
+      "fingerprint": "8d3396859522ea0f120f6d69729bb84d"
+    }
+  },
+  "productionAccess": false,
+  "customerMessagesOrPayments": false
+}

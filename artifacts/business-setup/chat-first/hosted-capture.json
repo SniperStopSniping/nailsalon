@@ -1,0 +1,9 @@
+{
+  "testedAt": "2026-10-15T18:05:46.427Z",
+  "environment": "isolated Preview",
+  "beforeRevision": 17,
+  "realProvider": false,
+  "refreshResumes": true,
+  "desktopAndMobile": true,
+  "publicationNotRequested": true
+}

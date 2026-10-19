@@ -1,0 +1,47 @@
+[
+  {
+    "name": "desktop-chromium",
+    "source": "http://localhost:3197/assets/videos/luster-ai-builder-demo.webm",
+    "duration": 59.5,
+    "time": 1.503076,
+    "captionCueCount": 10,
+    "captionMode": "showing",
+    "controls": true,
+    "autoplay": false,
+    "gesture": "Tab to native control, then Space",
+    "noOverflow": true,
+    "clerkRequests": [],
+    "aborted": 0,
+    "assetSha256": "08d2d98b539b20f25b6509d2f9561100a0272b95c60e0a3043fc942a9eed52e0"
+  },
+  {
+    "name": "mobile-webkit",
+    "source": "http://localhost:3197/assets/videos/luster-ai-builder-demo.webm",
+    "duration": 59.499,
+    "time": 1.5207492496104198,
+    "captionCueCount": 10,
+    "captionMode": "showing",
+    "controls": true,
+    "autoplay": false,
+    "gesture": "native Play control click",
+    "noOverflow": true,
+    "clerkRequests": [],
+    "aborted": 0,
+    "assetSha256": "08d2d98b539b20f25b6509d2f9561100a0272b95c60e0a3043fc942a9eed52e0"
+  },
+  {
+    "name": "installed-chrome-mp4-fallback",
+    "source": "http://localhost:3197/assets/videos/luster-ai-builder-demo.mp4",
+    "duration": 59.5,
+    "time": 1.226408,
+    "captionCueCount": 10,
+    "captionMode": "showing",
+    "controls": true,
+    "autoplay": false,
+    "gesture": "Tab to native control, then Space",
+    "noOverflow": true,
+    "clerkRequests": [],
+    "aborted": 1,
+    "assetSha256": "bc4da172a5019b0762fe7910f3e23de12fff913f998f5e0967a560e39dfa270d"
+  }
+]

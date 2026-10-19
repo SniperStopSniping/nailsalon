@@ -174,11 +174,14 @@ export type OnboardingOrganizationResolution = {
  */
 export const resolveOnboardingOrganization = async (
   businessName: string,
-  options: { fetcher?: typeof fetch; signal?: AbortSignal } = {},
+  options: { fetcher?: typeof fetch; sessionToken?: string; signal?: AbortSignal } = {},
 ): Promise<OnboardingOrganizationResolution> => {
   const response = await (options.fetcher ?? fetch)('/api/onboarding/v1/organization', {
     body: JSON.stringify({ businessName }),
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.sessionToken ? { Authorization: `Bearer ${options.sessionToken}` } : {}),
+    },
     method: 'POST',
     signal: options.signal,
   });

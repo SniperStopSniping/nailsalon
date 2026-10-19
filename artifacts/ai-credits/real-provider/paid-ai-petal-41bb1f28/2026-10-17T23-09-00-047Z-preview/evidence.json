@@ -1,0 +1,27 @@
+{
+  "step": "preview",
+  "status": "passed",
+  "startedAt": "2026-10-17T23:09:00.235Z",
+  "elapsedMs": 8018,
+  "beforeRevision": 5,
+  "afterRevision": 5,
+  "artifactId": "d8319243-9b42-4a14-ac19-00b77dce4255",
+  "calls": [],
+  "artifacts": [
+    {
+      "id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "parent_id": null,
+      "source_hash": "b3921231228c69956d0421f9837026ef6a4354383eac0fc9c24f93f2cff6a76b"
+    },
+    {
+      "id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+      "parent_id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "source_hash": "fe535fc03bf2c749283357087fc25bbfd0ae10f7034d007078dcb31c2ac5fa81"
+    }
+  ],
+  "appointments": [],
+  "browserErrors": [
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+  ],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

@@ -1,0 +1,31 @@
+# Publication-aware preview checkpoint
+
+Application source: `70af527e58e960cbff137c81bcd79249e3a90792` on the existing isolated AI branch. This checkpoint changes preview wording and its tests. It does not merge or verify the broader release candidate.
+
+## Owner-visible change
+
+The saved publication state controls the builder card, design studio, private full preview and booking-setting summaries. Published sites say **Your website / Published / Booking setup**; a new editing draft says **Your website draft / Saved as draft / Proposed booking setup**. A stale displayed design cannot claim to be the current published artifact. Disabled controls do not imply publication. Historical chat replies remain historical rather than being rewritten.
+
+Private preview always disables booking, including when viewing a published website. Preview examples still disclose simulated availability and its exclusions. Deposits remain described as requested and dependent on the payment connection; no payment, reminder or booking capability is implied active by the copy.
+
+[Published builder](published-builder.png) · [Editing draft](draft-builder.png) · [Exact review](exact-review.png) · [Custom desktop](published-desktop.png) · [Custom mobile](published-mobile.png) · [Standard private preview](standard-published-preview.png).
+
+## Verification
+
+- **61 deterministic tests in five distinct files passed**, including publication independent of disabled controls, stale artifact labels, draft/public transitions, private booking rejection and the staff/add-on/deposit summaries. Scoped application ESLint passed. Both native-helper syntax checks and ESLint passed. The generic worktree secret scan refused four oversized pre-existing development chunks; it did not report a credential match. The final candidate scan uses the current staged files and the exact optimized build’s600 client files, preserving the development output and scanner size limits. [Test details](deterministic-proof.json).
+- The optimized production-mode build including typecheck passed on Node24.19.0. Its credential scanner covered4860 tracked and600 generated files with zero server-canary matches. [Build proof](optimized-build-proof.json).
+- An empty WebKit iPhone13-emulated context completed genuine existing-owner password sign-in, More → Luster AI, the same saved website preview and refresh. No cookies or provider responses were manufactured. Six rendered documents and82 critical text responses were checked against four actual private credential values: zero leaks and zero unreadable critical responses. Actual Clerk authentication calls occurred; **zero model calls** refers specifically to AI generation. [Returning-owner proof](returning-owner-proof.json).
+- Native owner actions exercised **published revision8 → editing revision9 → refresh/resume → exact revision9 review → approval and publication → published revision9**. The review contained zero changes and zero blockers. Custom desktop/mobile and standard production-component previews showed the correct state throughout. Private BIAB actions showed [booking disabled](private-booking-disabled.png), with no appointment POST. Canonical services/staff/assignments, existing appointment, website source/artifact hashes, business settings and wallet were unchanged. The separate exact-approved publication receipts8 and9 are expected, not duplicate retries. [Lifecycle proof](lifecycle-proof.json).
+- Anonymous mobile WebKit opened the actual model-generated public site, verified the bound BIAB record at **CAD70 /75min**, then tapped through Luster's original service/staff/calendar flow. The sole eligible staff member, two-hour notice,10-minute preparation buffer and closed Sunday/Monday matched saved data. October20 began at11:30; the existing10:00 appointment remained unavailable. No new appointment was submitted. [Public-booking proof](public-booking-proof.json) · [Bound service](public-service-mobile.png) · [Original calendar](original-calendar-mobile.png) · [Original available times](original-availability-mobile.png).
+
+An initial native observer used a global Published locator and failed after the UI correctly displayed it twice. The helper now targets the header status. The paid-trial helper received the corresponding Saved as draft observation fix without repeating billable generation. Early test-fixture loading and over-exact text assertions were corrected; only the final61-test run is recorded as green. The first full-page calendar screenshot caught an entrance transition and was unsuitable; a second read-only native walkthrough checked visible ancestor opacity and captured settled viewport images. [Attempt notes](attempt-notes.json). Original attempts remain private, not silently discarded.
+
+## Scope and remaining gates
+
+This phase made **zero AI calls, zero new purchases, zero new appointments, and no manual design-source repair**. The prior actual model generation, Stripe sandbox purchase and completed synthetic original booking remain separately attributed to the [fresh funded-owner checkpoint](../fresh-stripe-owner-checkpoint/README.md). Current local Cobalt state is published revision9 with the original appointment, service IDs, seven historical model calls and CAD9.775907 remaining credit. Emulation is not a physical-device or hosted-runtime test.
+
+Tests used the optimized local HTTPS application and separate renderer, the attested local Development database, synthetic owners and real Development authentication. Outbound model/payment hosts were blocked; new purchases, communications and subscriptions/top-ups were disabled. All owned3443/3444/3445 runtime children stopped afterward. No Production or hosted data/configuration was changed; no push, PR update, merge, migration, deployment or promotion occurred.
+
+The combined-source release candidate, branch-scoped Preview configuration approval, hosted schema upgrade/renderer compatibility and hosted end-to-end gates remain outstanding. This local checkpoint is not Production readiness or complete-builder acceptance.
+
+The [manifest](manifest.json) hashes these curated artifacts; it excludes itself. Private credentials, session files, raw responses/logs and private uploaded source assets are not included.

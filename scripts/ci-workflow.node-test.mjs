@@ -1,7 +1,9 @@
 /* eslint-disable no-template-curly-in-string -- GitHub expressions are literal workflow contracts. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import { BaseSequencer } from 'vitest/node';
@@ -10,13 +12,61 @@ import { parse } from 'yaml';
 const workflow = parse(readFileSync(new URL('../.github/workflows/CI.yml', import.meta.url), 'utf8'));
 const { jobs } = workflow;
 
+test('AI setup publication races require an attested database and all thirteen cases', () => {
+  const step = jobs['test-core'].steps.find(step => step.name === 'Verify AI setup publication concurrency on disposable PostgreSQL');
+  assert.equal(step.env.AI_SETUP_PUBLICATION_CONCURRENCY_REQUIRED, 'true');
+  assert.match(step.env.CONCURRENCY_TEST_DATABASE_URL, /@127\.0\.0\.1:55432\/luster_e2e_ci_disposable\?application_name=luster-e2e-ci-disposable$/);
+  assert.match(step.run, /publication\.concurrency\.integration\.test\.ts/);
+  assert.match(step.run, /numPassedTests!==13/);
+  assert.match(step.run, /numTotalTests!==13/);
+  assert.match(step.run, /numPendingTests!==0/);
+});
+
+test('AI new-owner enrollment races require an attested database and zero skipped cases', () => {
+  const step = jobs['test-core'].steps.find(step => step.name === 'Verify AI owner entry concurrency on disposable PostgreSQL');
+  assert.equal(step.env.AI_ENTRY_CONCURRENCY_REQUIRED, 'true');
+  assert.match(step.env.CONCURRENCY_TEST_DATABASE_URL, /@127\.0\.0\.1:55432\/luster_e2e_ci_disposable\?application_name=luster-e2e-ci-disposable$/);
+  assert.match(step.run, /entry\.concurrency\.integration\.test\.ts/);
+  assert.match(step.run, /numPassedTests!==2/);
+  assert.match(step.run, /numPendingTests!==0/);
+});
+
+test('Calendar PostgreSQL regressions are required and cannot silently skip', () => {
+  const deposits = jobs['deposits-postgres-concurrency'];
+  const calendar = deposits.steps.find(step => step.name === 'Run D5 Calendar claim and revert races and prove zero skips');
+  assert.ok(calendar, 'D5 Calendar must execute separately from the six deposit cases');
+  assert.equal(deposits.env.D5_CONCURRENCY_REQUIRED, 'true');
+  assert.match(calendar.run, /set -euo pipefail/);
+  assert.ok(calendar.run.includes('src/libs/deposits/deposits.d5Calendar.concurrency.integration.test.ts'));
+  assert.ok(calendar.run.includes('D5_REAL_POSTGRES_TESTS_EXECUTED=3 D5_REAL_POSTGRES_TESTS_SKIPPED=0'));
+  assert.equal(calendar.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  const outbox = jobs['google-outbox-postgres'];
+  assert.equal(outbox.needs, 'secret-scan');
+  assert.equal(outbox.env.GOOGLE_OUTBOX_PG_REQUIRED, 'true');
+  assert.equal(outbox.env.LUSTER_DISPOSABLE_DATABASE, 'true');
+  assert.equal(outbox.services.postgres.env.POSTGRES_DB, 'luster_e2e_ci_disposable');
+  assert.equal(outbox.services.postgres.env.POSTGRES_USER, 'luster_e2e_ci');
+  assert.deepEqual(outbox.services.postgres.ports, ['127.0.0.1:55432:5432']);
+  assert.match(outbox.env.CONCURRENCY_TEST_DATABASE_URL, /@127\.0\.0\.1:55432\/luster_e2e_ci_disposable\?application_name=luster-e2e-ci-disposable$/);
+  const execute = outbox.steps.find(step => step.name === 'Require Calendar outbox parent and independent child coverage');
+  assert.equal(execute.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  assert.equal(execute.env.LUSTER_DISPOSABLE_POSTGRES_NETWORK, '${{ job.services.postgres.network }}');
+  assert.match(execute.run, /set -euo pipefail/);
+  assert.ok(execute.run.includes('src/libs/integrationOutbox.postgres.integration.test.ts'));
+  assert.ok(execute.run.includes('GOOGLE_OUTBOX_PARENT_POSTGRES_TESTS_EXECUTED=7'));
+  assert.ok(execute.run.includes('GOOGLE_OUTBOX_CHILD_POSTGRES_TESTS_EXECUTED=1'));
+  assert.equal(outbox.steps.find(step => step.uses === 'actions/checkout@v4').with.ref, '${{ github.event.pull_request.head.sha || github.sha }}');
+  assert.equal(jobs.test.steps[0].env.DEPOSITS_POSTGRES_RESULT, '${{ needs.deposits-postgres-concurrency.result }}');
+  assert.equal(jobs.test.steps[0].env.GOOGLE_OUTBOX_RESULT, '${{ needs.google-outbox-postgres.result }}');
+});
+
 test('CI services use the reviewed digest-pinned Docker Official Images from the Google cache', () => {
   const approvedImages = {
     postgres: 'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
     redis: 'mirror.gcr.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499',
   };
   const services = Object.values(jobs).flatMap(job => Object.entries(job.services ?? {}));
-  assert.equal(services.filter(([name]) => name === 'postgres').length, 10);
+  assert.equal(services.filter(([name]) => name === 'postgres').length, 11);
   assert.equal(services.filter(([name]) => name === 'redis').length, 1);
   for (const [name, service] of services) {
     assert.ok(Object.hasOwn(approvedImages, name), `Unreviewed CI service: ${name}`);
@@ -43,7 +93,7 @@ test('required aggregates reject failed, skipped, cancelled and missing evidence
   }
   assert.equal(jobs['full-vitest'].name, 'Full Vitest Suite');
   assert.equal(jobs.test.name, 'Run all tests (20.x)');
-  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24']);
+  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24', 'deposits-postgres-concurrency', 'google-outbox-postgres']);
   assert.equal(jobs['full-vitest'].needs, 'full-vitest-shards');
 });
 
@@ -79,6 +129,18 @@ test('the required Node 24 job also verifies Cloudinary request and error contra
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
 });
 
+test('the required Node 24 aggregate verifies application timezone rules with zero skips', () => {
+  const job = jobs['monitoring-node24'];
+  const step = job.steps.find(candidate => candidate.name === 'Verify timezone rules and booking conversion on Node 24');
+  assert.equal(job.steps.some(candidate => candidate.uses === 'actions/setup-node@v4' && candidate.with['node-version'] === '24.x'), true);
+  assert.match(step.run, /node --test --test-reporter=tap scripts\/timezone-node24\.node-test\.mjs/);
+  assert.ok(step.run.includes('grep -Fqx \'# tests 1\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 1\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+  assert.ok(jobs.test.needs.includes('monitoring-node24'));
+  assert.equal(jobs.test.steps[0].env.MONITORING_RESULT, '${{ needs.monitoring-node24.result }}');
+});
+
 test('dependency protection accepts reviewed pairs and rejects changed or mixed manifests', () => {
   const step = jobs['test-core'].steps.find(candidate => candidate.name === 'Deposits ladder protected surfaces');
   assert.ok(step.run.includes('if ! git diff --quiet "$base" -- package.json package-lock.json; then'));
@@ -86,6 +148,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   assert.ok(statement);
   const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
   const monitoringPairs = [
+    ['e8611651650ec97880c8a67e05b795a26efaa6cb', '8f5742e82fcd36ec2185235d4bfa08bd383a7966'],
     ['b7e4591c8df9d94b82b281587cec8f98b0f5439e', '9576667ec691e6f5aba41486cfbbcf8e32d6b3ee'],
     ['f5212c5c05d6cf9a89a3e63c2643f03bbf223d75', '3500380b6019dbab17b1c137064ee1c1e3963eda'],
     ['ea2893563cf943de48bbd6ba91881946fe4c9f98', 'da93db3e2a143e0b8694b3231265f4e8b8885d5a'],
@@ -95,6 +158,10 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['81033b57a45e03fa3fb84b35435d5c511c945dc6', '9c7d5702e010a55e897258fee728c517b20d0593'],
     ['2658646d2addf8fe450503e0366a1b30d3a37d16', '2b018033b1df3bbc21bfd1858b764a6fe2d14e64'],
     ['36b6eb8cc244742e3f00ca9e6371e83580bbd907', 'f30136fcafe073d34bb76a50cadeaf8d83c2a31b'],
+    ['7a219ff506106dca631528df8bf7877ca28c4b71', '03917548fdcf78991dfd60a487783cfbdefa5ab0'],
+    ['021dfc548a7955ac279af6576c880b87ff36d87a', '99e31ce606948ad4d522d0f3da2ec9d372b0db7d'],
+    ['30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b', '8e1b8a6010053efb7bd0fb883f4674537829cdd0'],
+    ['8c510528ccff7fa01b70bb29cb42dd6a32452ac2', 'f9473055446d79e1ccce710cd0924b3a677c5844'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
@@ -113,6 +180,65 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     }
   }
   assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+});
+
+test('AI migration pins accept the new packet and reject changed or already-shipped SQL', () => {
+  const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
+  const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
+  const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
+  assert.equal(files.length, 15);
+  assert.ok(files.includes('migrations/0110_setup_add_on_publication.sql'));
+  assert.ok(files.includes('migrations/0111_other_service_categories.sql'));
+  assert.ok(files.includes('migrations/0112_ai_operator_expense_budget.sql'));
+  const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
+  const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
+  const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;
+  try {
+    git('init', '-q');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'test base');
+    mkdirSync(path.join(directory, 'migrations'));
+    for (const file of files) {
+      writeFileSync(path.join(directory, file), readFileSync(new URL(`../${file}`, import.meta.url)));
+    }
+    git('add', 'migrations');
+    assert.equal(check(), 0);
+    for (const file of files) {
+      const current = path.join(directory, file);
+      const source = readFileSync(current);
+      writeFileSync(current, `${source}\n-- unapproved change\n`);
+      assert.notEqual(check(), 0);
+      writeFileSync(current, source);
+    }
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic shipped packet');
+    const first = path.join(directory, files[0]);
+    const source = readFileSync(first);
+    writeFileSync(first, `${source}\n-- rewrite shipped SQL\n`);
+    assert.notEqual(check(), 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('prepaid AI wallet races are required on the existing isolated PostgreSQL service', () => {
+  const job = jobs['test-core'];
+  const step = job.steps.find(candidate => candidate.name === 'Verify prepaid AI wallet concurrency on disposable PostgreSQL');
+  assert.equal(job.env.LUSTER_DISPOSABLE_DATABASE, 'true');
+  assert.equal(step.env.AI_CREDIT_CONCURRENCY_REQUIRED, 'true');
+  assert.equal(step.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  assert.equal(step.env.LUSTER_DISPOSABLE_POSTGRES_NETWORK, '${{ job.services.postgres.network }}');
+  assert.match(step.env.CONCURRENCY_TEST_DATABASE_URL, /@127\.0\.0\.1:55432\/luster_e2e_ci_disposable\?application_name=luster-e2e-ci-disposable$/);
+  assert.match(step.run, /set -euo pipefail/);
+  assert.match(step.run, /wallet\.concurrency\.integration\.test\.ts/);
+  assert.match(step.run, /numPassedTests!==8/);
+  assert.match(step.run, /numPendingTests!==0/);
+});
+
+test('deployment engine and CI build cover Node 24 while retaining compatibility lanes', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const lock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  assert.equal(manifest.engines.node, '24.x');
+  assert.equal(lock.packages[''].engines.node, '24.x');
+  assert.deepEqual(jobs.build.strategy.matrix['node-version'], ['20.x', 22.6, '24.x']);
 });
 
 test('the required Node 24 job exercises the installed patched SMS and image dependencies', () => {
@@ -202,11 +328,13 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify review automation settings in mobile browsers',
       'Verify dark customer assistant proposal shell in mobile browsers',
       'Verify owner assistant reload recovery and account isolation',
+      'Verify AI credit purchase interface and recovery in mobile browsers',
       'Verify platform policy labels and navigation',
       'Verify owner destinations and Hours in mobile browsers',
       'Verify owner dashboard polish and shared dialogs in mobile browsers',
       'Verify dashboard loading, recovery and salon context in mobile browsers',
       'Verify onboarding desktop and phone geometry',
+      'Verify manual Your Design upload and clickable links',
     ],
     'owner-operations': [
       'Verify owner forms and error recovery in mobile browsers',

@@ -1,0 +1,57 @@
+{
+  "applicationSourceSha": "edba16273fd23ad8c85fae092c1d92d49146e209",
+  "focusedTests": {
+    "passed": 196,
+    "failed": 0,
+    "valueSources": 23,
+    "draftsIntegration": 144,
+    "aiCreditsMenu": 21,
+    "customDesignStudio": 8
+  },
+  "nativePostgresConcurrency": {
+    "passed": 8,
+    "failed": 0,
+    "skipped": 0,
+    "database": "luster_e2e_ci_disposable",
+    "providersBlocked": true
+  },
+  "typecheckPassed": true,
+  "scopedLintPassed": true,
+  "diffCheckPassed": true,
+  "realProviderAcceptance": true,
+  "noRawProviderResponsesInGit": true,
+  "hostedPreviewChanged": false,
+  "productionChanged": false,
+  "pushed": false,
+  "pullRequestUpdated": false,
+  "merged": false,
+  "deployed": false,
+  "firstRequestFailures": [
+    {
+      "phase": "signup",
+      "reason": "UI driver tried to fill a disabled password field after successful signup; recovered same user through ordinary password sign-in.",
+      "billableRepeat": false
+    },
+    {
+      "phase": "intake",
+      "reason": "Over-strict provenance/UI and anonymous-route test assertions; inspected saved answers, corrected labels and repeated only read-only observation.",
+      "billableRepeat": false
+    },
+    {
+      "phase": "first-refinement",
+      "reason": "Full-preview link briefly used a previous revision; fixed application guard, inspected retained result with no paid retry.",
+      "billableRepeat": false
+    },
+    {
+      "phase": "publication-replay",
+      "reason": "Test transport omitted Origin; application correctly rejected403. Used the persisted original approval, revision and operation identity in a same-origin browser fetch; replay200 with no duplicates.",
+      "billableRepeat": false
+    }
+  ],
+  "limitations": [
+    "Text-only generation trial. Earlier uploaded-reference trials remain separate; no new visual-reference acceptance claimed.",
+    "No physical-device verification; installed WebKit with iPhone13 emulation, native tap actions, reported maxTouchPoints0.",
+    "No Production billing, deployed Preview, hosted migrations or combined release candidate verification.",
+    "Screenshot captures show the viewport of internal scroll areas, not every section at once."
+  ]
+}

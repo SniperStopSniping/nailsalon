@@ -1,0 +1,686 @@
+{
+  "applicationSourceSha": "0879b3b7ca62e2268c0c0d798b57e3d14acd2946",
+  "files": [
+    {
+      "path": "src/components/auth/OwnerSignInCard.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "keeps AI signup on the requested builder return and resolves the same organization task",
+          "status": "passed"
+        },
+        {
+          "name": "uses the supplied salon builder link when self-service onboarding is enabled",
+          "status": "passed"
+        },
+        {
+          "name": "themes the Clerk widget with Luster tokens and hides the sign-up footer",
+          "status": "passed"
+        },
+        {
+          "name": "resolves the choose-organization task without showing Clerk's form",
+          "status": "passed"
+        },
+        {
+          "name": "sends the current pending session token to the organization resolver",
+          "status": "passed"
+        },
+        {
+          "name": "does not dispatch a token after the pending session is replaced while reading it",
+          "status": "passed"
+        },
+        {
+          "name": "fails closed if the raw pending session disappears before dispatch",
+          "status": "passed"
+        },
+        {
+          "name": "starts at most one automatic resolver attempt under StrictMode effect replay",
+          "status": "passed"
+        },
+        {
+          "name": "does not activate an organization after the pending session changes during resolution",
+          "status": "passed"
+        },
+        {
+          "name": "reacts to a session that turns pending after the password step",
+          "status": "passed"
+        },
+        {
+          "name": "offers a bounded retry message when organization resolution fails",
+          "status": "passed"
+        },
+        {
+          "name": "does not resolve or activate a session after the AI entry unmounts while reading its token",
+          "status": "passed"
+        },
+        {
+          "name": "keeps AI signup return links through a failed token and an explicit retry",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/components/auth/withPublicOwnerSession.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "mounts the SDK for an existing __session session",
+          "status": "passed"
+        },
+        {
+          "name": "mounts the SDK for an existing __session_instance-one session",
+          "status": "passed"
+        },
+        {
+          "name": "preserves guests and legacy sessions without mounting the SDK ([])",
+          "status": "passed"
+        },
+        {
+          "name": "preserves guests and legacy sessions without mounting the SDK ([ [ '__session', '' ] ])",
+          "status": "passed"
+        },
+        {
+          "name": "preserves guests and legacy sessions without mounting the SDK ([ [ '__session_instance', '   ' ] ])",
+          "status": "passed"
+        },
+        {
+          "name": "preserves guests and legacy sessions without mounting the SDK ([ [ 'unrelated_cookie', 'value' ] ])",
+          "status": "passed"
+        },
+        {
+          "name": "preserves guests and legacy sessions without mounting the SDK ([ [ '__session_bad.suffix', 'value' ] ])",
+          "status": "passed"
+        },
+        {
+          "name": "preserves guests and legacy sessions without mounting the SDK ([ [ 'n5_admin_session', …(1) ] ])",
+          "status": "passed"
+        },
+        {
+          "name": "preserves guests and legacy sessions without mounting the SDK ([ [ 'n5_admin_session', …(1) ], …(1) ])",
+          "status": "passed"
+        },
+        {
+          "name": "wires the shared booking layout to one SDK provider",
+          "status": "passed"
+        },
+        {
+          "name": "wires the localized shared booking layout to one SDK provider",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/business-setup/SetupEditor.references.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "keeps Preview open when saved conversation history finishes loading after navigation",
+          "status": "passed"
+        },
+        {
+          "name": "opens the first generated preview automatically and labels suggested booking details",
+          "status": "passed"
+        },
+        {
+          "name": "labels owner-supplied service values without calling them AI recommendations",
+          "status": "passed"
+        },
+        {
+          "name": "returns a rebuild design to chat without a preset replacement or automatic submission",
+          "status": "passed"
+        },
+        {
+          "name": "returns a keep_design design to chat without a preset replacement or automatic submission",
+          "status": "passed"
+        },
+        {
+          "name": "lets the owner explicitly accept suggested hours without approving or publishing the whole draft",
+          "status": "passed"
+        },
+        {
+          "name": "fully resets the draft and chat, opens a new upload immediately, and can restore the previous draft",
+          "status": "passed"
+        },
+        {
+          "name": "lets an owner send a new design image without typing an extra prompt, and never sends on upload alone",
+          "status": "passed"
+        },
+        {
+          "name": "drops a cached earlier-session request after a reset on another device",
+          "status": "passed"
+        },
+        {
+          "name": "uploads directly in chat and uses the saved selection in the same composer (custom site: false)",
+          "status": "passed"
+        },
+        {
+          "name": "uploads directly in chat and uses the saved selection in the same composer (custom site: true)",
+          "status": "passed"
+        },
+        {
+          "name": "opens with one conversation and keeps preview and manual forms out of the default view",
+          "status": "passed"
+        },
+        {
+          "name": "reads an own design through the same chat without extraction buttons (custom site: false)",
+          "status": "passed"
+        },
+        {
+          "name": "reads an own design through the same chat without extraction buttons (custom site: true)",
+          "status": "passed"
+        },
+        {
+          "name": "renders old emphasis safely instead of showing Markdown stars",
+          "status": "passed"
+        },
+        {
+          "name": "restores image purpose, ownership, and conversation after reopening without making a model request",
+          "status": "passed"
+        },
+        {
+          "name": "detaches an image only from future design requests, preserving its library record and live site",
+          "status": "passed"
+        },
+        {
+          "name": "keeps publication explicit and bound to the review, then offers continuing from the saved website",
+          "status": "passed"
+        },
+        {
+          "name": "does not upload a file or grant rights before permission is checked",
+          "status": "passed"
+        },
+        {
+          "name": "saves website photographs separately from design references",
+          "status": "passed"
+        },
+        {
+          "name": "keeps the message available after a failed request and does not retry a paid call automatically",
+          "status": "passed"
+        },
+        {
+          "name": "shows the saved failure reason once when polling reconciles a failed message",
+          "status": "passed"
+        },
+        {
+          "name": "retains a saved failure reason after refresh without displaying duplicate stopped notices",
+          "status": "passed"
+        },
+        {
+          "name": "recovers the published state after a lost response without asking for approval again",
+          "status": "passed"
+        },
+        {
+          "name": "does not claim publication when both the response and the saved-state check are unavailable",
+          "status": "passed"
+        },
+        {
+          "name": "explains a dropped connection in plain language and keeps an unsent message",
+          "status": "passed"
+        },
+        {
+          "name": "saves a first booking link in the shared draft and shows it in exact review without publishing",
+          "status": "passed"
+        },
+        {
+          "name": "clears a sent follow-up immediately, shows progress and preserves a newly typed message",
+          "status": "passed"
+        },
+        {
+          "name": "recovers a completed message after a lost response without resending or restoring the textbox",
+          "status": "passed"
+        },
+        {
+          "name": "polls a still-running operation after disconnect and loads its result without another paid request",
+          "status": "passed"
+        },
+        {
+          "name": "keeps Canva artwork only with an explicit owner choice and does not generate on upload",
+          "status": "passed"
+        },
+        {
+          "name": "waits for saved work before enabling Preview and Details",
+          "status": "passed"
+        },
+        {
+          "name": "offers the server-gated credit balance inside the builder without starting a payment or AI request",
+          "status": "passed"
+        },
+        {
+          "name": "requires a fresh acknowledgment when the reviewed appointment impact changes",
+          "status": "passed"
+        },
+        {
+          "name": "shows the paid request limit before sending and includes it with the same saved-draft chat action",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/onboarding-v1-integration/OnboardingV1Integration.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "shows the premium gate with every configured provider and one owner heading",
+          "status": "passed"
+        },
+        {
+          "name": "renders only the configured providers and never a disabled stand-in",
+          "status": "passed"
+        },
+        {
+          "name": "keeps a signed-in owner with an unverified email inside verification without claiming",
+          "status": "passed"
+        },
+        {
+          "name": "returns EMAIL_NOT_VERIFIED to verification without retrying (reload fails: false)",
+          "status": "passed"
+        },
+        {
+          "name": "returns EMAIL_NOT_VERIFIED to verification without retrying (reload fails: true)",
+          "status": "passed"
+        },
+        {
+          "name": "retries the same preserved draft only after explicit successful email verification",
+          "status": "passed"
+        },
+        {
+          "name": "tells the owner which dashboard edits a resumed setup preserved",
+          "status": "passed"
+        },
+        {
+          "name": "keeps early save progress and start-over recovery separate from the final offer",
+          "status": "passed"
+        },
+        {
+          "name": "explains an incomplete snapshot in words and routes to the screen that owns the field",
+          "status": "passed"
+        },
+        {
+          "name": "keeps ordinary request failures retryable without requesting email verification",
+          "status": "passed"
+        },
+        {
+          "name": "offers a draft-preserving account switch for a new owner identity conflict",
+          "status": "passed"
+        },
+        {
+          "name": "offers a draft-preserving account switch for a restored owner identity conflict",
+          "status": "passed"
+        },
+        {
+          "name": "keeps account switching available after sign-out fails without repeating the rejected claim",
+          "status": "passed"
+        },
+        {
+          "name": "never requests or displays existing salons while loading",
+          "status": "passed"
+        },
+        {
+          "name": "never requests or displays existing salons while signed-out",
+          "status": "passed"
+        },
+        {
+          "name": "identifies the signed-in account and clears its salon picker on sign-out",
+          "status": "passed"
+        },
+        {
+          "name": "discards a previous account response after signed-out",
+          "status": "passed"
+        },
+        {
+          "name": "discards a previous account response after different-owner",
+          "status": "passed"
+        },
+        {
+          "name": "offers account switching without deleting the anonymous draft",
+          "status": "passed"
+        },
+        {
+          "name": "verifies ownership before resuming a legacy saved screen",
+          "status": "passed"
+        },
+        {
+          "name": "verifies ownership before resuming a legacy plans screen",
+          "status": "passed"
+        },
+        {
+          "name": "hides the saved site immediately when a different owner signs in",
+          "status": "passed"
+        },
+        {
+          "name": "escapes the no-salon account loop without reusing the claimed token or deleting the previous setup",
+          "status": "passed"
+        },
+        {
+          "name": "keeps retry for transient verification failures and does not mislabel them as another account",
+          "status": "passed"
+        },
+        {
+          "name": "resumes the same account-backed site on a new device before allowing edits",
+          "status": "passed"
+        },
+        {
+          "name": "blocks stale resume content when a newer revision was saved in another session",
+          "status": "passed"
+        },
+        {
+          "name": "keeps a server-resumed draft behind identity and ownership verification",
+          "status": "passed"
+        },
+        {
+          "name": "does not advance an older local snapshot to a newer server revision",
+          "status": "passed"
+        },
+        {
+          "name": "reloads early saved progress without skipping services and the remaining setup",
+          "status": "passed"
+        },
+        {
+          "name": "ignores an interrupted-save status response after the account changes",
+          "status": "passed"
+        },
+        {
+          "name": "recovers a taken URL by returning to business details without losing the draft",
+          "status": "passed"
+        },
+        {
+          "name": "opens the single lifetime offer directly after a completed save without another click",
+          "status": "passed"
+        },
+        {
+          "name": "keeps the saved website when the owner edits from the lifetime offer",
+          "status": "passed"
+        },
+        {
+          "name": "keeps the saved site and retry key when publishing fails, then retries publication",
+          "status": "passed"
+        },
+        {
+          "name": "retains the same saved site and plan retry key when dashboard navigation is interrupted",
+          "status": "passed"
+        },
+        {
+          "name": "continues past a failed cover upload without retrying or losing the saved site",
+          "status": "passed"
+        },
+        {
+          "name": "retains a successful core claim when media finalization must be retried",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/onboarding-v1-integration/auth-providers.server.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "derives the frontend API origin from a publishable key",
+          "status": "passed"
+        },
+        {
+          "name": "rejects malformed keys instead of guessing",
+          "status": "passed"
+        },
+        {
+          "name": "reflects every configured provider",
+          "status": "passed"
+        },
+        {
+          "name": "omits a connection that exists but is disabled or not authenticatable",
+          "status": "passed"
+        },
+        {
+          "name": "omits email when it is not a first factor",
+          "status": "passed"
+        },
+        {
+          "name": "reads the live environment document",
+          "status": "passed"
+        },
+        {
+          "name": "falls back to email-only when the environment cannot be read",
+          "status": "passed"
+        },
+        {
+          "name": "falls back on a non-OK response and on an unparsable key",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/onboarding-v1-integration/continuation-target.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "updates the exact saved draft revision after the early account gate",
+          "status": "passed"
+        },
+        {
+          "name": "leaves the initial anonymous claim untargeted",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/onboarding-v1-integration/identity.server.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "resolves only the active Clerk user and verified primary email",
+          "status": "passed"
+        },
+        {
+          "name": "keeps phone optional and normalizes it only when Clerk verified it",
+          "status": "passed"
+        },
+        {
+          "name": "rejects missing sessions and unverified primary email",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/app/[locale]/ai-website/page.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "explains the included design and business work before signup or purchase",
+          "status": "passed"
+        },
+        {
+          "name": "keeps signup, returning owners and feature-disabled access separate",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/onboarding-v1-integration/account-gate/AccountGate.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "opens Screen 6 at the document top before focusing its reward heading",
+          "status": "passed"
+        },
+        {
+          "name": "fits the scrollable reward to its visible host using the shared width-scaled viewport",
+          "status": "passed"
+        },
+        {
+          "name": "renders exact provider labels for the configured set and hides the rest entirely",
+          "status": "passed"
+        },
+        {
+          "name": "does not reintroduce optional sections that onboarding turned off",
+          "status": "passed"
+        },
+        {
+          "name": "still looks intentional when email is the only method",
+          "status": "passed"
+        },
+        {
+          "name": "switches to the existing-account journey from the Log in action",
+          "status": "passed"
+        },
+        {
+          "name": "keeps the sign-up wording in sign-up mode",
+          "status": "passed"
+        },
+        {
+          "name": "routes a known email to the existing-user password step",
+          "status": "passed"
+        },
+        {
+          "name": "routes an unknown email to account creation and verifies before finishing",
+          "status": "passed"
+        },
+        {
+          "name": "activates an immediately-complete sign-up so the session verification step can gate the claim",
+          "status": "passed"
+        },
+        {
+          "name": "maps a wrong verification code to owner copy instead of a raw Clerk error",
+          "status": "passed"
+        },
+        {
+          "name": "starts OAuth with a same-route return and claim completion URL",
+          "status": "passed"
+        },
+        {
+          "name": "resolves a pending choose-organization task without a generic Clerk screen",
+          "status": "passed"
+        },
+        {
+          "name": "offers a business choice when the account already has several",
+          "status": "passed"
+        },
+        {
+          "name": "verifies a signed-in owner’s email in place before any claim",
+          "status": "passed"
+        },
+        {
+          "name": "does not unlock a claim when the email verification response is still unverified",
+          "status": "passed"
+        },
+        {
+          "name": "keeps session verification retryable when refreshing a successfully verified user fails",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/app/[locale]/(auth)/owner-sign-in/[[...owner-sign-in]]/page.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "has one calm welcome heading and the existing authentication card",
+          "status": "passed"
+        },
+        {
+          "name": "does not send new owners into disabled onboarding",
+          "status": "passed"
+        },
+        {
+          "name": "uses the canonical enabled salon builder and localized dashboard",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/app/api/onboarding/v1/organization/route.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "resolves the session user and creates one organization named after the salon",
+          "status": "passed"
+        },
+        {
+          "name": "returns existing memberships without creating a duplicate organization",
+          "status": "passed"
+        },
+        {
+          "name": "resolves only the authenticated pending-session user when completing organization setup",
+          "status": "passed"
+        },
+        {
+          "name": "rejects client-selected identity and tenancy fields: {\"businessName\":\"Wrong user\",\"userId\":\"user_other\"}",
+          "status": "passed"
+        },
+        {
+          "name": "rejects client-selected identity and tenancy fields: {\"businessName\":\"Wrong organization\",\"organizationId\":\"org_other\"}",
+          "status": "passed"
+        },
+        {
+          "name": "rejects client-selected identity and tenancy fields: {\"businessName\":\"Wrong salon\",\"salonId\":\"salon_other\"}",
+          "status": "passed"
+        },
+        {
+          "name": "rejects an unauthenticated request with 401",
+          "status": "passed"
+        },
+        {
+          "name": "falls back to a neutral organization name when none is provided",
+          "status": "passed"
+        },
+        {
+          "name": "is dark when the integration flag is off",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/onboarding-v1-integration/client.test.ts",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "sends the pending session token only on the organization endpoint",
+          "status": "passed"
+        },
+        {
+          "name": "keeps the ordinary cookie-based organization request free of an invented token",
+          "status": "passed"
+        },
+        {
+          "name": "checks a site URL through the anonymous availability route",
+          "status": "passed"
+        },
+        {
+          "name": "rejects an availability response for a different URL",
+          "status": "passed"
+        },
+        {
+          "name": "recognizes the verified owner’s saved URL without reporting its own row as occupied",
+          "status": "passed"
+        },
+        {
+          "name": "reads canonical claim and interrupted-save status envelopes",
+          "status": "passed"
+        },
+        {
+          "name": "returns a typed conflict without treating it as a failed save",
+          "status": "passed"
+        },
+        {
+          "name": "posts a legacy saved-site fallback for server owner verification without URL tokens",
+          "status": "passed"
+        },
+        {
+          "name": "stores plan intent through one truthful server response",
+          "status": "passed"
+        },
+        {
+          "name": "does not accept a legacy interest-only response as a lifetime grant",
+          "status": "passed"
+        },
+        {
+          "name": "preserves the owner-safe API error for retry",
+          "status": "passed"
+        }
+      ]
+    }
+  ],
+  "testFiles": 12,
+  "passed": 151,
+  "failed": 0,
+  "splitRuns": true,
+  "description": "Eleven affected suites plus the exact .ts integration-client suite; no test file is counted twice."
+}

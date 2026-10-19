@@ -1,0 +1,6 @@
+.setup-auth-state{min-height:70dvh;display:grid;place-content:center;gap:32px;max-width:560px;margin:auto;padding:32px 24px;text-align:center;color:#402d35;background:#fbf9f7}
+.setup-auth-brand{font-size:12px;font-weight:600;letter-spacing:.22em;color:#80516a}
+.setup-auth-state h1{font-family:var(--font-owner-display),Georgia,serif;font-size:32px;line-height:1.2;margin:0 0 16px}
+.setup-auth-state p{line-height:1.6}
+.setup-auth-state button,.setup-auth-state a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin-top:12px;padding:10px 22px;border:1px solid #bfa8b2;border-radius:20px;color:inherit;background:white}
+.setup-auth-state :is(button,a):focus-visible{outline:3px solid #80516a;outline-offset:3px}

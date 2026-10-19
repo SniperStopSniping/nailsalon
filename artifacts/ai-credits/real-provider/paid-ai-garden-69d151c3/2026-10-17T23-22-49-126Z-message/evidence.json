@@ -1,0 +1,13 @@
+{
+  "step": "message",
+  "status": "failed",
+  "failure": "The expression evaluated to a falsy value:\n\n  assert(before)\n",
+  "startedAt": "2026-10-17T23:22:49.584Z",
+  "elapsedMs": 398,
+  "artifactId": null,
+  "calls": [],
+  "artifacts": [],
+  "appointments": [],
+  "browserErrors": [],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

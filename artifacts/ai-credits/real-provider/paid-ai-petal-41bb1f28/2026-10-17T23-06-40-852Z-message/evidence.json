@@ -1,0 +1,59 @@
+{
+  "step": "message",
+  "operationId": "fde384eb-da96-4f4e-b4b1-647cedcfe87c",
+  "status": "failed",
+  "failure": "Use the authenticated full preview supplied by the builder.",
+  "startedAt": "2026-10-17T23:06:41.038Z",
+  "elapsedMs": 132777,
+  "beforeRevision": 4,
+  "afterRevision": 5,
+  "artifactId": "d8319243-9b42-4a14-ac19-00b77dce4255",
+  "calls": [
+    {
+      "id": "77d25579-1111-499a-84df-88fadd0a7442",
+      "operation_id": "fde384eb-da96-4f4e-b4b1-647cedcfe87c",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4292,
+      "output_tokens": 154,
+      "cost_micro_usd": 614,
+      "charged_micro_cad": 1228,
+      "credit_cost_micro_cad": "1720",
+      "elapsed_ms": 2449,
+      "validation": "passed"
+    },
+    {
+      "id": "0491639a-4805-4392-a7e1-3d7e424c489f",
+      "operation_id": "3178960e-63fe-4be1-aeff-afc27df46575",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 7198,
+      "output_tokens": 7078,
+      "cost_micro_usd": 88774,
+      "charged_micro_cad": 177548,
+      "credit_cost_micro_cad": "248568",
+      "elapsed_ms": 124276,
+      "validation": "passed"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "parent_id": null,
+      "source_hash": "b3921231228c69956d0421f9837026ef6a4354383eac0fc9c24f93f2cff6a76b"
+    },
+    {
+      "id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+      "parent_id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "source_hash": "fe535fc03bf2c749283357087fc25bbfd0ae10f7034d007078dcb31c2ac5fa81"
+    }
+  ],
+  "appointments": [],
+  "browserErrors": [
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+  ],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

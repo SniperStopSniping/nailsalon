@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-18",
+  "environment": "fixed loopback Development; legacy synthetic owner sessions and CAD10 recovery grants",
+  "calls": [
+    {
+      "salon_id": "paid_ai_trial_e4af742bbe764109bee8acf40da0691b",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 4901,
+      "output_tokens": 621,
+      "cost_micro_usd": 924,
+      "charged_micro_cad": 1848,
+      "credit_cost_micro_cad": "2588",
+      "elapsed_ms": 6881
+    },
+    {
+      "salon_id": "paid_ai_trial_e4ab38c56547442da0f5ff5bc17f9080",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 4906,
+      "output_tokens": 618,
+      "cost_micro_usd": 923,
+      "charged_micro_cad": 1846,
+      "credit_cost_micro_cad": "2585",
+      "elapsed_ms": 6757
+    }
+  ],
+  "totalProviderMicroUsd": 1847,
+  "initialFinding": "The owner-supplied 15 extra minutes was initially labelled as a suggestion. The application parser was fixed and the identical prompt was rerun in a fresh blank account; original evidence retained unchanged.",
+  "services": [
+    {
+      "name": "BIAB",
+      "priceCents": 6500,
+      "durationMinutes": 75,
+      "confirmed": false,
+      "actor": "assistant",
+      "sources": {
+        "name": "owner",
+        "priceCents": "owner",
+        "durationMinutes": "owner"
+      }
+    },
+    {
+      "name": "Gel Manicure",
+      "priceCents": 5000,
+      "durationMinutes": 60,
+      "confirmed": false,
+      "actor": "assistant",
+      "sources": {
+        "name": "owner",
+        "priceCents": "owner",
+        "durationMinutes": "suggested"
+      }
+    }
+  ],
+  "addOns": [
+    {
+      "name": "Nail art",
+      "priceCents": 1000,
+      "durationMinutes": 15,
+      "confirmed": false,
+      "actor": "assistant",
+      "sources": {
+        "name": "owner",
+        "priceCents": "owner",
+        "durationMinutes": "owner"
+      }
+    }
+  ],
+  "browserChecks": [
+    "Chromium real owner Details",
+    "iPhone WebKit real owner Details",
+    "refresh preserves structured sources",
+    "owner numbers remain unconfirmed",
+    "no live services or appointments created",
+    "no provider calls from viewing Details"
+  ],
+  "screenshots": [
+    "chromium-owner-values.png",
+    "webkit-owner-values.png",
+    "webkit-mixed-values.png"
+  ],
+  "realClerk": false,
+  "realStripe": false,
+  "productionDeployed": false
+}

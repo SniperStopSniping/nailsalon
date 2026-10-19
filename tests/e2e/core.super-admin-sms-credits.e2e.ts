@@ -43,8 +43,23 @@ test('super admin adds confirmed SMS credits on mobile without a duplicate pendi
   });
 
   await page.goto(appPath('/super-admin'), { waitUntil: 'domcontentloaded' });
-  await page.getByPlaceholder('Search salons, slugs, or owner phones...').fill(e2eConfig.salonSlug);
-  await page.getByRole('button', { name: 'View' }).click();
+  const organizationsResponse = page.waitForResponse((response) => {
+    if (!response.url().includes('/api/super-admin/organizations')) {
+      return false;
+    }
+    return new URL(response.url()).searchParams.get('q') === e2eConfig.salonSlug;
+  });
+  const search = page.getByPlaceholder('Search salons, slugs, or owner phones...');
+  const targetRow = page.getByRole('row').filter({ hasText: e2eConfig.salonSlug });
+
+  await search.fill(e2eConfig.salonSlug);
+  const filteredOrganizations = await organizationsResponse;
+  const filteredBody = await filteredOrganizations.json();
+
+  expect(filteredBody.items.map((item: { slug: string }) => item.slug)).toEqual([e2eConfig.salonSlug]);
+  await expect(targetRow).toBeVisible();
+
+  await targetRow.getByRole('button', { name: 'View' }).click();
   await page.getByRole('button', { name: 'Billing & Programs' }).click();
 
   const control = page.getByTestId('add-sms-credits-control');
@@ -62,10 +77,11 @@ test('super admin adds confirmed SMS credits on mobile without a duplicate pendi
   const confirmation = control.getByLabel(`I confirm adding 25 texts to ${e2eConfig.salonName}.`);
   await confirmation.check();
 
-  const submit = control.getByRole('button', { name: 'Add texts' });
+  const submit = control.getByRole('button', { name: /^(Add texts|Adding texts…)$/ });
   await submit.focus();
   await page.keyboard.press('Enter');
 
+  await expect(submit).toHaveAccessibleName('Adding texts…');
   await expect(submit).toBeDisabled();
   await expect.poll(() => postRequests).toBe(1);
 
@@ -79,5 +95,5 @@ test('super admin adds confirmed SMS credits on mobile without a duplicate pendi
 
   await expect(control.getByText(`25 texts added to ${e2eConfig.salonName}.`)).toBeVisible();
   await expect(control.getByText('125', { exact: true })).toBeVisible();
-  await expect(page.locator('html')).toEvaluate(element => element.scrollWidth <= window.innerWidth);
+  await expect.poll(() => page.locator('html').evaluate(element => element.scrollWidth <= window.innerWidth)).toBe(true);
 });

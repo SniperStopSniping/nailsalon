@@ -1,0 +1,30 @@
+{
+  "passed": true,
+  "cases": [
+    {
+      "name": "missing-explicit-rehearsal-opt-in",
+      "exitCode": 1,
+      "tcpOrUnapprovedIpcAttempts": 0
+    },
+    {
+      "name": "hosted-database",
+      "exitCode": 1,
+      "tcpOrUnapprovedIpcAttempts": 0
+    },
+    {
+      "name": "actual-owner-trial-database-name",
+      "exitCode": 1,
+      "tcpOrUnapprovedIpcAttempts": 0
+    },
+    {
+      "name": "missing-disposable-marker",
+      "exitCode": 1,
+      "tcpOrUnapprovedIpcAttempts": 0
+    }
+  ],
+  "approvedLocalTsxLoaderIpcOnly": true,
+  "providerCredentialsSupplied": false,
+  "providerCalls": 0,
+  "hostedAccess": false,
+  "ownerTrialDatabaseAccessed": false
+}

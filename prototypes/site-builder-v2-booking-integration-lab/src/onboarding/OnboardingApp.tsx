@@ -94,6 +94,7 @@ const CanvaDialog = lazy(() => import('./overlays/ExtrasDialogs').then(module =>
 
 type PreviewSource =
   | 'starting_preview'
+  | 'your_design'
   | 'about'
   | 'about_design'
   | 'booking_layout'
@@ -122,7 +123,7 @@ const isOnboardingBrowserHistoryState = (
   const validOverlay = candidate.overlay === undefined
     || candidate.overlay?.kind === 'plan'
     || (candidate.overlay?.kind === 'preview'
-      && ['starting_preview', 'about', 'about_design', 'booking_layout', 'site_style', 'final_preview']
+      && ['starting_preview', 'your_design', 'about', 'about_design', 'booking_layout', 'site_style', 'final_preview']
         .includes(candidate.overlay.source));
   return candidate.lusterOnboarding === true
     && typeof candidate.onboardingCursor === 'number'
@@ -136,6 +137,7 @@ type OnboardingAppProps = {
   forceReview?: boolean;
   lab: LabDocumentController;
   integration?: {
+    onBuildAi?: () => void;
     checkSiteSlugAvailability?: (
       slug: string,
       signal?: AbortSignal,
@@ -1513,6 +1515,7 @@ export function OnboardingApp({
             logoUrl={starterLogoUrl ?? undefined}
             onBack={goBack}
             onChooseStarter={selectStarter}
+            onBuildAi={integration?.onBuildAi}
             ownerName={onboarding.state.profile.ownerName}
             reducedMotion={onboarding.state.reviewOptions.reducedMotion}
             selectedStarter={lab.document?.originStarter ?? onboarding.state.recipe.starter}
@@ -1786,6 +1789,7 @@ export function OnboardingApp({
           document={lab.document}
           onAdd={addCanva}
           onClose={() => setCanvaOpen(false)}
+          onPreview={() => openPreview('your_design')}
           onUpdate={updateState}
           open={canvaOpen}
           state={onboarding.state}

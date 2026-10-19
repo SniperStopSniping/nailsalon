@@ -4,6 +4,7 @@ import type { BookingPageContent, BookingPageContentSide } from './bookingPageCo
 // Client safe: compare the same saved draft/live pair that Publish uses.
 // Operational records (prices, availability, contact details) are not drafts.
 const CONFIG_LABELS: Record<keyof BookingPageConfigSide, string> = {
+  customFrontendId: 'Custom website source',
   layout: 'Page layout',
   sitePalettePreset: 'Colours',
   siteStylePreset: 'Visual style',
@@ -30,6 +31,7 @@ const CONTENT_LABELS: Record<keyof BookingPageContentSide, string> = {
   portraitFocalPoint: 'Profile photo crop',
   coverTextMode: 'Cover text display',
   coverText: 'Cover text',
+  websiteDetails: 'Contact details and website policies',
   galleryPhotoIds: 'Gallery photos',
 };
 

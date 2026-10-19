@@ -1,0 +1,45 @@
+{
+  "testedAt": "2026-10-15T16:25:26.976Z",
+  "environment": "isolated-preview",
+  "provider": "openai",
+  "model": "gpt-6-astra",
+  "fixture": "ai-onboarding-082c9d52379e",
+  "manualSourceIntervention": false,
+  "published": false,
+  "sourceCommit": "3602229a5a67e359ac5bffeb471429d9a1f9f05f",
+  "read": {
+    "operationId": "cb1dfb32-1cb4-474b-9c74-73899a9a2d96",
+    "providerSeconds": 10.989,
+    "inputTokens": 2683,
+    "outputTokens": 411,
+    "estimatedUsd": 0.05408
+  },
+  "followup": {
+    "operationId": "f05d3f9d-ff70-4d46-9262-b78d6a771ed2",
+    "providerSeconds": 4.259,
+    "inputTokens": 2099,
+    "outputTokens": 172,
+    "estimatedUsd": 0.03483,
+    "revision": 4
+  },
+  "draftUnchangedBeforeAcceptance": true,
+  "reviewRestoredAfterRefresh": true,
+  "acceptedRevision": 3,
+  "missingDurationUnresolvedInExtraction": true,
+  "addonNotConvertedToBaseService": true,
+  "addressKeptPrivate": true,
+  "followupFilledDurationAndWorkMode": true,
+  "resumedOnSeparateMobileContext": true,
+  "unpublishedSiteUnavailable": true,
+  "previousCheckCorrection": "First visibility assertion used authenticated owner cookies, which correctly permitted owner preview. Rechecked with a fresh anonymous context: 404.",
+  "verificationCommit": "b8c583d041c1c8a9e6593f6b06313dfac1331dfb",
+  "verificationDeployment": "dpl_AS3exNYxyEpopB34GZ4g7mg82E7r",
+  "liveChecks": {
+    "publishedExampleSettingsUnchanged": true,
+    "publishedExampleAppointments": 3,
+    "intakeSalonLiveServices": 0,
+    "intakeSalonAppointments": 0,
+    "intakeSalonPublications": 0
+  },
+  "cumulativeConservativeBudgetCad": 13.547382
+}

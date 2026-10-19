@@ -141,6 +141,23 @@ describe('POST /api/admin/salon/communications/starter-credits', () => {
     expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
   });
 
+  it('rejects a missing Origin before checking owner identity', async () => {
+    const response = await POST(new Request(
+      'https://luster.test/api/admin/salon/communications/starter-credits',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonId: 'salon_a' }),
+      },
+    ));
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe('INVALID_ORIGIN');
+    expect(mocks.requireRealSalonOwner).not.toHaveBeenCalled();
+    expect(mocks.currentUser).not.toHaveBeenCalled();
+    expect(mocks.claimVerifiedStarterCredits).not.toHaveBeenCalled();
+  });
+
   it('passes unverified primary contacts as null for the server policy to decide', async () => {
     mocks.currentUser.mockResolvedValue({
       id: 'user_owner',

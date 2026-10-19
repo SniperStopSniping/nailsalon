@@ -1,0 +1,816 @@
+{
+  "applicationBuild": {
+    "sha": "7d3dbf20c9312904f7d4f9965db8e8e047752599",
+    "nodeVersion": "v22.23.2",
+    "build": {
+      "code": 0,
+      "signal": null,
+      "completedAt": "2026-10-18T01:57:26.076Z"
+    },
+    "secretScan": {
+      "exitCode": 0,
+      "summary": "Secret leak scan passed (4505 tracked files, 596 generated files, 0 reviewed commits).",
+      "trackedFiles": 4505,
+      "generatedFiles": 596,
+      "publicFiles": 614,
+      "publicBytes": 8485056,
+      "serverCanaryMatches": 0,
+      "invocationValidated": true
+    }
+  },
+  "harnessFileHashes": {
+    "scripts/real-ai-builder-trial.mjs": "0a3c18276d9a4aef1a10f2d61e90e5eee2ce9e860f0a7b6129ee021e7b49a086",
+    "scripts/lib/ai-trial-origins.mjs": "a555de3d4c407a80a625491f8a7f4b365160786f5cd6b09df6ac3e0d9982f466",
+    "scripts/lib/ai-trial-proxy.mjs": "c9572c04e83e08886e7a203de36f103dcca8e89358e96024de46b9192c6884b7",
+    "scripts/ai-https-check.mjs": "7e5df157ca5b9943ebfcc85fe3751576124889f60d3f2c296762f734a9f76d40"
+  },
+  "tests": {
+    "ownerUiPassed": 32,
+    "nativeContractsPassed": 32,
+    "nativeContractsAfterProxyApiCorrectionPassed": 7,
+    "scopedLintPassed": true,
+    "typeCheckPassed": true
+  },
+  "runs": {
+    "recovery": {
+      "step": "connection-recovery",
+      "trialScope": "website",
+      "browserName": "webkit",
+      "origin": "https://luster-builder.test:3443",
+      "renderer": "https://luster-render.test:3444/renderer",
+      "optimizedHttps": true,
+      "salonSlug": "merlot-nail-atelier-test",
+      "lostPublishResponse": false,
+      "status": "passed",
+      "startedAt": "2026-10-18T01:59:16.260Z",
+      "elapsedMs": 762,
+      "beforeRevision": 12,
+      "afterRevision": 12,
+      "artifactId": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        },
+        {
+          "id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "parent_id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "source_hash": "b6a5c62e7614cf36776ae1a9b93206c6b4c7e6e2d1f5c6aaad5ce1bfe4be6394"
+        },
+        {
+          "id": "9f4f15a6-8af5-447f-970b-0f7bea92d4ca",
+          "parent_id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "source_hash": "e144ecafabc627a65d89bb785b9b94418013902350f8089296d3c3c75505c69d"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "total_price": 7500,
+          "total_duration_minutes": 75
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "fingerprint": "1b3782fd2ae9f41866d2e652580807f4"
+        },
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "fingerprint": "bac90c91931c51ca5b8e368bf45adfeb"
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 7500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 7500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "liveSettingsAfter": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "bookingSubmissionCount": 0,
+      "serverProbes": [],
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "paidAiSending": "disabled"
+        },
+        {
+          "connectionRecovery": "plain-language error, unsent message retained, saved revision recovered without mutation"
+        }
+      ],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    "price": {
+      "step": "service-price",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "origin": "https://luster-builder.test:3443",
+      "renderer": "https://luster-render.test:3444/renderer",
+      "optimizedHttps": true,
+      "salonSlug": "merlot-nail-atelier-test",
+      "lostPublishResponse": false,
+      "status": "passed",
+      "startedAt": "2026-10-18T01:59:31.759Z",
+      "elapsedMs": 2568,
+      "beforeRevision": 12,
+      "afterRevision": 13,
+      "artifactId": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        },
+        {
+          "id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "parent_id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "source_hash": "b6a5c62e7614cf36776ae1a9b93206c6b4c7e6e2d1f5c6aaad5ce1bfe4be6394"
+        },
+        {
+          "id": "9f4f15a6-8af5-447f-970b-0f7bea92d4ca",
+          "parent_id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "source_hash": "e144ecafabc627a65d89bb785b9b94418013902350f8089296d3c3c75505c69d"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "total_price": 7500,
+          "total_duration_minutes": 75
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "fingerprint": "1b3782fd2ae9f41866d2e652580807f4"
+        },
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "fingerprint": "bac90c91931c51ca5b8e368bf45adfeb"
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 7500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 7500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "liveSettingsAfter": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "bookingSubmissionCount": 0,
+      "serverProbes": [],
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "paidAiSending": "disabled"
+        },
+        {
+          "device": "desktop",
+          "secureContext": true,
+          "parentCookies": "blocked",
+          "frameStorage": "blocked",
+          "connectSrcViolation": true
+        },
+        {
+          "device": "mobile",
+          "secureContext": true,
+          "parentCookies": "blocked",
+          "frameStorage": "blocked",
+          "connectSrcViolation": true
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "keyboardMenu": "passed"
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    "public": {
+      "step": "public-preview",
+      "trialScope": "website",
+      "browserName": "webkit",
+      "origin": "https://luster-builder.test:3443",
+      "renderer": "https://luster-render.test:3444/renderer",
+      "optimizedHttps": true,
+      "salonSlug": "merlot-nail-atelier-test",
+      "lostPublishResponse": false,
+      "status": "passed",
+      "startedAt": "2026-10-18T01:59:46.258Z",
+      "elapsedMs": 1257,
+      "beforeRevision": 13,
+      "afterRevision": 13,
+      "artifactId": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        },
+        {
+          "id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "parent_id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "source_hash": "b6a5c62e7614cf36776ae1a9b93206c6b4c7e6e2d1f5c6aaad5ce1bfe4be6394"
+        },
+        {
+          "id": "9f4f15a6-8af5-447f-970b-0f7bea92d4ca",
+          "parent_id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "source_hash": "e144ecafabc627a65d89bb785b9b94418013902350f8089296d3c3c75505c69d"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "total_price": 7500,
+          "total_duration_minutes": 75
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "fingerprint": "1b3782fd2ae9f41866d2e652580807f4"
+        },
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "fingerprint": "bac90c91931c51ca5b8e368bf45adfeb"
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 7500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 7500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "liveSettingsAfter": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "bookingSubmissionCount": 0,
+      "serverProbes": [],
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "paidAiSending": "disabled"
+        }
+      ],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    "publish": {
+      "step": "publish",
+      "trialScope": "website",
+      "browserName": "webkit",
+      "origin": "https://luster-builder.test:3443",
+      "renderer": "https://luster-render.test:3444/renderer",
+      "optimizedHttps": true,
+      "salonSlug": "merlot-nail-atelier-test",
+      "lostPublishResponse": true,
+      "status": "passed",
+      "startedAt": "2026-10-18T02:00:15.865Z",
+      "elapsedMs": 1216,
+      "beforeRevision": 13,
+      "afterRevision": 13,
+      "artifactId": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        },
+        {
+          "id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "parent_id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "source_hash": "b6a5c62e7614cf36776ae1a9b93206c6b4c7e6e2d1f5c6aaad5ce1bfe4be6394"
+        },
+        {
+          "id": "9f4f15a6-8af5-447f-970b-0f7bea92d4ca",
+          "parent_id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "source_hash": "e144ecafabc627a65d89bb785b9b94418013902350f8089296d3c3c75505c69d"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "total_price": 7500,
+          "total_duration_minutes": 75
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "fingerprint": "1b3782fd2ae9f41866d2e652580807f4"
+        },
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "fingerprint": "bac90c91931c51ca5b8e368bf45adfeb"
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 7500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 6500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "liveSettingsAfter": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "bookingSubmissionCount": 0,
+      "serverProbes": [],
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "paidAiSending": "disabled"
+        }
+      ],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    "book": {
+      "step": "book",
+      "trialScope": "website",
+      "browserName": "webkit",
+      "origin": "https://luster-builder.test:3443",
+      "renderer": "https://luster-render.test:3444/renderer",
+      "optimizedHttps": true,
+      "salonSlug": "merlot-nail-atelier-test",
+      "lostPublishResponse": false,
+      "status": "passed",
+      "startedAt": "2026-10-18T02:00:23.613Z",
+      "elapsedMs": 4449,
+      "beforeRevision": 13,
+      "afterRevision": 13,
+      "artifactId": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        },
+        {
+          "id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "parent_id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "source_hash": "b6a5c62e7614cf36776ae1a9b93206c6b4c7e6e2d1f5c6aaad5ce1bfe4be6394"
+        },
+        {
+          "id": "9f4f15a6-8af5-447f-970b-0f7bea92d4ca",
+          "parent_id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "source_hash": "e144ecafabc627a65d89bb785b9b94418013902350f8089296d3c3c75505c69d"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "total_price": 7500,
+          "total_duration_minutes": 75
+        },
+        {
+          "id": "appt_a05f511e-9fc9-4cb2-b970-d67cfb3b97f5",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        }
+      ],
+      "historicalBefore": [
+        {
+          "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+          "fingerprint": "1b3782fd2ae9f41866d2e652580807f4"
+        },
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "fingerprint": "bac90c91931c51ca5b8e368bf45adfeb"
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 6500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 6500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "liveSettingsAfter": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 2,
+      "serverProbes": [
+        {
+          "kind": "virtual-preview-service-rejected",
+          "status": 400,
+          "code": "INVALID_SELECTION"
+        }
+      ],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    }
+  },
+  "attempts": [
+    {
+      "run": "2026-10-18T01-37-20-956Z-public-preview",
+      "step": "public-preview",
+      "status": "passed",
+      "revision": 7,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-39-47-433Z-public-preview",
+      "step": "public-preview",
+      "status": "passed",
+      "revision": 7,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-40-30-829Z-start-editing",
+      "step": "start-editing",
+      "status": "passed",
+      "revision": 8,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-40-50-108Z-service-price",
+      "step": "service-price",
+      "status": "passed",
+      "revision": 9,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-41-50-811Z-public-preview",
+      "step": "public-preview",
+      "status": "passed",
+      "revision": 9,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-41-51-967Z-manual-wording",
+      "step": "manual-wording",
+      "status": "passed",
+      "revision": 10,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-42-48-730Z-restore",
+      "step": "restore",
+      "status": "passed",
+      "revision": 11,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-43-30-453Z-publish",
+      "step": "publish",
+      "status": "failed",
+      "revision": 11,
+      "failure": "expect(locator).toBeVisible() failed\n\nLocator:  getByRole('heading', { name: 'Your approved changes are published.', exact: true })\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  60000ms\n\nCall log:\n\u001b[2m  - Expect \"to.be.visible\" with timeout 60000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('heading', { name: 'Your approved changes are published.', exact: true })\u001b[22m\n",
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-46-04-279Z-publish",
+      "step": "publish",
+      "status": "passed",
+      "revision": 11,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-46-58-472Z-book",
+      "step": "book",
+      "status": "failed",
+      "revision": 11,
+      "failure": "expect(locator).toBeEnabled() failed\n\nLocator:  getByRole('button', { name: 'Preview', exact: true })\nExpected: enabled\nReceived: <element(s) not found>\nTimeout:  60000ms\n\nCall log:\n\u001b[2m  - Expect \"to.be.enabled\" with timeout 60000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('button', { name: 'Preview', exact: true })\u001b[22m\n",
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-51-59-812Z-book",
+      "step": "book",
+      "status": "failed",
+      "revision": 11,
+      "failure": "Virtual private-preview service identities must be rejected on the server.\n\n403 !== 400\n",
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-58-05-823Z-start-editing",
+      "step": "start-editing",
+      "status": "passed",
+      "revision": 12,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-58-14-084Z-connection-recovery",
+      "step": "connection-recovery",
+      "status": "failed",
+      "revision": 12,
+      "failure": "expect(locator).toBeVisible() failed\n\nLocator:  getByText('Your connection dropped. Reload your saved changes before trying again.', { exact: true })\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  20000ms\n\nCall log:\n\u001b[2m  - Expect \"to.be.visible\" with timeout 20000ms\u001b[22m\n\u001b[2m  - waiting for getByText('Your connection dropped. Reload your saved changes before trying again.', { exact: true })\u001b[22m\n",
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-58-52-336Z-connection-recovery",
+      "step": "connection-recovery",
+      "status": "failed",
+      "revision": 12,
+      "failure": "locator._expect: Error: strict mode violation: getByRole('alert') resolved to 2 elements:\n    1) <div role=\"alert\" class=\"setup-error\">…</div> aka getByText('Your connection dropped.')\n    2) <div role=\"alert\" aria-live=\"assertive\" id=\"__next-route-announcer__\"></div> aka locator('[id=\"__next-route-announcer__\"]')\n\nCall log:\n\u001b[2m  - Expect \"to.have.text\" with timeout 20000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('alert')\u001b[22m\n",
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-59-15-588Z-connection-recovery",
+      "step": "connection-recovery",
+      "status": "passed",
+      "revision": 12,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-59-31-582Z-service-price",
+      "step": "service-price",
+      "status": "passed",
+      "revision": 13,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-59-45-613Z-public-preview",
+      "step": "public-preview",
+      "status": "passed",
+      "revision": 13,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T01-59-54-546Z-publish",
+      "step": "publish",
+      "status": "failed",
+      "revision": 13,
+      "failure": "Preserve the existing public/private state before approval.\n\n403 !== 200\n",
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T02-00-15-270Z-publish",
+      "step": "publish",
+      "status": "passed",
+      "revision": 13,
+      "failure": null,
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "newModelCalls": 0
+    },
+    {
+      "run": "2026-10-18T02-00-22-939Z-book",
+      "step": "book",
+      "status": "passed",
+      "revision": 13,
+      "failure": null,
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 2,
+      "newModelCalls": 0
+    }
+  ],
+  "historicalAfter": [
+    {
+      "id": "appt_3de18886-7f17-4958-8ae3-916678847066",
+      "fingerprint": "1b3782fd2ae9f41866d2e652580807f4"
+    },
+    {
+      "id": "appt_a05f511e-9fc9-4cb2-b970-d67cfb3b97f5",
+      "fingerprint": "183f21814baafcf34ee09f559e96ac96"
+    },
+    {
+      "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+      "fingerprint": "bac90c91931c51ca5b8e368bf45adfeb"
+    }
+  ],
+  "publicationReceipts": [
+    {
+      "revision": 7
+    },
+    {
+      "revision": 11
+    },
+    {
+      "revision": 13
+    }
+  ],
+  "modelCallCountUnchanged": 4,
+  "newModelCalls": 0,
+  "newProviderCost": 0,
+  "bookingSubmissions": {
+    "positiveOriginalUi": 1,
+    "deliberateNegativeApiProbe": 1,
+    "totalRequestsObserved": 2,
+    "newAppointments": 1
+  },
+  "boundaries": {
+    "pushed": false,
+    "deployed": false,
+    "productionMigrations": false,
+    "productionDataChanges": false,
+    "realSignupVerified": false,
+    "realStripePurchaseVerified": false,
+    "newAiGeneration": false,
+    "manualDesignEditDisclosed": true,
+    "optimizedMediaStorageAcceptance": false
+  },
+  "remaining": [
+    "Matching Clerk Development keys and deferred Stripe sandbox acceptance",
+    "Owned Canva/PDF/photos and remaining visual-style acceptance",
+    "Introductory workflow recording",
+    "Hosted resource isolation, separate renderer update, held push/PR, remote CI/review, protected-main production release"
+  ]
+}

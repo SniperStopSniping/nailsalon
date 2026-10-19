@@ -1,0 +1,21 @@
+{
+  "step": "preview",
+  "status": "failed",
+  "failure": "Use the authenticated full preview supplied by the builder.",
+  "startedAt": "2026-10-17T23:06:55.129Z",
+  "elapsedMs": 2223,
+  "beforeRevision": 4,
+  "afterRevision": 4,
+  "artifactId": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+  "calls": [],
+  "artifacts": [
+    {
+      "id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "parent_id": null,
+      "source_hash": "b3921231228c69956d0421f9837026ef6a4354383eac0fc9c24f93f2cff6a76b"
+    }
+  ],
+  "appointments": [],
+  "browserErrors": [],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

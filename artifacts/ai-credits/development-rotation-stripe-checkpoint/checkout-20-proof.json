@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "sourceSha": "c3253898b719219643080abdb713a06a031194d4",
+  "sameApplicationAsCheckpoint": "b50f4a4c",
+  "genuineProvider": "Stripe sandbox",
+  "packCad": 20,
+  "creditIncreaseMicroCad": 20000000,
+  "before": {
+    "balance": 19825241,
+    "aiCalls": 6,
+    "fingerprints": {
+      "service": "c434f3097d8ec5178cc8cb69d437b780",
+      "appointment": "b408ec65989ecce21ebc763b1090bc72"
+    }
+  },
+  "after": {
+    "balance": 39825241,
+    "aiCalls": 6,
+    "fingerprints": {
+      "service": "c434f3097d8ec5178cc8cb69d437b780",
+      "appointment": "b408ec65989ecce21ebc763b1090bc72"
+    }
+  },
+  "paid": true,
+  "appointmentsAndServicesUnchanged": true,
+  "modelCalls": 0,
+  "deniedHosts": [
+    "applepay.cdn-apple.com",
+    "abd920fa1e2e.w.hcaptcha.com",
+    "617f0c076ef1.w.hcaptcha.com",
+    "api.hcaptcha.com",
+    "api2.hcaptcha.com",
+    "acc94bd901c6.w.hcaptcha.com"
+  ],
+  "productionChanged": false
+}

@@ -1,0 +1,14 @@
+{
+  "provider": "openai",
+  "model": "gpt-6-astra",
+  "operationId": "7217f528-5cb7-4e86-9edd-dd3034faca8f",
+  "modelStatus": "completed",
+  "applicationResult": "Rejected nested arrays where legacy parser expected JSON strings; no draft changes applied",
+  "elapsedMs": 11350,
+  "inputTokens": 4482,
+  "outputTokens": 447,
+  "costMicroUsd": 78368,
+  "chargedMicroCad": 156736,
+  "rawOutputRetainedPrivately": true,
+  "developerIntervention": "Application parser now validates both arrays and legacy encoded arrays; replay test passed. No model-generated source was edited."
+}

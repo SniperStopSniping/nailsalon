@@ -1,0 +1,1049 @@
+{
+  "recordedAt": "2026-10-18T05:39:36.376Z",
+  "applicationSourceSha": "3d972835d6e9a5e348154dbcf53dbc42249cd1b4",
+  "environment": "Loopback Development, outbound integrations blocked",
+  "business": "Petite Studio (fictional)",
+  "input": "Supplied Ms Lady Nails screenshot, third-party inspiration. Two explicitly selected repository demonstration photos; no claim of actual Petite work or newly verified licensing.",
+  "funding": "Synthetic CAD10 recovery grant. No Stripe purchase, real Clerk signup or hosted deployment.",
+  "source": "Actual OpenAI output through the owner composer. Manual wording was tested through its owner control and undone by restoring the untouched model artifact before AI revision/publication. No hand-authored HTML/CSS substitution or hidden source repair.",
+  "runs": [
+    {
+      "name": "2026-10-18T05-18-02-603Z-message",
+      "step": "message",
+      "status": "failed",
+      "artifactId": null,
+      "browser": "chromium",
+      "elapsedMs": 141731,
+      "failure": "Expected first-owner route guard: Development process still had pilot-only enrollment. No paid request started. Self-service enabled in the isolated process before retry.",
+      "calls": [],
+      "interactionChecks": [],
+      "contactChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-21-26-914Z-message",
+      "step": "message",
+      "status": "passed",
+      "beforeRevision": 1,
+      "afterRevision": 2,
+      "artifactId": null,
+      "browser": "chromium",
+      "elapsedMs": 41881,
+      "calls": [
+        {
+          "id": "f7799a08-9d72-4fc2-917e-9c900c07d26c",
+          "operation_id": "3a7f45fb-2917-4d8a-9b14-8c82a22268dd",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 4892,
+          "output_tokens": 675,
+          "cost_micro_usd": 949,
+          "charged_micro_cad": 1898,
+          "credit_cost_micro_cad": "2658",
+          "elapsed_ms": 7730,
+          "validation": "passed"
+        }
+      ],
+      "interactionChecks": [],
+      "contactChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-22-17-605Z-photos",
+      "step": "photos",
+      "status": "passed",
+      "beforeRevision": 2,
+      "afterRevision": 3,
+      "artifactId": null,
+      "browser": "chromium",
+      "elapsedMs": 4014,
+      "calls": [],
+      "interactionChecks": [],
+      "contactChecks": [],
+      "bookingSubmissionCount": 0,
+      "mediaUpload": {
+        "assets": [
+          {
+            "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+            "name": "landscape-nails.webp",
+            "role": "photo",
+            "mime_type": "image/webp",
+            "byte_size": 105812,
+            "width": 1200,
+            "height": 799,
+            "hasAlpha": false,
+            "inputBytes": 3842274
+          },
+          {
+            "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+            "name": "portrait-camera.webp",
+            "role": "photo",
+            "mime_type": "image/webp",
+            "byte_size": 121532,
+            "width": 960,
+            "height": 1280,
+            "hasAlpha": false,
+            "inputBytes": 3100000
+          }
+        ],
+        "reusedExistingAssets": false
+      }
+    },
+    {
+      "name": "2026-10-18T05-23-03-779Z-message",
+      "step": "message",
+      "status": "failed",
+      "beforeRevision": 3,
+      "afterRevision": 5,
+      "artifactId": "fcccb958-5cde-43f3-8132-81233abcbe49",
+      "browser": "chromium",
+      "elapsedMs": 98407,
+      "failure": "Observer checked a below-fold lazy image before scrolling. The saved model result contained both selected photos. Harness changed to scroll/wait; the same untouched source then passed without another model call.",
+      "calls": [
+        {
+          "id": "0e073e3f-42e3-4a4a-ada6-17c2959733a5",
+          "operation_id": "91ddb227-05a7-4cf2-9128-c46d051cc3af",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5458,
+          "output_tokens": 312,
+          "cost_micro_usd": 839,
+          "charged_micro_cad": 1678,
+          "credit_cost_micro_cad": "2350",
+          "elapsed_ms": 5120,
+          "validation": "passed"
+        },
+        {
+          "id": "eafb6194-b20a-410b-9390-91ce169d61fa",
+          "operation_id": "6225e22a-691f-41ce-966f-405c25cd6601",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 4906,
+          "output_tokens": 4139,
+          "cost_micro_usd": 53654,
+          "charged_micro_cad": 107308,
+          "credit_cost_micro_cad": "150232",
+          "elapsed_ms": 75046,
+          "validation": "passed"
+        }
+      ],
+      "interactionChecks": [],
+      "contactChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-26-11-252Z-preview",
+      "step": "preview",
+      "status": "passed",
+      "beforeRevision": 5,
+      "afterRevision": 5,
+      "artifactId": "fcccb958-5cde-43f3-8132-81233abcbe49",
+      "browser": "chromium",
+      "elapsedMs": 7743,
+      "calls": [],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "photoComposition": null
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "photoComposition": null
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-29-12-593Z-manual-wording",
+      "step": "manual-wording",
+      "status": "passed",
+      "beforeRevision": 5,
+      "afterRevision": 6,
+      "artifactId": "fd99f5e6-bd8f-434b-8626-337b7cffeec3",
+      "browser": "chromium",
+      "elapsedMs": 10907,
+      "calls": [],
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-29-58-044Z-restore",
+      "step": "restore",
+      "status": "passed",
+      "beforeRevision": 6,
+      "afterRevision": 7,
+      "artifactId": "fcccb958-5cde-43f3-8132-81233abcbe49",
+      "browser": "chromium",
+      "elapsedMs": 10723,
+      "calls": [],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "photoComposition": null
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "photoComposition": null
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        },
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "photoComposition": null
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "photoComposition": null
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-30-34-071Z-preview",
+      "step": "preview",
+      "status": "passed",
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "fcccb958-5cde-43f3-8132-81233abcbe49",
+      "browser": "chromium",
+      "elapsedMs": 6999,
+      "calls": [],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 570
+          }
+        },
+        {
+          "device": "desktop",
+          "photoComposition": null
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 742.671875
+          }
+        },
+        {
+          "device": "mobile",
+          "photoComposition": null
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-30-46-601Z-message",
+      "step": "message",
+      "status": "passed",
+      "beforeRevision": 7,
+      "afterRevision": 8,
+      "artifactId": "044abc5a-8f22-4d37-ae51-0f4cea31ffdc",
+      "browser": "chromium",
+      "elapsedMs": 42051,
+      "calls": [
+        {
+          "id": "da38cafc-3bc0-4bf1-99c7-2adb34e2c679",
+          "operation_id": "0a0ac44a-d99b-4365-8cbc-6ba0d6057df5",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 8829,
+          "output_tokens": 4427,
+          "cost_micro_usd": 3318,
+          "charged_micro_cad": 6636,
+          "credit_cost_micro_cad": "9291",
+          "elapsed_ms": 32653,
+          "validation": "passed"
+        }
+      ],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 570
+          }
+        },
+        {
+          "device": "desktop",
+          "photoComposition": null
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "53a4bfde-6dc2-4952-8735-75f075da1aa0",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "f2d6a129-7a10-4389-bff8-4d4f1d112fbf",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 578.59375
+          }
+        },
+        {
+          "device": "mobile",
+          "photoComposition": null
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/petite.test.studio/",
+          "targetWidth": 114.921875,
+          "targetHeight": 14,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 120.25,
+          "targetHeight": 14,
+          "tapAttemptVerified": false
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-33-15-555Z-publish",
+      "step": "publish",
+      "status": "passed",
+      "beforeRevision": 8,
+      "afterRevision": 9,
+      "artifactId": "044abc5a-8f22-4d37-ae51-0f4cea31ffdc",
+      "browser": "chromium",
+      "elapsedMs": 15010,
+      "calls": [],
+      "interactionChecks": [],
+      "contactChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T05-33-48-074Z-book",
+      "step": "book",
+      "status": "passed",
+      "beforeRevision": 9,
+      "afterRevision": 9,
+      "artifactId": "044abc5a-8f22-4d37-ae51-0f4cea31ffdc",
+      "browser": "webkit",
+      "elapsedMs": 25203,
+      "calls": [],
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "a44f2210-2bcb-4ea5-973c-0070d843c165",
+          "serviceName": "BIAB",
+          "targetWidth": 279.40625,
+          "targetHeight": 42
+        }
+      ],
+      "contactChecks": [],
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1
+    }
+  ],
+  "calls": [
+    {
+      "id": "f7799a08-9d72-4fc2-917e-9c900c07d26c",
+      "operation_id": "3a7f45fb-2917-4d8a-9b14-8c82a22268dd",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4892,
+      "output_tokens": 675,
+      "cost_micro_usd": 949,
+      "charged_micro_cad": 1898,
+      "credit_cost_micro_cad": "2658",
+      "elapsed_ms": 7730,
+      "validation": "passed"
+    },
+    {
+      "id": "0e073e3f-42e3-4a4a-ada6-17c2959733a5",
+      "operation_id": "91ddb227-05a7-4cf2-9128-c46d051cc3af",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5458,
+      "output_tokens": 312,
+      "cost_micro_usd": 839,
+      "charged_micro_cad": 1678,
+      "credit_cost_micro_cad": "2350",
+      "elapsed_ms": 5120,
+      "validation": "passed"
+    },
+    {
+      "id": "eafb6194-b20a-410b-9390-91ce169d61fa",
+      "operation_id": "6225e22a-691f-41ce-966f-405c25cd6601",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4906,
+      "output_tokens": 4139,
+      "cost_micro_usd": 53654,
+      "charged_micro_cad": 107308,
+      "credit_cost_micro_cad": "150232",
+      "elapsed_ms": 75046,
+      "validation": "passed"
+    },
+    {
+      "id": "da38cafc-3bc0-4bf1-99c7-2adb34e2c679",
+      "operation_id": "0a0ac44a-d99b-4365-8cbc-6ba0d6057df5",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 8829,
+      "output_tokens": 4427,
+      "cost_micro_usd": 3318,
+      "charged_micro_cad": 6636,
+      "credit_cost_micro_cad": "9291",
+      "elapsed_ms": 32653,
+      "validation": "passed"
+    }
+  ],
+  "providerEstimateMicroUsd": 58760,
+  "trialMicroCad": 117520,
+  "retailMicroCad": 164531,
+  "costBasis": "Measured tokens at pinned Standard rates, not an invoice. Trial conversion 2 CAD/USD; separately frozen retail conversion 2.8 CAD/USD.",
+  "localBudget": {
+    "cap_micro_cad": 11384406,
+    "charged_micro_cad": "8387330",
+    "pending": "0"
+  },
+  "sharedCapMicroCad": 80000000,
+  "hostedCapMicroCad": 68615594,
+  "hostedSpend": "Not re-read; unknown holds not released.",
+  "artifacts": [
+    {
+      "id": "fcccb958-5cde-43f3-8132-81233abcbe49",
+      "parent_id": null,
+      "source_hash": "d1a68edb1582ca5b562f0d9e7c1c1e32bc52ca9524eddfbefd26467dd99e0b56"
+    },
+    {
+      "id": "fd99f5e6-bd8f-434b-8626-337b7cffeec3",
+      "parent_id": "fcccb958-5cde-43f3-8132-81233abcbe49",
+      "source_hash": "8d82e0475eaa3d94764661494dc87056881e9ca99c9e522bb63ce0af22b46056"
+    },
+    {
+      "id": "044abc5a-8f22-4d37-ae51-0f4cea31ffdc",
+      "parent_id": "fcccb958-5cde-43f3-8132-81233abcbe49",
+      "source_hash": "aa031edcc0ffdba4d7ae0076485bd0673f46dbcb177671aa59de013ccd97624f"
+    }
+  ],
+  "appointmentSnapshots": [
+    {
+      "appointment_id": "appt_ff98da37-d335-4931-a0d2-0e25d658c886",
+      "service_id": "a44f2210-2bcb-4ea5-973c-0070d843c165",
+      "price_at_booking": 6500,
+      "total_price": 6500,
+      "total_duration_minutes": 75,
+      "blocked_duration_minutes": 85
+    }
+  ],
+  "visualAssessment": {
+    "similarity": "Colour family, introductory booking card above photography, large images and roomy service presentation. Original interpretation, not an exact reconstruction.",
+    "differences": "Bespoke desktop split hero, different wording, system typography and permitted demonstration photos instead of the reference photography/branding. Original reference has a different image/menu composition.",
+    "iteration": "Mobile hero 742.671875 to 578.59375 CSS px; desktop remained 570 CSS px. Both photos and business draft retained."
+  },
+  "files": [
+    {
+      "file": "owner-business-input.png",
+      "sha256": "44405acc949765b77ab4b6bfa207aa9772b86c8bb1a47d1418184d9c8c429892"
+    },
+    {
+      "file": "first-desktop.png",
+      "sha256": "001dd536ccba9b7eeb0c4e3f8ac21f0133285c892c8259b4734e75e4fb9e8b71"
+    },
+    {
+      "file": "first-mobile.png",
+      "sha256": "2bc803c9b6154559c59b55a9bc4986459e1a5179c8d6a721388d0e8d8b78b347"
+    },
+    {
+      "file": "first-services.png",
+      "sha256": "5cda1ef58aebcd56a589e39284599ffcfcbd4bdab9ca964f5fc8a63e6f6df490"
+    },
+    {
+      "file": "final-desktop.png",
+      "sha256": "645de67be10e2604dd6ee70450ff62c327083f7aff55bbe449666d54ea74dcbd"
+    },
+    {
+      "file": "final-mobile.png",
+      "sha256": "3d9112a931bf1c70ebf8dcc48d8ef60ad6ad37eeb3a29dfb6877f173b5422800"
+    },
+    {
+      "file": "final-services.png",
+      "sha256": "7d413e29ecbeefd86e37e26bad2f1c61fb663663eb28469ee6cf4921040f2baf"
+    },
+    {
+      "file": "review.png",
+      "sha256": "f32aca5d5ceb05aec6c10144353f566e8bae342a892aa4e0ac4d1ce987e22545"
+    },
+    {
+      "file": "booking.png",
+      "sha256": "27b1a78c6bd4b1bab5a2dccf6371fda606965426a852432e3b3442700cb14659"
+    }
+  ]
+}
