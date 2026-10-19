@@ -1,0 +1,79 @@
+{
+  "environment": "isolated_preview",
+  "sourceCommit": "260f7f664550e676991dd80ac1705fd2afd99895",
+  "salonId": "244c14bb-60f9-4fb1-b2ff-5dfdc6e54e1f",
+  "slug": "paper-nail-studio",
+  "receipts": [
+    {
+      "id": "009b8d26-d8e2-4de0-ba4b-4aaf58fd366f",
+      "revision": 5,
+      "media_finalized": true,
+      "service_ids": {
+        "svc_244c14bb_60f9_4fb1_b2ff_5dfdc6e54e1f_gel-manicure": "svc_244c14bb_60f9_4fb1_b2ff_5dfdc6e54e1f_gel-manicure"
+      },
+      "approved_revision": 5,
+      "exact_approval": true
+    }
+  ],
+  "services": [
+    {
+      "id": "svc_244c14bb_60f9_4fb1_b2ff_5dfdc6e54e1f_gel-manicure",
+      "price": 5500,
+      "duration_minutes": 60
+    }
+  ],
+  "appointment": {
+    "id": "appt_88cc3308-990a-4852-80c2-7ab9e6b8c8b0",
+    "start_time": "2026-10-20T14:00:00.000Z",
+    "end_time": "2026-10-20T15:00:00.000Z",
+    "status": "confirmed",
+    "technician_id": "ae833263-01f0-47ce-ac1d-afb4139a67ae",
+    "total_price": 5500,
+    "total_duration_minutes": 60,
+    "buffer_minutes": 10,
+    "blocked_duration_minutes": 70
+  },
+  "appointmentServices": [
+    {
+      "service_id": "svc_244c14bb_60f9_4fb1_b2ff_5dfdc6e54e1f_gel-manicure",
+      "price_at_booking": 5500,
+      "duration_at_booking": 60
+    }
+  ],
+  "communications": [],
+  "deliveries": [
+    {
+      "channel": "email",
+      "status": "failed",
+      "error_code": "RESEND_NOT_CONFIGURED",
+      "provider_accepted": false
+    },
+    {
+      "channel": "email",
+      "status": "failed",
+      "error_code": "RESEND_NOT_CONFIGURED",
+      "provider_accepted": false
+    }
+  ],
+  "allPreviousRowsPreserved": true,
+  "previousAppointmentsPreserved": 31,
+  "unpublishedPublicBookingHTTP": 403,
+  "unpublishedPublicPageHTTP": 404,
+  "otherOwnerPrivatePreviewHTTP": 404,
+  "fullAddressHidden": true,
+  "aiCalls": 0,
+  "aiCallCountUnchanged": 180,
+  "smsOperatorEnabled": false,
+  "privateServiceAddressRetained": true,
+  "availability": {
+    "before": 28,
+    "after": 23,
+    "bookedTime": "10:00 AM",
+    "nextAvailableTime": "11:15 AM",
+    "date": "2026-10-20"
+  },
+  "frameFirstLoad": "Intermittent failure reproduced in private and signed-out public views; visible Reload recovered both",
+  "mediaFixture": "Existing 1200x480 synthetic geometry fixture, not a new AI generation",
+  "appDeployment": "dpl_9NQLc8YZQr56fVv9BSCYxfHsecrR",
+  "rendererCommit": "0e65facb9d4d222f5cd97044852f28014f9220c0"
+}
