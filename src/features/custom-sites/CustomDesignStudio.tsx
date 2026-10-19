@@ -339,7 +339,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     });
   }
   async function saveNativePhoto(blockId: string, change: CanvaNativeChange) {
-    await action('Saving your photo changes…', async () => {
+    await action('Saving your changes…', async () => {
       const key = JSON.stringify({ revision, blockId, change });
       const operation = nativeOperation.current?.key === key ? nativeOperation.current : { key, id: crypto.randomUUID() };
       nativeOperation.current = operation;

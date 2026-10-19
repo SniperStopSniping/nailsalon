@@ -30,7 +30,7 @@ function artworkSharingBlockers(document: SetupDocument, source: CustomSiteSourc
   const data = customSiteDataFromSetup(document);
   return [
     ...canvaTargetBlockers(source, data),
-    ...(!canvaFactsMatch(source, data, true) ? ['Your booking details changed. Update the artwork before sharing this preview.'] : []),
+    ...(!canvaFactsMatch(source, data, true) ? ['Your website details changed. Check and approve the artwork before sharing this preview.'] : []),
     ...(!source.canva.ownerReviewed && !acknowledged ? ['Confirm you want to share the original artwork as a preview. This does not approve it for publication.'] : []),
     ...(document.business.exactAddress && JSON.stringify(source).toLowerCase().includes(document.business.exactAddress.toLowerCase()) ? ['Remove your private service address from the artwork before sharing.'] : []),
   ];

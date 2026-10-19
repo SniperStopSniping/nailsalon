@@ -15,3 +15,13 @@ export function usesSavedCanvaPhotoContext(message: string) {
     && /\b(?:add|use|remove|replace|swap|move|put|order|reorder|arrange|make|show|switch|change|describe|rename|caption|larger|bigger|smaller|first|last|earlier|later)\b/iu.test(message)
     && !reading.test(message);
 }
+
+/** Repair a false capability denial, never authorize an otherwise unsupported edit. */
+export function rejectsSupportedAboutText(message: string, reply: string, aboutCount: number) {
+  return aboutCount === 1
+    && /\babout\s+(?:heading|text|wording)\b/iu.test(message)
+    && /\b(?:change|set|rename|update|replace|rewrite)\b/iu.test(message)
+    && !/\b(?:font|typography|colou?r|size|spacing|animat\w*|layout|style|background|printed)\b/iu.test(message)
+    && /\b(?:cannot|can['’]t|unable)\b/iu.test(reply)
+    && /\b(?:canva\s+export|fixed[- ]artwork|editable\s+redesign|printed\s+text)\b/iu.test(reply);
+}

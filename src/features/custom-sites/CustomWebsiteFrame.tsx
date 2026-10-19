@@ -144,9 +144,9 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         <div className="p-3 text-sm">
           {payload.canvaFactsChanged && (
             <p role="status">
-              <strong>Your booking details changed.</strong>
+              <strong>Your website details changed.</strong>
               {' '}
-              This Canva image may still show earlier prices, hours or contact details. Update the artwork and check its links.
+              Check any prices, hours or contact details printed in your Canva image before publishing.
             </p>
           )}
           <details>

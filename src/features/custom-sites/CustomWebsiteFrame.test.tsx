@@ -136,7 +136,7 @@ describe('custom website trusted parent bridge', () => {
     const input: CustomSitePayload = { ...payload, source, canvaFactsChanged: true, data: { ...payload.data, preview: true, services: [{ id: 'draft-gel', name: 'Gel', description: null, priceCents: 7200, priceLabel: '$72.00', durationMinutes: 60 }] } };
     render(<CustomWebsiteFrame payload={input} rendererOrigin="https://renderer.example" />);
 
-    expect(screen.getByText('Your booking details changed.')).toBeVisible();
+    expect(screen.getByText('Your website details changed.')).toBeVisible();
 
     fireEvent.click(screen.getByText('Booking details in this preview'));
 

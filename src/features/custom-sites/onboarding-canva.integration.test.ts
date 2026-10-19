@@ -1439,3 +1439,25 @@ it('refuses About creation in a price-only request and cannot recover its unvali
   expect((await openSetup(test.actor)).revision.revision).toBe(input.expectedRevision);
   expect((await records(test.actor.salonId)).artifacts).toHaveLength(2);
 });
+
+it('repairs a false refusal to edit a separate About heading without regenerating the fixed artwork', async () => {
+  const test = await nativeChatFixture();
+  const details = test.imported.head.revision.document.website.content.websiteDetails!;
+  const section = details.sections.find(section => section.id === test.about.textSectionIds[0])!;
+  const refusal = nativeChatResponse([]);
+  refusal.items[0]!.text = JSON.stringify({ reply: 'I can’t change the About heading in the current fixed-artwork design. Upload an updated Canva export.', operationsJson: '[]', designRequest: null, uploadFacts: null, nativePhotoChangesJson: null });
+  const provider = { createResponse: vi.fn().mockResolvedValueOnce(refusal).mockResolvedValueOnce(nativeChatResponse([{ blockId: test.about.id, change: { type: 'about_text', sectionId: section.id, title: 'Meet the studio', text: section.text } }])) };
+  const input = { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Change the About heading to Meet the studio. Keep the wording, photos, artwork and everything else the same.' };
+  const result = await runSetupConversation(test.actor, input, provider);
+  const payload = (await setupCustomSitePayload(test.actor.salonId, result.head.revision.document))!;
+  const calls = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId));
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(2);
+  expect(calls.find(call => call.ordinal === 0)!.validation).toBe('conversation_schema_repaired');
+  expect(calls.find(call => call.ordinal === 1)!.validation).toBe('passed');
+  expect(result.head.revision.revision).toBe(input.expectedRevision + 1);
+  expect(result.head.revision.document.website.content.websiteDetails!.sections).toEqual(details.sections.map(item => item.id === section.id ? { ...item, title: 'Meet the studio' } : item));
+  expect(payload.source.canva!.pages).toEqual(test.artifact.source.canva!.pages);
+  expect(payload.source.canva!.nativeContent!.find(block => block.type === 'about')).toMatchObject({ title: 'Meet the studio', image: test.about.image });
+  expect(await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.salonId, test.actor.salonId))).toHaveLength(0);
+});

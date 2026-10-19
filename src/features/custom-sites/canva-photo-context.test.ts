@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 
-import { usesSavedCanvaPhotoContext } from './canva-photo-context';
+import { rejectsSupportedAboutText, usesSavedCanvaPhotoContext } from './canva-photo-context';
 
 it.each([
   'Add my two new test photos in a Gallery below the artwork, with the wide photo first and the portrait second. Keep the Canva artwork, links, services and settings unchanged.',
@@ -30,3 +30,15 @@ it.each([
   'Read my About text from the image.',
   'Add an About section using the text on this design.',
 ])('retains vision eligibility for extraction or unrelated requests: %s', message => expect(usesSavedCanvaPhotoContext(message)).toBe(false));
+
+it('recognizes a false fixed-artwork denial for editable About wording, without treating style or reference requests as supported text edits', () => {
+  const reply = 'I can’t change the About heading in the current fixed-artwork design. Upload an updated Canva export.';
+
+  expect(rejectsSupportedAboutText('Change the About heading to Meet the studio. Keep the artwork and photos the same.', reply, 1)).toBe(true);
+  expect(rejectsSupportedAboutText('Change the About wording to Welcome.', reply, 1)).toBe(true);
+  expect(rejectsSupportedAboutText('Change the About heading font.', reply, 1)).toBe(false);
+  expect(rejectsSupportedAboutText('Change the printed About heading.', reply, 1)).toBe(false);
+  expect(rejectsSupportedAboutText('Change the About heading to Meet me.', 'Which About section do you mean?', 1)).toBe(false);
+  expect(rejectsSupportedAboutText('Change the About heading to Meet me.', reply, 0)).toBe(false);
+  expect(rejectsSupportedAboutText('Change the About heading to Meet me.', reply, 2)).toBe(false);
+});
