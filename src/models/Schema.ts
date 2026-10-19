@@ -19,6 +19,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import type { SalonDeletionAsset } from './salonDeletion';
+
 export {
   ADD_ON_CATEGORIES,
   type AddOnCategory,
@@ -5642,4 +5644,26 @@ export const networkNoShowAuditSchema = pgTable('network_no_show_audit', {
 }, table => ({
   eventHistory: index('network_no_show_audit_event_history').on(table.eventId, table.createdAt),
   salonReadHistory: index('network_no_show_audit_salon_history').on(table.salonId, table.createdAt),
+}));
+
+// Tenant-independent recovery state, atomically recorded before a salon purge.
+export const salonDeletionCleanupSchema = pgTable('salon_deletion_cleanup', {
+  id: text('id').primaryKey(),
+  sourceSalonId: text('source_salon_id').notNull(),
+  confirmationDigest: text('confirmation_digest').notNull(),
+  rowsDeleted: integer('rows_deleted').notNull().default(0),
+  mediaTotal: integer('media_total').notNull(),
+  mediaRemoved: integer('media_removed').notNull().default(0),
+  pendingAssets: jsonb('pending_assets').$type<SalonDeletionAsset[]>().notNull().default([]),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  leaseToken: text('lease_token'),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  sourceOnce: uniqueIndex('salon_deletion_cleanup_source_once').on(table.sourceSalonId),
+  due: index('salon_deletion_cleanup_due').on(table.nextAttemptAt).where(sql`${table.completedAt} IS NULL`),
+  countsValid: check('salon_deletion_cleanup_counts_valid', sql`${table.rowsDeleted} >= 0 AND ${table.mediaTotal} >= 0 AND ${table.mediaRemoved} >= 0 AND ${table.mediaRemoved} <= ${table.mediaTotal} AND ${table.attempts} >= 0 AND jsonb_typeof(${table.pendingAssets}) = 'array' AND ${table.mediaRemoved} + jsonb_array_length(${table.pendingAssets}) = ${table.mediaTotal}`),
 }));
