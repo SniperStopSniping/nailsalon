@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), replaceCanva: vi.fn(), editLayout: vi.fn(), meter: vi.fn(), read: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), editNative: vi.fn(), replaceCanva: vi.fn(), editLayout: vi.fn(), meter: vi.fn(), read: vi.fn() }));
 vi.mock('@/libs/DB', () => ({ db: { transaction: state.read } }));
 vi.mock('@/features/ai-credits/request-metering.server', () => ({ runWithAiCredits: state.meter }));
 vi.mock('@/features/business-setup/conversation.server', () => ({ runSetupConversation: state.business }));
@@ -13,6 +13,7 @@ vi.mock('@/features/custom-sites/generate.server', () => ({ generateCustomSite: 
 vi.mock('@/features/custom-sites/media-edit.server', async original => ({ ...await original<any>(), editCustomMedia: state.editMedia }));
 vi.mock('@/features/custom-sites/canva-replace.server', async original => ({ ...await original<any>(), replaceCanvaPage: state.replaceCanva }));
 vi.mock('@/features/custom-sites/canva-layout.server', async original => ({ ...await original<any>(), editCanvaLayout: state.editLayout }));
+vi.mock('@/features/custom-sites/canva-native-edit.server', () => ({ editCanvaNativeContent: state.editNative, canvaNativePhotoChoices: vi.fn().mockResolvedValue([]) }));
 vi.mock('@/features/custom-sites/assets.server', () => ({ uploadCustomAsset: state.upload }));
 vi.mock('@/features/business-setup/drafts.server', () => ({ editSetup: state.edit }));
 function request(body: unknown, origin = 'http://localhost:3197') {
@@ -175,4 +176,19 @@ it('scopes appearance-only Canva controls to the owner and rejects arbitrary sty
   expect(state.meter).not.toHaveBeenCalled();
   expect(state.generate).not.toHaveBeenCalled();
   expect(state.business).not.toHaveBeenCalled();
+});
+
+it('scopes native photo controls to the authenticated owner without exposing publication or paid generation', async () => {
+  state.editNative.mockResolvedValue({ head: {} });
+  const input = { expectedRevision: 7, operationId: crypto.randomUUID(), blockId: 'manual-gallery', change: { type: 'describe', mediaId: crypto.randomUUID(), alt: 'My nail photograph' } };
+
+  expect((await POST(request({ action: 'edit_native_photos', input: { ...input, salonId: 'other-business' } }))).status).toBe(400);
+  expect((await POST(request({ action: 'edit_native_photos', input: { ...input, change: { ...input.change, src: 'https://evil.invalid/photo' } } }))).status).toBe(400);
+  expect((await POST(request({ action: 'edit_native_photos', input: { ...input, change: { ...input.change, alt: '' } } }))).status).toBe(400);
+  expect(state.editNative).not.toHaveBeenCalled();
+
+  expect((await POST(request({ action: 'edit_native_photos', input }))).status).toBe(200);
+  expect(state.editNative).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, input);
+  expect(state.meter).not.toHaveBeenCalled();
+  expect(state.generate).not.toHaveBeenCalled();
 });

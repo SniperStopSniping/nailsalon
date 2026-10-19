@@ -192,6 +192,11 @@
 .studio-photo-card img { width: 100%; height: 150px; object-fit: contain; background: #f3ecef; border-radius: 10px; }
 .studio-photo-card strong, .studio-photo-card > span { display: block; overflow-wrap: anywhere; margin-top: 8px; }
 .studio-photo-card > span { font-size: 12px; color: #79636e; }
+.studio-native-photo-controls fieldset { min-width: 0; padding: 0; margin: 16px 0; border: 0; }
+.studio-native-photo-controls legend { font-weight: 600; margin-bottom: 12px; }
+.studio-native-photo-controls .studio-photo-card { margin-top: 16px; }
+.studio-native-photo-controls .studio-photo-card label { display: grid !important; gap: 8px; }
+.studio-native-photo-controls select { max-width: 100%; }
 .studio-photo-card label, .studio-rights { display: flex !important; align-items: flex-start; gap: 8px; margin: 12px 0; }
 .studio-photo-card input[type=checkbox], .studio-rights input[type=checkbox], .studio-reference-card input[type=checkbox] { width: 18px !important; height: 18px; flex-shrink: 0; margin-top: 2px; }
 .studio-fidelity { border: 0; padding: 0; margin: 14px 0 24px; display: grid; gap: 12px; }

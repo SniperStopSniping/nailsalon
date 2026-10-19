@@ -30,6 +30,7 @@ import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v
 import { reviewCanvaArtwork, saveCustomSource } from './artifacts.server';
 import { uploadOnboardingArtwork } from './assets.server';
 import { compileCanvaDesign } from './canva';
+import { canvaNativePhotoChoices, editCanvaNativeContent } from './canva-native-edit.server';
 import { customSiteArtworkPolicy, customSiteDataFromLive } from './live-data.server';
 import { linkedOnboardingCanvaDraft } from './manual-origin.server';
 import { readAuthorizedCanvaNativeMedia } from './native-media-access.server';
@@ -367,6 +368,94 @@ it('keeps the expanded biography when a manual section overrides its introductio
   expect(copy).toContain('My section-specific introduction.');
   expect(copy).not.toContain(snapshot.profile.about.shortBio);
   expect(copy.replace(/\s/gu, '')).toContain(snapshot.profile.about.fullBio.replace(/\s/gu, ''));
+});
+
+it('edits native photos idempotently while preserving artwork, About copy and live business settings', async () => {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const { actor, input } = await fixture(false, 'ready');
+  const imported = await importOnboardingCanva(actor, input);
+  const before = (await records(actor.salonId)).artifacts[0]!;
+  const gallery = before.source.canva!.nativeContent!.find(block => block.type === 'gallery')!;
+
+  expect(gallery.type).toBe('gallery');
+
+  if (gallery.type !== 'gallery') {
+    throw new Error('Missing gallery fixture');
+  }
+  const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+  const services = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId));
+  const edit = { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), blockId: gallery.id, change: { type: 'move', mediaId: gallery.images[0]!.mediaId, direction: 'later' } };
+  const moved = await editCanvaNativeContent(actor, edit);
+  const replay = await editCanvaNativeContent(actor, edit);
+
+  expect(replay.artifactId).toBe(moved.artifactId);
+  expect(replay.head.revision.revision).toBe(moved.head.revision.revision);
+  await expect(editCanvaNativeContent(actor, { ...edit, change: { ...edit.change, direction: 'earlier' } })).rejects.toMatchObject({ code: 'INVALID' });
+  await expect(editCanvaNativeContent(actor, { ...edit, operationId: randomUUID() })).rejects.toMatchObject({ code: 'STALE' });
+
+  const changed = (await records(actor.salonId)).artifacts.find(row => row.id === moved.artifactId)!;
+  const movedGallery = changed.source.canva!.nativeContent!.find(block => block.type === 'gallery')!;
+
+  expect(movedGallery.type === 'gallery' && movedGallery.images.map(image => image.mediaId)).toEqual(gallery.images.map(image => image.mediaId).reverse());
+  expect(changed.source.canva).toMatchObject({ pages: before.source.canva!.pages, areas: before.source.canva!.areas, controls: before.source.canva!.controls, ownerReviewed: false });
+  expect(moved.head.revision.document.website.content).toEqual(imported.head.revision.document.website.content);
+  expect(moved.head.revision.document.services).toEqual(imported.head.revision.document.services);
+  expect(moved.head.revision.document.business).toEqual(imported.head.revision.document.business);
+
+  const [after] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+  // The shared manual draft projection advances; public settings and the
+  // original booking configuration must remain unchanged.
+  expect(after).toMatchObject({ name: salon!.name, businessHours: salon!.businessHours, publicationStatus: salon!.publicationStatus, onlineBookingEnabled: salon!.onlineBookingEnabled, publishedAt: salon!.publishedAt });
+  expect(resolveBookingConfigFromSettings(after!.settings)).toEqual(resolveBookingConfigFromSettings(salon!.settings));
+  expect(resolveBookingPageConfig(after!.settings).live).toEqual(resolveBookingPageConfig(salon!.settings).live);
+  expect(resolveBookingPageContent(after!.settings).live).toEqual(resolveBookingPageContent(salon!.settings).live);
+  expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toEqual(services);
+
+  const described = await editCanvaNativeContent(actor, { ...edit, expectedRevision: moved.head.revision.revision, operationId: randomUUID(), change: { type: 'describe', mediaId: gallery.images[0]!.mediaId, alt: 'Close-up of owner supplied nail art' } });
+  const removed = await editCanvaNativeContent(actor, { ...edit, expectedRevision: described.head.revision.revision, operationId: randomUUID(), change: { type: 'remove', mediaId: gallery.images[0]!.mediaId } });
+  const removedSource = (await records(actor.salonId)).artifacts.find(row => row.id === removed.artifactId)!.source;
+
+  expect(removedSource.html).not.toContain(`data-luster-native-image="${gallery.images[0]!.mediaId}"`);
+
+  const choices = await canvaNativePhotoChoices(actor.salonId, removedSource.canva);
+
+  expect(choices).toHaveLength(3);
+  expect(choices.some(choice => choice.mediaId === gallery.images[0]!.mediaId)).toBe(true);
+  expect(JSON.stringify(choices)).not.toContain('storageKey');
+
+  const restored = await editCanvaNativeContent(actor, { ...edit, expectedRevision: removed.head.revision.revision, operationId: randomUUID(), change: { type: 'use', mediaId: gallery.images[0]!.mediaId, alt: 'Restored owner nail photograph' } });
+  const restoredSource = (await records(actor.salonId)).artifacts.find(row => row.id === restored.artifactId)!.source;
+
+  expect(restoredSource.html).toContain('Restored owner nail photograph');
+  expect(restoredSource.canva!.pages).toEqual(before.source.canva!.pages);
+  expect((await records(actor.salonId)).assets).toHaveLength(1);
+  expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toHaveLength(0);
+});
+
+it('rejects cross-salon, wrong-role and stale native edits and rolls back an artifact if business data changes', async () => {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const first = await fixture(false, 'ready');
+  const second = await fixture(false, 'ready');
+  const imported = await importOnboardingCanva(first.actor, first.input);
+  const source = (await records(first.actor.salonId)).artifacts[0]!.source;
+  const gallery = source.canva!.nativeContent!.find(block => block.type === 'gallery')!;
+  const choices = await canvaNativePhotoChoices(first.actor.salonId, source.canva);
+  const foreign = (await database.select().from(schema.onboardingSiteMediaSchema).where(eq(schema.onboardingSiteMediaSchema.salonId, second.actor.salonId))).find(row => row.role === 'gallery')!;
+  const base = { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), blockId: gallery.id };
+
+  for (const mediaId of [foreign.id, choices.find(choice => choice.role === 'profile')!.mediaId]) {
+    await expect(editCanvaNativeContent(first.actor, { ...base, change: { type: 'use', mediaId, alt: 'Invalid photo' } })).rejects.toMatchObject({ code: 'INVALID' });
+  }
+  await database.update(schema.serviceSchema).set({ price: 6600 }).where(eq(schema.serviceSchema.id, first.serviceId));
+
+  await expect(editCanvaNativeContent(first.actor, { ...base, change: { type: 'layout', layout: 'carousel' } })).rejects.toMatchObject({ code: 'STALE' });
+  expect((await records(first.actor.salonId)).artifacts).toHaveLength(1);
+  expect((await records(first.actor.salonId)).revisions).toHaveLength(imported.head.revision.revision);
+
+  await database.update(schema.adminSalonMembershipSchema).set({ role: 'staff' }).where(eq(schema.adminSalonMembershipSchema.salonId, first.actor.salonId));
+
+  await expect(editCanvaNativeContent(first.actor, { ...base, change: { type: 'layout', layout: 'carousel' } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
 });
 
 it('gates new photo enrollment while retaining original saves and unmodified manual paths', async () => {

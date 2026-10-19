@@ -12,6 +12,8 @@ import { editSetup, loadSetupHead, lockSetupSalon, readSetupSnapshot } from '@/f
 import { reviewCanvaArtwork, saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import { assetDataUrl, ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import { canvaLayoutSchema, editCanvaLayout } from '@/features/custom-sites/canva-layout.server';
+import { canvaNativePhotoChoices, editCanvaNativeContent } from '@/features/custom-sites/canva-native-edit.server';
+import { canvaNativeEditSchema } from '@/features/custom-sites/canva-native-edits';
 import { canvaReplaceSchema, replaceCanvaPage } from '@/features/custom-sites/canva-replace.server';
 import { customSiteGenerateSchema, customSiteSourceSchema, designBriefSchema } from '@/features/custom-sites/contracts';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
@@ -35,6 +37,7 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('edit_media'), input: mediaEditSchema }).strict(),
   z.object({ action: z.literal('replace_canva_page'), input: canvaReplaceSchema }).strict(),
   z.object({ action: z.literal('edit_canva_layout'), input: canvaLayoutSchema }).strict(),
+  z.object({ action: z.literal('edit_native_photos'), input: canvaNativeEditSchema }).strict(),
   z.object({ action: z.literal('generate'), input: customSiteGenerateSchema, acceptedCreditLimitMicroCad: z.literal(AI_REQUEST_CREDIT_LIMIT).optional() }).strict(),
   z.object({ action: z.literal('resume'), operationId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('save'), input: z.object({ ...edit, source: customSiteSourceSchema, assetIds: z.array(z.string().uuid()).max(12) }).strict() }).strict(),
@@ -86,7 +89,8 @@ export async function GET(request: Request) {
     const attempts = await db.select({ id: jobs.id, status: jobs.status, phase: jobs.phase, message: jobs.message, artifactId: jobs.artifactId, inputTokens: jobs.inputTokens, outputTokens: jobs.outputTokens, costMicroUsd: jobs.costMicroUsd, createdAt: jobs.createdAt }).from(jobs).where(and(eq(jobs.salonId, access.actor.salonId), gte(jobs.expectedRevision, document.sessionStartRevision ?? 1))).orderBy(desc(jobs.createdAt)).limit(30);
     const recoverable = new Set((await db.select({ operationId: calls.operationId }).from(calls).where(and(eq(calls.salonId, access.actor.salonId), eq(calls.status, 'completed')))).map(call => call.operationId));
     const payload = await setupCustomSitePayload(access.actor.salonId, document);
-    return Response.json({ head, payload, preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
+    const nativePhotos = await canvaNativePhotoChoices(access.actor.salonId, payload?.source.canva);
+    return Response.json({ head, payload, nativePhotos, preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
   } catch (e) {
     return errorResponse(e, 'load');
   }
@@ -161,6 +165,9 @@ export async function POST(request: Request) {
     }
     if (parsed.action === 'edit_canva_layout') {
       return Response.json(await editCanvaLayout(access.actor, parsed.input), { headers });
+    }
+    if (parsed.action === 'edit_native_photos') {
+      return Response.json(await editCanvaNativeContent(access.actor, parsed.input), { headers });
     }
     if (parsed.action === 'generate') {
       if (!access.aiEnabled) {

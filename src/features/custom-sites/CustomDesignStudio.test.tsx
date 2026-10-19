@@ -485,3 +485,46 @@ it('does not label an older displayed design as the current published version', 
   expect(screen.queryByText('Published', { exact: true })).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: 'Open full preview' })).not.toBeInTheDocument();
 });
+
+it('applies a native photo edit through the owner studio and recovers an exact committed response without resubmitting', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {} disconnect() {}
+  });
+  const mediaId = 'a0000000-0000-4000-8000-000000000002';
+  const first = 'a0000000-0000-4000-8000-000000000003';
+  const updated = 'a0000000-0000-4000-8000-000000000004';
+  let operationId: string | undefined;
+  let source = compileCanvaDesign({ version: 1, pages: [{ assetId: 'a0000000-0000-4000-8000-000000000001', width: 279, height: 1280, alt: 'My design' }], areas: [], visibleText: '', notes: [], dataFingerprint: 'a'.repeat(64), ownerReviewed: false, manualOrigin: { siteId: 'a0000000-0000-4000-8000-000000000005', revisionId: 'a0000000-0000-4000-8000-000000000006', revision: 1 }, nativeContent: [{ type: 'gallery', id: 'gallery', beforePage: 1, title: 'Gallery', layout: 'grid', images: [{ mediaId, role: 'gallery', width: 600, height: 400, alt: 'My salon photograph' }] }] });
+  const writes: any[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === '/api/custom-sites/media') {
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/webp' } });
+    }
+    if (options?.method === 'POST') {
+      const body = JSON.parse(String(options.body));
+      writes.push(body);
+      operationId = body.input.operationId;
+      source = compileCanvaDesign({ ...source.canva!, nativeContent: [{ ...source.canva!.nativeContent![0]!, type: 'gallery', title: 'Gallery', layout: 'grid', images: [] }] });
+      throw new TypeError('Response lost after commit');
+    }
+    const artifactId = operationId ? updated : first;
+    return Response.json({ head: { revision: { revision: operationId ? 3 : 2, operationId, document: { website: { config: { customFrontendId: artifactId } } } } }, payload: { source, nativeMedia: { artifactId, mediaIds: operationId ? [] : [mediaId] }, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, nativePhotos: [{ mediaId, role: 'gallery', width: 600, height: 400, alt: 'My salon photograph', name: 'salon.webp' }], assets: [], history: [], attempts: [], configured: false, rendererOrigin: null });
+  }));
+  const view = render(<div />);
+  const editor = (revision: number, artifactId: string) => <CustomDesignStudio salonSlug="test" revision={revision} artifactId={artifactId} disabled={false} aiEnabled={false} onSaved={async () => view.rerender(editor(3, updated))} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />;
+  view.rerender(editor(2, first));
+  const summary = await screen.findByText('About & Gallery photos');
+  const details = summary.closest('details')!;
+  details.open = true;
+  fireEvent(details, new Event('toggle'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Remove from draft' }));
+  await screen.findByText('Your photo changes are saved. Check the preview before publishing.');
+
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({ action: 'edit_native_photos', input: { expectedRevision: 2, blockId: 'gallery', change: { type: 'remove', mediaId } } });
+  expect(writes[0]).not.toHaveProperty('acceptedCreditLimitMicroCad');
+  expect(await screen.findByRole('link', { name: 'Open full preview' })).toHaveAttribute('href', '/admin/business-setup/design-preview/test?revision=3');
+  expect(screen.getByText('No photos in this section.')).toBeInTheDocument();
+});
