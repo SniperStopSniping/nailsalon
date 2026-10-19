@@ -11,9 +11,10 @@ import { businessSetupRevisionSchema as revisions, onboardingSiteMediaSchema as 
 import { assertCustomArtifact, storeCustomArtifact } from './artifacts.server';
 import type { CanvaDesign } from './canva';
 import { compileCanvaDesign } from './canva';
-import type { CanvaNativeContent } from './canva-native-content';
-import type { NativePhotoChoice } from './canva-native-edits';
+import { applyCanvaNativePhotoChanges } from './canva-native-changes';
+import type { CanvaNativePhotoChange, NativePhotoChoice } from './canva-native-edits';
 import { canvaNativeEditSchema } from './canva-native-edits';
+import { canvaNativePhotosEnabled } from './native-renderer.server';
 
 /** Called only after owner authorization and artifact assertion; no storage URLs escape. */
 export async function canvaNativePhotoChoices(salonId: string, design: CanvaDesign | undefined): Promise<NativePhotoChoice[]> {
@@ -26,81 +27,34 @@ export async function canvaNativePhotoChoices(salonId: string, design: CanvaDesi
   return rows.flatMap(row => row.storageKey && row.width && row.height && (row.role === 'gallery' || row.role === 'profile') ? [{ mediaId: row.id, role: row.role, width: row.width, height: row.height, alt: (row.altText?.trim() || row.fileName || 'Salon photo').slice(0, 500), name: row.fileName }] : []);
 }
 
+/** Prepare source inside the caller's transaction; source, draft and chat receipt commit together. */
+export async function prepareCanvaNativePhotoChanges(actor: SetupActor, input: { expectedRevision: number; operationId: string; changes: CanvaNativePhotoChange[] }, tx: SetupTransaction) {
+  await lockSetupSalon(tx, actor);
+  const head = await loadSetupHead(tx, actor.salonId);
+  const [base] = await tx.select().from(revisions).where(and(eq(revisions.salonId, actor.salonId), eq(revisions.workspaceId, head.workspace.id), eq(revisions.revision, input.expectedRevision)));
+  if (!base?.document.website.config.customFrontendId) {
+    throw new SetupError('NOT_READY', 'Open your saved Canva website before changing its photos.');
+  }
+  const { artifact } = await assertCustomArtifact(tx, actor.salonId, base.document.website.config.customFrontendId);
+  const design = artifact.source.canva;
+  if (!design?.manualOrigin) {
+    throw new SetupError('INVALID', 'Open your saved Canva website before changing its photos.');
+  }
+  const useIds = [...new Set(input.changes.flatMap(item => item.change.type === 'use' ? [item.change.mediaId] : []))];
+  // Recheck exact origin/role/ready metadata at save time, after any model call.
+  // Uploads use this same transaction so an uncommitted new alias is visible.
+  const rows = useIds.length ? await tx.select().from(media).where(and(eq(media.salonId, actor.salonId), eq(media.siteId, design.manualOrigin.siteId), eq(media.revisionId, design.manualOrigin.revisionId), eq(media.claimStatus, 'ready'), eq(media.mimeType, 'image/webp'), inArray(media.id, useIds), inArray(media.role, ['gallery', 'profile']))) : [];
+  const choices: NativePhotoChoice[] = rows.flatMap(row => row.storageKey && row.width && row.height && (row.role === 'gallery' || row.role === 'profile') ? [{ mediaId: row.id, role: row.role, width: row.width, height: row.height, alt: row.altText || row.fileName, name: row.fileName }] : []);
+  const changed = applyCanvaNativePhotoChanges(design, input.changes, choices, canvaNativePhotosEnabled());
+  const source = compileCanvaDesign(changed, base.document.website.content.websiteDetails);
+  return storeCustomArtifact(actor, { ...input, source, assetIds: artifact.assetIds }, tx);
+}
+
 /** Appearance-only changes use the same owner draft and approval boundary. */
 export async function editCanvaNativeContent(actor: SetupActor, raw: unknown, transaction?: SetupTransaction) {
   const input = canvaNativeEditSchema.parse(raw);
   const apply = async (tx: SetupTransaction) => {
-    await lockSetupSalon(tx, actor);
-    const head = await loadSetupHead(tx, actor.salonId);
-    const [base] = await tx.select().from(revisions).where(and(eq(revisions.salonId, actor.salonId), eq(revisions.workspaceId, head.workspace.id), eq(revisions.revision, input.expectedRevision)));
-    if (!base?.document.website.config.customFrontendId) {
-      throw new SetupError('NOT_READY', 'Open your saved Canva website before changing its photos.');
-    }
-    const { artifact } = await assertCustomArtifact(tx, actor.salonId, base.document.website.config.customFrontendId);
-    const design = artifact.source.canva;
-    const original = design?.nativeContent?.find(block => block.id === input.blockId);
-    const addedGallery: CanvaNativeContent[number] | undefined = !original && design?.manualOrigin && input.change.type === 'use' && input.change.createGallery && input.blockId === 'native-photo-gallery' ? { type: 'gallery', id: input.blockId, title: 'Gallery', beforePage: design.pages.length, layout: 'grid', images: [] } : undefined;
-    if (!design || !(original || addedGallery) || original?.type === 'reviews') {
-      throw new SetupError('INVALID', 'That photo section changed. Reload your saved design.');
-    }
-    const block = structuredClone((original || addedGallery)!);
-    const change = input.change;
-    const images = block.type === 'about' ? block.image ? [block.image] : [] : block.images;
-    if (change.type === 'layout') {
-      if (block.type !== 'gallery') {
-        throw new SetupError('INVALID', 'Choose a Gallery section to change its layout.');
-      }
-      block.layout = change.layout;
-    } else if (change.type === 'use') {
-      const origin = design.manualOrigin!;
-      const [row] = await tx.select().from(media).where(and(eq(media.salonId, actor.salonId), eq(media.siteId, origin.siteId), eq(media.revisionId, origin.revisionId), eq(media.id, change.mediaId), eq(media.role, block.type === 'about' ? 'profile' : 'gallery')));
-      if (!row || row.claimStatus !== 'ready' || row.mimeType !== 'image/webp' || !row.storageKey || !row.width || !row.height) {
-        throw new SetupError('INVALID', 'Choose a saved photo belonging to this website and section.');
-      }
-      const image = { mediaId: row.id, role: row.role as 'profile' | 'gallery', width: row.width, height: row.height, alt: change.alt };
-      if (block.type === 'about') {
-        if (change.replaceId && block.image?.mediaId !== change.replaceId) {
-          throw new SetupError('INVALID', 'That photo changed. Reload before replacing it.');
-        }
-        block.image = image;
-      } else {
-        if (images.some(image => image.mediaId === change.mediaId && image.mediaId !== change.replaceId)) {
-          throw new SetupError('INVALID', 'That photo is already in this Gallery.');
-        }
-        if (change.replaceId) {
-          const index = block.images.findIndex(image => image.mediaId === change.replaceId);
-          if (index < 0) {
-            throw new SetupError('INVALID', 'That photo changed. Reload before replacing it.');
-          }
-          block.images[index] = image;
-        } else {
-          block.images.push(image);
-        }
-      }
-    } else {
-      const index = images.findIndex(image => image.mediaId === change.mediaId);
-      if (index < 0) {
-        throw new SetupError('INVALID', 'That photo is no longer displayed in this section.');
-      }
-      if (change.type === 'remove') {
-        if (block.type === 'about') {
-          delete block.image;
-        } else {
-          block.images.splice(index, 1);
-        }
-      } else if (change.type === 'describe') {
-        images[index]!.alt = change.alt;
-      } else {
-        const destination = index + (change.direction === 'earlier' ? -1 : 1);
-        if (block.type !== 'gallery' || destination < 0 || destination >= images.length) {
-          throw new SetupError('INVALID', 'That photo cannot move further in this section.');
-        }
-        [images[index], images[destination]] = [images[destination]!, images[index]!];
-      }
-    }
-    const nativeContent = original ? design.nativeContent!.map(item => item.id === block.id ? block : item) : [...(design.nativeContent ?? []), block];
-    const source = compileCanvaDesign({ ...design, nativeContent, ownerReviewed: false }, base.document.website.content.websiteDetails);
-    const saved = await storeCustomArtifact(actor, { ...input, source, assetIds: artifact.assetIds }, tx);
+    const saved = await prepareCanvaNativePhotoChanges(actor, { ...input, changes: [{ blockId: input.blockId, change: input.change }] }, tx);
     const next = await editSetup(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, operations: [{ type: 'custom_frontend', artifactId: saved.id }] }, 'owner', tx);
     return { head: next, artifactId: saved.id };
   };

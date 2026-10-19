@@ -9,6 +9,8 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 
 import { CLOSED_HOURS } from '@/features/business-setup/contracts';
+import { recoverNativePhotoConversation, runSetupConversation } from '@/features/business-setup/conversation.server';
+import * as setupDrafts from '@/features/business-setup/drafts.server';
 import { approveSetup, editSetup, openSetup, reviewSetup } from '@/features/business-setup/drafts.server';
 import { publishSetup } from '@/features/business-setup/publish.server';
 import { compileOnboardingToSiteDocument } from '@/features/onboarding-v1-integration/compiler';
@@ -16,6 +18,7 @@ import { readOnboardingMediaFile, saveOnboardingMediaFile } from '@/features/onb
 import * as onboardingStorage from '@/features/onboarding-v1-integration/media-storage.server';
 import { claimOnboardingDraft } from '@/features/onboarding-v1-integration/persistence.server';
 import { createPersistableOnboardingDraft } from '@/features/onboarding-v1-integration/snapshot';
+import type { ModelProviderRequest } from '@/libs/ai/provider';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
@@ -31,6 +34,7 @@ import { reviewCanvaArtwork, saveCustomSource } from './artifacts.server';
 import { uploadOnboardingArtwork } from './assets.server';
 import { compileCanvaDesign } from './canva';
 import { canvaNativePhotoChoices, editCanvaNativeContent } from './canva-native-edit.server';
+import type { CanvaNativePhotoChange } from './canva-native-edits';
 import { uploadCanvaNativePhoto } from './canva-native-upload.server';
 import { customSiteArtworkPolicy, customSiteDataFromLive } from './live-data.server';
 import { linkedOnboardingCanvaDraft } from './manual-origin.server';
@@ -741,4 +745,274 @@ it('publishes exact native photos only after renderer readiness, preserves live/
 
   expect(await readAuthorizedCanvaNativeMedia(read)).toBeNull();
   expect(await readAuthorizedCanvaNativeMedia(read, test.actor.adminId)).toBeInstanceOf(Buffer);
+});
+
+async function nativeChatFixture() {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const test = await fixture(false, 'ready');
+  const imported = await importOnboardingCanva(test.actor, test.input);
+  const artifact = (await records(test.actor.salonId)).artifacts[0]!;
+  const gallery = artifact.source.canva!.nativeContent!.find(block => block.type === 'gallery')!;
+  const about = artifact.source.canva!.nativeContent!.find(block => block.type === 'about')!;
+  if (gallery.type !== 'gallery' || about.type !== 'about') {
+    throw new Error('Native fixture');
+  }
+  return { ...test, imported, artifact, gallery, about };
+}
+function nativeChatResponse(changes: CanvaNativePhotoChange[], operations: unknown[] = []) {
+  return { status: 'completed' as const, usage: { inputTokens: 100, cachedInputTokens: 0, outputTokens: 100 }, items: [{ type: 'message' as const, text: JSON.stringify({ reply: 'Published everything and changed your prices.', operationsJson: JSON.stringify(operations), designRequest: null, uploadFacts: null, nativePhotoChangesJson: JSON.stringify(changes) }) }] };
+}
+function nativeChatContext(request: ModelProviderRequest) {
+  const item = request.input.find(item => 'role' in item && item.role === 'developer');
+  if (!item || !('content' in item) || typeof item.content !== 'string') {
+    throw new Error('Missing model context');
+  }
+  return JSON.parse(item.content);
+}
+function nativeChatProvider(changes: CanvaNativePhotoChange[], operations: unknown[] = []) {
+  return { createResponse: vi.fn(async (_request: ModelProviderRequest) => nativeChatResponse(changes, operations)) };
+}
+
+it('edits native Gallery photos through one conversation call and the shared draft, without full-site generation', async () => {
+  const test = await nativeChatFixture();
+  const before = (await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]!;
+  const services = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, test.actor.salonId));
+  const first = test.gallery.images[0]!;
+  const changes: CanvaNativePhotoChange[] = [
+    { blockId: test.gallery.id, change: { type: 'describe', mediaId: first.mediaId, alt: 'My wide manicure photograph' } },
+    { blockId: test.gallery.id, change: { type: 'move', mediaId: first.mediaId, direction: 'later' } },
+    { blockId: test.gallery.id, change: { type: 'layout', layout: 'editorial' } },
+  ];
+  const provider = nativeChatProvider(changes);
+  const result = await runSetupConversation(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Move the first gallery photo after the tall photo, change its description and make the first photo larger.' }, provider);
+  const saved = (await records(test.actor.salonId)).artifacts.find(artifact => artifact.id === result.head.revision.document.website.config.customFrontendId)!;
+  const request = provider.createResponse.mock.calls[0]![0];
+  const context = nativeChatContext(request);
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect(request.model).toBe('gpt-6-luna');
+  expect(request.input.flatMap(item => 'role' in item && item.role === 'user' && Array.isArray(item.content) ? item.content : []).every(part => part.type !== 'input_image' && part.type !== 'input_file')).toBe(true);
+  expect(context.nativePhotos.sections.find((section: { blockId: string }) => section.blockId === test.gallery.id).photos.map((photo: { mediaId: string }) => photo.mediaId)).toEqual(test.gallery.images.map(photo => photo.mediaId));
+  expect(result.head.revision.revision).toBe(test.imported.head.revision.revision + 1);
+  expect(saved.source.canva!.nativeContent!.find(block => block.type === 'gallery')).toMatchObject({ layout: 'editorial', images: [{ mediaId: test.gallery.images[1]!.mediaId }, { mediaId: first.mediaId, alt: 'My wide manicure photograph' }] });
+  expect(saved.source.canva!.areas).toEqual(test.artifact.source.canva!.areas);
+  expect(saved.source.canva!.pages).toEqual(test.artifact.source.canva!.pages);
+  expect(saved.source.canva!.manualOrigin).toEqual(test.artifact.source.canva!.manualOrigin);
+  expect(saved.source.canva!.ownerReviewed).toBe(false);
+  expect(saved.assetIds).toEqual(test.artifact.assetIds);
+  expect(result.reply).toBe('Updated 1 photo description. Moved 1 photo. Changed 1 gallery layout. Saved in your draft.');
+  expect(await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.salonId, test.actor.salonId))).toHaveLength(0);
+  expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, test.actor.salonId))).toEqual(services);
+
+  const after = (await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]!;
+  const liveFields = (value: typeof before) => {
+    const copy = JSON.parse(JSON.stringify(value));
+    delete copy.updatedAt;
+    delete copy.settings.bookingPage.draft;
+    return copy;
+  };
+
+  expect(liveFields(after)).toEqual(liveFields(before));
+
+  const payload = await setupCustomSitePayload(test.actor.salonId, result.head.revision.document);
+
+  expect(payload!.data.preview).toBe(true);
+  expect(payload!.source.html).toContain('canva-native-gallery-editorial');
+  expect(payload!.nativeMedia!.mediaIds).toHaveLength(3);
+});
+
+it('uses the same photo source for manual removal and chat restoration, then publishes only the reviewed revision', async () => {
+  const test = await nativeChatFixture();
+  const image = test.gallery.images[0]!;
+  const removed = await editCanvaNativeContent(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), blockId: test.gallery.id, change: { type: 'remove', mediaId: image.mediaId } });
+  const restored = await runSetupConversation(test.actor, { expectedRevision: removed.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Add the saved wide photograph back to the gallery.' }, nativeChatProvider([{ blockId: test.gallery.id, change: { type: 'use', mediaId: image.mediaId, alt: 'Restored wide photograph' } }]));
+  const artifactId = restored.head.revision.document.website.config.customFrontendId!;
+
+  expect(await readAuthorizedCanvaNativeMedia({ artifactId, mediaId: image.mediaId })).toBeNull();
+  expect(await readAuthorizedCanvaNativeMedia({ artifactId, mediaId: image.mediaId }, test.actor.adminId)).toBeInstanceOf(Buffer);
+
+  const checked = await reviewCanvaArtwork(test.actor, { expectedRevision: restored.head.revision.revision, operationId: randomUUID() });
+  const review = await reviewSetup(test.actor);
+
+  expect(review.blockers).toEqual([]);
+
+  const approval = await approveSetup(test.actor, review.revision, review.hash);
+  vi.spyOn(nativeRenderer, 'assertNativePhotoRendererReady').mockResolvedValue(undefined);
+  const request = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
+  const published = await publishSetup(test.actor, request);
+
+  expect((await publishSetup(test.actor, request)).receipt.id).toBe(published.receipt.id);
+  expect(published.receipt.revision).toBe(checked.head.revision.revision);
+  expect(await readAuthorizedCanvaNativeMedia({ artifactId: checked.artifact.id, mediaId: image.mediaId })).toBeInstanceOf(Buffer);
+  expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, test.actor.salonId))).toMatchObject([{ id: test.serviceId, price: 6500 }]);
+});
+
+it('retains a generated chat receipt after response loss without rerunning the model or overwriting a newer price', async () => {
+  const test = await nativeChatFixture();
+  const provider = nativeChatProvider([{ blockId: test.about.id, change: { type: 'remove', mediaId: test.about.image!.mediaId } }]);
+  const input = { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Remove the About portrait.' };
+  const first = await runSetupConversation(test.actor, input, provider);
+  // Simulate the durable state after the atomic save but before its final response.
+  await database.update(schema.businessSetupTurnSchema).set({ status: 'generated' }).where(eq(schema.businessSetupTurnSchema.id, input.operationId));
+  const latest = await editSetup(test.actor, { expectedRevision: first.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'service', values: { id: test.serviceId, name: 'Gel', description: null, priceCents: 7500, durationMinutes: 60, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'manicure', bookingCategory: 'manicure' } }] });
+  const replay = await runSetupConversation(test.actor, input, provider);
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect(replay.head.revision.revision).toBe(latest.revision.revision);
+  expect(replay.head.revision.document.services[0]!.priceCents).toBe(7500);
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(2);
+  expect((await openSetup(test.actor)).revision.revision).toBe(latest.revision.revision);
+});
+
+it('rejects cross-salon model photo references after one bounded repair without saving partial commands', async () => {
+  const test = await nativeChatFixture();
+  const foreign = await nativeChatFixture();
+  const provider = nativeChatProvider([
+    { blockId: test.gallery.id, change: { type: 'describe', mediaId: test.gallery.images[0]!.mediaId, alt: 'Valid first command' } },
+    { blockId: test.gallery.id, change: { type: 'use', mediaId: foreign.gallery.images[0]!.mediaId, alt: 'Foreign photograph' } },
+  ]);
+
+  await expect(runSetupConversation(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Change my gallery photos.' }, provider)).rejects.toMatchObject({ code: 'NOT_READY' });
+  expect(provider.createResponse).toHaveBeenCalledTimes(2);
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(1);
+  expect((await openSetup(test.actor)).revision.revision).toBe(test.imported.head.revision.revision);
+
+  const context = nativeChatContext(provider.createResponse.mock.calls[0]![0]);
+
+  expect(JSON.stringify(context.nativePhotos)).not.toContain(foreign.gallery.images[0]!.mediaId);
+});
+
+it('rechecks authorization and the draft after the model finishes, preserving concurrent manual changes', async () => {
+  const test = await nativeChatFixture();
+  const changes: CanvaNativePhotoChange[] = [{ blockId: test.gallery.id, change: { type: 'remove', mediaId: test.gallery.images[0]!.mediaId } }];
+  const provider = nativeChatProvider(changes);
+  provider.createResponse.mockImplementationOnce(async () => {
+    await editSetup(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'copy', bio: 'Newer manual biography', specialtyLine: 'Owner updated specialty' }] });
+    return nativeChatResponse(changes);
+  });
+
+  await expect(runSetupConversation(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Remove the first Gallery photo.' }, provider)).rejects.toMatchObject({ code: 'STALE' });
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(1);
+  expect((await openSetup(test.actor)).revision.document.website.content.bio).toBe('Newer manual biography');
+});
+
+it('refuses a role revoked during generation before committing a photo change', async () => {
+  const test = await nativeChatFixture();
+  const changes: CanvaNativePhotoChange[] = [{ blockId: test.gallery.id, change: { type: 'remove', mediaId: test.gallery.images[0]!.mediaId } }];
+  const provider = nativeChatProvider(changes);
+  provider.createResponse.mockImplementationOnce(async () => {
+    await database.update(schema.adminSalonMembershipSchema).set({ role: 'staff' }).where(eq(schema.adminSalonMembershipSchema.salonId, test.actor.salonId));
+    return nativeChatResponse(changes);
+  });
+
+  await expect(runSetupConversation(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Remove the first Gallery photo.' }, provider)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(1);
+});
+
+it('does not allow photo changes from price-only scope or approval fields from model output', async () => {
+  const test = await nativeChatFixture();
+  const changes: CanvaNativePhotoChange[] = [{ blockId: test.gallery.id, change: { type: 'remove', mediaId: test.gallery.images[0]!.mediaId } }];
+
+  await expect(runSetupConversation(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'service_price', message: 'Set Gel to $75.' }, nativeChatProvider(changes))).rejects.toMatchObject({ code: 'NOT_READY' });
+
+  const provider = nativeChatProvider(changes);
+  provider.createResponse.mockImplementation(async () => {
+    const answer = nativeChatResponse(changes);
+    const parsed = JSON.parse(answer.items[0]!.text);
+    parsed.nativePhotoChangesJson = JSON.stringify([{ ...changes[0], publish: true }]);
+    return { ...answer, items: [{ type: 'message', text: JSON.stringify(parsed) }] };
+  });
+
+  await expect(runSetupConversation(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Remove my first Gallery photo.' }, provider)).rejects.toMatchObject({ code: 'NOT_READY' });
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(1);
+  expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, test.actor.salonId))).toHaveLength(0);
+});
+
+it('enforces first-Gallery enrollment on the server, including saved-photo and chat paths', async () => {
+  const test = await nativeChatFixture();
+  const saved = await saveCustomSource(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), source: compileCanvaDesign({ ...test.artifact.source.canva!, nativeContent: test.artifact.source.canva!.nativeContent!.filter(block => block.type !== 'gallery') }, test.imported.head.revision.document.website.content.websiteDetails), assetIds: test.artifact.assetIds });
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'false');
+  const change: CanvaNativePhotoChange = { blockId: 'native-photo-gallery', change: { type: 'use', mediaId: test.gallery.images[0]!.mediaId, alt: 'Saved photograph', createGallery: true } };
+
+  await expect(editCanvaNativeContent(test.actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), ...change })).rejects.toMatchObject({ code: 'NOT_READY' });
+  await expect(runSetupConversation(test.actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Add my saved wide photograph to a new gallery.' }, nativeChatProvider([change]))).rejects.toMatchObject({ code: 'NOT_READY' });
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(2);
+  expect((await openSetup(test.actor)).revision.revision).toBe(saved.head.revision.revision);
+});
+
+async function stoppedNativeSave() {
+  const test = await nativeChatFixture();
+  const changes: CanvaNativePhotoChange[] = [{ blockId: test.gallery.id, change: { type: 'remove', mediaId: test.gallery.images[0]!.mediaId } }];
+  const provider = nativeChatProvider(changes);
+  const input = { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Remove the first Gallery photograph.' };
+  const stopped = vi.spyOn(setupDrafts, 'editSetup').mockRejectedValueOnce(new Error('Synthetic database failure after artifact preparation'));
+  try {
+    await expect(runSetupConversation(test.actor, input, provider)).rejects.toThrow('Finish saving');
+  } finally {
+    stopped.mockRestore();
+  }
+  return { ...test, provider, input };
+}
+
+it('rolls back a failed atomic photo save and finishes retained model output without another call or duplicate writes', async () => {
+  const test = await stoppedNativeSave();
+  const call = (await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, test.input.operationId)))[0]!;
+
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(1);
+  expect((await openSetup(test.actor)).revision.revision).toBe(test.imported.head.revision.revision);
+  expect(call.validation).toBe('native_photo_save_pending');
+
+  const result = await recoverNativePhotoConversation(test.actor, test.input.operationId);
+  const replay = await recoverNativePhotoConversation(test.actor, test.input.operationId);
+
+  expect(test.provider.createResponse).toHaveBeenCalledTimes(1);
+  expect(replay.head.revision.revision).toBe(result.head.revision.revision);
+  expect(result.reply).toBe('Removed 1 photo. Saved in your draft.');
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(2);
+  expect((await database.select().from(schema.businessSetupTurnSchema).where(eq(schema.businessSetupTurnSchema.id, test.input.operationId)))[0]).toMatchObject({ status: 'completed', designRequest: null });
+  expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, test.input.operationId)))[0]).toMatchObject({ validation: 'passed', inputTokens: call.inputTokens, outputTokens: call.outputTokens, chargedMicroCad: call.chargedMicroCad });
+});
+
+it('keeps free photo recovery tenant scoped, stale aware and out of active saving attempts', async () => {
+  const test = await stoppedNativeSave();
+  const other = await nativeChatFixture();
+
+  await expect(recoverNativePhotoConversation(other.actor, test.input.operationId)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+  await database.update(schema.businessSetupTurnSchema).set({ status: 'pending', leaseExpiresAt: new Date(Date.now() + 60000) }).where(eq(schema.businessSetupTurnSchema.id, test.input.operationId));
+
+  await expect(recoverNativePhotoConversation(test.actor, test.input.operationId)).rejects.toThrow('still being saved');
+
+  await database.update(schema.businessSetupTurnSchema).set({ status: 'failed' }).where(eq(schema.businessSetupTurnSchema.id, test.input.operationId));
+  const changed = await editSetup(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'copy', bio: 'Newer owner wording', specialtyLine: 'Owner specialty' }] });
+
+  await expect(recoverNativePhotoConversation(test.actor, test.input.operationId)).rejects.toMatchObject({ code: 'STALE' });
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(1);
+  expect((await openSetup(test.actor)).revision.revision).toBe(changed.revision.revision);
+  expect(test.provider.createResponse).toHaveBeenCalledTimes(1);
+});
+
+it('does not recover an unvalidated malicious output by bypassing the regular conversation checks', async () => {
+  const test = await nativeChatFixture();
+  const input = { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'service_price', message: 'Change Gel to $75.' };
+  const provider = nativeChatProvider([{ blockId: test.gallery.id, change: { type: 'remove', mediaId: test.gallery.images[0]!.mediaId } }]);
+
+  await expect(runSetupConversation(test.actor, input, provider)).rejects.toMatchObject({ code: 'NOT_READY' });
+  await expect(recoverNativePhotoConversation(test.actor, input.operationId)).rejects.toMatchObject({ code: 'NOT_READY' });
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(1);
+});
+
+it('saves an explicit price and a native photo change in one draft while keeping the live service unchanged', async () => {
+  const test = await nativeChatFixture();
+  const operations = [{ type: 'service', values: { id: test.serviceId, name: 'Gel', description: null, priceCents: 7500, durationMinutes: 60, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, category: 'manicure', bookingCategory: 'manicure' } }];
+  const provider = nativeChatProvider([{ blockId: test.gallery.id, change: { type: 'remove', mediaId: test.gallery.images[0]!.mediaId } }], operations);
+  const result = await runSetupConversation(test.actor, { expectedRevision: test.imported.head.revision.revision, operationId: randomUUID(), scope: 'business_and_website', message: 'Set Gel to $75 and remove the first Gallery photo.' }, provider);
+  const source = (await records(test.actor.salonId)).artifacts.find(artifact => artifact.id === result.head.revision.document.website.config.customFrontendId)!.source;
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect(result.head.revision.revision).toBe(test.imported.head.revision.revision + 1);
+  expect(result.head.revision.document.services.find(service => service.id === test.serviceId)!.priceCents).toBe(7500);
+  expect(source.canva!.nativeContent!.find(block => block.type === 'gallery')).toMatchObject({ images: [{ mediaId: test.gallery.images[1]!.mediaId }] });
+  expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, test.serviceId)))[0]!.price).toBe(6500);
 });

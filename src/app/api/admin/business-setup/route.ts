@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { AI_REQUEST_CREDIT_LIMIT } from '@/features/ai-credits/catalog';
@@ -6,13 +6,13 @@ import { runWithAiCredits } from '@/features/ai-credits/request-metering.server'
 import { AiCreditError } from '@/features/ai-credits/wallet.server';
 import { requireSetupOwner } from '@/features/business-setup/access.server';
 import { setupEditSchema, SetupError, setupResetSchema } from '@/features/business-setup/contracts';
-import { runSetupConversation, setupMessageSchema } from '@/features/business-setup/conversation.server';
+import { recoverNativePhotoConversation, runSetupConversation, setupMessageSchema } from '@/features/business-setup/conversation.server';
 import { approveSetup, editSetup, loadSetupHead, lockSetupSalon, openSetup, resetSetupDraft, restartSetup, reviewSetup } from '@/features/business-setup/drafts.server';
 import { publishSetup } from '@/features/business-setup/publish.server';
 import { applyOwnUpload, dismissOwnUpload, readOwnUpload, readOwnUploadSchema } from '@/features/business-setup/read-upload.server';
 import { setupTimeline } from '@/features/business-setup/timeline';
 import { db } from '@/libs/DB';
-import { businessSetupTurnSchema, customSiteGenerationSchema } from '@/models/Schema';
+import { businessSetupTurnSchema, customSiteGenerationSchema, setupAiCallSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -28,6 +28,7 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ ...base, action: z.literal('dismiss_upload'), operationId: z.string().uuid() }).strict(),
   z.object({ ...base, action: z.literal('start_editing'), expectedRevision: z.number().int().positive() }).strict(),
   z.object({ ...base, action: z.literal('message'), message: setupMessageSchema, acceptedCreditLimitMicroCad: z.literal(AI_REQUEST_CREDIT_LIMIT).optional() }).strict(),
+  z.object({ ...base, action: z.literal('recover_photo_message'), operationId: z.string().uuid() }).strict(),
   z.object({ ...base, action: z.literal('edit'), edit: setupEditSchema }).strict(),
   z.object({ ...base, action: z.literal('review') }).strict(),
   z.object({ ...base, action: z.literal('approve'), revision: z.number().int().positive(), hash: z.string().regex(/^[a-f0-9]{64}$/u), acknowledgeAppointments: z.boolean().optional() }).strict(),
@@ -61,7 +62,14 @@ export async function GET(request: Request) {
       const start = head.revision.document.sessionStartRevision ?? 1;
       const turns = await tx.select({ id: businessSetupTurnSchema.id, message: businessSetupTurnSchema.message, reply: businessSetupTurnSchema.reply, status: businessSetupTurnSchema.status, createdAt: businessSetupTurnSchema.createdAt, leaseExpiresAt: businessSetupTurnSchema.leaseExpiresAt, designOperationId: businessSetupTurnSchema.designOperationId, operations: businessSetupTurnSchema.operations, expectedRevision: businessSetupTurnSchema.expectedRevision }).from(businessSetupTurnSchema).where(and(eq(businessSetupTurnSchema.salonId, access.actor.salonId), eq(businessSetupTurnSchema.workspaceId, head.workspace.id), gte(businessSetupTurnSchema.expectedRevision, start))).orderBy(desc(businessSetupTurnSchema.createdAt)).limit(40);
       const designs = await tx.select({ id: customSiteGenerationSchema.id, message: customSiteGenerationSchema.message, status: customSiteGenerationSchema.status, createdAt: customSiteGenerationSchema.createdAt }).from(customSiteGenerationSchema).where(and(eq(customSiteGenerationSchema.salonId, access.actor.salonId), gte(customSiteGenerationSchema.expectedRevision, start))).orderBy(desc(customSiteGenerationSchema.createdAt)).limit(40);
-      const messages = setupTimeline(turns, designs);
+      const photoCalls = turns.length ? await tx.select({ operationId: setupAiCallSchema.operationId, validation: setupAiCallSchema.validation }).from(setupAiCallSchema).where(and(eq(setupAiCallSchema.salonId, access.actor.salonId), eq(setupAiCallSchema.actorId, access.actor.adminId), eq(setupAiCallSchema.status, 'completed'), inArray(setupAiCallSchema.operationId, turns.map(turn => turn.id)), inArray(setupAiCallSchema.validation, ['native_photo_save_pending', 'passed']))) : [];
+      const messages = setupTimeline(turns, designs).map((message) => {
+        const turn = turns.find(turn => turn.id === message.id);
+        const recoverable = ['failed', 'interrupted'].includes(message.status) && turn && !turn.designOperationId && photoCalls.some(call => call.operationId === turn.id && (call.validation === 'native_photo_save_pending'
+          ? head.workspace.status === 'editing' && head.revision.revision === turn.expectedRevision
+          : turn.operations?.some(operation => operation.type === 'custom_frontend')));
+        return recoverable ? { ...message, recoverable: true } : message;
+      });
       return { ...head, messages, uploadReviews: turns.filter(turn => turn.status === 'upload_review').map(({ id, operations, reply, expectedRevision }) => ({ id, operations, notes: reply, expectedRevision })) };
     });
     return Response.json({ data }, { headers });
@@ -133,6 +141,10 @@ export async function POST(request: Request) {
           return Response.json({ error: { message: 'AI is unavailable. Your saved setup is still editable below.' } }, { status: 503, headers });
         }
         data = await runWithAiCredits(access.actor, 'conversation', parsed.message, parsed.acceptedCreditLimitMicroCad, () => runSetupConversation(access.actor, parsed.message));
+        break;
+      case 'recover_photo_message':
+        // Pure revalidation of retained output. No wallet reservation or model call.
+        data = await recoverNativePhotoConversation(access.actor, parsed.operationId);
         break;
       case 'start_editing':
         data = await restartSetup(access.actor, parsed.expectedRevision);

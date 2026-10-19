@@ -6,13 +6,13 @@ import { readOwnUploadSchema } from '@/features/business-setup/read-upload.serve
 import { POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), open: vi.fn(), edit: vi.fn(), approve: vi.fn(), publish: vi.fn(), message: vi.fn(), readUpload: vi.fn(), applyUpload: vi.fn(), dismissUpload: vi.fn(), reset: vi.fn(), meter: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), open: vi.fn(), edit: vi.fn(), approve: vi.fn(), publish: vi.fn(), message: vi.fn(), readUpload: vi.fn(), applyUpload: vi.fn(), dismissUpload: vi.fn(), reset: vi.fn(), meter: vi.fn(), recoverPhoto: vi.fn() }));
 vi.mock('@/features/ai-credits/request-metering.server', () => ({ runWithAiCredits: state.meter }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: state.access }));
 vi.mock('@/features/business-setup/drafts.server', () => ({ resetSetupDraft: state.reset, openSetup: state.open, editSetup: state.edit, approveSetup: state.approve, restartSetup: vi.fn(), reviewSetup: vi.fn(), loadSetupHead: vi.fn(), lockSetupSalon: vi.fn() }));
 vi.mock('@/features/business-setup/read-upload.server', async original => ({ ...await original<typeof import('@/features/business-setup/read-upload.server')>(), readOwnUpload: state.readUpload, applyOwnUpload: state.applyUpload, dismissOwnUpload: state.dismissUpload }));
 vi.mock('@/features/business-setup/publish.server', () => ({ publishSetup: state.publish }));
-vi.mock('@/features/business-setup/conversation.server', async original => ({ ...await original<typeof import('@/features/business-setup/conversation.server')>(), runSetupConversation: state.message }));
+vi.mock('@/features/business-setup/conversation.server', async original => ({ ...await original<typeof import('@/features/business-setup/conversation.server')>(), runSetupConversation: state.message, recoverNativePhotoConversation: state.recoverPhoto }));
 
 function request(body: unknown, origin = 'http://localhost:3197') {
   return new Request('http://localhost:3197/api/admin/business-setup', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -112,4 +112,23 @@ it.each(['reset', 'restore_previous'])('keeps %s as an authorized owner action w
 
   expect((await POST(request({ action, salonSlug: 'another-salon', input }))).status).toBe(403);
   expect(state.reset).not.toHaveBeenCalled();
+});
+
+it('finishes retained photo work with AI off, without new metering or publication authority', async () => {
+  const operationId = crypto.randomUUID();
+  state.recoverPhoto.mockResolvedValue({ head: { revision: { revision: 4 } }, reply: 'Saved in your draft.' });
+  const response = await POST(request({ action: 'recover_photo_message', salonSlug: 'browser-slug', operationId }));
+
+  expect(response.status).toBe(200);
+  expect(state.recoverPhoto).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'owner' }, operationId);
+  expect(state.meter).not.toHaveBeenCalled();
+  expect(state.message).not.toHaveBeenCalled();
+  expect(state.approve).not.toHaveBeenCalled();
+  expect(state.publish).not.toHaveBeenCalled();
+  expect((await POST(request({ action: 'recover_photo_message', salonSlug: 'browser-slug', operationId, rawOutput: 'forged source' }))).status).toBe(400);
+
+  state.access.mockResolvedValueOnce({ response: new Response(null, { status: 403 }) });
+
+  expect((await POST(request({ action: 'recover_photo_message', salonSlug: 'foreign-salon', operationId }))).status).toBe(403);
+  expect(state.recoverPhoto).toHaveBeenCalledTimes(1);
 });

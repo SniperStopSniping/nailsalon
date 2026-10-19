@@ -9,6 +9,8 @@ export const canvaNativeChangeSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('use'), ...photo, replaceId: z.string().uuid().optional(), alt: z.string().trim().min(1).max(500), createGallery: z.literal(true).optional() }).strict(),
 ]);
 export const canvaNativeEditSchema = z.object({ expectedRevision: z.number().int().positive(), operationId: z.string().uuid(), blockId: z.string().min(1).max(71), change: canvaNativeChangeSchema }).strict();
+export const canvaNativePhotoChangesSchema = z.array(canvaNativeEditSchema.pick({ blockId: true, change: true })).max(10);
 export const canvaNativeUploadSchema = canvaNativeEditSchema.omit({ change: true }).extend({ alt: z.string().trim().min(1).max(500), replaceId: z.string().uuid().optional(), createGallery: z.literal(true).optional() }).strict();
 export type CanvaNativeChange = z.infer<typeof canvaNativeChangeSchema>;
+export type CanvaNativePhotoChange = z.infer<typeof canvaNativePhotoChangesSchema>[number];
 export type NativePhotoChoice = { mediaId: string; role: 'profile' | 'gallery'; width: number; height: number; alt: string; name: string };

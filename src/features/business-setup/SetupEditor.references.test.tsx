@@ -856,3 +856,75 @@ it('keeps published manual setup visible and starts later edits from its current
   expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
   expect(requests.filter(request => request.action === 'message' || request.action === 'generate')).toHaveLength(0);
 });
+
+it('finishes a retained photo result with clear progress instead of offering a second paid message', async () => {
+  const operationId = crypto.randomUUID();
+  document.website.config.customFrontendId = 'earlier-photo-design';
+  messages = [{ id: operationId, message: 'Remove the first Gallery photo.', reply: 'Your photo changes are ready, but saving stopped.', status: 'failed', recoverable: true }];
+  sessionStorage.setItem('luster-message:test', JSON.stringify({ request: { operationId, message: messages[0]!.message, expectedRevision: 2, scope: 'website', referenceIds: [] }, status: 'failed', startedAt: Date.now(), hadWebsite: true }));
+  const originalFetch = globalThis.fetch;
+  let finish!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const body = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (body?.action === 'recover_photo_message') {
+      requests.push(body);
+      await waiting;
+      revision = 3;
+      document.website.config.customFrontendId = 'recovered-photo-design';
+      messages = [{ ...messages[0], status: 'completed', recoverable: false, reply: 'Removed 1 photo. Saved in your draft.' }];
+      return { ok: true, json: async () => ({ data: { head: head(), reply: messages[0]!.reply } }) };
+    }
+    return originalFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled creditsEnabled />);
+  const button = await screen.findByRole('button', { name: 'Finish saving' });
+
+  expect(screen.queryByRole('button', { name: 'Retry message' })).not.toBeInTheDocument();
+
+  fireEvent.click(button);
+
+  await waitFor(() => expect(button).toBeDisabled());
+
+  expect(screen.getByText('Saving your changes…')).toBeVisible();
+
+  await act(async () => {
+    finish();
+  });
+
+  expect(await screen.findByText('Removed 1 photo. Saved in your draft.')).toBeVisible();
+  expect(requests.find(request => request.action === 'recover_photo_message')).toEqual({ action: 'recover_photo_message', operationId, salonSlug: 'test' });
+  expect(requests.some(request => ['message', 'generate', 'approve', 'publish'].includes(request.action))).toBe(false);
+  expect(sessionStorage.getItem('luster-message:test')).toBeNull();
+});
+
+it('reconciles a lost free-recovery response by its original identity and keeps the owner’s next typed idea', async () => {
+  const operationId = crypto.randomUUID();
+  document.website.config.customFrontendId = 'earlier-photo-design';
+  messages = [{ id: operationId, message: 'Remove the first Gallery photo.', reply: 'Finish saving these retained changes.', status: 'failed', recoverable: true }];
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const body = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (body?.action === 'recover_photo_message') {
+      requests.push(body);
+      revision = 3;
+      document.website.config.customFrontendId = 'recovered-photo-design';
+      messages = [{ ...messages[0], status: 'completed', recoverable: false, reply: 'Removed 1 photo. Saved in your draft.' }];
+      throw new Error('Synthetic lost response after server commit');
+    }
+    return originalFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled creditsEnabled />);
+  const button = await screen.findByRole('button', { name: 'Finish saving' });
+  const composer = screen.getByRole('textbox', { name: 'Message Luster' });
+  fireEvent.change(composer, { target: { value: 'Keep this next idea' } });
+  fireEvent.click(button);
+
+  expect(await screen.findByText('Removed 1 photo. Saved in your draft.')).toBeVisible();
+  expect(composer).toHaveValue('Keep this next idea');
+  expect(screen.queryByRole('button', { name: 'Finish saving' })).not.toBeInTheDocument();
+  expect(requests.filter(request => request.action === 'recover_photo_message')).toHaveLength(1);
+  expect(requests.some(request => ['message', 'generate', 'approve', 'publish'].includes(request.action))).toBe(false);
+});

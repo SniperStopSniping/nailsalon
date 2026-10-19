@@ -48,6 +48,7 @@ type Message = {
   message: string;
   reply: string | null;
   status: string;
+  recoverable?: boolean;
 };
 type MessageRequest = { message: string; operationId: string; expectedRevision: number; scope: string; referenceIds: string[] };
 type Submission = { request: MessageRequest; status: 'sending' | 'checking' | 'failed'; startedAt: number; hadWebsite?: boolean; error?: string };
@@ -439,6 +440,26 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
     setText('');
     await submitRequest(request);
   }
+  async function finishPhotoSave(operationId: string) {
+    try {
+      const result = await call<{ head: Head; reply: string }>({ action: 'recover_photo_message', operationId });
+      setHead(current => current && current.revision.revision > result.head.revision.revision ? current : result.head);
+      setMessages(current => current.map(message => message.id === operationId ? { ...message, reply: result.reply, status: 'completed', recoverable: false } : message));
+      setReview(null);
+      if (submissionRef.current?.request.operationId === operationId) {
+        saveSubmission(null);
+        setPendingMessage(null);
+        setActivity('');
+      }
+      await refresh().catch(() => {});
+    } catch (error) {
+      const latest = await refresh().catch(() => null);
+      if (latest?.messages.some(message => message.id === operationId && message.status === 'completed')) {
+        return;
+      }
+      throw error;
+    }
+  }
   async function retryMessage() {
     const failed = submissionRef.current;
     if (!failed || failed.status !== 'failed' || sendLock.current) {
@@ -448,6 +469,10 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
       const latest = await refresh();
       const saved = latest.messages.find(m => m.id === failed.request.operationId);
       if (saved?.status === 'completed' || saved?.status === 'pending') {
+        return;
+      }
+      if (saved?.recoverable) {
+        await finishPhotoSave(saved.id);
         return;
       }
       // An explicit retry of a terminal failure is a fresh AI attempt. Unknown
@@ -552,29 +577,31 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                   )}
                   {['failed', 'interrupted'].includes(message.status) && (
                     <div>
-                      {submission?.request.operationId !== message.id && <p>{message.reply || 'This request stopped. Your saved changes are safe.'}</p>}
-                      {submission?.request.operationId !== message.id && (
-                        <button
-                          type="button"
-                          disabled={busy || published}
-                          onClick={() => void run(async () => {
-                            const latest = await refresh();
-                            const saved = latest.messages.find(m => m.id === message.id);
-                            if (!saved || !['failed', 'interrupted'].includes(saved.status)) {
-                              return;
-                            }
-                            await submitRequest({ message: saved.message, operationId: crypto.randomUUID(), expectedRevision: latest.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets });
-                          })}
-                        >
-                          Retry message
-                        </button>
-                      )}
+                      {(message.recoverable || submission?.request.operationId !== message.id) && <p>{message.reply || 'This request stopped. Your saved changes are safe.'}</p>}
+                      {message.recoverable
+                        ? <button type="button" disabled={busy || published} onClick={() => void run(() => finishPhotoSave(message.id))}>Finish saving</button>
+                        : submission?.request.operationId !== message.id && (
+                          <button
+                            type="button"
+                            disabled={busy || published}
+                            onClick={() => void run(async () => {
+                              const latest = await refresh();
+                              const saved = latest.messages.find(m => m.id === message.id);
+                              if (!saved || !['failed', 'interrupted'].includes(saved.status)) {
+                                return;
+                              }
+                              await submitRequest({ message: saved.message, operationId: crypto.randomUUID(), expectedRevision: latest.revision.revision, scope: includeBusiness ? 'business_and_website' : 'website', referenceIds: requestAssets });
+                            })}
+                          >
+                            Retry message
+                          </button>
+                        )}
                     </div>
                   )}
                 </div>
               ))}
               {pendingMessage && !messages.some(message => message.id === submission?.request.operationId) && <p className="setup-owner">{pendingMessage}</p>}
-              {submission?.status === 'failed' && (
+              {submission?.status === 'failed' && !messages.some(message => message.id === submission.request.operationId && message.recoverable) && (
                 <div role="alert">
                   <p>{submission.error}</p>
                   <button type="button" disabled={busy} onClick={() => void retryMessage()}>Retry message</button>
