@@ -43,6 +43,7 @@ const harness = vi.hoisted(() => ({
    */
   queryRespond: (async () => ({ rows: [] })) as (queryText: string) => Promise<unknown>,
   poolInstances: [] as Array<{ ended: boolean }>,
+  physicalConnects: 0,
 }));
 
 type VerifyFn = (
@@ -62,13 +63,30 @@ vi.mock('pg', async () => {
   // phantom ECONNREFUSED that misled the first draft of this test.
   const { EventEmitter } = await import('node:events');
 
+  class FakeClient extends EventEmitter {
+    connect(callback?: (error?: Error) => void): Promise<void> | void {
+      harness.physicalConnects += 1;
+      if (callback) {
+        queueMicrotask(() => callback());
+        return;
+      }
+      return Promise.resolve();
+    }
+
+    query(text: string): Promise<unknown> {
+      return harness.markerRespond(text);
+    }
+  }
+
   class FakePool extends EventEmitter {
     ended = false;
     private readonly verify: VerifyFn;
+    private readonly Client: typeof FakeClient;
 
-    constructor(config: { verify: VerifyFn }) {
+    constructor(config: { verify: VerifyFn; Client: typeof FakeClient }) {
       super();
       this.verify = config.verify;
+      this.Client = config.Client;
       harness.poolInstances.push(this);
     }
 
@@ -77,7 +95,8 @@ vi.mock('pg', async () => {
       // pg-pool asked for a client with none idle — every call here
       // simulates opening a brand-new physical connection, which is
       // exactly when the real `verify` hook runs.
-      const fakeClient = { query: async (q: string) => harness.markerRespond(q) };
+      const fakeClient = new this.Client();
+      await fakeClient.connect();
       await new Promise<void>((resolve, reject) => {
         this.verify(fakeClient, (error) => {
           if (error) {
@@ -101,7 +120,7 @@ vi.mock('pg', async () => {
     }
   }
 
-  return { Pool: FakePool };
+  return { Pool: FakePool, Client: FakeClient };
 });
 
 function quotaExceededOnce(): Promise<never> {
@@ -157,6 +176,7 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
   afterEach(() => {
     process.env = { ...originalEnvironment };
     harness.poolInstances = [];
+    harness.physicalConnects = 0;
     harness.queryRespond = async () => ({ rows: [] });
     resetGlobalDatabaseState();
     vi.useRealTimers();
@@ -251,7 +271,7 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     expect(result).toEqual([{ id: 'salon_nail-salon-no5' }, { id: 'salon_other' }]);
   });
 
-  it('a connection storm does not happen: many concurrent requests during an outage share the cached failure, no extra dial-outs', async () => {
+  it('concurrent requests during cooldown reuse the failure before physical connection or attestation', async () => {
     setProductionEnv();
     harness.markerRespond = quotaExceededOnce;
 
@@ -260,6 +280,7 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     const { db } = await import('./DB');
 
     expect(harness.poolInstances).toHaveLength(1);
+    expect(harness.physicalConnects).toBe(1);
 
     // A burst of concurrent requests arriving while still within the bounded
     // cooldown must all be rejected from the cached failure, with the
@@ -283,6 +304,7 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     }
 
     expect(markerRespondSpy).not.toHaveBeenCalled();
+    expect(harness.physicalConnects).toBe(1);
     // Still exactly one Pool for the entire test.
     expect(harness.poolInstances).toHaveLength(1);
   });
