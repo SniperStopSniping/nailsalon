@@ -56,7 +56,9 @@ describe('custom website trusted parent bridge', () => {
     const currentFrame = screen.getByTitle('New saved design') as HTMLIFrameElement;
 
     expect(currentFrame).not.toBe(frame);
-    expect(currentFrame.contentWindow).not.toBe(oldWindow);
+    // Compare identity without asking older matcher formatters to traverse a
+    // closed JSDOM Window, whose location getter no longer has a document.
+    expect(Object.is(currentFrame.contentWindow, oldWindow)).toBe(false);
 
     act(() => window.dispatchEvent(new MessageEvent('message', { source: oldWindow, origin: 'null', data: { type: 'renderer-ready' } })));
     act(() => window.dispatchEvent(new MessageEvent('message', { source: currentFrame.contentWindow, origin: 'null', data: { type: 'rendered', channel: oldChannel } })));
