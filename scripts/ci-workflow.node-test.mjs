@@ -416,6 +416,46 @@ test('founding lifetime claims require real PostgreSQL evidence without skips', 
   assert.ok(step.run.includes('grep -Fqx \'FOUNDING_CORE_POSTGRES_TESTS_EXECUTED=7 FOUNDING_CORE_POSTGRES_TESTS_SKIPPED=0\''));
 });
 
+test('uncovered concurrency suites run in isolated PostgreSQL jobs with exact zero-skip counts', () => {
+  const lifecycle = jobs['client-lifecycle-postgres'];
+  const clientDeletion = lifecycle.steps.find(step => step.name === 'Verify client deletion races on real PostgreSQL with zero skips');
+  const lifecycleReset = lifecycle.steps.find(step => step.name === 'Reset the disposable database for the command gate');
+  assert.ok(clientDeletion);
+  assert.ok(lifecycleReset);
+  assert.equal(lifecycle.env.CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED, 'true');
+  assert.ok(clientDeletion.run.includes('src/libs/clientDeletion.integration.test.ts'));
+  assert.ok(clientDeletion.run.includes('numTotalTests !== 11'));
+  assert.ok(clientDeletion.run.includes('numPendingTests !== 0'));
+  assert.ok(clientDeletion.run.includes('CLIENT_DELETION_POSTGRES_TESTS_EXECUTED=3 CLIENT_DELETION_POSTGRES_TESTS_SKIPPED=0'));
+  assert.ok(lifecycle.steps.indexOf(clientDeletion) < lifecycle.steps.indexOf(lifecycleReset));
+
+  const deposits = jobs['deposits-postgres-concurrency'];
+  const portfolio = deposits.steps.find(step => step.name === 'Verify portfolio upload slot races on real PostgreSQL with zero skips');
+  const outboxScope = deposits.steps.find(step => step.name === 'Verify scope-clean outbox mutants on real PostgreSQL with zero skips');
+  const nextVisit = deposits.steps.find(step => step.name === 'Verify Next Visit offer races on real PostgreSQL with zero skips');
+  assert.ok(portfolio);
+  assert.ok(outboxScope);
+  assert.ok(nextVisit);
+  assert.equal(portfolio.env.PORTFOLIO_LIMIT_DISPOSABLE_DATABASE_CONFIRMED, 'true');
+  assert.equal(outboxScope.env.D5_CONCURRENCY_REQUIRED, 'true');
+  assert.ok(outboxScope.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID);
+  assert.ok(outboxScope.env.LUSTER_DISPOSABLE_POSTGRES_NETWORK);
+  assert.equal(nextVisit.env.NEXT_VISIT_DISPOSABLE_DATABASE_CONFIRMED, 'true');
+  assert.ok(portfolio.run.includes('src/libs/portfolioMedia.concurrency.integration.test.ts'));
+  assert.ok(portfolio.run.includes('numTotalTests !== 4'));
+  assert.ok(portfolio.run.includes('PORTFOLIO_MEDIA_POSTGRES_TESTS_EXECUTED=4 PORTFOLIO_MEDIA_POSTGRES_TESTS_SKIPPED=0'));
+  assert.ok(outboxScope.run.includes('src/libs/integrationOutbox.scopeCleanMutants.postgres.integration.test.ts'));
+  assert.ok(outboxScope.run.includes('numTotalTests !== 2'));
+  assert.ok(outboxScope.run.includes('OUTBOX_SCOPE_CLEAN_POSTGRES_TESTS_EXECUTED=2 OUTBOX_SCOPE_CLEAN_POSTGRES_TESTS_SKIPPED=0'));
+  assert.ok(nextVisit.run.includes('src/libs/nextVisitOffer.concurrency.integration.test.ts'));
+  assert.ok(nextVisit.run.includes('export NEXT_VISIT_TEST_DATABASE_URL="$CONCURRENCY_TEST_DATABASE_URL"'));
+  assert.ok(nextVisit.run.includes('numTotalTests !== 4'));
+  assert.ok(nextVisit.run.includes('NEXT_VISIT_POSTGRES_TESTS_EXECUTED=4 NEXT_VISIT_POSTGRES_TESTS_SKIPPED=0'));
+  assert.equal(deposits.steps.indexOf(portfolio) + 1, deposits.steps.indexOf(outboxScope));
+  assert.equal(deposits.steps.indexOf(outboxScope) + 1, deposits.steps.indexOf(nextVisit));
+  assert.equal(deposits.steps.at(-1), nextVisit);
+});
+
 test('the required component job runs onboarding tests with their package configuration', () => {
   assert.ok(jobs.test.needs.includes('test-components'));
   const step = jobs['test-components'].steps.find(candidate => candidate.name === 'Verify onboarding confirmation and booking notice');
