@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   getAdmin: vi.fn(),
   getClaimed: vi.fn(),
   mediaRecords: vi.fn(),
+  linked: vi.fn(),
+  payload: vi.fn(),
   model: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error('NOT_FOUND');
@@ -40,6 +42,10 @@ vi.mock('@/features/onboarding-v1-integration/saved-preview', () => ({
 vi.mock('@/libs/adminAuth', () => ({
   getAdminSession: mocks.getAdmin,
 }));
+vi.mock('@/libs/DB', () => ({ db: {} }));
+vi.mock('@/features/custom-sites/manual-origin.server', () => ({ linkedOnboardingCanvaDraft: mocks.linked }));
+vi.mock('@/features/custom-sites/payload.server', () => ({ customSiteRendererOrigin: () => 'https://isolated.example', setupCustomSitePayload: mocks.payload }));
+vi.mock('@/features/custom-sites/CustomWebsiteFrame', () => ({ CustomWebsiteFrame: () => null }));
 vi.mock('./SavedSitePreviewClient', () => ({
   SavedSitePreviewClient: () => null,
 }));
@@ -50,6 +56,7 @@ const siteId = '22222222-2222-4222-8222-222222222222';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.linked.mockResolvedValue(null);
   mocks.enabled.mockReturnValue(true);
   mocks.getAdmin.mockResolvedValue({
     id: 'admin-1',
@@ -182,4 +189,25 @@ describe('saved website Preview route', () => {
       searchParams: Promise.resolve({}),
     })).rejects.toThrow('NOT_FOUND');
   });
+});
+
+it('uses the current shared draft after Canva handoff instead of an older menu or image projection', async () => {
+  mocks.linked.mockResolvedValue({ salonSlug: 'isla-nails', revision: 12, document: { latestDraft: true } });
+  mocks.payload.mockResolvedValue({ source: {}, data: { preview: true }, images: {} });
+  const element = await SavedWebsitePreviewPage({ params: Promise.resolve({ locale: 'en', siteId }), searchParams: Promise.resolve({}) });
+
+  expect(element.type).toBe('main');
+  expect(mocks.payload).toHaveBeenCalledWith('salon-1', { latestDraft: true });
+  expect(mocks.model).not.toHaveBeenCalled();
+});
+
+it('retains authorized staff read-only preview after Canva handoff without sending them to an owner-only screen', async () => {
+  mocks.getAdmin.mockResolvedValue({ id: 'staff-1', salons: [{ role: 'staff', salonId: 'salon-1' }] });
+  mocks.linked.mockResolvedValue({ salonSlug: 'isla-nails', revision: 12, document: { latestDraft: true } });
+  mocks.payload.mockResolvedValue({ source: {}, data: { preview: true }, images: {} });
+  const element = await SavedWebsitePreviewPage({ params: Promise.resolve({ locale: 'en', siteId }), searchParams: Promise.resolve({}) });
+
+  expect(element.type).toBe('main');
+  expect(mocks.redirect).not.toHaveBeenCalled();
+  expect(element.props.children[0].props.children.at(-1)).toBe(false);
 });

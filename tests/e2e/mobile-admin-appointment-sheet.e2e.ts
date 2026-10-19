@@ -14,6 +14,7 @@ import {
   appPath,
   authStatePaths,
   e2eConfig,
+  e2eOrigin,
   uniqueCustomerPhone,
 } from './support/config';
 
@@ -211,7 +212,7 @@ test('iPhone Safari keeps archive confirmation safe and refreshes after success 
 
   const impersonation = await page.request.post(
     '/api/super-admin/impersonate',
-    { data: { salonId: salon.id } },
+    { headers: { Origin: e2eOrigin }, data: { salonId: salon.id } },
   );
 
   expect(impersonation.ok(), await impersonation.text()).toBe(true);
@@ -320,6 +321,6 @@ test('iPhone Safari keeps archive confirmation safe and refreshes after success 
     });
   } finally {
     await page.unroute(archiveRoute);
-    await page.request.delete('/api/super-admin/impersonate');
+    await page.request.delete('/api/super-admin/impersonate', { headers: { Origin: e2eOrigin } });
   }
 });

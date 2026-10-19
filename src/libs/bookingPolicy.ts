@@ -1,7 +1,9 @@
-import { and, eq, gte, inArray, lt, lte, ne } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, ne } from 'drizzle-orm';
 
 import { blockingAppointmentCondition } from '@/libs/appointmentBlocking';
 import { db } from '@/libs/DB';
+import { toDateOnlyString } from '@/libs/timeOffDates';
+import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
 import { normalizeScheduleDay } from '@/libs/weeklySchedule';
 import {
   appointmentSchema,
@@ -135,31 +137,12 @@ function toDate(value: Date | string): Date {
 }
 
 export function getTorontoDateString(date: Date): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: TORONTO_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-
-  const year = parts.find(part => part.type === 'year')?.value;
-  const month = parts.find(part => part.type === 'month')?.value;
-  const day = parts.find(part => part.type === 'day')?.value;
-
-  return `${year}-${month}-${day}`;
+  return getDateKeyInTimeZone(date, TORONTO_TZ);
 }
 
-function getTorontoDate(date: Date): Date {
-  return new Date(date.toLocaleString('en-US', { timeZone: TORONTO_TZ }));
-}
-
-export function getDayNameForDate(date: Date): keyof WeeklySchedule {
-  const torontoDate = getTorontoDate(date);
-  return DAY_NAMES[torontoDate.getDay()]!;
-}
-
-function getTorontoDayIndex(date: Date): number {
-  return getTorontoDate(date).getDay();
+export function getDayNameForDate(date: Date, timeZone = TORONTO_TZ): keyof WeeklySchedule {
+  const dateKey = getDateKeyInTimeZone(date, timeZone);
+  return DAY_NAMES[new Date(`${dateKey}T12:00:00Z`).getUTCDay()]!;
 }
 
 export function timeStringToMinutes(time: string): number {
@@ -286,6 +269,7 @@ export { type BookingHoursCeiling, resolveBookingHoursCeiling } from '@/libs/boo
 
 export function getEffectiveScheduleForWindow(args: {
   startTime: Date;
+  timeZone?: string;
   weeklySchedule: WeeklySchedule | null;
   override?: ScheduleOverride | null;
   isOnTimeOff?: boolean;
@@ -320,7 +304,7 @@ export function getEffectiveScheduleForWindow(args: {
     return { available: false, reason: 'day_off' };
   }
 
-  const dayName = getDayNameForDate(startTime);
+  const dayName = getDayNameForDate(startTime, args.timeZone);
   const daySchedule = normalizeScheduleDay(weeklySchedule[dayName]);
 
   if (!daySchedule) {
@@ -334,15 +318,13 @@ export function isWindowWithinSchedule(
   startTime: Date,
   endTime: Date,
   schedule: ScheduleDay,
+  timeZone = TORONTO_TZ,
 ): boolean {
-  const startInToronto = getTorontoDate(startTime);
-  const endInToronto = getTorontoDate(endTime);
-
   const scheduleStartMinutes = timeStringToMinutes(schedule.start);
   const scheduleEndMinutes = timeStringToMinutes(schedule.end);
-  const startMinutes = startInToronto.getHours() * 60 + startInToronto.getMinutes();
-  const endMinutes = endInToronto.getHours() * 60 + endInToronto.getMinutes();
-  const sameLocalDay = startInToronto.toDateString() === endInToronto.toDateString();
+  const startMinutes = timeStringToMinutes(getTimeKeyInTimeZone(startTime, timeZone));
+  const endMinutes = timeStringToMinutes(getTimeKeyInTimeZone(endTime, timeZone));
+  const sameLocalDay = getDateKeyInTimeZone(startTime, timeZone) === getDateKeyInTimeZone(endTime, timeZone);
 
   if (scheduleEndMinutes > scheduleStartMinutes && !sameLocalDay) {
     return false;
@@ -354,12 +336,13 @@ export function isWindowWithinSchedule(
 function getLocationScheduleForWindow(
   startTime: Date,
   locationBusinessHours: BusinessHours,
+  timeZone: string,
 ): ScheduleDay | null {
   if (!locationBusinessHours) {
     return null;
   }
 
-  const dayName = getDayNameForDate(startTime);
+  const dayName = getDayNameForDate(startTime, timeZone);
   const hours = locationBusinessHours[dayName];
 
   if (!hours) {
@@ -377,12 +360,11 @@ export function hasBlockedSlotConflict(args: {
   endTime: Date;
   blockedSlots: BlockedSlotWindow[];
   bufferMinutes?: number;
+  timeZone?: string;
 }): boolean {
-  const { startTime, endTime, blockedSlots, bufferMinutes = 0 } = args;
-  const startInToronto = getTorontoDate(startTime);
-  const endInToronto = getTorontoDate(endTime);
-  const startMinutes = startInToronto.getHours() * 60 + startInToronto.getMinutes();
-  const endMinutes = endInToronto.getHours() * 60 + endInToronto.getMinutes();
+  const { startTime, endTime, blockedSlots, bufferMinutes = 0, timeZone = TORONTO_TZ } = args;
+  const startMinutes = timeStringToMinutes(getTimeKeyInTimeZone(startTime, timeZone));
+  const endMinutes = timeStringToMinutes(getTimeKeyInTimeZone(endTime, timeZone));
 
   return blockedSlots.some((blockedSlot) => {
     if (blockedSlot.startsAt && blockedSlot.endsAt) {
@@ -432,6 +414,7 @@ export function hasBufferedConflict(args: {
 
 export function canTechnicianTakeAppointment(args: {
   startTime: Date;
+  timeZone?: string;
   endTime: Date;
   weeklySchedule: WeeklySchedule | null;
   override?: ScheduleOverride | null;
@@ -465,6 +448,7 @@ export function canTechnicianTakeAppointment(args: {
     primaryLocationId = null,
     locationBusinessHours = null,
     bufferMinutes = DEFAULT_BUFFER_MINUTES,
+    timeZone = TORONTO_TZ,
   } = args;
 
   if (!technicianCanPerformServices({
@@ -487,26 +471,27 @@ export function canTechnicianTakeAppointment(args: {
     weeklySchedule,
     override,
     isOnTimeOff,
+    timeZone,
   });
 
   if (!effectiveSchedule.available) {
     return effectiveSchedule;
   }
 
-  if (!isWindowWithinSchedule(startTime, endTime, effectiveSchedule.schedule)) {
+  if (!isWindowWithinSchedule(startTime, endTime, effectiveSchedule.schedule, timeZone)) {
     return { available: false, reason: 'outside_schedule' };
   }
 
-  const locationSchedule = getLocationScheduleForWindow(startTime, locationBusinessHours);
+  const locationSchedule = getLocationScheduleForWindow(startTime, locationBusinessHours, timeZone);
   if (locationBusinessHours && !locationSchedule) {
     return { available: false, reason: 'location_unavailable' };
   }
 
-  if (locationSchedule && !isWindowWithinSchedule(startTime, endTime, locationSchedule)) {
+  if (locationSchedule && !isWindowWithinSchedule(startTime, endTime, locationSchedule, timeZone)) {
     return { available: false, reason: 'location_unavailable' };
   }
 
-  if (hasBlockedSlotConflict({ startTime, endTime, blockedSlots, bufferMinutes })) {
+  if (hasBlockedSlotConflict({ startTime, endTime, blockedSlots, bufferMinutes, timeZone })) {
     return { available: false, reason: 'blocked_slot' };
   }
 
@@ -530,6 +515,7 @@ export async function loadBookingPolicy(args: {
   salonId: string;
   technicianIds: string[];
   date: string;
+  /** Legacy caller compatibility; whole-day records are resolved from `date`. */
   selectedDate: Date;
   startOfDay: Date;
   endOfDay: Date;
@@ -549,13 +535,17 @@ export async function loadBookingPolicy(args: {
     salonId,
     technicianIds,
     date,
-    selectedDate,
     startOfDay,
     endOfDay,
     excludedAppointmentId,
     now = new Date(),
   } = args;
   const database = args.database ?? db;
+  // Legacy whole-day timestamps carry a calendar date, not a zoned instant.
+  // Match their stored day just as the owner calendar does, including either
+  // midnight-UTC or historical within-day values on the first/last day.
+  const dateStart = new Date(`${date}T00:00:00Z`);
+  const dateEndExclusive = new Date(dateStart.getTime() + 24 * 60 * 60 * 1000);
 
   if (technicianIds.length === 0) {
     return {
@@ -591,8 +581,8 @@ export async function loadBookingPolicy(args: {
         and(
           eq(technicianTimeOffSchema.salonId, salonId),
           inArray(technicianTimeOffSchema.technicianId, technicianIds),
-          lte(technicianTimeOffSchema.startDate, selectedDate),
-          gte(technicianTimeOffSchema.endDate, selectedDate),
+          lt(technicianTimeOffSchema.startDate, dateEndExclusive),
+          gte(technicianTimeOffSchema.endDate, dateStart),
         ),
       );
   } catch (error) {
@@ -679,8 +669,9 @@ export async function loadBookingPolicy(args: {
   }
 
   const timeOffTechnicianIds = new Set(timeOffRows.map(row => row.technicianId));
-  const selectedDateString = getTorontoDateString(selectedDate);
-  const selectedDayIndex = getTorontoDayIndex(selectedDate);
+  // `date` is already the salon-local day used by overrides and time off.
+  // Do not reinterpret it in the server's timezone or Toronto's timezone.
+  const selectedDayIndex = new Date(`${date}T12:00:00Z`).getUTCDay();
 
   const appointmentsByTechnician = new Map<string, AppointmentWindow[]>();
   for (const appointment of appointments) {
@@ -717,7 +708,7 @@ export async function loadBookingPolicy(args: {
       && blockedSlot.dayOfWeek !== null
       && blockedSlot.dayOfWeek === selectedDayIndex;
     const specificDateMatch = blockedSlot.specificDate
-      ? getTorontoDateString(new Date(blockedSlot.specificDate)) === selectedDateString
+      ? toDateOnlyString(blockedSlot.specificDate) === date
       : false;
 
     if (!recurringMatch && !specificDateMatch) {

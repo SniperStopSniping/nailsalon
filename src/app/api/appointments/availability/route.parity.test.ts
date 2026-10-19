@@ -293,7 +293,9 @@ beforeAll(async () => {
     salonId: 'salon_parity_policy',
     technicianId: 'tech_parity_policy',
     startDate: new Date('2026-03-06T00:00:00.000Z'),
-    endDate: new Date('2026-03-07T00:00:00.000Z'),
+    // Whole-day time off includes its last date. Keep this fixture on Friday
+    // so Saturday can independently exercise the schedule-hours override.
+    endDate: new Date('2026-03-06T00:00:00.000Z'),
     reason: 'vacation',
   });
 

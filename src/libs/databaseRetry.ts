@@ -19,12 +19,31 @@ function postgresCode(error: unknown): string | null {
 }
 
 export function isTransientDatabaseError(error: unknown): boolean {
-  const code = postgresCode(error);
-  if (code && TRANSIENT_POSTGRES_CODES.has(code)) {
-    return true;
+  // Drizzle wraps driver errors and includes query text/parameters in the
+  // wrapper message. Classify the underlying failure, never that query text.
+  let current = error;
+  const seen = new Set<object>();
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (!current || typeof current !== 'object' || seen.has(current)) {
+      return false;
+    }
+    seen.add(current);
+    const cause = (current as { cause?: unknown }).cause;
+    if (cause === undefined || cause === null) {
+      break;
+    }
+    current = cause;
+    if (depth === 5) {
+      return false;
+    }
   }
 
-  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  const code = postgresCode(current);
+  if (code && /^[A-Z0-9]{5}$/.test(code)) {
+    return TRANSIENT_POSTGRES_CODES.has(code);
+  }
+
+  const message = current instanceof Error ? current.message.toLowerCase() : '';
   return [
     'connection terminated',
     'connection reset',

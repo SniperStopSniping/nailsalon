@@ -86,9 +86,35 @@ describe('Portfolio multipart upload', () => {
   });
 
   it('bounds multipart bytes even without a Content-Length header', async () => {
-    const form = new FormData();
-    form.set('file', new File([new Uint8Array(4_000_001)], 'large.jpg', { type: 'image/jpeg' }));
-    const response = await POST(new Request('https://example.test/api/admin/portfolio/upload?salonSlug=salon-a', { method: 'POST', body: form }));
+    // Use a deterministic stream for the over-limit case. Undici's native
+    // FormData request body produces multipart bytes asynchronously; the
+    // server intentionally cancels as soon as it crosses the cap, which can
+    // race that producer and emit ERR_INVALID_STATE after the request ends.
+    const boundary = 'fixture';
+    const encoder = new TextEncoder();
+    const prefix = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="large.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`);
+    const fileBytes = new Uint8Array(4_000_001);
+    const suffix = encoder.encode(`\r\n--${boundary}--\r\n`);
+    const multipartBytes = new Uint8Array(prefix.byteLength + fileBytes.byteLength + suffix.byteLength);
+    multipartBytes.set(prefix, 0);
+    multipartBytes.set(fileBytes, prefix.byteLength);
+    multipartBytes.set(suffix, prefix.byteLength + fileBytes.byteLength);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(multipartBytes);
+        controller.close();
+      },
+    });
+    const request = new Request('https://example.test/api/admin/portfolio/upload?salonSlug=salon-a', {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      body,
+      duplex: 'half',
+    } as RequestInit);
+
+    expect(request.headers.get('content-length')).toBeNull();
+
+    const response = await POST(request);
 
     expect(response.status).toBe(413);
     expect(upload).not.toHaveBeenCalled();

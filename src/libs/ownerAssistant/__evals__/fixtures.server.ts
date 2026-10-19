@@ -24,8 +24,8 @@ import type { OwnerAssistantAdmin, OwnerAssistantSalon } from '../turn.server';
  *   - a booked appointment (with a client name and phone that must never
  *     escape) and a blocked slot give `diagnose_day_availability` real causes
  *     on the Friday the cases ask about;
- *   - a SECOND salon on America/Vancouver exists only so the Toronto-only
- *     refusal of the diagnosis tool can be exercised honestly.
+ *   - a SECOND salon on America/Vancouver exercises timezone-aware booking
+ *     diagnosis without borrowing the Toronto salon's rules or appointments.
  *
  * Everything is keyed to one frozen clock (`EVAL_NOW`) so a case that says
  * "Friday" means a specific date in every run, forever.
@@ -49,7 +49,7 @@ export const EVAL_SALON: OwnerAssistantSalon = {
   name: 'Eval Studio',
 };
 
-/** Only the timezone refusal case uses this one. */
+/** The Vancouver diagnosis and cross-salon isolation cases use this one. */
 export const EVAL_WEST_SALON: OwnerAssistantSalon = {
   id: 'salon_eval_west',
   slug: 'eval-studio-west',

@@ -50,6 +50,18 @@ async function bounded<T>(promise: Promise<T>, message: string): Promise<T> {
   }
 }
 
+function hasSqlState(error: unknown, expectedCode: '40001' | '23503'): boolean {
+  let current = error;
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth += 1) {
+    const candidate = current as { cause?: unknown; code?: unknown };
+    if (candidate.code === expectedCode) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+  return false;
+}
+
 async function seed() {
   const n = ++sequence;
   const salonId = `block-race-salon-${runId}-${n}`;
@@ -142,7 +154,7 @@ async function transactionWithRetry(args: {
       if (error instanceof SlotConflictError) {
         return { outcome: 'conflict' as const, attempts };
       }
-      if ((error as { code?: string }).code === '40001' && attempts < 3) {
+      if (hasSqlState(error, '40001') && attempts < 3) {
         continue;
       }
       throw error;
@@ -259,8 +271,23 @@ async function race(args: { first: Writer; bookingIsolation: Isolation; overlap:
   it('rejects a cross-salon technician guard tuple at the database boundary', async () => {
     const fixture = await seed();
 
-    await expect(database.execute(sql`insert into technician_schedule_guard (salon_id, technician_id, revision) values (${fixture.salonId}, ${fixture.otherTechId}, 0)`))
-      .rejects.toMatchObject({ code: '23503' });
+    const rejection = await database.execute(sql`
+      insert into technician_schedule_guard (salon_id, technician_id, revision)
+      values (${fixture.salonId}, ${fixture.otherTechId}, 0)
+    `).then(
+      () => undefined,
+      error => error,
+    );
+
+    expect(hasSqlState(rejection, '23503')).toBe(true);
+
+    const persisted = await database.execute(sql`
+      SELECT COUNT(*)::int AS count
+      FROM technician_schedule_guard
+      WHERE salon_id = ${fixture.salonId} AND technician_id = ${fixture.otherTechId}
+    `);
+
+    expect(Number((persisted.rows[0] as { count: number | string }).count)).toBe(0);
 
     executed += 1;
   });

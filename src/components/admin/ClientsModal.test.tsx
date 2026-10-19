@@ -1148,6 +1148,10 @@ describe('ClientsModal', () => {
 
     fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'payments' } });
 
+    // The money-tile labels render while detail is loading, but the values stay
+    // skeletonized until the profile and completed history arrive together.
+    await screen.findByTestId('client-payment-appointment-appt_completed');
+
     expect(await screen.findByText('Paid service value')).toBeInTheDocument();
     expect(screen.getByText('Paid service value this month')).toBeInTheDocument();
     expect(screen.getByText('Completed outstanding')).toBeInTheDocument();

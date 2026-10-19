@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SALON_DELETION_RETAINED } from '@/models/salonDeletion';
+
 import { DeleteSalonModal } from './DeleteSalonModal';
 
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
@@ -140,5 +142,69 @@ describe('DeleteSalonModal', () => {
     expect(
       await screen.findByText('Cannot delete salon: related records still reference it'),
     ).toBeInTheDocument();
+  });
+});
+
+describe('deletion completion reporting', () => {
+  const pending = { jobId: '00000000-0000-4000-8000-000000000001', status: 'pending', databaseDeleted: true, rowsDeleted: 152, mediaTotal: 2, mediaRemoved: 1, mediaRemaining: 1, reviewRequired: 0, attempts: 1, nextAttemptAt: '2026-10-19T12:00:00Z', retained: SALON_DELETION_RETAINED };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockImplementation(async (_url: string, options?: RequestInit) => options?.method === 'DELETE'
+      ? Response.json({ success: false, cleanup: pending }, { status: 202 })
+      : Response.json(IMPACT));
+  });
+
+  it('keeps unfinished cleanup visible until acknowledged and shows retained records', async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderModal({ isDeleted: true, onSuccess });
+
+    expect(screen.queryByText(/Remove ALL data/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Required billing, payment/)).toBeInTheDocument();
+
+    await user.type(screen.getByRole('textbox'), 'nail-salon-no5');
+    await user.click(screen.getByRole('button', { name: 'Delete Permanently' }));
+    const result = await screen.findByRole('status');
+
+    expect(result).toHaveTextContent('Media cleanup is unfinished. Remaining references: 1.');
+    expect(result).toHaveTextContent('People’s sign-in accounts');
+    expect(result).toHaveTextContent('Existing events in Google Calendar');
+    expect(result).toHaveTextContent('Database backups');
+    expect(onSuccess).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Acknowledge and close' }));
+
+    expect(onSuccess).toHaveBeenCalledOnce();
+  });
+
+  it('checks durable cleanup status without repeating the destructive delete', async () => {
+    const user = userEvent.setup();
+    renderModal({ isDeleted: true });
+    await user.type(screen.getByRole('textbox'), 'nail-salon-no5');
+    await user.click(screen.getByRole('button', { name: 'Delete Permanently' }));
+    await screen.findByRole('status');
+    fetchMock.mockResolvedValueOnce(Response.json({ cleanup: { ...pending, status: 'completed', mediaRemoved: 2, mediaRemaining: 0 } }));
+    await user.click(screen.getByRole('button', { name: 'Check cleanup status' }));
+
+    expect(await screen.findByText('Tracked media cleanup is complete.')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(`/api/super-admin/deletion-cleanup/${pending.jobId}`, { method: 'POST' });
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
+  });
+
+  it('shows public-media review as unfinished and does not promise automatic removal', async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderModal({ isDeleted: true, onSuccess });
+    await screen.findByText('152 rows:', { exact: false });
+    await user.type(screen.getByRole('textbox'), 'nail-salon-no5');
+    fetchMock.mockResolvedValueOnce(Response.json({ cleanup: { ...pending, status: 'review_required', reviewRequired: 1 } }, { status: 202 }));
+    await user.click(screen.getByRole('button', { name: 'Delete Permanently' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Requiring manual review: 1.');
+    expect(screen.getByText('Public, shared or unverified images need an operator’s review before cleanup can be confirmed.')).toBeInTheDocument();
+    expect(screen.queryByText(/Automatic retries are scheduled/)).not.toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 });

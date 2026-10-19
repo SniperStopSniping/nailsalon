@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-import { appPath, authStatePaths, e2eConfig } from './support/config';
+import { appPath, authStatePaths, e2eBaseUrl, e2eConfig } from './support/config';
+
+const e2eOrigin = new URL(e2eBaseUrl).origin;
 
 test.use({
   storageState: authStatePaths.superAdmin,
@@ -12,11 +14,44 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 }) => {
   test.slow();
 
-  const applicationConsoleErrors: string[] = [];
+  const applicationConsoleErrors: Array<{ text: string; locationUrl: string }> = [];
+  const unexpectedHttpErrors: string[] = [];
+  let ownerAssistantDarkContext404Responses = 0;
+  const isOwnerAssistantContextUrl = (value: string) => {
+    try {
+      const url = new URL(value);
+      return url.origin === e2eOrigin
+        && url.pathname === '/api/admin/owner-assistant/context'
+        && url.searchParams.get('salonSlug') === e2eConfig.salonSlug;
+    } catch {
+      return false;
+    }
+  };
+
   page.on('console', (message) => {
     if (message.type() === 'error') {
-      applicationConsoleErrors.push(message.text());
+      applicationConsoleErrors.push({
+        text: message.text(),
+        locationUrl: message.location().url,
+      });
     }
+  });
+  page.on('response', (response) => {
+    if (response.status() < 400) {
+      return;
+    }
+
+    if (
+      response.status() === 404
+      && response.request().method() === 'GET'
+      && isOwnerAssistantContextUrl(response.url())
+    ) {
+      ownerAssistantDarkContext404Responses += 1;
+      return;
+    }
+
+    const url = new URL(response.url());
+    unexpectedHttpErrors.push(`${response.request().method()} ${url.pathname} ${response.status()}`);
   });
 
   const start = await page.request.get(
@@ -32,11 +67,14 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
   const impersonation = await page.request.post(
     '/api/super-admin/impersonate',
     {
+      headers: { Origin: e2eOrigin },
       data: { salonId: salon.id },
     },
   );
 
   expect(impersonation.ok(), await impersonation.text()).toBe(true);
+
+  let createdClientId: string | undefined;
 
   try {
     await page.goto(
@@ -49,12 +87,12 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 
     await page.getByTestId('owner-nav-calendar').click();
 
-    await expect(
-      page.getByText('Schedule', { exact: true }).first(),
-    ).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Monthly' })).toBeVisible();
+    const calendarDialog = page.getByRole('dialog', { name: 'Calendar' });
 
-    const calendarDay = page.locator('button[aria-label*="Luster"]').first();
+    await expect(calendarDialog).toBeVisible();
+    await expect(calendarDialog.getByRole('button', { name: 'Monthly' })).toBeVisible();
+
+    const calendarDay = calendarDialog.locator('button[aria-label*="Luster"]').first();
 
     await expect(calendarDay).toBeVisible();
 
@@ -63,17 +101,56 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 
     await expect(closeDay).toBeVisible();
 
-    const daySheet = closeDay.locator(
-      'xpath=ancestor::div[contains(@class,"fixed")][1]',
+    // The calendar can appear before its addressable route settles. Keep the
+    // normal fast selection path, then verify the original selected-day panel
+    // survives the canonical URL commit instead of accepting a transient sheet.
+    const originalDayPanel = await closeDay.locator(
+      'xpath=ancestor::*[@role="dialog"][1]',
+    ).elementHandle();
+
+    expect(originalDayPanel, 'The selected-day panel must be mounted before the route settles.').not.toBeNull();
+
+    await page.waitForURL(
+      url => url.pathname === new URL(appPath('/admin'), e2eBaseUrl).pathname
+        && url.searchParams.get('app') === 'schedule',
+      { waitUntil: 'domcontentloaded' },
     );
-    const box = await daySheet.boundingBox();
+
+    expect(await originalDayPanel!.evaluate(panel => panel.isConnected)).toBe(true);
+
+    await expect(closeDay).toBeVisible();
+
+    const dayPanel = closeDay.locator('xpath=ancestor::*[@role="dialog"][1]');
+
+    await expect.poll(async () => dayPanel.evaluate((panel) => {
+      const style = getComputedStyle(panel);
+      const matrix = new DOMMatrixReadOnly(style.transform);
+      return style.opacity === '1' && Math.abs(matrix.m42) < 0.5;
+    }), { timeout: 10_000 }).toBe(true);
+
+    await expect.poll(async () => {
+      return dayPanel.evaluate(async (panel) => {
+        const before = panel.getBoundingClientRect();
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+        const after = panel.getBoundingClientRect();
+
+        return Math.abs(before.x - after.x) < 0.5
+          && Math.abs(before.y - after.y) < 0.5
+          && Math.abs(before.width - after.width) < 0.5
+          && Math.abs(before.height - after.height) < 0.5;
+      });
+    }, { timeout: 10_000 }).toBe(true);
+
+    const box = await dayPanel.boundingBox();
 
     expect(box).not.toBeNull();
     expect(box!.y).toBeGreaterThanOrEqual(0);
     expect(box!.y + box!.height).toBeLessThanOrEqual(846);
 
     await closeDay.click();
-    await page.getByRole('button', { name: 'Back' }).first().click();
+    await calendarDialog.getByRole('button', { name: 'Back' }).click();
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.getByTestId('owner-nav-clients').click();
@@ -82,7 +159,7 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
       page.getByText('Clients', { exact: true }).first(),
     ).toBeVisible();
 
-    await page.getByRole('tab', { name: 'Client Insights' }).click();
+    await page.getByRole('tab', { name: 'Insights & Follow-ups' }).click();
 
     const clientHub = page.getByTestId('client-hub');
 
@@ -108,18 +185,45 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
       'Active clients',
     );
 
-    await page.getByRole('button', { name: 'Clear' }).click();
+    await page.getByTestId('clients-active-segment').getByRole('button', { name: 'Clear', exact: true }).click();
 
     await expect(page.getByTestId('clients-active-segment')).toHaveCount(0);
 
-    const firstClient = page
-      .getByTestId('clients-directory-scroll')
-      .locator('button')
-      .first();
+    // Earlier customer-booking cases may have populated the shared disposable
+    // salon. Use the real header action so this edit flow works with either an
+    // empty or populated directory without resetting shared fixtures.
+    const clientsModeTabs = page.getByRole('tablist', {
+      name: 'Clients or Insights and Follow-ups',
+    });
+    await clientsModeTabs.getByTestId('clients-mode-clients').click();
 
-    await expect(firstClient).toBeVisible();
+    await expect(page.getByTestId('clients-add-action')).toBeVisible();
 
-    await firstClient.click();
+    await page.getByTestId('clients-add-action').click();
+
+    const uniqueSuffix = `${Date.now()}`.slice(-4);
+    const firstName = `E2E${uniqueSuffix}`;
+    await page.getByLabel('First name').fill(firstName);
+    await page.getByLabel('Last name').fill('Mobile');
+    await page.getByLabel('Phone').fill(`416555${uniqueSuffix}`);
+
+    const createResponsePromise = page.waitForResponse(response => (
+      response.url().includes('/api/admin/clients')
+      && response.request().method() === 'POST'
+      && response.status() === 201
+    ));
+    await page.getByTestId('add-client-save').click();
+    const createResponse = await createResponsePromise;
+    const createPayload = await createResponse.json();
+    createdClientId = createPayload.data?.client?.id;
+
+    expect(createdClientId, 'The owner UI must commit a client before the edit flow.').toBeTruthy();
+
+    const createdClientProfile = page.getByTestId('client-detail-scroll');
+
+    await expect(
+      createdClientProfile.getByRole('heading', { name: `${firstName} Mobile` }),
+    ).toBeVisible();
 
     const editClientAction = page.getByTestId('edit-client-action');
 
@@ -133,8 +237,8 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 
     await expect(editDialog).toBeVisible();
     await expect(page.getByRole('dialog', { name: 'Edit client' })).toBeVisible();
-    await expect(page.getByLabel('First name')).not.toHaveValue('');
-    await expect(page.getByLabel('Phone')).not.toHaveValue('');
+    await expect(page.getByLabel('First name')).toHaveValue(firstName);
+    await expect(page.getByLabel('Phone')).toHaveValue(`416555${uniqueSuffix}`);
     await expect(page.getByLabel('Last name')).toBeVisible();
     await expect(page.getByLabel('Email')).toBeVisible();
     await expect(page.getByLabel('Birthday')).toBeVisible();
@@ -161,19 +265,11 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
     });
 
     expect(editGeometry.dialogTop).toBeGreaterThanOrEqual(0);
-    expect(editGeometry.dialogBottom).toBeLessThanOrEqual(
-      editGeometry.viewportHeight,
-    );
+    expect(editGeometry.dialogBottom).toBeLessThanOrEqual(editGeometry.viewportHeight);
     expect(editGeometry.dialogLeft).toBeGreaterThanOrEqual(0);
-    expect(editGeometry.dialogRight).toBeLessThanOrEqual(
-      editGeometry.viewportWidth,
-    );
-    expect(editGeometry.dialogWidth).toBeLessThanOrEqual(
-      editGeometry.viewportWidth,
-    );
-    expect(editGeometry.documentScrollWidth).toBe(
-      editGeometry.documentClientWidth,
-    );
+    expect(editGeometry.dialogRight).toBeLessThanOrEqual(editGeometry.viewportWidth);
+    expect(editGeometry.dialogWidth).toBeLessThanOrEqual(editGeometry.viewportWidth);
+    expect(editGeometry.documentScrollWidth).toBe(editGeometry.documentClientWidth);
 
     const bodyGeometry = await editDialogBody.evaluate(body => ({
       clientWidth: body.clientWidth,
@@ -182,11 +278,43 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 
     expect(bodyGeometry.scrollWidth).toBe(bodyGeometry.clientWidth);
     await expect(saveClient).toBeInViewport();
-    await expect(
-      page.getByRole('button', { name: 'Close edit client dialog' }),
-    ).toBeInViewport();
+    await expect(page.getByRole('button', { name: 'Close edit client dialog' })).toBeInViewport();
 
     await page.getByRole('button', { name: 'Close edit client dialog' }).click();
+
+    await expect(editDialog).toHaveCount(0);
+
+    await editClientAction.click();
+
+    await expect(editDialog).toBeVisible();
+
+    await expect(page.getByLabel('First name')).toHaveValue(firstName);
+
+    const updatedNotes = `Mobile edit ${uniqueSuffix}`;
+    await page.getByLabel('Notes').fill(updatedNotes);
+    const updateResponsePromise = page.waitForResponse(response => (
+      response.url().includes(`/api/admin/clients/${createdClientId}`)
+      && response.request().method() === 'PATCH'
+    ));
+    await saveClient.click();
+    const updateResponse = await updateResponsePromise;
+
+    expect(updateResponse.ok(), await updateResponse.text()).toBe(true);
+
+    const profileResponse = await page.request.get(
+      `/api/admin/clients/${encodeURIComponent(createdClientId)}?salonSlug=${encodeURIComponent(e2eConfig.salonSlug)}`,
+      { headers: { Origin: e2eOrigin } },
+    );
+
+    expect(profileResponse.ok(), await profileResponse.text()).toBe(true);
+
+    const profilePayload = await profileResponse.json();
+
+    expect(profilePayload.data?.client?.notes).toBe(updatedNotes);
+
+    const updatedAt = profilePayload.data?.client?.updatedAt;
+
+    expect(updatedAt, 'The committed client must expose its current version for cleanup.').toBeTruthy();
 
     await expect(editDialog).toHaveCount(0);
 
@@ -203,7 +331,9 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
     const servicesOpener = page.getByTestId('owner-nav-services');
     await servicesOpener.click();
 
-    await expect(page.getByRole('button', { name: 'Add' })).toBeVisible();
+    const serviceCreateAction = page.getByRole('button', { name: 'New service' });
+
+    await expect(serviceCreateAction).toBeVisible();
 
     const servicesPanel = page.getByTestId('app-modal-panel');
     const servicesScrollRegion = page.getByTestId('app-modal-scroll-region');
@@ -260,8 +390,46 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
     // exit animation, so assert it left the viewport rather than the DOM.
     await expect(page.getByTestId('integration-row-google')).not.toBeInViewport();
     await expect(page.getByTestId('owner-more-workspace')).toBeVisible();
-    expect(applicationConsoleErrors).toEqual([]);
+
+    const expectedDarkContextConsoleErrors = applicationConsoleErrors.filter(error => (
+      error.text === 'Failed to load resource: the server responded with a status of 404 (Not Found)'
+      && isOwnerAssistantContextUrl(error.locationUrl)
+    ));
+    const unexpectedConsoleErrors = applicationConsoleErrors.filter(error => (
+      !expectedDarkContextConsoleErrors.includes(error)
+    ));
+
+    expect(ownerAssistantDarkContext404Responses).toBe(1);
+
+    expect(expectedDarkContextConsoleErrors.length).toBeLessThanOrEqual(
+      ownerAssistantDarkContext404Responses,
+    );
+    expect(unexpectedHttpErrors).toEqual([]);
+    expect(unexpectedConsoleErrors).toEqual([]);
+    await expect(page.getByTestId('owner-assistant-launcher')).toHaveCount(0);
   } finally {
-    await page.request.delete('/api/super-admin/impersonate');
+    if (createdClientId) {
+      const profileResponse = await page.request.get(
+        `/api/admin/clients/${encodeURIComponent(createdClientId)}?salonSlug=${encodeURIComponent(e2eConfig.salonSlug)}`,
+        { headers: { Origin: e2eOrigin } },
+      );
+      if (profileResponse.ok()) {
+        const profilePayload = await profileResponse.json();
+        const expectedUpdatedAt = profilePayload.data?.client?.updatedAt;
+        if (expectedUpdatedAt) {
+          await page.request.post(
+            `/api/admin/clients/${encodeURIComponent(createdClientId)}/archive`,
+            {
+              headers: { Origin: e2eOrigin },
+              data: { salonSlug: e2eConfig.salonSlug, expectedUpdatedAt },
+            },
+          );
+        }
+      }
+    }
+
+    await page.request.delete('/api/super-admin/impersonate', {
+      headers: { Origin: e2eOrigin },
+    });
   }
 });

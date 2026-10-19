@@ -39,6 +39,7 @@ import {
   Settings,
   Shield,
   ShieldCheck,
+  Sparkles,
   Users,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -68,6 +69,7 @@ type AppGroup = {
 // schedule/bookings/clients/services are always hidden by the dashboard (they
 // live in the bottom navigation) but stay defined for tab-based modal routing.
 const APPS: AppItem[] = [
+  { id: 'luster-ai', name: 'Luster AI', description: 'Edit your website, services and business setup', icon: Sparkles },
   {
     id: 'hours',
     name: 'Hours & Availability',
@@ -193,7 +195,7 @@ const MORE_GROUPS: AppGroup[] = [
   {
     id: 'booking',
     name: 'Booking',
-    appIds: ['hours', 'booking-rules', 'booking-page'],
+    appIds: ['hours', 'booking-rules', 'booking-page', 'luster-ai'],
   },
   {
     id: 'clients-growth',
@@ -399,6 +401,7 @@ function AccountSection({ account, theme }: { account: AppGridAccount; theme: Th
  * App Grid Container
  */
 type AppGridProps = {
+  aiBusinessSetupEnabled?: boolean;
   salonSlug?: string;
   salonId?: string;
   onOpenCredits?: (view: 'topup' | 'history') => void;
@@ -419,7 +422,7 @@ type AppGridProps = {
 const EMPTY_BADGES: Record<string, number> = {};
 const EMPTY_HIDDEN_IDS: string[] = [];
 
-export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account, salonSlug, salonId, onOpenCredits }: AppGridProps) {
+export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account, salonSlug, salonId, onOpenCredits, aiBusinessSetupEnabled = false }: AppGridProps) {
   const t = useTranslations('NoShowRecords');
   const appById = new Map(APPS.map(app => [app.id, app]));
   const visibleGroups = MORE_GROUPS.map(group => ({
@@ -431,7 +434,7 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
     ...group,
     apps: group.appIds.flatMap((appId) => {
       const app = appById.get(appId);
-      return app && !hiddenIds.includes(app.id)
+      return app && !hiddenIds.includes(app.id) && (app.id !== 'luster-ai' || aiBusinessSetupEnabled)
         ? [{ ...app, badge: badges[app.id] || 0, ...(app.id === 'no-show-records' ? { name: t('tile_name'), description: t('tile_description') } : {}) }]
         : [];
     }),

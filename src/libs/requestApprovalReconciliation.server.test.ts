@@ -765,7 +765,7 @@ describe('resolveExplicitRequestApprovalActivation', () => {
     // A tiny 5-minute window on Monday, then closed until Wednesday. With
     // the DEFAULT 60min minimum this would fail (`no_reviewable_window`);
     // overriding the minimum down to 5 makes the same tiny window sufficient.
-    const startTime = new Date('2099-06-03T20:00:00Z'); // hard cap far away, doesn't bind
+    const startTime = new Date('2099-06-03T16:00:00Z'); // valid UTC slot; the hard cap remains far away
     const businessHours = { monday: { open: '08:00', close: '08:05' } };
 
     const withDefaultMinimum = resolveExplicitRequestApprovalActivation({

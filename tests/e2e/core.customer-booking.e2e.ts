@@ -1,10 +1,51 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 import { acknowledgeBookingPolicy, selectBookableSlotFromApi } from './support/booking';
-import { appPath, appPathPattern, e2eConfig, uniqueCustomerPhone } from './support/config';
+import { appPath, appPathPattern, e2eBaseUrl, e2eConfig, uniqueCustomerPhone } from './support/config';
+
+const e2eOrigin = new URL(e2eBaseUrl).origin;
 
 async function continueFromService(page: Page) {
   await page.getByTestId('service-continue-button').click();
+}
+
+async function expectHydratedControl(control: Locator): Promise<void> {
+  await expect.poll(() => control.evaluate(element => (
+    Object.keys(element).some(key => key.startsWith('__reactProps$'))
+  ))).toBe(true);
+}
+
+async function fillGuestContact(page: Page, contact: { name: string; email: string; phone: string }): Promise<void> {
+  const name = page.getByLabel('Customer name');
+  const email = page.getByLabel('Customer email');
+  const phone = page.getByLabel('Customer phone');
+
+  // The confirmation heading can be streamed before React hydrates the
+  // controlled fields. Filling before the handlers attach lets hydration
+  // replace the entered value with the server-rendered empty value.
+  await expectHydratedControl(name);
+  await expectHydratedControl(email);
+  await expectHydratedControl(phone);
+
+  await name.fill(contact.name);
+  await email.fill(contact.email);
+  await phone.fill(contact.phone);
+
+  await expect(name).toHaveValue(contact.name);
+  await expect(email).toHaveValue(contact.email);
+  await expect(phone).toHaveValue(contact.phone);
+  await expect.poll(() => page.evaluate(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('luster_booking_contact') ?? '{}');
+      return [saved.name ?? '', saved.email ?? '', saved.phone ?? ''];
+    } catch {
+      return null;
+    }
+  })).toEqual([contact.name, contact.email, contact.phone]);
+}
+
+async function expectBookingReady(page: Page): Promise<void> {
+  await expect(page.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
 }
 
 test('a selected add-on keeps its price and duration through Time and Confirm', async ({ page }) => {
@@ -53,9 +94,166 @@ test('a selected add-on keeps its price and duration through Time and Confirm', 
   });
 
   await expect(page).toHaveURL(appPathPattern('/book/confirm'));
-  await expect(page.locator('.booking-review-summary')).toContainText('Nail Repair');
-  await expect(page.locator('.booking-review-summary')).toContainText(reviewedPrice!);
-  await expect(page.locator('.booking-review-summary')).toContainText(reviewedDuration!);
+
+  const review = page.getByTestId('booking-review-summary');
+
+  await expect(review).toContainText('Nail Repair');
+  await expect(review).toContainText(reviewedDuration!);
+
+  const closing = page.getByTestId('booking-review-closing');
+
+  await expect(closing).toContainText('Estimated appointment total');
+  await expect(closing).toContainText(reviewedPrice!);
+});
+
+test('recovers a committed v2 booking after its 201 response is lost without creating twice', async ({ page }) => {
+  test.slow();
+
+  let createRequests = 0;
+  let committedStatus: number | null = null;
+  let committedReceipt: any;
+  let attemptId: string | undefined;
+  let recoveryKey: string | undefined;
+  let statusRequests = 0;
+
+  await page.route('**/api/appointments', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+    createRequests += 1;
+    attemptId = route.request().headers()['idempotency-key'];
+    recoveryKey = route.request().headers()['x-booking-recovery-key'];
+
+    expect(route.request().headers()['x-booking-attempt-version']).toBe('2');
+
+    // Let the real handler commit and capture its authoritative 201, then
+    // drop the response before the browser can observe it.
+    const committed = await route.fetch();
+
+    committedStatus = committed.status();
+
+    expect(committedStatus).toBe(201);
+
+    committedReceipt = await committed.json();
+    await route.abort('connectionreset');
+  });
+  await page.route('**/api/public/booking-attempt/*/status', async (route) => {
+    statusRequests += 1;
+    await route.continue();
+  });
+
+  await page.goto(`${appPath('/book/service')}?salonSlug=${e2eConfig.salonSlug}`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page.getByTestId(`service-card-${e2eConfig.serviceId}`).click();
+  await continueFromService(page);
+  await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
+
+  if (appPathPattern('/book/tech').test(page.url())) {
+    await page.getByRole('button', { name: new RegExp(e2eConfig.staffTechnicianName, 'i') }).click();
+  }
+
+  await expect(page).toHaveURL(appPathPattern('/book/time'));
+
+  const timeUrl = new URL(page.url());
+
+  await selectBookableSlotFromApi(page, {
+    technicianId: timeUrl.searchParams.get('techId'),
+    startDayOffset: 3,
+    baseServiceId: timeUrl.searchParams.get('baseServiceId'),
+    locationId: timeUrl.searchParams.get('locationId'),
+    selectedAddOns: timeUrl.searchParams.get('selectedAddOns'),
+  });
+
+  await expect(page).toHaveURL(appPathPattern('/book/confirm'));
+
+  const phone = uniqueCustomerPhone();
+
+  await fillGuestContact(page, {
+    name: `Recovery ${phone.slice(-4)}`,
+    email: `recovery+${Date.now()}@example.com`,
+    phone,
+  });
+  await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
+  const recoveredStatusResponsePromise = page.waitForResponse(response => (
+    response.url().includes(`/api/public/booking-attempt/`)
+    && response.url().endsWith('/status')
+    && response.request().method() === 'POST'
+  ));
+  await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+  await expect(page.getByRole('heading', { name: 'Booking received', exact: true })).toBeVisible({ timeout: 30_000 });
+
+  const recoveredStatusResponse = await recoveredStatusResponsePromise;
+
+  expect(recoveredStatusResponse.ok()).toBe(true);
+
+  const recoveredResult = await recoveredStatusResponse.json();
+  const committedAppointmentId = committedReceipt?.data?.appointmentId as string | undefined;
+
+  expect(committedAppointmentId, 'The lost 201 must contain a committed appointment ID.').toBeTruthy();
+
+  expect(recoveredResult).toMatchObject({
+    kind: 'resolved_success',
+    response: {
+      data: {
+        appointmentId: committedAppointmentId,
+        appointment: { status: committedReceipt?.data?.appointment?.status },
+      },
+      meta: { recovered: true },
+    },
+  });
+  await expect.poll(() => statusRequests).toBeGreaterThan(0);
+  expect(committedStatus).toBe(201);
+  expect(attemptId).toMatch(/^[0-9a-f-]{36}$/i);
+  expect(recoveryKey).toMatch(/^[0-9a-f-]{36}$/i);
+  await expect.poll(() => createRequests).toBe(1);
+  await expect(page.getByRole('link', { name: 'View booking details', exact: true })).toBeVisible();
+
+  const attemptRecord = await page.evaluate(() => {
+    const key = Object.keys(sessionStorage).find(item => item.startsWith('luster.public-booking-attempt.v1.'));
+    const raw = key ? sessionStorage.getItem(key) : null;
+    return raw ? JSON.parse(raw) as { attemptId?: string; state?: string; response?: { data?: { appointmentId?: string; appointment?: { status?: string } } } } : null;
+  });
+
+  expect(attemptRecord).toMatchObject({
+    attemptId,
+    state: 'resolved',
+    response: {
+      data: {
+        appointmentId: expect.any(String),
+        appointment: { status: expect.any(String) },
+      },
+    },
+  });
+
+  const manageUrl = committedReceipt?.data?.manageUrl as string | undefined;
+
+  expect(manageUrl).toBeTruthy();
+
+  const token = new URL(manageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
+  const cancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(token!)}`, {
+    headers: { Origin: e2eOrigin },
+    data: { action: 'cancel', reason: 'client_request' },
+  });
+
+  const cancellationResult = await cancellation.json();
+
+  expect(cancellation.ok(), JSON.stringify(cancellationResult)).toBeTruthy();
+  expect(cancellationResult).toMatchObject({ data: { status: 'cancelled' } });
+
+  const managedAfterCancellation = await page.request.get(
+    `/api/public/appointments/manage/${encodeURIComponent(token!)}`,
+  );
+
+  const managedResult = await managedAfterCancellation.json();
+
+  expect(managedAfterCancellation.ok(), JSON.stringify(managedResult)).toBeTruthy();
+  expect(managedResult).toMatchObject({
+    data: { appointment: { id: committedAppointmentId, status: 'cancelled' } },
+  });
 });
 
 test('guest can book without OTP and receive an appointment management link', async ({ page }) => {
@@ -104,9 +302,11 @@ test('guest can book without OTP and receive an appointment management link', as
 
   await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
-  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(`guest+${Date.now()}@example.com`);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, {
+    name: `Guest ${phone.slice(-4)}`,
+    email: `guest+${Date.now()}@example.com`,
+    phone,
+  });
 
   await expect(page.getByRole('button', { name: /confirm appointment/i })).toContainText(timeStepPrice!);
 
@@ -117,6 +317,7 @@ test('guest can book without OTP and receive an appointment management link', as
   ));
 
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
 
   const bookingResponse = await bookingResponsePromise;
@@ -132,6 +333,7 @@ test('guest can book without OTP and receive an appointment management link', as
 
   const token = new URL(manageUrl!, page.url()).pathname.split('/').filter(Boolean).at(-1);
   const cancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(token!)}`, {
+    headers: { Origin: e2eOrigin },
     data: { action: 'cancel', reason: 'client_request' },
   });
 
@@ -149,10 +351,13 @@ test('guest can book without OTP and receive an appointment management link', as
 
   await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
-  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(`guest+${Date.now()}@example.com`);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, {
+    name: `Guest ${phone.slice(-4)}`,
+    email: `guest+${Date.now()}@example.com`,
+    phone,
+  });
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
 
   const rebookingResponsePromise = page.waitForResponse(response => (
     response.url().includes('/api/appointments')
@@ -173,6 +378,7 @@ test('guest can book without OTP and receive an appointment management link', as
   expect(rebookingToken).toBeTruthy();
 
   const rebookingCancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(rebookingToken!)}`, {
+    headers: { Origin: e2eOrigin },
     data: { action: 'cancel', reason: 'client_request' },
   });
 
@@ -224,15 +430,14 @@ test('a guest can manage multiple upcoming appointments', async ({ page }) => {
 
   // First booking succeeds.
   await walkToConfirm();
-  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(email);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, { name: `Guest ${phone.slice(-4)}`, email, phone });
   const firstBookingResponse = page.waitForResponse(response => (
     response.url().includes('/api/appointments')
     && response.request().method() === 'POST'
     && response.status() === 201
   ));
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const firstBody = await (await firstBookingResponse).json();
   const firstManageUrl = firstBody?.data?.manageUrl as string | undefined;
@@ -241,15 +446,14 @@ test('a guest can manage multiple upcoming appointments', async ({ page }) => {
 
   // A second appointment for the same guest remains a separate booking.
   await walkToConfirm();
-  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(email);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, { name: `Guest ${phone.slice(-4)}`, email, phone });
   const secondBookingResponse = page.waitForResponse(response => (
     response.url().includes('/api/appointments')
     && response.request().method() === 'POST'
     && response.status() === 201
   ));
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const secondBody = await (await secondBookingResponse).json();
   const secondManageUrl = secondBody?.data?.manageUrl as string | undefined;
@@ -270,12 +474,14 @@ test('a guest can manage multiple upcoming appointments', async ({ page }) => {
   expect(secondManage.ok(), await secondManage.text()).toBeTruthy();
 
   const firstCancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(firstToken!)}`, {
+    headers: { Origin: e2eOrigin },
     data: { action: 'cancel', reason: 'client_request' },
   });
 
   expect(firstCancellation.ok(), await firstCancellation.text()).toBeTruthy();
 
   const secondCancellation = await page.request.patch(`/api/public/appointments/manage/${encodeURIComponent(secondToken!)}`, {
+    headers: { Origin: e2eOrigin },
     data: { action: 'cancel', reason: 'client_request' },
   });
 

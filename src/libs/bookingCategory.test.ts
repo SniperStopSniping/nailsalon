@@ -11,6 +11,7 @@ import {
   deriveBookingCategory,
   resolveVisibleBookingCategory,
   VISIBLE_BOOKING_CATEGORIES,
+  visibleBookingCategories,
 } from '@/libs/bookingCategory';
 import {
   getTemplatesByShelf,
@@ -21,10 +22,18 @@ import {
 } from '@/libs/serviceTemplateCatalog';
 
 describe('visible booking categories', () => {
-  it('exposes exactly Manicure, Pedicure, and Combos', () => {
-    expect(VISIBLE_BOOKING_CATEGORIES).toEqual(['manicure', 'pedicure', 'combo']);
+  it('supports the neutral group without renaming existing nail groups', () => {
+    expect(VISIBLE_BOOKING_CATEGORIES).toEqual(['manicure', 'pedicure', 'combo', 'other']);
     expect(VISIBLE_BOOKING_CATEGORIES.map(category => BOOKING_CATEGORY_META[category].label))
-      .toEqual(['Manicure', 'Pedicure', 'Combos']);
+      .toEqual(['Manicure', 'Pedicure', 'Combos', 'Other services']);
+  });
+
+  it('shows the neutral tab only for salons that use it', () => {
+    expect(visibleBookingCategories([{ category: 'builder_gel', bookingCategory: 'manicure' }])).toEqual(['manicure', 'pedicure', 'combo']);
+    expect(visibleBookingCategories([{ category: 'other', bookingCategory: 'other' }])).toEqual(['other']);
+    expect(visibleBookingCategories([{ category: 'other', bookingCategory: 'other' }, { category: 'manicure', bookingCategory: 'manicure' }])).toEqual(['manicure', 'other']);
+    expect(resolveVisibleBookingCategory({ category: 'other', bookingCategory: null })).toBe('other');
+    expect(visibleBookingCategories([])).toEqual(['manicure', 'pedicure', 'combo']);
   });
 
   it('never surfaces an internal category as a visible group', () => {
