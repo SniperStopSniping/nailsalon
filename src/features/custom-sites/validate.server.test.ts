@@ -6,6 +6,15 @@ vi.mock('server-only', () => ({}));
 const source = { title: 'Original', html: '<main><h1 data-luster-field="business.name"></h1><div data-luster-services></div><template data-luster-service><article><span data-luster-field="service.name"></span><button data-luster-book>Book</button></article></template></main>', css: 'main{display:grid;grid-template-columns:2fr 1fr}@media(max-width:600px){main{display:block}}', javascript: '', analysis: '', limitations: [] };
 
 describe('custom frontend source validation', () => {
+  it('keeps legacy source hashes compatible and preserves valid declared document languages', () => {
+    expect(Object.hasOwn(validateCustomSource(source, new Set()), 'language')).toBe(false);
+    expect(validateCustomSource({ ...source, language: 'fr-CA' }, new Set()).language).toBe('fr-CA');
+
+    for (const language of ['en\" onclick=\"alert(1)', 'javascript:alert(1)', 'en_CA', 'x'.repeat(36)]) {
+      expect(() => validateCustomSource({ ...source, language }, new Set())).toThrow();
+    }
+  });
+
   it('preserves original markup and responsive CSS without mapping to presets', () => {
     const result = validateCustomSource(source, new Set());
 

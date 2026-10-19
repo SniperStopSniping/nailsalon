@@ -15,7 +15,7 @@ const runtime = await readFile(new URL('./runtime.js', import.meta.url), 'utf8')
 const boot = `const PARENT_ORIGIN=${JSON.stringify(parent.origin)};\nconst TRUSTED_FONT_CSS=${JSON.stringify(trustedFontCss)};\n${runtime}`;
 const hash = createHash('sha256').update(boot).digest('base64');
 const csp = `default-src 'none'; script-src 'sha256-${hash}' blob:; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; worker-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${parent.origin}; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox`;
-const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Custom salon website</title></head><body><div id="site-root"></div><script>${boot}</script></body></html>`;
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Custom salon website</title></head><body><div id="site-root"></div><script>${boot}</script></body></html>`;
 export default (req, res) => {
   if (!['/renderer', '/api/renderer'].includes(req.url) || req.method !== 'GET') {
     res.writeHead(404);

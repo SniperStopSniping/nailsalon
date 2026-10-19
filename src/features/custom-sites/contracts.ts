@@ -6,6 +6,8 @@ import type { WebsiteDetails } from './website-details';
 /** Source files, not a template/composition registry. No server code or dependencies. */
 export const customSiteSourceSchema = z.object({
   title: z.string().trim().min(1).max(100),
+  // Optional so historical immutable source and approval hashes stay intact.
+  language: z.string().max(35).regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/u).optional(),
   html: z.string().min(1).max(60000),
   css: z.string().max(40000),
   javascript: z.string().max(20000),

@@ -39,6 +39,7 @@
     initialized = true;
     channel = event.data.channel;
     const { source, data, images } = payload;
+    document.documentElement.lang = typeof source.language === 'string' && source.language.length <= 35 && /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(source.language) ? source.language : 'en';
     const css = document.createElement('style');
     css.textContent = `html{scroll-behavior:smooth}body{margin:0}*{box-sizing:border-box}img{max-width:100%;height:auto}button{font:inherit;cursor:pointer}a,button{touch-action:manipulation}:focus-visible{outline:3px solid #3685ff;outline-offset:4px}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}\n${source.css}`;
     document.head.append(css);
