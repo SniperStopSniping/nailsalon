@@ -145,12 +145,16 @@ describe('middleware — request path validation', () => {
     expect(response.headers.get('location')).toBe(origin + destination);
   });
 
-  it('preserves the French locale rewrite', async () => {
+  it('preserves the French route and forwards its locale without an unnecessary rewrite', async () => {
     const response = await middleware(request('/fr/about'), event);
 
     expect(response.status).toBe(200);
     expect(response.headers.get('location')).toBeNull();
-    expect(response.headers.get('x-middleware-rewrite')).toBe(`${origin}/fr/about`);
+    // v4 forwards a route already carrying its locale instead of rewriting it
+    // to the identical URL. The request locale must still reach the renderer.
+    expect(response.headers.get('x-middleware-rewrite')).toBeNull();
+    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(response.headers.get('x-middleware-request-x-next-intl-locale')).toBe('fr');
   });
 
   it('preserves booking parameters and encoded control characters used only as query data', async () => {

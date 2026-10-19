@@ -14,6 +14,9 @@ delete testEnv.DATABASE_URL;
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
   test: {
+    // next-intl v4 is ESM and imports Next's extensionless entry points.
+    // Let Vite resolve those imports as Next does instead of Node's ESM loader.
+    server: { deps: { inline: ['next-intl'] } },
     globals: true, // This is needed by @testing-library to be cleaned up after each test
     include: [
       'src/**/*.test.{js,jsx,ts,tsx}',

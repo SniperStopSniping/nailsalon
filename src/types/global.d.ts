@@ -1,10 +1,14 @@
 import type { OrgPermission, OrgRole } from '@/types/Auth';
 
-// Use type safe message keys with `next-intl`
+// Keep translation keys type-safe with the next-intl v4 augmentation API.
 type Messages = typeof import('../locales/en.json');
 
-// eslint-disable-next-line ts/consistent-type-definitions
-declare interface IntlMessages extends Messages {}
+declare module 'next-intl' {
+  // eslint-disable-next-line ts/consistent-type-definitions
+  interface AppConfig {
+    Messages: Messages;
+  }
+}
 
 declare global {
   // eslint-disable-next-line ts/consistent-type-definitions

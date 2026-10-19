@@ -326,6 +326,9 @@ jobs:
               # Local integration retains that patched graph and adds only the
               # already reviewed AI parsing/PDF/private-suffix dependencies.
               8c510528ccff7fa01b70bb29cb42dd6a32452ac2:f9473055446d79e1ccce710cd0924b3a677c5844) ;;
+              # Combined candidate: Drizzle ORM 0.45.4 + next-intl 4.14.9,
+              # retaining PR461 Node24, Sentry 10 and AI dependency graph.
+              415d1c90eb42ea7230692a3f241d6febe7e872d6:c7bb0015690ce967afed8f1776d28ced92d5f116) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
