@@ -1,5 +1,8 @@
 import 'server-only';
 
+import { eq, sql } from 'drizzle-orm';
+import { z } from 'zod';
+
 /**
  * bookingPage owner-editable content fields (Luster UI/UX plan rev 3, PR 5).
  *
@@ -39,9 +42,7 @@ import 'server-only';
  * job. This mirrors "no visual change on merge": nothing here changes what
  * renders anywhere yet.
  */
-import { eq, sql } from 'drizzle-orm';
-import { z } from 'zod';
-
+import { type WebsiteDetails, websiteDetailsSchema } from '@/features/custom-sites/website-details';
 import { db } from '@/libs/DB';
 import { salonSchema } from '@/models/Schema';
 
@@ -103,6 +104,7 @@ export type BookingPageContentSide = {
   coverText: string | null;
   /** Ordered public portfolio photo ids for gallery layouts (references, not copies). */
   galleryPhotoIds: string[];
+  websiteDetails?: WebsiteDetails;
 };
 
 export type BookingPageContent = {
@@ -219,6 +221,7 @@ const bookingPageContentSideSchema = z.object({
   coverTextMode: coverTextModeSchema,
   coverText: coverTextSchema,
   galleryPhotoIds: galleryPhotoIdsSchema,
+  websiteDetails: websiteDetailsSchema.optional(),
 });
 
 export type BookingPageContentPatch = Partial<BookingPageContentSide>;
@@ -245,6 +248,7 @@ function resolveContentSide(raw: unknown): BookingPageContentSide {
     coverTextMode: resolveWithDefault(coverTextModeSchema, source.coverTextMode, 'website_copy'),
     coverText: resolveWithDefault(coverTextSchema, source.coverText, null),
     galleryPhotoIds: resolveWithDefault(galleryPhotoIdsSchema, source.galleryPhotoIds, []),
+    ...(websiteDetailsSchema.safeParse(source.websiteDetails).success ? { websiteDetails: websiteDetailsSchema.parse(source.websiteDetails) } : {}),
   };
 }
 
@@ -414,6 +418,10 @@ export async function updateBookingPageContentDraftInTransaction(
   }
   if (validatedPatch.galleryPhotoIds !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,galleryPhotoIds}', ${JSON.stringify(validatedPatch.galleryPhotoIds)}::jsonb)`;
+  }
+
+  if (validatedPatch.websiteDetails !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,websiteDetails}', ${JSON.stringify(validatedPatch.websiteDetails)}::jsonb)`;
   }
 
   const [updated] = await tx

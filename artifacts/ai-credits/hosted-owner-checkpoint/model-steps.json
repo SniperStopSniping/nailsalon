@@ -1,0 +1,182 @@
+[
+  {
+    "mode": "intake",
+    "exactPrompt": "My business is Cobalt Nail Club in Toronto. I work alone from home; keep my full address private. I'm open Tuesday through Saturday, 10am\u20136pm, closed Sunday and Monday. I offer BIAB for $65, 75 minutes, and gel manicures for $50, 60 minutes. Use Canadian dollars, Toronto time, two hours' booking notice and a 10 minute cleanup buffer. For this synthetic test, my Instagram is @luster_ai_test_only, email is booking@example.test, and phone is +1 416 555 0109. Get these business details ready first. The image is inspiration for later, not my business's branding or photos.",
+    "operationId": "607edcf0-d856-449e-8120-2998677d0fd6",
+    "terminal": "completed",
+    "beforeRevision": 2,
+    "afterRevision": 3,
+    "artifactId": null,
+    "elapsedMs": 9127,
+    "calls": [
+      {
+        "id": "c5d145be-1920-4d10-911c-1d9da3b98dea",
+        "operation_id": "607edcf0-d856-449e-8120-2998677d0fd6",
+        "ordinal": 0,
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5101,
+        "output_tokens": 578,
+        "cost_micro_usd": 927,
+        "credit_cost_micro_cad": "2596",
+        "charged_micro_cad": 1854,
+        "elapsed_ms": 6670,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  },
+  {
+    "mode": "generate",
+    "exactPrompt": "Now create my website with the pink design I uploaded as inspiration. Match the soft pink, elegant script headings, boxed location and policy sections and overall layout closely, but use my own saved business details. Don't reuse the other salon's photos, name or contact information. Make it easy to book on a phone.",
+    "operationId": "af7c957e-a4b6-4f58-9a6f-203dbb6a381b",
+    "terminal": "completed",
+    "beforeRevision": 3,
+    "afterRevision": 4,
+    "artifactId": "79603cc0-7266-49ed-acf9-4f9103d73737",
+    "elapsedMs": 110611,
+    "calls": [
+      {
+        "id": "d5182e14-af37-40f9-a554-b59f1e020cc8",
+        "operation_id": "af7c957e-a4b6-4f58-9a6f-203dbb6a381b",
+        "ordinal": 0,
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5480,
+        "output_tokens": 222,
+        "cost_micro_usd": 796,
+        "credit_cost_micro_cad": "2229",
+        "charged_micro_cad": 1592,
+        "elapsed_ms": 3523,
+        "validation": "passed"
+      },
+      {
+        "id": "a76cf497-8be2-4d33-8950-4dfb618501d2",
+        "operation_id": "456a84c1-2d84-4b2d-8841-960fdca0e598",
+        "ordinal": 0,
+        "model": "gpt-6.1-sol",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 2520,
+        "output_tokens": 4799,
+        "cost_micro_usd": 54289,
+        "credit_cost_micro_cad": "152010",
+        "charged_micro_cad": 108578,
+        "elapsed_ms": 104232,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  },
+  {
+    "mode": "refine",
+    "exactPrompt": "Completely redesign the hero with a larger elegant headline. Put services above the gallery. Make the mobile version less crowded. Keep my business details, prices and booking rules unchanged.",
+    "operationId": "36226426-c32d-47ef-ab30-0eaeadb5e964",
+    "terminal": "completed",
+    "beforeRevision": 4,
+    "afterRevision": 5,
+    "artifactId": "dbb3ebee-3edc-4c5d-bbf1-d60b98eea9df",
+    "elapsedMs": 111406,
+    "calls": [
+      {
+        "id": "d945f258-0476-4cf3-a31f-fb907aa1aebb",
+        "operation_id": "36226426-c32d-47ef-ab30-0eaeadb5e964",
+        "ordinal": 0,
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5582,
+        "output_tokens": 216,
+        "cost_micro_usd": 806,
+        "credit_cost_micro_cad": "2257",
+        "charged_micro_cad": 1612,
+        "elapsed_ms": 3138,
+        "validation": "passed"
+      },
+      {
+        "id": "be5c94fe-1c96-4140-bf3d-4ffde0a43a30",
+        "operation_id": "af03460c-fcb1-4f9f-b774-a7621c8d0a9e",
+        "ordinal": 0,
+        "model": "gpt-6.1-sol",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 7053,
+        "output_tokens": 5136,
+        "cost_micro_usd": 68991,
+        "credit_cost_micro_cad": "193175",
+        "charged_micro_cad": 137982,
+        "elapsed_ms": 104991,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  },
+  {
+    "mode": "price",
+    "exactPrompt": "Keep the design, but change BIAB to $70.",
+    "operationId": "82633197-02e7-4535-b753-16f74a423829",
+    "terminal": "completed",
+    "beforeRevision": 5,
+    "afterRevision": 6,
+    "artifactId": "dbb3ebee-3edc-4c5d-bbf1-d60b98eea9df",
+    "elapsedMs": 6697,
+    "calls": [
+      {
+        "id": "be77cb0b-03ae-4e3c-a78c-89629bb2ebfd",
+        "operation_id": "82633197-02e7-4535-b753-16f74a423829",
+        "ordinal": 0,
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5668,
+        "output_tokens": 220,
+        "cost_micro_usd": 819,
+        "credit_cost_micro_cad": "2294",
+        "charged_micro_cad": 1638,
+        "elapsed_ms": 4004,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  },
+  {
+    "mode": "price",
+    "exactPrompt": "Keep the design, but change BIAB to $75.",
+    "operationId": "91554aa1-f017-4f53-9195-33fca87f22fd",
+    "terminal": "completed",
+    "beforeRevision": 11,
+    "afterRevision": 12,
+    "artifactId": "b9fb73f7-a87f-49c4-b70b-f38ada3dff94",
+    "elapsedMs": 6662,
+    "calls": [
+      {
+        "id": "0d944599-9467-4cb9-8bea-ff6b4bd36799",
+        "operation_id": "91554aa1-f017-4f53-9195-33fca87f22fd",
+        "ordinal": 0,
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5882,
+        "output_tokens": 252,
+        "cost_micro_usd": 862,
+        "credit_cost_micro_cad": "2414",
+        "charged_micro_cad": 1724,
+        "elapsed_ms": 3881,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  }
+]

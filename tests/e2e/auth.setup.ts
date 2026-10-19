@@ -7,6 +7,7 @@ import {
   authStatePaths,
   e2eBaseUrl,
   e2eConfig,
+  e2eOrigin,
   usingExternalBaseUrl,
 } from './support/config';
 
@@ -64,7 +65,10 @@ test('bootstrap reusable super-admin password session', async () => {
 
   fs.writeFileSync(authStatePaths.staff, JSON.stringify({ cookies: [], origins: [] }));
 
-  const superAdminContext = await playwrightRequest.newContext({ baseURL: e2eBaseUrl });
+  const superAdminContext = await playwrightRequest.newContext({
+    baseURL: e2eBaseUrl,
+    extraHTTPHeaders: { Origin: e2eOrigin },
+  });
 
   expect(e2eConfig.superAdminPhone, 'E2E_SUPER_ADMIN_PHONE is required.').toBeTruthy();
   expect(e2eConfig.superAdminPassword, 'E2E_SUPER_ADMIN_PASSWORD is required.').toBeTruthy();

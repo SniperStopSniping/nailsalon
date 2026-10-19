@@ -49,6 +49,7 @@ import {
   beginPublicBookingAttempt,
   clearPublicBookingAttempt,
   isPublicBookingReceipt,
+  markPublicBookingAttemptSafeToRetry,
   readPublicBookingAttempt,
   recoverPublicBookingAttempt,
   resolvePublicBookingAttempt,
@@ -2152,6 +2153,7 @@ export function BookConfirmClient({
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
   const [receiptConfirmed, setReceiptConfirmed] = useState(false);
+  const [receiptTechnician, setReceiptTechnician] = useState<TechnicianSummary>(null);
   const [recoveredReceipt, setRecoveredReceipt] = useState<any>(null);
   const [bookingResultStatus, setBookingResultStatus]
     = useState<BookingResultStatus>('confirmed');
@@ -2273,6 +2275,13 @@ export function BookConfirmClient({
     if (fromRecovery) {
       setRecoveredReceipt(data);
     }
+    const assigned = data?.data?.technician;
+    setReceiptTechnician(
+      typeof assigned?.id === 'string' && assigned.id.trim()
+      && typeof assigned.name === 'string' && assigned.name.trim()
+        ? { id: assigned.id, name: assigned.name, imageUrl: typeof assigned.avatarUrl === 'string' ? assigned.avatarUrl : null }
+        : null,
+    );
     const recoveredStatus = data?.data?.appointment?.status;
     setReceiptConfirmed(recoveredStatus === 'confirmed');
     if (fromRecovery && recoveredStatus === 'awaiting_payment' && !data?.data?.deposit?.checkoutUrl) {
@@ -2356,12 +2365,19 @@ export function BookConfirmClient({
     }
     setCheckingPublicRecovery(true);
     try {
+      const existingAttempt = readPublicBookingAttempt(salonId);
       const recovered = await recoverPublicBookingAttempt(salonId);
       if (recovered?.kind === 'resolved_failure') {
         setPublicRecoveryPending(false);
         setBookingError('That booking attempt did not complete. Review your details and confirm again.');
         bookingInitiatedRef.current = false;
         idempotencyKeyRef.current = crypto.randomUUID();
+      } else if (recovered?.kind === 'pending' && existingAttempt?.version === 2
+        && markPublicBookingAttemptSafeToRetry(salonId, existingAttempt.attemptId, existingAttempt.recoveryKey)) {
+        idempotencyKeyRef.current = existingAttempt.attemptId;
+        setPublicRecoveryPending(false);
+        setBookingError('Your booking isn’t confirmed yet. Please wait a moment and try again.');
+        bookingInitiatedRef.current = false;
       } else if (isPublicBookingReceipt(recovered)) {
         completeManualBooking(recovered, true);
       }
@@ -2644,10 +2660,16 @@ export function BookConfirmClient({
     }
     if (salonId) {
       try {
-        if (readPublicBookingAttempt(salonId)?.state === 'pending') {
-          setPublicRecoveryPending(true);
-          void checkPublicRecovery();
-          return;
+        const pendingAttempt = readPublicBookingAttempt(salonId);
+        if (pendingAttempt?.state === 'pending') {
+          if (pendingAttempt.version === 2 && pendingAttempt.safeToRetry === true) {
+            // Restore the exact server idempotency key after a page reload.
+            idempotencyKeyRef.current = pendingAttempt.attemptId;
+          } else {
+            setPublicRecoveryPending(true);
+            void checkPublicRecovery();
+            return;
+          }
         }
       } catch {
         setPublicRecoveryPending(true);
@@ -2827,6 +2849,14 @@ export function BookConfirmClient({
         const errorCode = typeof errorData?.error === 'string'
           ? errorData.error
           : errorData?.error?.code;
+        if (response.status === 503 && errorCode === 'BOOKING_TEMPORARILY_UNAVAILABLE' && publicAttempt?.version === 2) {
+          // Reconcile the durable attempt under its row lock before offering a
+          // same-key retry; a prior committed link must win over this response.
+          setPublicRecoveryPending(true);
+          void checkPublicRecovery();
+          bookingInitiatedRef.current = false;
+          return;
+        }
         if (publicAttempt?.version === 2 && errorData?.bookingAttemptOutcome !== 'resolved_failure') {
           // A generic 4xx may be a replay of an already linked or concurrent
           // attempt. Only the durable authority can release a v2 identity.
@@ -3377,7 +3407,7 @@ export function BookConfirmClient({
         bookingStatus={bookingResultStatus}
         services={recovered?.services ?? services}
         addOns={recovered?.addOns ?? addOns}
-        technician={recovered ? recovered.technician : technician}
+        technician={recovered ? recovered.technician : receiptTechnician}
         totalPrice={recovered?.totalPrice ?? resolvedTotalPrice}
         totalDuration={recovered?.totalDuration ?? resolvedTotalDuration}
         dateStr={recovered?.dateStr ?? dateStr}

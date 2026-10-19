@@ -1,0 +1,37 @@
+{
+  "origin": "https://luster-ai-builder-test.vercel.app",
+  "sourceCommit": "2dc66fe57fc430aa6a8341cf7e0b9335e1de0105",
+  "results": [
+    {
+      "browser": "mobile-chromium",
+      "visibleButton": true,
+      "tapTargetHeight": 44,
+      "noHorizontalOverflow": true,
+      "dialogFits": true,
+      "confirmationBeforeGeneration": true,
+      "cancelPreservesExactDraft": true,
+      "refreshPreservesExactDraft": true,
+      "draftWriteActions": [],
+      "realModelCalls": 0,
+      "keyboardFocusTrap": "not tested"
+    },
+    {
+      "browser": "desktop",
+      "visibleButton": true,
+      "tapTargetHeight": 44,
+      "noHorizontalOverflow": true,
+      "dialogFits": true,
+      "confirmationBeforeGeneration": true,
+      "cancelPreservesExactDraft": true,
+      "refreshPreservesExactDraft": true,
+      "draftWriteActions": [],
+      "realModelCalls": 0,
+      "keyboardFocusTrap": "passed"
+    }
+  ],
+  "deploymentId": "dpl_3zWpFmqtZ8PJPesBT6WbcoZ9H4KW",
+  "limitations": [
+    "Mobile WebKit authentication automation did not remain authorized for all setup reads; not counted as a passed owner journey.",
+    "Generation and lost-response recovery were exercised with mocked providers in deterministic tests; this UI checkpoint made no new paid generation."
+  ]
+}

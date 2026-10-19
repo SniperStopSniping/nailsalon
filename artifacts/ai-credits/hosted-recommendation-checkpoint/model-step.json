@@ -1,0 +1,30 @@
+{
+  "mode": "recommendation",
+  "exactPrompt": "Add an express natural-nail manicure to my draft menu. It includes shaping, cuticle care and regular polish, with no extensions or removal. Suggest an affordable starting price in CAD and an appointment length for a solo Toronto salon. Clearly mark both as illustrative recommendations for me to review. Keep my existing services, their prices and timing, website design, business hours and booking rules unchanged. Do not publish anything.",
+  "operationId": "2dc85595-ba45-4cbc-9d15-8f6c5e8cd356",
+  "terminal": "completed",
+  "beforeRevision": 25,
+  "afterRevision": 26,
+  "artifactId": "95e03ac8-2fd3-4c23-8d4a-305af5a49063",
+  "elapsedMs": 6757,
+  "calls": [
+    {
+      "id": "a0b03b22-736a-467d-a166-c10021bb9e31",
+      "operation_id": "2dc85595-ba45-4cbc-9d15-8f6c5e8cd356",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5756,
+      "output_tokens": 359,
+      "cost_micro_usd": 899,
+      "credit_cost_micro_cad": "2518",
+      "charged_micro_cad": 1798,
+      "elapsed_ms": 4341,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "hosted": true,
+  "providerResponsesNotMocked": true
+}

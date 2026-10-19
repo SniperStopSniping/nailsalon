@@ -53,13 +53,19 @@ export type RuntimeDatabaseVerificationCooldownOptions = {
 };
 
 export type RuntimeDatabaseVerificationCooldown = {
+  /** Read the cached failure without clearing or extending its cooldown. */
+  getFailureDuringCooldown: () => RuntimeDatabaseGuardError | undefined;
+  /** Record an actual connection/attestation failure, never a cached rejection. */
+  recordFailure: (error: unknown) => RuntimeDatabaseGuardError;
   /**
    * Gates one live-attestation `attempt` (typically pg-pool's per-new-
    * connection `verify` hook) through a bounded cooldown:
    *   - If a previous attempt failed and the cooldown has not yet elapsed,
-   *     rejects immediately — no call to `attempt`, hence no network I/O —
-   *     with the SAME classified error the failed attempt produced. This is
-   *     what bounds a sustained outage to one attempt per cooldown window
+   *     rejects immediately with the SAME classified error, without calling
+   *     `attempt`. The physical Client
+   *     must also check the cooldown BEFORE connecting: pg-pool invokes its
+   *     verifier only after the TCP connection has already been established.
+   *     This bounds live-attestation retries to one attempt per cooldown window
    *     instead of one attempt per incoming connection.
    *   - Otherwise, invokes `attempt` and records its outcome. `attempt`
    *     itself decides whether the target is accepted — this wrapper only
@@ -77,10 +83,9 @@ export type RuntimeDatabaseVerificationCooldown = {
    * i.e. accepts connections that were never themselves attested. Per-
    * connection attestation is the contract (`createRuntimeDatabasePoolVerifier`),
    * and it must hold for every connection, including ones opened
-   * concurrently. The connection burst is already bounded without sharing:
-   * pg-pool never opens more than `max` connections at once (2 on Vercel),
-   * and the first recorded failure short-circuits everything after it for
-   * the whole cooldown window.
+   * concurrently. The Client-level check also covers pg-pool's internal
+   * pending queue, which can otherwise repeatedly replace failed clients
+   * during cooldown despite the limit on simultaneous connections.
    */
   guard: (attempt: () => Promise<void>) => Promise<void>;
 };
@@ -92,10 +97,24 @@ export function createRuntimeDatabaseVerificationCooldown(
 
   let lastFailure: { failedAt: number; error: RuntimeDatabaseGuardError } | undefined;
 
+  const getFailureDuringCooldown = () => (
+    lastFailure && now() - lastFailure.failedAt < options.cooldownMs
+      ? lastFailure.error
+      : undefined
+  );
+  const recordFailure = (error: unknown) => {
+    const classified = options.classify(error);
+    lastFailure = { failedAt: now(), error: classified };
+    return classified;
+  };
+
   return {
+    getFailureDuringCooldown,
+    recordFailure,
     guard(attempt) {
-      if (lastFailure && now() - lastFailure.failedAt < options.cooldownMs) {
-        return Promise.reject(lastFailure.error);
+      const failure = getFailureDuringCooldown();
+      if (failure) {
+        return Promise.reject(failure);
       }
 
       // Every caller runs its OWN attempt — see the contract note above for
@@ -105,9 +124,7 @@ export function createRuntimeDatabaseVerificationCooldown(
           lastFailure = undefined;
         })
         .catch((error: unknown) => {
-          const classified = options.classify(error);
-          lastFailure = { failedAt: now(), error: classified };
-          throw classified;
+          throw recordFailure(error);
         });
     },
   };

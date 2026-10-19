@@ -1,0 +1,192 @@
+{
+  "sampleBusiness": "Vale Studio",
+  "testEnvironment": "attested loopback Development",
+  "sourceKind": "Actual owner/browser recordings with exact review/publication screenshots held for readability; original model source unedited",
+  "disclosures": [
+    "Test-funded synthetic account, not a Stripe purchase",
+    "Waits shortened, some clips accelerated",
+    "Development indicator and bottom screen margin cropped; website and interaction source unchanged",
+    "Last actual receipt held for three seconds",
+    "Actual review and committed publication screenshots held for readability"
+  ],
+  "segments": [
+    {
+      "source": "2026-10-18T02-53-02-098Z-message/6b365573def76a96eee910b442a4b38d.webm",
+      "sourceSha256": "c047315fb01d59355f0b7606ae241cc91c9fe4f4bde7aee1c2e09b2a51771018",
+      "startSeconds": 3,
+      "endSeconds": 10,
+      "speed": 1,
+      "receiptHoldSeconds": 0,
+      "timelineStart": 0,
+      "timelineEnd": 7.0,
+      "content": "Business details saved in chat",
+      "view": "desktop",
+      "framing": "crop=1440:940:0:0,pad=1440:1000:0:0:color=0xfcfaf8",
+      "sourceKind": "actual-browser-recording"
+    },
+    {
+      "source": "2026-10-18T02-53-45-473Z-message/42b99d314cc003492f8686c1e5f3c7c8.webm",
+      "sourceSha256": "8ef1177ecbaf9dbb122303d9c2dd9111c8de7250b00a69971e1dc4507c02f56b",
+      "startSeconds": 0,
+      "endSeconds": 3,
+      "speed": 1,
+      "receiptHoldSeconds": 0,
+      "timelineStart": 7.0,
+      "timelineEnd": 10.0,
+      "content": "Describe an original design",
+      "view": "desktop",
+      "framing": "crop=1440:940:0:0,pad=1440:1000:0:0:color=0xfcfaf8",
+      "sourceKind": "actual-browser-recording"
+    },
+    {
+      "source": "2026-10-18T02-53-45-473Z-message/42b99d314cc003492f8686c1e5f3c7c8.webm",
+      "sourceSha256": "8ef1177ecbaf9dbb122303d9c2dd9111c8de7250b00a69971e1dc4507c02f56b",
+      "startSeconds": 121,
+      "endSeconds": 133.3,
+      "speed": 1.5,
+      "receiptHoldSeconds": 0,
+      "timelineStart": 10.0,
+      "timelineEnd": 18.2,
+      "content": "Actual AI-generated draft",
+      "view": "desktop",
+      "framing": "crop=1440:940:0:0,pad=1440:1000:0:0:color=0xfcfaf8",
+      "sourceKind": "actual-browser-recording"
+    },
+    {
+      "source": "2026-10-18T02-56-13-222Z-message/5b85e9cfa43ebe4f43b801ca02db634e.webm",
+      "sourceSha256": "dad369842391b27e758edd67126bc6e26f608042b0560f25e57fb40e76d7212e",
+      "startSeconds": 0,
+      "endSeconds": 4,
+      "speed": 1,
+      "receiptHoldSeconds": 0,
+      "timelineStart": 18.2,
+      "timelineEnd": 22.2,
+      "content": "Ask for clearer phone navigation",
+      "view": "desktop",
+      "framing": "crop=1440:940:0:0,pad=1440:1000:0:0:color=0xfcfaf8",
+      "sourceKind": "actual-browser-recording"
+    },
+    {
+      "source": "2026-10-18T02-56-13-222Z-message/ecffb47d2298d2ec5f7e30199eb49a50.webm",
+      "startSeconds": 1.4,
+      "endSeconds": 1.9,
+      "speed": 0.2,
+      "content": "Actual generated desktop website",
+      "view": "desktop",
+      "sourceSha256": "8f42e609ffed78be63b48a66b51cd3d9720983e86928c07af5c9f4500b474278",
+      "receiptHoldSeconds": 0,
+      "timelineStart": 22.2,
+      "timelineEnd": 24.7,
+      "framing": "crop=1440:940:0:0,pad=1440:1000:0:0:color=0xfcfaf8",
+      "sourceKind": "actual-browser-recording"
+    },
+    {
+      "source": "2026-10-18T02-56-13-222Z-message/ecffb47d2298d2ec5f7e30199eb49a50.webm",
+      "startSeconds": 3.0,
+      "endSeconds": 3.5,
+      "speed": 0.2,
+      "content": "Actual generated mobile website",
+      "view": "mobile",
+      "sourceSha256": "8f42e609ffed78be63b48a66b51cd3d9720983e86928c07af5c9f4500b474278",
+      "receiptHoldSeconds": 0,
+      "timelineStart": 24.7,
+      "timelineEnd": 27.2,
+      "framing": "crop=390:788:0:0,scale=-2:940,pad=1440:1000:(ow-iw)/2:30:color=0xfcfaf8",
+      "sourceKind": "actual-browser-recording"
+    },
+    {
+      "source": "2026-10-18T02-57-53-870Z-message/29ba6f262bc0d10587622a5a04f9833a.webm",
+      "sourceSha256": "2e6781fd4175025aa8bd01c75ce81199c355f721d7de1b8a5732feacded6a018",
+      "startSeconds": 2,
+      "endSeconds": 11,
+      "speed": 1.5,
+      "receiptHoldSeconds": 0,
+      "timelineStart": 27.2,
+      "timelineEnd": 33.2,
+      "content": "Change BIAB to CAD70 in the service draft",
+      "view": "desktop",
+      "framing": "crop=1440:940:0:0,pad=1440:1000:0:0:color=0xfcfaf8",
+      "sourceKind": "actual-browser-recording"
+    },
+    {
+      "source": "2026-10-18T02-58-23-660Z-publish/exact-review.png",
+      "sourceKind": "actual-ui-still",
+      "startSeconds": 0,
+      "endSeconds": 6,
+      "speed": 1,
+      "view": "desktop",
+      "content": "Exact owner review held for readability",
+      "sourceSha256": "dbb5a4222239bf8f17f1ff55a4eeeb383542a72b1bbdfc9724e1ec77795b2131",
+      "receiptHoldSeconds": 0,
+      "timelineStart": 33.2,
+      "timelineEnd": 39.2,
+      "framing": "crop=1440:940:0:0,pad=1440:1000:0:0:color=0xfcfaf8"
+    },
+    {
+      "source": "2026-10-18T02-58-23-660Z-publish/publication-succeeded.png",
+      "sourceKind": "actual-ui-still",
+      "startSeconds": 0,
+      "endSeconds": 4.133333333333,
+      "speed": 1,
+      "view": "desktop",
+      "content": "Committed publication result held for readability",
+      "sourceSha256": "c95485aba0fef54f40edc01381f6f98a0dfdd8d3f49c1189db2c440df19afb19",
+      "receiptHoldSeconds": 0,
+      "timelineStart": 39.2,
+      "timelineEnd": 43.333,
+      "framing": "crop=1440:940:0:0,pad=1440:1000:0:0:color=0xfcfaf8"
+    },
+    {
+      "source": "2026-10-18T02-59-00-172Z-book/5d99efd7637b1b7309b0ae76550d9997.webm",
+      "sourceSha256": "fab3ce427a6931ccd49c913b7d88aaa4308f06bfc28739ea953e4dd65462e14f",
+      "startSeconds": 0,
+      "endSeconds": 15.6,
+      "speed": 1.2,
+      "receiptHoldSeconds": 3,
+      "timelineStart": 43.333,
+      "timelineEnd": 59.333,
+      "content": "Original Luster booking and real synthetic receipt",
+      "view": "mobile",
+      "framing": "crop=390:788:0:0,scale=-2:940,pad=1440:1000:(ow-iw)/2:30:color=0xfcfaf8",
+      "sourceKind": "actual-browser-recording"
+    }
+  ],
+  "durationSeconds": 59.333,
+  "videoSha256": "bc4da172a5019b0762fe7910f3e23de12fff913f998f5e0967a560e39dfa270d",
+  "formats": [
+    {
+      "file": "public/assets/videos/luster-ai-builder-demo.mp4",
+      "sha256": "bc4da172a5019b0762fe7910f3e23de12fff913f998f5e0967a560e39dfa270d",
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1440,
+          "height": 1000
+        }
+      ],
+      "format": {
+        "duration": "59.500000",
+        "size": "1670471"
+      }
+    },
+    {
+      "file": "public/assets/videos/luster-ai-builder-demo.webm",
+      "sha256": "08d2d98b539b20f25b6509d2f9561100a0272b95c60e0a3043fc942a9eed52e0",
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "vp9",
+          "width": 1440,
+          "height": 1000
+        }
+      ],
+      "format": {
+        "duration": "59.500000",
+        "size": "1943971"
+      }
+    }
+  ]
+}

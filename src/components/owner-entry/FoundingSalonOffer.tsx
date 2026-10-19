@@ -154,9 +154,9 @@ export function FoundingSalonOffer({
             </span>
           </li>
         </ul>
-        {message && <p role="status" className="luster-entry-error">{message}</p>}
         <footer className="luster-offer-claim">
-          <button className="luster-entry-button luster-entry-button--primary" type="button" disabled={pending} onClick={onClaim}>
+          {message && <p id="founding-offer-message" role="status" className="luster-entry-error">{message}</p>}
+          <button className="luster-entry-button luster-entry-button--primary" type="button" disabled={pending} aria-describedby={message ? 'founding-offer-message' : undefined} onClick={onClaim}>
             <span>{pending ? pendingLabel : claimLabel}</span>
             <ArrowRight aria-hidden="true" />
           </button>

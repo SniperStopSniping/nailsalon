@@ -1,0 +1,33 @@
+{
+  "purchaseStatuses": [
+    {
+      "status": "expired",
+      "count": 1
+    },
+    {
+      "status": "paid",
+      "count": 3
+    }
+  ],
+  "ownedWebhookEvents": [
+    {
+      "event_type": "charge.refunded",
+      "status": "processed",
+      "count": 2
+    },
+    {
+      "event_type": "checkout.session.completed",
+      "status": "processed",
+      "count": 3
+    },
+    {
+      "event_type": "checkout.session.expired",
+      "status": "processed",
+      "count": 1
+    }
+  ],
+  "pendingPurchases": 0,
+  "modelCallCount": 6,
+  "newModelCalls": 0,
+  "productionChanged": false
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "engine": "chromium",
+    "width": 1440,
+    "oneVisibleComposer": true,
+    "composerInViewport": true,
+    "noPageOverflow": true,
+    "attachmentDialogKeyboardFocus": true,
+    "manualDetailsAndPreviewOnDemand": true,
+    "exactReviewWithoutPublication": true,
+    "realAssetUploadAndRefresh": false,
+    "realProvider": false
+  },
+  {
+    "engine": "chromium-mobile",
+    "width": 390,
+    "oneVisibleComposer": true,
+    "composerInViewport": true,
+    "noPageOverflow": true,
+    "attachmentDialogKeyboardFocus": true,
+    "manualDetailsAndPreviewOnDemand": true,
+    "exactReviewWithoutPublication": true,
+    "realAssetUploadAndRefresh": true,
+    "realProvider": false
+  },
+  {
+    "engine": "webkit-mobile",
+    "width": 390,
+    "oneVisibleComposer": true,
+    "composerInViewport": true,
+    "noPageOverflow": true,
+    "attachmentDialogKeyboardFocus": true,
+    "manualDetailsAndPreviewOnDemand": true,
+    "exactReviewWithoutPublication": true,
+    "realAssetUploadAndRefresh": false,
+    "realProvider": false
+  }
+]

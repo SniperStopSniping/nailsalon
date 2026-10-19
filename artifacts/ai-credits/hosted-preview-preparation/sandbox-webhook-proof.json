@@ -1,0 +1,20 @@
+{
+  "endpointId": "we_1US5ziAR5ZNVuHaHLahdADQU",
+  "url": "https://luster-ai-builder-test.vercel.app/api/webhooks/stripe-billing",
+  "apiVersion": "2024-06-20",
+  "livemode": false,
+  "events": [
+    "checkout.session.completed",
+    "checkout.session.expired",
+    "checkout.session.async_payment_succeeded",
+    "checkout.session.async_payment_failed",
+    "charge.refunded",
+    "charge.dispute.created",
+    "charge.dispute.closed"
+  ],
+  "signingKeyStoredPrivately": true,
+  "previewBranchConfigured": true,
+  "creditPurchasesEnabled": false,
+  "deliveryVerified": false,
+  "productionTouched": false
+}

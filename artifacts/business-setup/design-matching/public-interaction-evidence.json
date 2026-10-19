@@ -1,0 +1,22 @@
+{
+  "testedAt": "2026-10-15T17:10:26.499Z",
+  "publicUrl": "https://luster-ai-builder-test.vercel.app/ai-onboarding-082c9d52379e/book/service",
+  "devices": [
+    {
+      "device": "desktop",
+      "width": 1440,
+      "imageOverlap": true,
+      "actualUploadedImagesLoaded": true,
+      "studioHoursExpand": true,
+      "noHorizontalOverflow": true
+    },
+    {
+      "device": "mobile",
+      "width": 390,
+      "imageOverlap": true,
+      "actualUploadedImagesLoaded": true,
+      "studioHoursExpand": true,
+      "noHorizontalOverflow": true
+    }
+  ]
+}

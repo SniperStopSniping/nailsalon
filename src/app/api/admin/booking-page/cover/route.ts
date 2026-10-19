@@ -20,6 +20,8 @@ import path from 'node:path';
 
 import { v2 as cloudinary } from 'cloudinary';
 
+import { SetupError } from '@/features/business-setup/contracts';
+import { editSharedSetupWebsite } from '@/features/business-setup/manual-website.server';
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { resolveBookingPageContent, updateBookingPageContentDraft } from '@/libs/bookingPageContent';
@@ -164,7 +166,17 @@ export async function POST(request: Request): Promise<Response> {
       return errorResponse(409, 'STALE_CHOICE', 'Your cover changed while this photo was uploading, so the newer choice was kept.');
     }
   }
-  const updated = await updateBookingPageContentDraft(salon.id, { heroImageUrl });
+  let shared = false;
+  try {
+    const version = formData.get('expectedSetupRevision');
+    shared = await editSharedSetupWebsite({ salonId: salon.id, adminId: guard.admin.id, expectedRevision: typeof version === 'string' ? Number(version) : undefined, patch: { content: { heroImageUrl } } });
+  } catch (error) {
+    if (error instanceof SetupError) {
+      return errorResponse(409, error.code, error.message);
+    }
+    throw error;
+  }
+  const updated = shared || await updateBookingPageContentDraft(salon.id, { heroImageUrl });
   if (!updated) {
     return errorResponse(409, 'CONFLICT', 'The booking page changed before the cover could be saved. Reload and try again.');
   }

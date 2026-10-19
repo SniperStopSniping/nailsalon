@@ -1,3 +1,5 @@
+/// <reference types="vitest/jsdom" />
+
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
@@ -917,7 +919,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.userState.user = verifiedClerkUser();
     mocks.status.mockResolvedValue({ claim: savedSite });
     mocks.savePlan.mockResolvedValue({ intent: 'founding_interest', siteId: savedSite.siteId });
-    mocks.publish.mockRejectedValueOnce(new Error('Your website could not be published. Your saved setup is safe. Please try again.'));
+    mocks.publish.mockRejectedValueOnce(new Error('We could not confirm that your website is live. Your saved setup is safe. Please try again.'));
     const flow = { ...createOnboardingIntegrationFlow(), phase: 'plans' as const, savedSite, savedSiteOwnerId: 'user-owner' };
     saveOnboardingIntegrationFlow(flow);
     const originalToken = loadOnboardingState().state.anonymousDraftId;
@@ -925,7 +927,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
 
-    expect(await screen.findByText('Your website could not be published. Your saved setup is safe. Please try again.')).toBeVisible();
+    expect(await screen.findByText('Your free lifetime plan is saved. We could not confirm that your website is live. Your saved setup is safe. Please try again.')).toBeVisible();
     expect(loadOnboardingState().state.anonymousDraftId).toBe(originalToken);
     expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
     expect(navigationErrors).not.toHaveBeenCalled();
@@ -940,10 +942,29 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claim).not.toHaveBeenCalled();
   });
 
+  it('does not claim a plan was saved when its request fails before publication', async () => {
+    const user = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    mocks.savePlan.mockRejectedValueOnce(new Error('Your plan choice could not be saved.'));
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite, savedSiteOwnerId: 'user-owner' });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
+
+    expect(await screen.findByText('Your plan choice could not be saved.')).toBeVisible();
+    expect(screen.queryByText(/Your free lifetime plan is saved/u)).not.toBeInTheDocument();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
+  });
+
   it('retains the same saved site and plan retry key when dashboard navigation is interrupted', async () => {
     const user = userEvent.setup();
-    const navigationErrors = vi.spyOn(console, 'error').mockImplementation(() => {});
-    onTestFinished(() => navigationErrors.mockRestore());
+    const navigationErrors: string[] = [];
+    const onNavigationError = (error: Error) => navigationErrors.push(error.message);
+    jsdom.virtualConsole.on('jsdomError', onNavigationError);
+    onTestFinished(() => jsdom.virtualConsole.off('jsdomError', onNavigationError));
     mocks.auth.isSignedIn = true;
     mocks.userState.user = verifiedClerkUser();
     mocks.status.mockResolvedValue({ claim: savedSite });
@@ -992,10 +1013,9 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
       siteId: savedSite.siteId,
     });
     expect(mocks.claim).not.toHaveBeenCalled();
-    expect(navigationErrors).toHaveBeenCalledTimes(2);
-    expect(navigationErrors.mock.calls.map(([error]) => String(error).split('\n')[0])).toEqual([
-      'Error: Not implemented: navigation (except hash changes)',
-      'Error: Not implemented: navigation (except hash changes)',
+    expect(navigationErrors).toEqual([
+      'Not implemented: navigation (except hash changes)',
+      'Not implemented: navigation (except hash changes)',
     ]);
   });
 
@@ -1007,10 +1027,10 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.status.mockResolvedValue({ claim: savedSite });
     mocks.claimMedia.mockResolvedValue({
       failures: [{
-        assetId: 'cover-asset',
-        fileName: 'IMG_7373.jpeg',
-        message: 'Your cover photo could not be saved. Your local copy is still safe.',
-        role: 'cover',
+        assetId: 'design-asset',
+        fileName: 'design.webp',
+        message: 'Your design photo could not be saved. Your local copy is still safe.',
+        role: 'custom_design',
       }],
       verifiedRevision: 1,
     });
@@ -1021,6 +1041,12 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
     expect(screen.getByText(/photos listed earlier remain only on this device/u)).toBeVisible();
 
+    await user.click(screen.getByRole('button', { name: 'Publish my website & open dashboard' }));
+
+    expect(await screen.findByText('Your photos have not finished saving. Select Edit my site and save them before publishing.')).toBeVisible();
+    expect(mocks.savePlan).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+
     view.unmount();
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
@@ -1029,7 +1055,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claimMedia).toHaveBeenCalledTimes(1);
     expect(loadOnboardingIntegrationFlow()).toMatchObject({
       mediaComplete: false,
-      mediaFailures: [expect.objectContaining({ assetId: 'cover-asset' })],
+      mediaFailures: [expect.objectContaining({ assetId: 'design-asset' })],
       phase: 'plans',
       savedSite: { siteId: savedSite.siteId },
     });

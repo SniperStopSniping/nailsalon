@@ -1,0 +1,12 @@
+{
+  "sourceSha": "7390cc07e85651605c1c2e690227f858b12f5fd3",
+  "revision": 31,
+  "ownerUiFinishedWithoutAnotherRefresh": true,
+  "automaticPreviewOpened": false,
+  "composerEmpty": true,
+  "harnessCorrection": "Saved-as-draft appears in header and preview; scoped the status assertion",
+  "previewOpenedThroughOwnerUi": true,
+  "refreshPhase": "generated",
+  "refreshWhileFrontendGenerationActive": true,
+  "refreshPhaseExplanation": "The conversation command was generated while the84.856second frontend call was still running; pending-only harness classification was too narrow"
+}

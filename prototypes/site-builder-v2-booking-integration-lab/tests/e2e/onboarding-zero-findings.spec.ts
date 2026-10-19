@@ -1411,7 +1411,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expect(dialog.getByText('Replace')).toBeVisible();
 
     await capture(page, '22-canva-shared-reedit-image-manager');
-    await dialog.getByRole('radio', { name: 'Poster' }).check();
+    await dialog.getByRole('radio', { name: 'Fit to screen' }).check();
     await dialog.getByRole('button', { name: 'Save Canva design' }).click();
 
     await expect(dialog).toBeHidden();
@@ -1439,7 +1439,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expectAtTop(page, 'Add something extra');
     await page.getByRole('button', { name: 'Edit design' }).click();
     dialog = page.getByRole('dialog', { name: 'Upload a Canva design' });
-    await dialog.getByRole('radio', { name: 'Contained' }).check();
+    await dialog.getByRole('radio', { name: 'Wide & centred' }).check();
     await dialog.getByRole('button', { name: 'Save Canva design' }).click();
     await page.getByRole('button', { name: 'Continue to review' }).click();
     await page.getByRole('group', { name: 'Customer preview device size' })

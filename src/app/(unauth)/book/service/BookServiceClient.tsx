@@ -18,7 +18,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
-import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
+import { BOOKING_CATEGORY_META, visibleBookingCategories } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import type { SectionId } from '@/libs/bookingPageConfig';
@@ -55,7 +55,7 @@ import {
 } from '@/libs/sectionRegistry';
 import { resolveServiceMenuPresentation } from '@/libs/serviceMenuLayout';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
-import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
+import type { BookingCategory, ServiceCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
@@ -67,15 +67,6 @@ import type { QuickBookProfileView } from './quickBookProfile';
 // Keep server rendering for these headers, but load their renderer and CSS
 // only when the chosen salon layout uses them. Isla supplies its own header.
 const QuickBookProfileHeader = dynamic(() => import('./QuickBookProfileHeader').then(module => module.QuickBookProfileHeader));
-
-type ServiceCategory =
-  | 'manicure'
-  | 'builder_gel'
-  | 'extensions'
-  | 'pedicure'
-  | 'hands'
-  | 'feet'
-  | 'combo';
 
 type AddOnCategory = 'nail_art' | 'repair' | 'removal' | 'pedicure_addon';
 type AddOnPricingType = 'fixed' | 'per_unit';
@@ -512,10 +503,11 @@ export function BookServiceClient({
     : urlBasket?.items[0]?.serviceId ?? urlBaseServiceId ?? legacyServiceIds[0] ?? null;
   const initialBaseServiceId = urlDrivenBaseServiceId ?? null;
   const initialSelectedService = services.find(service => service.id === initialBaseServiceId) ?? null;
+  const availableCategories = visibleBookingCategories(services);
   // Manicure is the default tab, unless the salon offers nothing under it —
   // then land on the first tab (in canonical order) that has services.
   const firstNonEmptyCategory: BookingCategory
-    = BOOKING_CATEGORIES.find(category =>
+    = availableCategories.find(category =>
       services.some(service => service.bookingCategory === category)) ?? 'manicure';
   const initialCategory: BookingCategory = initialSelectedService?.bookingCategory ?? firstNonEmptyCategory;
   // L1 keeps the URL's explicit customer picks verbatim. The resolver owns
@@ -1292,8 +1284,8 @@ export function BookServiceClient({
   const serviceRows = islaCanCollapse ? fullServiceRows.slice(0, 3) : fullServiceRows;
   const islaMoreCount = islaCanCollapse ? Math.max(0, fullServiceRows.length - 3) : 0;
   const orderedCategories = selectedService
-    ? [selectedService.bookingCategory, ...BOOKING_CATEGORIES.filter(category => category !== selectedService.bookingCategory)]
-    : BOOKING_CATEGORIES;
+    ? [selectedService.bookingCategory, ...availableCategories.filter(category => category !== selectedService.bookingCategory)]
+    : availableCategories;
   const groupedServiceRows = orderedCategories.flatMap((category) => {
     const categoryServices = sortServicesForCategory(
       (isSearching ? filteredServices : services).filter(
@@ -1485,7 +1477,7 @@ export function BookServiceClient({
           ref={continueButtonRef}
           onClick={handleContinue}
           data-testid="service-continue-button"
-          disabled={l1Blocked}
+          disabled={!isHydrated || l1Blocked}
           className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none max-[360px]:min-h-[44px] max-[360px]:w-full max-[360px]:justify-center max-[360px]:px-[12px] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
             hasBookingBrandColor
               ? 'text-[var(--booking-brand-foreground)]'
@@ -1964,7 +1956,7 @@ export function BookServiceClient({
                             className="flex min-w-max flex-nowrap gap-1.5 md:min-w-0 md:flex-wrap md:justify-center md:gap-2"
                             data-testid="service-category-track"
                           >
-                            {BOOKING_CATEGORIES.map((category) => {
+                            {availableCategories.map((category) => {
                               const active = category === selectedCategory;
                               const meta = BOOKING_CATEGORY_META[category];
                               return (
@@ -2426,7 +2418,7 @@ export function BookServiceClient({
                                                               type="button"
                                                               aria-label={`Decrease ${addOn.name} quantity`}
                                                               onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, effectiveQuantity - 1) : Math.max(0, effectiveQuantity - 1))}
-                                                              disabled={isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0}
+                                                              disabled={!isHydrated || (isRequired ? effectiveQuantity <= 1 : effectiveQuantity <= 0)}
                                                               className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
                                                             >
                                                               -
@@ -2438,7 +2430,7 @@ export function BookServiceClient({
                                                               type="button"
                                                               aria-label={`Increase ${addOn.name} quantity`}
                                                               onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, effectiveQuantity + 1))}
-                                                              disabled={effectiveQuantity >= maxQuantity}
+                                                              disabled={!isHydrated || effectiveQuantity >= maxQuantity}
                                                               className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40 max-[360px]:size-[44px]"
                                                             >
                                                               +
@@ -2452,7 +2444,7 @@ export function BookServiceClient({
                                                               ? `${addOn.name} included`
                                                               : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
                                                             onClick={() => handleAddOnToggle(addOn.id)}
-                                                            disabled={isRequired && isSelected}
+                                                            disabled={!isHydrated || (isRequired && isSelected)}
                                                             className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none max-[360px]:ml-auto max-[360px]:min-h-[44px] max-[360px]:min-w-[44px]"
                                                             style={{
                                                               backgroundColor: isSelected

@@ -1,0 +1,32 @@
+{
+  "applicationSourceSha": "4d82da030a77543113ace899109871bcc21c8cf4",
+  "passed": 15,
+  "failed": 6,
+  "failingAssertions": [
+    {
+      "file": "src/features/onboarding-v1-integration/client.test.ts",
+      "name": "sends the pending session token only on the organization endpoint"
+    },
+    {
+      "file": "src/components/auth/OwnerSignInCard.test.tsx",
+      "name": "sends the current pending session token to the organization resolver"
+    },
+    {
+      "file": "src/components/auth/OwnerSignInCard.test.tsx",
+      "name": "does not dispatch a token after the pending session is replaced while reading it"
+    },
+    {
+      "file": "src/components/auth/OwnerSignInCard.test.tsx",
+      "name": "fails closed if the raw pending session disappears before dispatch"
+    },
+    {
+      "file": "src/components/auth/OwnerSignInCard.test.tsx",
+      "name": "does not activate an organization after the pending session changes during resolution"
+    },
+    {
+      "file": "src/components/auth/OwnerSignInCard.test.tsx",
+      "name": "offers a bounded retry message when organization resolution fails"
+    }
+  ],
+  "rawFailureMessagesExcluded": true
+}

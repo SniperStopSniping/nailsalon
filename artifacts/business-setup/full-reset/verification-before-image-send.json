@@ -1,0 +1,39 @@
+{
+  "sourceCommit": "296fc83be4ca7090c7e015c72730b99b37d79d2d",
+  "origin": "https://luster-ai-builder-test.vercel.app",
+  "fixture": "synthetic salon",
+  "reference": "hand-authored synthetic upload fixture, not model-generated output",
+  "modelGenerationTested": false,
+  "results": [
+    {
+      "browser": "mobile",
+      "resetConfirmed": true,
+      "cancelPreservesDraft": true,
+      "clearedConversation": true,
+      "clearedSourceAndSelections": true,
+      "clearedUnsentText": true,
+      "newImageUploadedThroughOwnerControls": true,
+      "newReferenceOnly": true,
+      "refreshResumed": true,
+      "secondTabResumed": true,
+      "earlierDraftRestored": true,
+      "canonicalBusinessServicesUnchanged": true,
+      "paidCalls": 0
+    },
+    {
+      "browser": "desktop",
+      "resetConfirmed": true,
+      "cancelPreservesDraft": true,
+      "clearedConversation": true,
+      "clearedSourceAndSelections": true,
+      "clearedUnsentText": true,
+      "newImageUploadedThroughOwnerControls": true,
+      "newReferenceOnly": true,
+      "refreshResumed": true,
+      "secondTabResumed": true,
+      "earlierDraftRestored": true,
+      "canonicalBusinessServicesUnchanged": true,
+      "paidCalls": 0
+    }
+  ]
+}

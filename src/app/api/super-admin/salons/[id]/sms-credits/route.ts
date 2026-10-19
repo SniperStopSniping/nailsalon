@@ -10,6 +10,7 @@ import {
 } from '@/libs/billing/administrativeCredits';
 import { computeAvailableBalance } from '@/libs/billing/creditLedger';
 import { db } from '@/libs/DB';
+import { hasExactRequestOrigin } from '@/libs/requestOriginGuard';
 import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -93,7 +94,7 @@ export async function POST(
     return guard.response;
   }
 
-  if (request.headers.get('origin') !== new URL(request.url).origin) {
+  if (!hasExactRequestOrigin(request)) {
     return errorJson(403, 'INVALID_ORIGIN', 'Invalid request origin.');
   }
   if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') {

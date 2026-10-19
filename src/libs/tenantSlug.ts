@@ -10,6 +10,8 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'admin',
   'admin-login',
   'admin-onboarding',
+  'ai-website-test',
+  'ai-website',
   'appointments',
   'book',
   'booking-disabled',
@@ -77,6 +79,13 @@ export function isValidSalonSlug(value: string): boolean {
     && /^[a-z0-9](?:[a-z0-9-]{0,45}[a-z0-9])?$/.test(normalized)
     && !isReservedSalonSlug(normalized),
   );
+}
+
+/** A suggestion only: availability and the owner's exact choice are checked separately. */
+export function suggestSalonSlug(businessName: string): string {
+  const candidate = businessName.normalize('NFKD').replace(/[\u0300-\u036F]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 38).replace(/-+$/g, '');
+  return isValidSalonSlug(candidate) ? candidate : 'luster-studio';
 }
 
 export function isTenantSubdomainSlugEnabled(value: string): boolean {

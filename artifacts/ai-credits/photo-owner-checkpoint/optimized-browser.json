@@ -1,0 +1,268 @@
+{
+  "sourceSha": "3d972835d6e9a5e348154dbcf53dbc42249cd1b4",
+  "runtime": "local optimized HTTPS; no provider keys; AI and purchases disabled",
+  "preview": {
+    "status": "passed",
+    "browserName": "webkit",
+    "optimizedHttps": true,
+    "beforeRevision": 16,
+    "afterRevision": 16,
+    "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+    "calls": [],
+    "contactChecks": [
+      {
+        "device": "desktop",
+        "kind": "instagram",
+        "href": "https://www.instagram.com/velour.test.studio/",
+        "targetWidth": 240,
+        "targetHeight": 20,
+        "tapAttemptVerified": false
+      },
+      {
+        "device": "desktop",
+        "kind": "email",
+        "href": "mailto:hello@example.invalid",
+        "targetWidth": 240,
+        "targetHeight": 20,
+        "tapAttemptVerified": false
+      },
+      {
+        "device": "mobile",
+        "kind": "instagram",
+        "href": "https://www.instagram.com/velour.test.studio/",
+        "targetWidth": 152.3125,
+        "targetHeight": 42,
+        "tapAttemptVerified": true
+      },
+      {
+        "device": "mobile",
+        "kind": "email",
+        "href": "mailto:hello@example.invalid",
+        "targetWidth": 152.3125,
+        "targetHeight": 42,
+        "tapAttemptVerified": false
+      }
+    ],
+    "interactionChecks": [
+      {
+        "paidAiSending": "disabled"
+      },
+      {
+        "device": "desktop",
+        "selectedOwnerImages": [
+          {
+            "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+            "count": 1,
+            "loaded": true,
+            "displayed": true,
+            "dimensions": [
+              {
+                "width": 2400,
+                "height": 600
+              }
+            ]
+          },
+          {
+            "id": "ad373184-120b-441a-8e93-171c221138f7",
+            "count": 1,
+            "loaded": true,
+            "displayed": true,
+            "dimensions": [
+              {
+                "width": 960,
+                "height": 1280
+              }
+            ]
+          },
+          {
+            "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+            "count": 2,
+            "loaded": true,
+            "displayed": true,
+            "dimensions": [
+              {
+                "width": 1200,
+                "height": 799
+              },
+              {
+                "width": 1200,
+                "height": 799
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "device": "desktop",
+        "secureContext": true,
+        "parentCookies": "blocked",
+        "frameStorage": "blocked",
+        "connectSrcViolation": true
+      },
+      {
+        "device": "desktop",
+        "photoComposition": {
+          "section": "studio",
+          "images": 2,
+          "overlapArea": 73264.4873046875
+        }
+      },
+      {
+        "device": "mobile",
+        "selectedOwnerImages": [
+          {
+            "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+            "count": 1,
+            "loaded": true,
+            "displayed": true,
+            "dimensions": [
+              {
+                "width": 2400,
+                "height": 600
+              }
+            ]
+          },
+          {
+            "id": "ad373184-120b-441a-8e93-171c221138f7",
+            "count": 1,
+            "loaded": true,
+            "displayed": true,
+            "dimensions": [
+              {
+                "width": 960,
+                "height": 1280
+              }
+            ]
+          },
+          {
+            "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+            "count": 2,
+            "loaded": true,
+            "displayed": true,
+            "dimensions": [
+              {
+                "width": 1200,
+                "height": 799
+              },
+              {
+                "width": 1200,
+                "height": 799
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "device": "mobile",
+        "secureContext": true,
+        "parentCookies": "blocked",
+        "frameStorage": "blocked",
+        "connectSrcViolation": true
+      },
+      {
+        "device": "mobile",
+        "photoComposition": {
+          "section": "studio",
+          "images": 2,
+          "overlapArea": 0
+        }
+      },
+      {
+        "browserName": "webkit",
+        "animatedElements": 3
+      },
+      {
+        "browserName": "webkit",
+        "reducedMotion": "passed"
+      }
+    ]
+  },
+  "originalBooking": {
+    "status": "passed",
+    "browserName": "webkit",
+    "optimizedHttps": true,
+    "beforeRevision": 16,
+    "afterRevision": 16,
+    "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+    "calls": [],
+    "bookingResponseStatus": 201,
+    "bookingSubmissionCount": 2,
+    "appointments": [
+      {
+        "id": "appt_f8877a14-35fb-49e0-aabe-2ec6a1c7541e",
+        "total_price": 6500,
+        "total_duration_minutes": 75
+      },
+      {
+        "id": "appt_65362328-05de-4780-8eb6-475b3f3420e4",
+        "total_price": 7000,
+        "total_duration_minutes": 75
+      },
+      {
+        "id": "appt_26667ad9-53ab-44ab-9685-73157a298315",
+        "total_price": 7000,
+        "total_duration_minutes": 75
+      }
+    ],
+    "liveServicePricesBefore": [
+      {
+        "id": "118be41a-9da8-404d-9ad2-b70ea28b8069",
+        "name": "Gel Manicure",
+        "price": 5000,
+        "duration_minutes": 60
+      },
+      {
+        "id": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+        "name": "BIAB",
+        "price": 7000,
+        "duration_minutes": 75
+      }
+    ],
+    "liveServicePricesAfter": [
+      {
+        "id": "118be41a-9da8-404d-9ad2-b70ea28b8069",
+        "name": "Gel Manicure",
+        "price": 5000,
+        "duration_minutes": 60
+      },
+      {
+        "id": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+        "name": "BIAB",
+        "price": 7000,
+        "duration_minutes": 75
+      }
+    ],
+    "historicalBefore": [
+      {
+        "id": "appt_65362328-05de-4780-8eb6-475b3f3420e4",
+        "fingerprint": "c17ee8d1f7ef35cbbcadd8165a37a134"
+      },
+      {
+        "id": "appt_f8877a14-35fb-49e0-aabe-2ec6a1c7541e",
+        "fingerprint": "115aa65dd7fef56cf3da321ec257f50f"
+      }
+    ],
+    "interactionChecks": [
+      {
+        "paidAiSending": "disabled"
+      },
+      {
+        "originalBooking": true,
+        "preservedCanva": false,
+        "serviceId": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+        "serviceName": "BIAB",
+        "targetWidth": 112,
+        "targetHeight": 48
+      }
+    ],
+    "serverProbes": [
+      {
+        "kind": "virtual-preview-service-rejected",
+        "status": 400,
+        "code": "INVALID_SELECTION"
+      }
+    ],
+    "newAppointmentCount": 1
+  },
+  "limitations": "Legacy synthetic owner session; not real Clerk signup or cross-device login. No Stripe purchase, outbound message or hosted deployment."
+}

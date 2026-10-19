@@ -1,0 +1,22 @@
+{
+  "testedAt": "2026-10-15T19:25:02.395Z",
+  "appCommit": "bf72b76d9ebd05da62d61f7b6b56b1d68a7fa174",
+  "savedRealProviderResults": true,
+  "newPaidCalls": 0,
+  "checks": [
+    {
+      "fixture": "ai-ref-extraction-c684104e6643",
+      "revision": 3,
+      "saveResume": true,
+      "extractionButtonsAbsent": true,
+      "plainLanguageStatus": true
+    },
+    {
+      "fixture": "ai-extraction-77075efbeb0d",
+      "revision": 5,
+      "saveResume": true,
+      "extractionButtonsAbsent": true,
+      "plainLanguageStatus": true
+    }
+  ]
+}

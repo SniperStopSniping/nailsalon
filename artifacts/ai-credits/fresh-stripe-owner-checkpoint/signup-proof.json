@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "genuineSignup": true,
+  "signupHarnessResumedWithPassword": true,
+  "originalSignupOutput": "/tmp/luster-real-clerk-fresh-paid-Vv9Eaf",
+  "emailVerified": true,
+  "refresh": true,
+  "owner": true,
+  "organizationId": "org_3Kt7za8Ot1dUnWSChXHHJbCtqua",
+  "counts": {
+    "service": 0,
+    "appointment": 0,
+    "ai_credit_ledger": 0
+  },
+  "publicStatus": 404,
+  "purchasesAvailable": true,
+  "noSeededCredit": true,
+  "browserErrors": [],
+  "deniedHosts": []
+}

@@ -1,0 +1,118 @@
+[
+  {
+    "path": "README.md",
+    "sha256": "370bf308dbb0853e8ed4e42e7a7667df160cecc8bff9a944fd85c842d169e0a4"
+  },
+  {
+    "path": "accounting-proof.json",
+    "sha256": "e452084178e8c7516f09a6a38031c891ae35f093511e6a4e17dc0751e6700097"
+  },
+  {
+    "path": "authorization-proof.json",
+    "sha256": "e76f83a2fd8e8004c6ab1eb3436253ee8beaae9695866d4c843ac36cc8e59e7f"
+  },
+  {
+    "path": "first-render-proof.json",
+    "sha256": "5aa64d7b1aee11726db923631015091d3a689d99c3196f597eb9eeb5860091b9"
+  },
+  {
+    "path": "hosted-customer-receipt.png",
+    "sha256": "673ffa16f5829394cfb09d602d67a8db7e69c08b8597a5bb5d34c4ccbd440062"
+  },
+  {
+    "path": "hosted-exact-review.png",
+    "sha256": "7adafe35dd142d54e28b4fc095fa38afa723b468fde68c9a7066b1b5d19be549"
+  },
+  {
+    "path": "hosted-initial-desktop-services.png",
+    "sha256": "60cca62f97765e52e77e61b03e50ef1789c989a7ddf1f50ef9e3a77f4c8ab0e3"
+  },
+  {
+    "path": "hosted-initial-desktop-top.png",
+    "sha256": "98ad287ef1ccf539767130da5de35dc7f76c266c53a9e94c5a4b9c570d7b833d"
+  },
+  {
+    "path": "hosted-initial-mobile-services.png",
+    "sha256": "38c30960583117842b29f7a1a6dd27e513dfaccb6873fa7fd44fe5a629dab271"
+  },
+  {
+    "path": "hosted-initial-mobile-top.png",
+    "sha256": "807aea76b8c6db311401f639a4bfffe85e3583c06c35178714290219b194f85a"
+  },
+  {
+    "path": "hosted-original-availability.png",
+    "sha256": "a404f03e006b610c05d6a1dd2ac7a522bb9919d16b9eb786894971a4edba71ca"
+  },
+  {
+    "path": "hosted-original-booking-review.png",
+    "sha256": "14f1d032b941bf8810e084bb2805a1b834bd1e86329634437c5a8bcda7cae7a4"
+  },
+  {
+    "path": "hosted-original-menu-updated-price.png",
+    "sha256": "f9ad83925521757657bb7ed0458b041a23e9ed73847ccf6517a4e262faad0f8a"
+  },
+  {
+    "path": "hosted-original-service-menu.png",
+    "sha256": "efcd1b6489e63797399c4982b4a9252bd2c74f5e201dfe34cf3bcc31bf3f58b0"
+  },
+  {
+    "path": "hosted-private-proposed-price.png",
+    "sha256": "2597e84bc63961ad42a5a8f206604f6cfc621c13f36b7c7c8bec5a9ede0f8c38"
+  },
+  {
+    "path": "hosted-public-before-price-approval.png",
+    "sha256": "e5072c7bb33b31c6349d61cb0832bf81647dabb63211a16119e0dec871d37945"
+  },
+  {
+    "path": "hosted-public-updated-price.png",
+    "sha256": "57d9748b61c9fbbf018f4b99ca6d05bf9d8a2ab90127d8c20fed026c4e6fe1fc"
+  },
+  {
+    "path": "hosted-publication-recovered.png",
+    "sha256": "ab6b441a65eca689bb8f905e706bf8b95a3fed69eed57d911af62b8641e0998f"
+  },
+  {
+    "path": "hosted-restored-earlier-design.png",
+    "sha256": "7d8cc33d93ccefb09ac69a90affddd55d65fbf204830e9649f215c5db001d187"
+  },
+  {
+    "path": "later-price-proof.json",
+    "sha256": "450edeb7518180aec1643aa996f3b4d6a5747ef31925a4d07bf614d34f4e17ef"
+  },
+  {
+    "path": "manual-edit-proof.json",
+    "sha256": "973c463ea7451a95940700755a80c63088f973f9d21efed1436994a432eb6c20"
+  },
+  {
+    "path": "model-steps.json",
+    "sha256": "654d8095115c0836b3fb3b43d0729b83faa6aa5eac09e9833ac72aa9a897d05c"
+  },
+  {
+    "path": "original-booking-proof.json",
+    "sha256": "31b7c89084c8b9d86d61e9bade74057ca3c5006f85e5ee29605cf829e9b71432"
+  },
+  {
+    "path": "preview-branch-transfer-proof.json",
+    "sha256": "9b2ff15f93af4188f31481733246964fe0b1e75349401a1f4aeabc9f7d6e84db"
+  },
+  {
+    "path": "provider-webhook-proof.json",
+    "sha256": "fe6862636f614cd11fa509738f9d60307b566b1e68c2fc17c2ab65e2694fefb8"
+  },
+  {
+    "path": "publication-recovery-proof.json",
+    "sha256": "20b8717b7bca306ef164e328617fc5a0ac1e531816bd3ea622ea4a67bc3a3792"
+  },
+  {
+    "path": "refinement-preservation-proof.json",
+    "sha256": "12f3551f32866201f6fb7b35f4f7c2f4f2a07ee2006e651ee16621c7d466d90d"
+  },
+  {
+    "path": "restoration-proof.json",
+    "sha256": "e04b93e5367dcb7928071705c70d93bd6ca3fc2ead5b3616e927718db68c91b9"
+  },
+  {
+    "path": "sandbox-checkout-proof.json",
+    "sha256": "32585d40ab5116af38d98572287b52c99fa4b9d336fe3fbe52a9adbc45acc49a"
+  }
+]

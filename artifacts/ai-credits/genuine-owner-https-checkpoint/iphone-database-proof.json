@@ -1,0 +1,101 @@
+{
+  "checkedAt": "2026-10-18T16:41:13.584Z",
+  "sourceSha": "aebc7b0c29329172f221ea12320ceb4f2210e96b",
+  "database": "loopback Development only",
+  "head": {
+    "status": "published",
+    "head_revision": 16,
+    "artifact_id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0"
+  },
+  "services": [
+    {
+      "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+      "name": "Gel Manicure",
+      "price": 4500,
+      "duration_minutes": 45
+    },
+    {
+      "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+      "name": "BIAB",
+      "price": 8000,
+      "duration_minutes": 60
+    }
+  ],
+  "appointments": [
+    {
+      "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+      "total_price": 6500,
+      "total_duration_minutes": 60,
+      "technician_id": "ae61c934-18f4-4f02-9e13-9389311da358"
+    },
+    {
+      "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+      "total_price": 7000,
+      "total_duration_minutes": 60,
+      "technician_id": "ae61c934-18f4-4f02-9e13-9389311da358"
+    },
+    {
+      "id": "appt_08f9a454-223d-4f8c-b110-c59436b138be",
+      "total_price": 7500,
+      "total_duration_minutes": 60,
+      "technician_id": "ae61c934-18f4-4f02-9e13-9389311da358"
+    },
+    {
+      "id": "appt_ca6ce4ea-c589-42fe-bd11-0139ff5ce53f",
+      "total_price": 8000,
+      "total_duration_minutes": 60,
+      "technician_id": "ae61c934-18f4-4f02-9e13-9389311da358"
+    }
+  ],
+  "historicalFingerprints": [
+    {
+      "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+      "fingerprint": "8b53a6b8cf3ab6911e31b13296ef50a7"
+    },
+    {
+      "id": "appt_08f9a454-223d-4f8c-b110-c59436b138be",
+      "fingerprint": "afe039180c44a8daa3d40b93ff571d92"
+    },
+    {
+      "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+      "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+    },
+    {
+      "id": "appt_ca6ce4ea-c589-42fe-bd11-0139ff5ce53f",
+      "fingerprint": "647bfc517fb06f49693efd14977322a0"
+    }
+  ],
+  "previousAppointmentsUnchanged": true,
+  "receipts": [
+    {
+      "revision": 9,
+      "count": 1
+    },
+    {
+      "revision": 12,
+      "count": 1
+    },
+    {
+      "revision": 14,
+      "count": 1
+    },
+    {
+      "revision": 16,
+      "count": 1
+    }
+  ],
+  "budget": {
+    "cap_micro_cad": 11384406,
+    "charged_or_retained_micro_cad": "9578990",
+    "pending": 0
+  },
+  "ownerProviderCalls": 6,
+  "newProviderCalls": 0,
+  "oneNewAppointment": true,
+  "negativeProbe": {
+    "kind": "virtual-preview-service-rejected",
+    "status": 400,
+    "code": "INVALID_SELECTION"
+  },
+  "modelSourceUnchangedAcrossBothCycles": true
+}

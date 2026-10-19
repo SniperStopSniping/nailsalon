@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-import { appPath, authStatePaths, e2eConfig } from './support/config';
+import { appPath, authStatePaths, e2eBaseUrl, e2eConfig } from './support/config';
+
+const e2eOrigin = new URL(e2eBaseUrl).origin;
 
 test.use({
   storageState: authStatePaths.superAdmin,
@@ -23,6 +25,7 @@ test('luster page keeps the approved hierarchy, fits mobile, and restores on Bac
   expect(salon?.id, 'The configured E2E salon must exist.').toBeTruthy();
 
   const impersonation = await page.request.post('/api/super-admin/impersonate', {
+    headers: { Origin: e2eOrigin },
     data: { salonId: salon.id },
   });
 
@@ -38,8 +41,11 @@ test('luster page keeps the approved hierarchy, fits mobile, and restores on Bac
 
     await expect(page.getByTestId('owner-more-workspace')).toBeVisible();
 
-    // Luster is the one app tile that navigates to its own route.
-    await page.getByTestId('admin-app-tile-luster').click();
+    // Luster is intentionally retired from More navigation. Keep its direct
+    // destination route covered without restoring a product tile.
+    await expect(page.getByTestId('admin-app-tile-luster')).toHaveCount(0);
+
+    await page.goto(appPath('/admin/luster'), { waitUntil: 'domcontentloaded' });
 
     await expect(page).toHaveURL(/\/admin\/luster/);
     await expect(
@@ -100,6 +106,8 @@ test('luster page keeps the approved hierarchy, fits mobile, and restores on Bac
     await expect(page.getByTestId('owner-today-workspace')).toBeVisible();
     await expect(page.getByTestId('owner-nav-more')).toBeVisible();
   } finally {
-    await page.request.delete('/api/super-admin/impersonate');
+    await page.request.delete('/api/super-admin/impersonate', {
+      headers: { Origin: e2eOrigin },
+    });
   }
 });

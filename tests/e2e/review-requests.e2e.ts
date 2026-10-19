@@ -6,7 +6,7 @@ import { Client } from 'pg';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '../../src/libs/disposableDatabaseTarget';
 import { getDateKeyInTimeZone } from '../../src/libs/timeZone';
 import { impersonateSalonAsSuperAdmin, openAdminAppointmentSheet, openAdminBookings } from './support/appointment-ops';
-import { appPath, authStatePaths, e2eConfig } from './support/config';
+import { appPath, authStatePaths, e2eConfig, e2eOrigin } from './support/config';
 
 // Normal isolated owner authentication; review writes cannot enqueue real SMS.
 test.use({ storageState: authStatePaths.superAdmin });
@@ -211,11 +211,11 @@ test('isolated owner completes and queues one review through the real APIs @mobi
     expect(await count()).toBe(0);
 
     const completeUrl = `/api/appointments/${appointmentId}/complete?salonSlug=${e2eConfig.salonSlug}`;
-    const complete = await page.request.patch(completeUrl, { data: { skipPhotoValidation: true, actualStartAt: new Date(start.getTime() - 7_200_000).toISOString(), actualEndAt: new Date(start.getTime() - 3_600_000).toISOString() } });
+    const complete = await page.request.patch(completeUrl, { headers: { Origin: e2eOrigin }, data: { skipPhotoValidation: true, actualStartAt: new Date(start.getTime() - 7_200_000).toISOString(), actualEndAt: new Date(start.getTime() - 3_600_000).toISOString() } });
 
     expect(complete.ok(), await complete.text()).toBe(true);
 
-    const replay = await page.request.patch(completeUrl, { data: { skipPhotoValidation: true } });
+    const replay = await page.request.patch(completeUrl, { headers: { Origin: e2eOrigin }, data: { skipPhotoValidation: true } });
 
     expect(replay.ok(), await replay.text()).toBe(true);
     expect(await count()).toBe(0);
@@ -262,7 +262,7 @@ test('isolated owner completes and queues one review through the real APIs @mobi
     await expect(action.getByRole('button', { name: 'Send now', exact: true })).toBeVisible();
     await expect(action.getByText(/^Sent /)).toHaveCount(0);
 
-    const submit = await page.request.post(`/api/appointments/${appointmentId}/review-request?salonSlug=${e2eConfig.salonSlug}`, { data: {} });
+    const submit = await page.request.post(`/api/appointments/${appointmentId}/review-request?salonSlug=${e2eConfig.salonSlug}`, { headers: { Origin: e2eOrigin }, data: {} });
 
     expect(submit.ok(), await submit.text()).toBe(true);
     expect(await count()).toBe(1);

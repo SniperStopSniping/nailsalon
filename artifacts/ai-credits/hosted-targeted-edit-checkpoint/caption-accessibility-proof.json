@@ -1,0 +1,91 @@
+{
+  "revision": 24,
+  "sourceSha": "eb7327ce3913400195d9ff210690a60b8bd9dbde",
+  "language": "en",
+  "caption": {
+    "color": "rgb(39, 40, 35)",
+    "background": "rgb(232, 228, 217)",
+    "fontSize": "15px",
+    "rect": {
+      "left": 224.265625,
+      "top": 458.953125,
+      "right": 366.609375,
+      "bottom": 489.203125
+    },
+    "surfaces": [
+      {
+        "tag": "SPAN",
+        "color": "rgb(39, 40, 35)",
+        "background": "rgb(232, 228, 217)",
+        "image": "none",
+        "opacity": "1"
+      },
+      {
+        "tag": "DIV",
+        "color": "rgb(243, 240, 231)",
+        "background": "rgba(0, 0, 0, 0)",
+        "image": "none",
+        "opacity": "1"
+      },
+      {
+        "tag": "SECTION",
+        "color": "rgb(243, 240, 231)",
+        "background": "rgba(0, 0, 0, 0)",
+        "image": "none",
+        "opacity": "1"
+      },
+      {
+        "tag": "SECTION",
+        "color": "rgb(243, 240, 231)",
+        "background": "rgba(0, 0, 0, 0)",
+        "image": "none",
+        "opacity": "1"
+      },
+      {
+        "tag": "MAIN",
+        "color": "rgb(243, 240, 231)",
+        "background": "rgba(0, 0, 0, 0)",
+        "image": "none",
+        "opacity": "1"
+      },
+      {
+        "tag": "DIV",
+        "color": "rgb(243, 240, 231)",
+        "background": "rgba(0, 0, 0, 0)",
+        "image": "none",
+        "opacity": "1"
+      },
+      {
+        "tag": "BODY",
+        "color": "rgb(243, 240, 231)",
+        "background": "rgb(36, 37, 34)",
+        "image": "none",
+        "opacity": "1"
+      },
+      {
+        "tag": "HTML",
+        "color": "rgb(0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0)",
+        "image": "none",
+        "opacity": "1"
+      }
+    ]
+  },
+  "captionContrastRatio": 11.69013216702252,
+  "captionNormalTextThresholdMet": true,
+  "violations": [],
+  "incomplete": [
+    {
+      "id": "color-contrast",
+      "nodes": 4
+    }
+  ],
+  "remainingIncompleteSubjects": [
+    "oversized NAILS decoration",
+    "small art index",
+    "decorative down arrow",
+    "decorative up arrow"
+  ],
+  "fullAccessibilityPassClaimed": false,
+  "manualSourceRepair": false
+}

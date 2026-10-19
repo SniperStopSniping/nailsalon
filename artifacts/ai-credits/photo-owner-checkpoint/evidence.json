@@ -1,0 +1,1399 @@
+{
+  "recordedAt": "2026-10-18T04:23:11.457Z",
+  "environment": "attested disposable loopback Development",
+  "business": "Velour Studio (fictional)",
+  "source": "Real owner UI and actual OpenAI model output; no manually authored or repaired frontend.",
+  "funding": "Synthetic CAD10 recovery grant. No Stripe purchase, external customer message, or hosted deployment.",
+  "reference": "User-supplied NailMe screenshot treated as third-party inspiration. Original reference/recordings remain private; brand, protected text/photos and policies were not copied.",
+  "inputs": "Two explicitly selected repository demonstration nail photos and a synthetic developer-authored transparent INPUT logo, not a generated frontend fixture. No claim of real Velour work or a newly verified photo licence.",
+  "runs": [
+    {
+      "name": "2026-10-18T03-56-12-867Z-message",
+      "step": "message",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 1,
+      "afterRevision": 2,
+      "artifactId": null,
+      "elapsedMs": 38389,
+      "calls": [
+        {
+          "id": "d8743ccb-bd6a-4c94-be77-c1c95cb3fa02",
+          "operation_id": "17fd1317-e188-47d2-960a-130e8d5cd443",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 4828,
+          "output_tokens": 586,
+          "cost_micro_usd": 897,
+          "charged_micro_cad": 1794,
+          "credit_cost_micro_cad": "2512",
+          "elapsed_ms": 6404,
+          "validation": "passed"
+        }
+      ],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T03-57-21-891Z-photos",
+      "step": "photos",
+      "status": "failed",
+      "browser": "chromium",
+      "beforeRevision": 2,
+      "afterRevision": 3,
+      "artifactId": null,
+      "elapsedMs": 4786,
+      "failure": "Observer assumed an initial design brief after a successful upload. UI retry reused the uploads.",
+      "calls": [],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T03-58-03-874Z-photos",
+      "step": "photos",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 3,
+      "afterRevision": 4,
+      "artifactId": null,
+      "elapsedMs": 4925,
+      "calls": [],
+      "mediaUpload": {
+        "assets": [
+          {
+            "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+            "name": "landscape-nails.webp",
+            "role": "photo",
+            "mime_type": "image/webp",
+            "byte_size": 105812,
+            "width": 1200,
+            "height": 799,
+            "hasAlpha": false,
+            "inputBytes": 3842274
+          },
+          {
+            "id": "ad373184-120b-441a-8e93-171c221138f7",
+            "name": "portrait-camera.webp",
+            "role": "photo",
+            "mime_type": "image/webp",
+            "byte_size": 121532,
+            "width": 960,
+            "height": 1280,
+            "hasAlpha": false,
+            "inputBytes": 3100000
+          }
+        ],
+        "reusedExistingAssets": true
+      },
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T03-58-49-366Z-logo",
+      "step": "logo",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 4,
+      "afterRevision": 5,
+      "artifactId": null,
+      "elapsedMs": 4300,
+      "calls": [],
+      "mediaUpload": {
+        "assets": [
+          {
+            "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+            "name": "velour-white-logo.webp",
+            "role": "logo",
+            "mime_type": "image/webp",
+            "byte_size": 15410,
+            "width": 2400,
+            "height": 600,
+            "hasAlpha": true,
+            "inputBytes": 16805465
+          }
+        ],
+        "reusedExistingAssets": false
+      },
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-00-12-352Z-message",
+      "step": "message",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 5,
+      "afterRevision": 7,
+      "artifactId": "fc26fa87-794c-4dcf-bfbb-acf8ec730ead",
+      "elapsedMs": 123589,
+      "calls": [
+        {
+          "id": "4b2ee9c6-898d-4bed-a494-84afab2c3e6d",
+          "operation_id": "31fb8b1f-10c8-418e-a930-a3a771963715",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5475,
+          "output_tokens": 333,
+          "cost_micro_usd": 851,
+          "charged_micro_cad": 1702,
+          "credit_cost_micro_cad": "2383",
+          "elapsed_ms": 4366,
+          "validation": "passed"
+        },
+        {
+          "id": "0e87f601-c7c9-4be5-bdf2-bec23d6279ab",
+          "operation_id": "56d63aed-ea28-45c8-90ad-fa6d11c10597",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 6984,
+          "output_tokens": 5462,
+          "cost_micro_usd": 72079,
+          "charged_micro_cad": 144158,
+          "credit_cost_micro_cad": "201822",
+          "elapsed_ms": 105621,
+          "validation": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 240,
+          "targetHeight": 20.390625,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 240,
+          "targetHeight": 20.390625,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 157.703125,
+          "targetHeight": 18.6875,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 157.703125,
+          "targetHeight": 18.6875,
+          "tapAttemptVerified": false
+        }
+      ],
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 3
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-03-56-642Z-message",
+      "step": "message",
+      "status": "failed",
+      "browser": "chromium",
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "fc26fa87-794c-4dcf-bfbb-acf8ec730ead",
+      "elapsedMs": 4890,
+      "failure": "Intake incorrectly treated an editable frontend as fixed Canva; no new revision. Application routing/context corrected before the same owner request succeeded.",
+      "calls": [
+        {
+          "id": "0874c320-3e49-4faf-9029-70cee488a4ba",
+          "operation_id": "384ee81a-d58e-4cd2-9fa9-9e6b472ad907",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5574,
+          "output_tokens": 68,
+          "cost_micro_usd": 731,
+          "charged_micro_cad": 1462,
+          "credit_cost_micro_cad": "2047",
+          "elapsed_ms": 1399,
+          "validation": "passed"
+        }
+      ],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-11-46-325Z-message",
+      "step": "message",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 7,
+      "afterRevision": 8,
+      "artifactId": "6f99365d-a709-4e13-a913-30f576c4473e",
+      "elapsedMs": 78926,
+      "calls": [
+        {
+          "id": "521d8c32-eeeb-4d63-847c-4bc883a7e575",
+          "operation_id": "251688fa-9791-4042-bf1b-d857b3c08356",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 12141,
+          "output_tokens": 6844,
+          "cost_micro_usd": 4940,
+          "charged_micro_cad": 9880,
+          "credit_cost_micro_cad": "13832",
+          "elapsed_ms": 47737,
+          "validation": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 240,
+          "targetHeight": 20.390625,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 240,
+          "targetHeight": 20.390625,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 157.703125,
+          "targetHeight": 18.6875,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 157.703125,
+          "targetHeight": 18.6875,
+          "tapAttemptVerified": false
+        }
+      ],
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 3
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-13-54-341Z-message",
+      "step": "message",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 8,
+      "afterRevision": 9,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 50484,
+      "calls": [
+        {
+          "id": "ebf88b53-7081-4915-9646-f6537b46e01f",
+          "operation_id": "cbff59ac-a2d6-40bf-8063-b9dd0ece5d12",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 12735,
+          "output_tokens": 6642,
+          "cost_micro_usd": 4913,
+          "charged_micro_cad": 9826,
+          "credit_cost_micro_cad": "13757",
+          "elapsed_ms": 40074,
+          "validation": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 240,
+          "targetHeight": 20.390625,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 240,
+          "targetHeight": 20.390625,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": false
+        }
+      ],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 2400,
+                  "height": 600
+                }
+              ]
+            },
+            {
+              "id": "ad373184-120b-441a-8e93-171c221138f7",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+              "count": 2,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                },
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "photoComposition": {
+            "section": "studio",
+            "images": 2,
+            "overlapArea": 73264.4873046875
+          }
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 2400,
+                  "height": 600
+                }
+              ]
+            },
+            {
+              "id": "ad373184-120b-441a-8e93-171c221138f7",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+              "count": 2,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                },
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "photoComposition": {
+            "section": "studio",
+            "images": 2,
+            "overlapArea": 0
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 3
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-16-55-189Z-publish",
+      "step": "publish",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 9,
+      "afterRevision": 10,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 19172,
+      "calls": [],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-17-22-769Z-book",
+      "step": "book",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 10,
+      "afterRevision": 10,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 30928,
+      "calls": [],
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+          "serviceName": "BIAB",
+          "targetWidth": 112,
+          "targetHeight": 48
+        }
+      ],
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1
+    },
+    {
+      "name": "2026-10-18T04-18-03-193Z-start-editing",
+      "step": "start-editing",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 10,
+      "afterRevision": 11,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 3814,
+      "calls": [],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-18-14-850Z-message",
+      "step": "message",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 11,
+      "afterRevision": 12,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 16988,
+      "calls": [
+        {
+          "id": "4c2c5f89-1902-4200-bc95-5170e7c4d056",
+          "operation_id": "f38a9a76-67ba-43b4-bf56-b21a427dbac2",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 6094,
+          "output_tokens": 200,
+          "cost_micro_usd": 862,
+          "charged_micro_cad": 1724,
+          "credit_cost_micro_cad": "2414",
+          "elapsed_ms": 3131,
+          "validation": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 240,
+          "targetHeight": 20.390625,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 240,
+          "targetHeight": 20.390625,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": false
+        }
+      ],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 2400,
+                  "height": 600
+                }
+              ]
+            },
+            {
+              "id": "ad373184-120b-441a-8e93-171c221138f7",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+              "count": 2,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                },
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "photoComposition": {
+            "section": "studio",
+            "images": 2,
+            "overlapArea": 73264.4873046875
+          }
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 2400,
+                  "height": 600
+                }
+              ]
+            },
+            {
+              "id": "ad373184-120b-441a-8e93-171c221138f7",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+              "count": 2,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                },
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "photoComposition": {
+            "section": "studio",
+            "images": 2,
+            "overlapArea": 0
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 3
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-18-38-078Z-public-preview",
+      "step": "public-preview",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 12,
+      "afterRevision": 12,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 5103,
+      "calls": [],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-18-56-615Z-publish",
+      "step": "publish",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 12,
+      "afterRevision": 13,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 16815,
+      "calls": [],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-19-26-523Z-book",
+      "step": "book",
+      "status": "passed",
+      "browser": "webkit",
+      "beforeRevision": 13,
+      "afterRevision": 13,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 14324,
+      "calls": [],
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+          "serviceName": "BIAB",
+          "targetWidth": 112,
+          "targetHeight": 48
+        }
+      ],
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1
+    },
+    {
+      "name": "2026-10-18T04-21-26-656Z-start-editing",
+      "step": "start-editing",
+      "status": "passed",
+      "browser": "chromium",
+      "beforeRevision": 13,
+      "afterRevision": 14,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 2311,
+      "calls": [],
+      "contactChecks": [],
+      "interactionChecks": [],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-21-37-688Z-replace-photo",
+      "step": "replace-photo",
+      "status": "passed",
+      "browser": "webkit",
+      "beforeRevision": 14,
+      "afterRevision": 15,
+      "artifactId": "29e63c35-2acc-4420-b600-75b0df249b9d",
+      "elapsedMs": 17110,
+      "calls": [],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 240,
+          "targetHeight": 20,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 240,
+          "targetHeight": 20,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 240,
+          "targetHeight": 20,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 240,
+          "targetHeight": 20,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": false
+        }
+      ],
+      "interactionChecks": [
+        {
+          "browserName": "webkit",
+          "animatedElements": 3
+        },
+        {
+          "browserName": "webkit",
+          "reducedMotion": "passed"
+        },
+        {
+          "manualPhotoReplacement": true,
+          "originalArtifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+          "savedArtifactId": "29e63c35-2acc-4420-b600-75b0df249b9d",
+          "inputBytes": 3842274,
+          "browserName": "webkit"
+        },
+        {
+          "browserName": "webkit",
+          "animatedElements": 3
+        },
+        {
+          "browserName": "webkit",
+          "reducedMotion": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0
+    },
+    {
+      "name": "2026-10-18T04-22-17-488Z-restore",
+      "step": "restore",
+      "status": "passed",
+      "browser": "webkit",
+      "beforeRevision": 15,
+      "afterRevision": 16,
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "elapsedMs": 13639,
+      "calls": [],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 240,
+          "targetHeight": 20,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 240,
+          "targetHeight": 20,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 240,
+          "targetHeight": 20,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 240,
+          "targetHeight": 20,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/velour.test.studio/",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 152.3125,
+          "targetHeight": 42,
+          "tapAttemptVerified": false
+        }
+      ],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "5c79814b-1907-43e7-9450-4245e1ef35c2",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            },
+            {
+              "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 2400,
+                  "height": 600
+                }
+              ]
+            },
+            {
+              "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+              "count": 2,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                },
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "photoComposition": {
+            "section": "studio",
+            "images": 2,
+            "overlapArea": 73264.4873046875
+          }
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "5c79814b-1907-43e7-9450-4245e1ef35c2",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            },
+            {
+              "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 2400,
+                  "height": 600
+                }
+              ]
+            },
+            {
+              "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+              "count": 2,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                },
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "photoComposition": {
+            "section": "studio",
+            "images": 2,
+            "overlapArea": 0
+          }
+        },
+        {
+          "browserName": "webkit",
+          "animatedElements": 3
+        },
+        {
+          "browserName": "webkit",
+          "reducedMotion": "passed"
+        },
+        {
+          "device": "desktop",
+          "selectedOwnerImages": [
+            {
+              "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 2400,
+                  "height": 600
+                }
+              ]
+            },
+            {
+              "id": "ad373184-120b-441a-8e93-171c221138f7",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+              "count": 2,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                },
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "photoComposition": {
+            "section": "studio",
+            "images": 2,
+            "overlapArea": 73264.4873046875
+          }
+        },
+        {
+          "device": "mobile",
+          "selectedOwnerImages": [
+            {
+              "id": "5f368912-335e-4526-b6e9-c2a66f9620a3",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 2400,
+                  "height": 600
+                }
+              ]
+            },
+            {
+              "id": "ad373184-120b-441a-8e93-171c221138f7",
+              "count": 1,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 960,
+                  "height": 1280
+                }
+              ]
+            },
+            {
+              "id": "ed32b324-7cd7-409c-ac87-ca8fe5daa3b9",
+              "count": 2,
+              "loaded": true,
+              "displayed": true,
+              "dimensions": [
+                {
+                  "width": 1200,
+                  "height": 799
+                },
+                {
+                  "width": 1200,
+                  "height": 799
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "photoComposition": {
+            "section": "studio",
+            "images": 2,
+            "overlapArea": 0
+          }
+        },
+        {
+          "browserName": "webkit",
+          "animatedElements": 3
+        },
+        {
+          "browserName": "webkit",
+          "reducedMotion": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0
+    }
+  ],
+  "calls": [
+    {
+      "id": "d8743ccb-bd6a-4c94-be77-c1c95cb3fa02",
+      "operation_id": "17fd1317-e188-47d2-960a-130e8d5cd443",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4828,
+      "output_tokens": 586,
+      "cost_micro_usd": 897,
+      "charged_micro_cad": 1794,
+      "credit_cost_micro_cad": "2512",
+      "elapsed_ms": 6404,
+      "validation": "passed"
+    },
+    {
+      "id": "4b2ee9c6-898d-4bed-a494-84afab2c3e6d",
+      "operation_id": "31fb8b1f-10c8-418e-a930-a3a771963715",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5475,
+      "output_tokens": 333,
+      "cost_micro_usd": 851,
+      "charged_micro_cad": 1702,
+      "credit_cost_micro_cad": "2383",
+      "elapsed_ms": 4366,
+      "validation": "passed"
+    },
+    {
+      "id": "0e87f601-c7c9-4be5-bdf2-bec23d6279ab",
+      "operation_id": "56d63aed-ea28-45c8-90ad-fa6d11c10597",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 6984,
+      "output_tokens": 5462,
+      "cost_micro_usd": 72079,
+      "charged_micro_cad": 144158,
+      "credit_cost_micro_cad": "201822",
+      "elapsed_ms": 105621,
+      "validation": "passed"
+    },
+    {
+      "id": "0874c320-3e49-4faf-9029-70cee488a4ba",
+      "operation_id": "384ee81a-d58e-4cd2-9fa9-9e6b472ad907",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5574,
+      "output_tokens": 68,
+      "cost_micro_usd": 731,
+      "charged_micro_cad": 1462,
+      "credit_cost_micro_cad": "2047",
+      "elapsed_ms": 1399,
+      "validation": "passed"
+    },
+    {
+      "id": "521d8c32-eeeb-4d63-847c-4bc883a7e575",
+      "operation_id": "251688fa-9791-4042-bf1b-d857b3c08356",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 12141,
+      "output_tokens": 6844,
+      "cost_micro_usd": 4940,
+      "charged_micro_cad": 9880,
+      "credit_cost_micro_cad": "13832",
+      "elapsed_ms": 47737,
+      "validation": "passed"
+    },
+    {
+      "id": "ebf88b53-7081-4915-9646-f6537b46e01f",
+      "operation_id": "cbff59ac-a2d6-40bf-8063-b9dd0ece5d12",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 12735,
+      "output_tokens": 6642,
+      "cost_micro_usd": 4913,
+      "charged_micro_cad": 9826,
+      "credit_cost_micro_cad": "13757",
+      "elapsed_ms": 40074,
+      "validation": "passed"
+    },
+    {
+      "id": "4c2c5f89-1902-4200-bc95-5170e7c4d056",
+      "operation_id": "f38a9a76-67ba-43b4-bf56-b21a427dbac2",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 6094,
+      "output_tokens": 200,
+      "cost_micro_usd": 862,
+      "charged_micro_cad": 1724,
+      "credit_cost_micro_cad": "2414",
+      "elapsed_ms": 3131,
+      "validation": "passed"
+    }
+  ],
+  "providerEstimateMicroUsd": 85273,
+  "trialMicroCad": 170546,
+  "retailMicroCad": 238767,
+  "costBasis": "Measured tokens at pinned Standard model rates. Trial accounting uses 2 CAD/USD; retail uses separate frozen 2.8 CAD/USD. Estimates, not invoices or live FX.",
+  "localBudget": {
+    "cap_micro_cad": 11384406,
+    "charged_micro_cad": "8269810",
+    "pending": "0"
+  },
+  "sharedCapMicroCad": 80000000,
+  "hostedCapMicroCad": 68615594,
+  "hostedSpend": "Not re-read in this checkpoint. Existing unknown holds were not released.",
+  "receipts": [
+    {
+      "revision": 10
+    },
+    {
+      "revision": 13
+    }
+  ],
+  "appointmentSnapshots": [
+    {
+      "appointment_id": "appt_f8877a14-35fb-49e0-aabe-2ec6a1c7541e",
+      "service_id": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+      "price_at_booking": 6500,
+      "total_price": 6500,
+      "total_duration_minutes": 75,
+      "blocked_duration_minutes": 85
+    },
+    {
+      "appointment_id": "appt_65362328-05de-4780-8eb6-475b3f3420e4",
+      "service_id": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+      "price_at_booking": 7000,
+      "total_price": 7000,
+      "total_duration_minutes": 75,
+      "blocked_duration_minutes": 85
+    }
+  ],
+  "checks": {
+    "focusedTests": 214,
+    "postgresConcurrency": 13,
+    "originTests": 7,
+    "sourceTypes": "passed",
+    "scopedLint": "passed",
+    "browser": "Chromium generation/desktop/mobile; WebKit manual larger-photo replacement, restored preview and original booking. Legacy synthetic owner sessions; not real Clerk signup or cross-device authentication."
+  },
+  "files": [
+    {
+      "file": "owner-business-input.png",
+      "sha256": "66ee46bacef7517b3ac0cf7587f1f183257cb31af51da7caaa7940f2d1f7cbec"
+    },
+    {
+      "file": "first-desktop.png",
+      "sha256": "c0ed5ff1720dd88e768cc17c808664b71c155066cd389e0a61202c2ee83f9227"
+    },
+    {
+      "file": "first-mobile.png",
+      "sha256": "8475b601086532a96bd8d7f8ace38aae6a386021e2728399c3147990a9371aa1"
+    },
+    {
+      "file": "final-desktop.png",
+      "sha256": "c0ed5ff1720dd88e768cc17c808664b71c155066cd389e0a61202c2ee83f9227"
+    },
+    {
+      "file": "final-mobile.png",
+      "sha256": "12f593781556cd874294bb42a920bffd5a65fab93b276fd574b84a0c13deee7c"
+    },
+    {
+      "file": "desktop-overlap.png",
+      "sha256": "a6d17a353e3527db0c04d2efbff9d472acc322052ea2b52962933d12e61bc981"
+    },
+    {
+      "file": "mobile-photos.png",
+      "sha256": "e0f4ae679be3ae8c17d3e3b40f5f8d017a97589d2100cdf16b6d1160d4e034a0"
+    },
+    {
+      "file": "draft-price-70.png",
+      "sha256": "a98025d6ae64733b1758d3ee674d9fe456b74a067fbb2109ad5f44bdf0ab7274"
+    },
+    {
+      "file": "public-price-before-approval.png",
+      "sha256": "635f1a1a49a6730d064374a72105a4e3b5ed31c1096bd713601d5861111bea04"
+    },
+    {
+      "file": "review.png",
+      "sha256": "65345ae6b0a4714af0fc4e3ebc9df3a61e15138fa815e2eb3a249d71f38dbef0"
+    },
+    {
+      "file": "booking-65.png",
+      "sha256": "196f5165c1d08a30a8afa20c027cbacc899c66bfbff401c15df6e8ba0c4be862"
+    },
+    {
+      "file": "booking-70-webkit.png",
+      "sha256": "41efd474569ebe897c4791059bf76fed4e91d17dd8f769880681ad253a74dad4"
+    },
+    {
+      "file": "manual-photo-webkit.png",
+      "sha256": "c6d4ad9819241aac0e8a8c7798f04ac60d95163c0165ff4efd3232d3da04c338"
+    },
+    {
+      "file": "restored-mobile.png",
+      "sha256": "c6d4ad9819241aac0e8a8c7798f04ac60d95163c0165ff4efd3232d3da04c338"
+    }
+  ]
+}

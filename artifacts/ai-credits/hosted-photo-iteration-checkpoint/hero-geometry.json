@@ -1,0 +1,122 @@
+[
+  {
+    "name": "hero-redesigned",
+    "revision": 44,
+    "device": "desktop",
+    "width": 1440,
+    "contentWidth": 1440,
+    "boxes": [
+      {
+        "x": 190,
+        "y": 282.25,
+        "w": 731.390625,
+        "h": 390,
+        "naturalWidth": 2048,
+        "naturalHeight": 1536,
+        "alt": "Pink rain lilies blooming among green leaves"
+      },
+      {
+        "x": 603.40625,
+        "y": 562.25,
+        "w": 646.59375,
+        "h": 390,
+        "naturalWidth": 3840,
+        "naturalHeight": 2560,
+        "alt": "Close-up of a vivid pink flower with green leaves"
+      }
+    ],
+    "overlapArea": 34978.28125,
+    "servicesTop": -260.59375,
+    "galleryTop": 177.453125
+  },
+  {
+    "name": "hero-redesigned",
+    "revision": 44,
+    "device": "tablet",
+    "width": 768,
+    "contentWidth": 768,
+    "boxes": [
+      {
+        "x": 36,
+        "y": 305.4375,
+        "w": 480.234375,
+        "h": 390,
+        "naturalWidth": 2048,
+        "naturalHeight": 1536,
+        "alt": "Pink rain lilies blooming among green leaves"
+      },
+      {
+        "x": 307.453125,
+        "y": 585.4375,
+        "w": 424.546875,
+        "h": 390,
+        "naturalWidth": 3840,
+        "naturalHeight": 2560,
+        "alt": "Close-up of a vivid pink flower with green leaves"
+      }
+    ],
+    "overlapArea": 22965.9375,
+    "servicesTop": -257.203125,
+    "galleryTop": 200.640625
+  },
+  {
+    "name": "hero-redesigned",
+    "revision": 44,
+    "device": "mobile",
+    "width": 390,
+    "contentWidth": 390,
+    "boxes": [
+      {
+        "x": 22,
+        "y": 237.0625,
+        "w": 346,
+        "h": 241.796875,
+        "naturalWidth": 2048,
+        "naturalHeight": 1536,
+        "alt": "Pink rain lilies blooming among green leaves"
+      },
+      {
+        "x": 22,
+        "y": 553.859375,
+        "w": 346,
+        "h": 241.796875,
+        "naturalWidth": 3840,
+        "naturalHeight": 2560,
+        "alt": "Close-up of a vivid pink flower with green leaves"
+      }
+    ],
+    "overlapArea": 0,
+    "servicesTop": -467.921875,
+    "galleryTop": 86.671875
+  },
+  {
+    "name": "hero-redesigned",
+    "revision": 44,
+    "device": "narrow-mobile",
+    "width": 320,
+    "contentWidth": 320,
+    "boxes": [
+      {
+        "x": 16,
+        "y": 233.3125,
+        "w": 288,
+        "h": 220,
+        "naturalWidth": 2048,
+        "naturalHeight": 1536,
+        "alt": "Pink rain lilies blooming among green leaves"
+      },
+      {
+        "x": 16,
+        "y": 543.609375,
+        "w": 288,
+        "h": 220,
+        "naturalWidth": 3840,
+        "naturalHeight": 2560,
+        "alt": "Close-up of a vivid pink flower with green leaves"
+      }
+    ],
+    "overlapArea": 0,
+    "servicesTop": -512.859375,
+    "galleryTop": 82.921875
+  }
+]

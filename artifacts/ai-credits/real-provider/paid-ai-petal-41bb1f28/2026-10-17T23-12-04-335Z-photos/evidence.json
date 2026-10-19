@@ -1,0 +1,30 @@
+{
+  "step": "photos",
+  "status": "passed",
+  "startedAt": "2026-10-17T23:12:04.928Z",
+  "elapsedMs": 4253,
+  "beforeRevision": 6,
+  "afterRevision": 7,
+  "artifactId": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+  "calls": [],
+  "artifacts": [
+    {
+      "id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "parent_id": null,
+      "source_hash": "b3921231228c69956d0421f9837026ef6a4354383eac0fc9c24f93f2cff6a76b"
+    },
+    {
+      "id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+      "parent_id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "source_hash": "fe535fc03bf2c749283357087fc25bbfd0ae10f7034d007078dcb31c2ac5fa81"
+    },
+    {
+      "id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+      "parent_id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+      "source_hash": "97149190987a7f9764350ab43fabec16ae4c1b0435b99514e0bc1289dcf75e5a"
+    }
+  ],
+  "appointments": [],
+  "browserErrors": [],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

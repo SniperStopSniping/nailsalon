@@ -124,7 +124,7 @@ for (const width of [320, 390]) {
 
     await retry.click();
 
-    await expect(page.getByRole('status')).toHaveText('Opening your workspace…');
+    await expect(page.getByRole('status')).toHaveText('Opening your Luster account…');
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 }

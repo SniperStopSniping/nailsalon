@@ -1,0 +1,33 @@
+{
+  "step": "message",
+  "operationId": "812400ef-2da4-44e2-a870-3a178e5054d2",
+  "status": "passed",
+  "startedAt": "2026-10-17T23:29:11.106Z",
+  "elapsedMs": 29493,
+  "beforeRevision": 1,
+  "afterRevision": 2,
+  "artifactId": null,
+  "calls": [
+    {
+      "id": "23f28658-6a9a-4a5f-b563-8d7461c5c412",
+      "operation_id": "812400ef-2da4-44e2-a870-3a178e5054d2",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 3925,
+      "output_tokens": 615,
+      "cost_micro_usd": 799,
+      "charged_micro_cad": 1598,
+      "credit_cost_micro_cad": "2238",
+      "elapsed_ms": 6206,
+      "validation": "passed"
+    }
+  ],
+  "artifacts": [],
+  "appointments": [],
+  "contactChecks": [],
+  "browserErrors": [
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+  ],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

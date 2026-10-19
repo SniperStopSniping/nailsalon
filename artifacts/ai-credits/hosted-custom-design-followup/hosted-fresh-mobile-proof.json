@@ -1,0 +1,34 @@
+{
+  "passed": true,
+  "hosted": true,
+  "sourceSha": "2c18ce232748cf7cdb59158442def9f9ce04f9d1",
+  "engine": "WebKit",
+  "device": "iPhone 13 emulation",
+  "viewport": {
+    "width": 390,
+    "height": 664
+  },
+  "freshContext": true,
+  "storageStateReused": false,
+  "nativeClerkPasswordSignIn": true,
+  "providerResponsesUnmodified": true,
+  "loadedSameSalon": true,
+  "refreshResumed": true,
+  "previewShowsApproved75": true,
+  "newModelCalls": 0,
+  "newAppointments": 0,
+  "before": {
+    "head_revision": 13,
+    "status": "published",
+    "calls": 7,
+    "appointments": 1
+  },
+  "after": {
+    "head_revision": 13,
+    "status": "published",
+    "calls": 7,
+    "appointments": 1
+  },
+  "harnessCorrection": "Sign-in automatically opened the saved builder; no Open Luster AI button was required",
+  "productionTouched": false
+}

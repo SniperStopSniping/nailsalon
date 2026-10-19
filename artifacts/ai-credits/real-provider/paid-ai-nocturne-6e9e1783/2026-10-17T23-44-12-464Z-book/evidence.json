@@ -1,0 +1,31 @@
+{
+  "step": "book",
+  "browserName": "webkit",
+  "status": "failed",
+  "failure": "expect(locator).toBeVisible() failed\n\nLocator:  locator('iframe[src=\"http://127.0.0.1:3198/renderer\"]').contentFrame().locator('[data-luster-services] > *').first()\nExpected: visible\nReceived: <element(s) not found>\nTimeout:  45000ms\n\nCall log:\n\u001b[2m  - Expect \"to.be.visible\" with timeout 45000ms\u001b[22m\n\u001b[2m  - waiting for locator('iframe[src=\"http://127.0.0.1:3198/renderer\"]').contentFrame().locator('[data-luster-services] > *').first()\u001b[22m\n",
+  "startedAt": "2026-10-17T23:44:14.066Z",
+  "elapsedMs": 51676,
+  "beforeRevision": 6,
+  "afterRevision": 6,
+  "artifactId": "458f16fa-8711-48e5-b307-acef189aa06a",
+  "calls": [],
+  "artifacts": [
+    {
+      "id": "458f16fa-8711-48e5-b307-acef189aa06a",
+      "parent_id": null,
+      "source_hash": "67d90f142dd9e560486fdb79e86723b72ab5a53896ac6baa98a322536b5ab4d8"
+    },
+    {
+      "id": "0248aebc-6d00-4865-ac79-4195af068822",
+      "parent_id": "458f16fa-8711-48e5-b307-acef189aa06a",
+      "source_hash": "37f967f076f217d31e3be5d18687dbff36b1b72f6a389100d8edaa67cf102297"
+    }
+  ],
+  "appointments": [],
+  "contactChecks": [],
+  "interactionChecks": [],
+  "browserErrors": [
+    "Error: Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+  ],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

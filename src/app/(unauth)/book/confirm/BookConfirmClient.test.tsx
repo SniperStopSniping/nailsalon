@@ -59,6 +59,7 @@ const publicRecoveryMock = vi.hoisted(() => ({
   begin: vi.fn(),
   clear: vi.fn(),
   isReceipt: vi.fn(),
+  markSafeToRetry: vi.fn(),
   read: vi.fn(),
   recover: vi.fn(),
   resolve: vi.fn(),
@@ -102,6 +103,7 @@ vi.mock('@/libs/publicBookingRecovery.client', () => ({
   beginPublicBookingAttempt: publicRecoveryMock.begin,
   clearPublicBookingAttempt: publicRecoveryMock.clear,
   isPublicBookingReceipt: publicRecoveryMock.isReceipt,
+  markPublicBookingAttemptSafeToRetry: publicRecoveryMock.markSafeToRetry,
   readPublicBookingAttempt: publicRecoveryMock.read,
   recoverPublicBookingAttempt: publicRecoveryMock.recover,
   resolvePublicBookingAttempt: publicRecoveryMock.resolve,
@@ -171,6 +173,7 @@ describe('BookConfirmClient', () => {
     publicRecoveryMock.begin.mockReset();
     publicRecoveryMock.clear.mockReset();
     publicRecoveryMock.isReceipt.mockReset();
+    publicRecoveryMock.markSafeToRetry.mockReset();
     publicRecoveryMock.read.mockReset();
     publicRecoveryMock.recover.mockReset();
     publicRecoveryMock.resolve.mockReset();
@@ -178,6 +181,10 @@ describe('BookConfirmClient', () => {
     publicRecoveryMock.recover.mockResolvedValue(null);
     publicRecoveryMock.isReceipt.mockImplementation(value => value !== null && value !== undefined);
     publicRecoveryMock.begin.mockImplementation(({ salonId, attemptId, confirmationPath }) => {
+      const existing = publicRecoveryMock.read();
+      if (existing?.state === 'pending' && existing.version === 2 && existing.safeToRetry === true && existing.attemptId === attemptId) {
+        return existing;
+      }
       const attempt = {
         version: 1,
         salonId,
@@ -188,6 +195,14 @@ describe('BookConfirmClient', () => {
       };
       publicRecoveryMock.read.mockReturnValue(attempt);
       return attempt;
+    });
+    publicRecoveryMock.markSafeToRetry.mockImplementation((_salonId, attemptId, recoveryKey) => {
+      const attempt = publicRecoveryMock.read();
+      if (attempt?.version !== 2 || attempt.state !== 'pending' || attempt.attemptId !== attemptId || attempt.recoveryKey !== recoveryKey) {
+        return false;
+      }
+      attempt.safeToRetry = true;
+      return true;
     });
     publicRecoveryMock.clear.mockImplementation(() => publicRecoveryMock.read.mockReturnValue(null));
     clearBookingState.mockReset();
@@ -257,6 +272,38 @@ describe('BookConfirmClient', () => {
       {...overrides}
     />,
   );
+
+  it('shows the committed artist from a fresh receipt instead of the requested artist', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointment: { id: 'appt_assigned_artist', status: 'confirmed' },
+        technician: { id: 'tech_2', name: 'Morgan Test Artist', avatarUrl: null },
+      },
+    }), { status: 201 }));
+    renderBasicConfirm();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    const summary = await screen.findByTestId('booking-confirmed-summary');
+
+    expect(summary).toHaveTextContent('Morgan Test Artist');
+    expect(summary).not.toHaveTextContent('Taylor');
+    expect(screen.getByText('You’re booked with Morgan.')).toBeInTheDocument();
+  });
+
+  it.each([null, undefined])('does not claim the requested artist when a fresh receipt has no assigned artist: %s', async (technician) => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_unknown_artist', status: 'confirmed' }, technician },
+    }), { status: 201 }));
+    renderBasicConfirm();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    const summary = await screen.findByTestId('booking-confirmed-summary');
+
+    expect(summary).not.toHaveTextContent('Taylor');
+    expect(screen.queryByText('You’re booked with Taylor.')).not.toBeInTheDocument();
+  });
 
   it('submits a versioned basket without falling back to the legacy selection fields', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
@@ -593,6 +640,95 @@ describe('BookConfirmClient', () => {
     expect(publicRecoveryMock.resolve).toHaveBeenCalledWith('salon_internal_a', expect.objectContaining({
       data: expect.objectContaining({ appointmentId: 'appt_recovered' }),
     }));
+  });
+
+  it('reconciles a retryable response before retrying with the same v2 attempt and idempotency key', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    publicRecoveryMock.recover.mockResolvedValue({ kind: 'pending' });
+    publicRecoveryMock.begin.mockImplementation(({ salonId, attemptId, confirmationPath }) => {
+      const existing = publicRecoveryMock.read();
+      if (existing?.state === 'pending' && existing.version === 2 && existing.safeToRetry === true && existing.attemptId === attemptId) {
+        return existing;
+      }
+      const attempt = {
+        version: 2,
+        salonId,
+        attemptId,
+        confirmationPath,
+        recoveryKey: '11111111-1111-4111-8111-111111111111',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        state: 'pending',
+      };
+      publicRecoveryMock.read.mockReturnValue(attempt);
+      return attempt;
+    });
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'BOOKING_TEMPORARILY_UNAVAILABLE' } }), { status: 503, headers: { 'Retry-After': '1' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { appointmentId: 'appt_retry', appointment: { id: 'appt_retry', status: 'confirmed' } },
+      }), { status: 201 }));
+
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByText(/Your booking isn’t confirmed yet. Please wait a moment and try again/);
+    const firstAttempt = publicRecoveryMock.read();
+
+    expect(firstAttempt).toEqual(expect.objectContaining({ version: 2, safeToRetry: true, state: 'pending' }));
+    expect(publicRecoveryMock.markSafeToRetry).toHaveBeenCalledWith(
+      'salon_internal_a',
+      firstAttempt.attemptId,
+      firstAttempt.recoveryKey,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await screen.findByTestId('booking-confirmed-summary');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toEqual(expect.objectContaining({
+      'Idempotency-Key': fetchMock.mock.calls[0]?.[1]?.headers['Idempotency-Key'],
+      'X-Booking-Recovery-Key': fetchMock.mock.calls[0]?.[1]?.headers['X-Booking-Recovery-Key'],
+      'X-Booking-Attempt-Version': '2',
+    }));
+    expect(publicRecoveryMock.begin).toHaveBeenLastCalledWith(expect.objectContaining({
+      attemptId: firstAttempt.attemptId,
+      salonId: 'salon_internal_a',
+    }));
+
+    errorLog.mockRestore();
+  });
+
+  it('recovers an already-linked appointment after temporary contention instead of permitting another create', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const receipt = {
+      data: { appointmentId: 'appt_already_linked', appointment: { id: 'appt_already_linked', status: 'confirmed', startTime: '2030-01-02T15:00:00Z', totalDurationMinutes: 75, bookingTaxSnapshot: { invoiceTotalCents: 7345, currency: 'CAD' } } },
+    };
+    publicRecoveryMock.recover.mockResolvedValue(receipt);
+    publicRecoveryMock.begin.mockImplementation(({ salonId, attemptId, confirmationPath }) => {
+      const attempt = {
+        version: 2,
+        salonId,
+        attemptId,
+        confirmationPath,
+        recoveryKey: '11111111-1111-4111-8111-111111111111',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        state: 'pending',
+      };
+      publicRecoveryMock.read.mockReturnValue(attempt);
+      return attempt;
+    });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'BOOKING_TEMPORARILY_UNAVAILABLE' } }), { status: 503 }));
+
+    renderBasicConfirm({ salonId: 'salon_internal_a' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByText('Booking received');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(publicRecoveryMock.markSafeToRetry).not.toHaveBeenCalled();
+    expect(publicRecoveryMock.begin).toHaveBeenCalledTimes(1);
+
+    errorLog.mockRestore();
   });
 
   it('releases a definitively rejected request for deliberate correction without automatic replay', async () => {

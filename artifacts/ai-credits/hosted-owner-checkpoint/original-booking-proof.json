@@ -1,0 +1,50 @@
+{
+  "passed": true,
+  "hosted": true,
+  "customerSignedOut": true,
+  "realOriginalBooking": true,
+  "mockedAppointment": false,
+  "bookingPostStatus": 201,
+  "appointment": {
+    "id": "appt_fccbc03c-3ee7-42b3-b148-ebb9226506c8",
+    "salon_id": "ai_setup_c58c6f3a375d43d0c69bf4a71f6be97b",
+    "technician_id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+    "status": "confirmed",
+    "start_time": "2026-10-20T14:00:00.000Z",
+    "end_time": "2026-10-20T15:15:00.000Z",
+    "total_price": 7000,
+    "total_duration_minutes": 75
+  },
+  "service": {
+    "id": "774fd1cd-1e6c-4396-abbd-757613f3328c",
+    "name": "BIAB",
+    "price": 7000,
+    "duration_minutes": 75
+  },
+  "items": [
+    {
+      "service_id": "774fd1cd-1e6c-4396-abbd-757613f3328c",
+      "price_at_booking": 7000,
+      "duration_at_booking": 75
+    }
+  ],
+  "eligibleStaff": [
+    {
+      "id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "name": "AI Test Owner"
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/appointments/availability",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/appointments",
+      "status": 201
+    }
+  ],
+  "productionTouched": false
+}

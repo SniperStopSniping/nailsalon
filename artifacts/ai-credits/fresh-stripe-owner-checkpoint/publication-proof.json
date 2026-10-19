@@ -1,0 +1,51 @@
+{
+  "passed": true,
+  "applicationSourceSha": "edba16273fd23ad8c85fae092c1d92d49146e209",
+  "initialAttempt": "/tmp/luster-fresh-paid-owner-d42btasj/review-publish-jHA25j",
+  "initialTransportReplayMissingOriginRejected403": true,
+  "publishResponseDroppedAfterConfirmedCommit": true,
+  "reloadedPublishedState": true,
+  "replayStatus": 200,
+  "replayRequestReconstructedFromExactPersistedReceipt": true,
+  "originalCapturedBodyRetained": false,
+  "approvalRevision": 8,
+  "publicationRevision": 8,
+  "receiptCount": 1,
+  "canonicalCounts": {
+    "service": 2,
+    "technician": 1,
+    "appointment": 0
+  },
+  "serviceRows": [
+    {
+      "id": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+      "name": "BIAB",
+      "price": 7000,
+      "duration_minutes": 75
+    },
+    {
+      "id": "d4aaa9cb-bef8-4099-a86f-625c3d5300b5",
+      "name": "Gel manicure",
+      "price": 5000,
+      "duration_minutes": 60
+    }
+  ],
+  "serviceIds": {
+    "draft_biab": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+    "draft_gel_manicure": "d4aaa9cb-bef8-4099-a86f-625c3d5300b5"
+  },
+  "staffIds": {},
+  "mediaFinalized": true,
+  "manualText": "Independent nails. Your kind of colour.",
+  "manualTextPreservedCssAndJavascript": true,
+  "manualPriceCents": 7000,
+  "manualPriceDidNotRegenerateSource": true,
+  "noDuplicateRecords": true,
+  "modelCalls": 0,
+  "walletUnchanged": true,
+  "noRecoveryCredits": true,
+  "anonymousAddressRedacted": true,
+  "browserErrors": [],
+  "hostedDeployment": false,
+  "productionChanged": false
+}

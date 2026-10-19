@@ -20,6 +20,8 @@ import './product-fonts.css';
 import { NextIntlClientProvider } from 'next-intl';
 import { createRoot } from 'react-dom/client';
 
+import { AiWebsiteIntro } from '@/features/business-setup/AiWebsiteIntro';
+import { OpenAiBuilder } from '@/features/business-setup/OpenAiBuilder';
 import type { OnboardingClaimSuccess } from '@/features/onboarding-v1-integration/contracts';
 import { createOnboardingIntegrationFlow, saveOnboardingIntegrationFlow } from '@/features/onboarding-v1-integration/flow-storage';
 import { OnboardingV1Integration } from '@/features/onboarding-v1-integration/OnboardingV1Integration';
@@ -33,6 +35,9 @@ import { ONBOARDING_STORAGE_KEY, saveOnboardingState } from '../../../prototypes
 // Real integration and offer components; isolated identity and status response.
 // No account, entitlement, credit or provider writes.
 const startup = new URLSearchParams(location.search).has('startup');
+const aiBuilder = new URLSearchParams(location.search).has('aiBuilder');
+const aiIntro = new URLSearchParams(location.search).has('aiIntro');
+const aiOwner = new URLSearchParams(location.search).has('aiOwner');
 if (new URLSearchParams(location.search).has('productFonts')) {
   document.documentElement.dataset.productFonts = 'true';
 } else {
@@ -80,7 +85,11 @@ if (!startup) {
   localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(initializeStarter('one_page', { siteId: 'local-site', siteName: state.profile.businessName })));
   saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'saved', mediaComplete: !warnings, savedSite: claim });
 }
-window.fetch = async (input) => {
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async (input, options) => {
+  if (aiIntro) {
+    return nativeFetch(input, options);
+  }
   if (String(input) === '/api/onboarding/v1/status') {
     return Response.json({ data: { claim } });
   }
@@ -88,6 +97,19 @@ window.fetch = async (input) => {
 };
 createRoot(document.getElementById('root')!).render(
   <NextIntlClientProvider locale="en" messages={en}>
-    <OnboardingV1Integration locale="en" />
+    {aiIntro
+      ? (
+          <AiWebsiteIntro locale="en" showGetStarted={!aiOwner}>
+            {aiOwner && (
+              <OpenAiBuilder
+                locale="en"
+                onNavigate={(url) => {
+                  document.body.dataset.aiDestination = url;
+                }}
+              />
+            )}
+          </AiWebsiteIntro>
+        )
+      : <OnboardingV1Integration locale="en" aiBuilderEnabled={aiBuilder} />}
   </NextIntlClientProvider>,
 );

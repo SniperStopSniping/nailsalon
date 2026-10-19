@@ -1,0 +1,16 @@
+{
+  "operationId": "f820ed6f-1074-4dca-bea0-3929c391562d",
+  "beforeRevision": 24,
+  "afterRevision": 25,
+  "artifactId": "b59762ab-7674-42b3-b103-3e9a13c90faf",
+  "cssPreserved": true,
+  "javascriptPreserved": true,
+  "businessAndBookingPreserved": true,
+  "servicesPreserved": true,
+  "paidCalls": 0,
+  "actualTapVerified": true,
+  "openerIsolated": true,
+  "resume": true,
+  "budgetCad": 39.211042,
+  "productionChanged": false
+}

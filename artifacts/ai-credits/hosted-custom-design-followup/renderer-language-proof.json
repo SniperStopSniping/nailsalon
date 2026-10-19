@@ -1,0 +1,15 @@
+{
+  "rendererSourceSha": "a49125a66435a76f91465697672416841df013d9",
+  "applicationSourceSha": "609d6329a24084ad46e7640514cff2b2deb5687e",
+  "generatedRevision": 22,
+  "documentLanguage": "en",
+  "violations": [],
+  "incomplete": [
+    {
+      "id": "color-contrast",
+      "nodes": 5
+    }
+  ],
+  "fullAccessibilityPassClaimed": false,
+  "productionTouched": false
+}

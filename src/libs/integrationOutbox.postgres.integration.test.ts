@@ -11,27 +11,26 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  attestDisposableDatabaseSession,
+  type DisposableDatabaseTarget,
+  requireDisposableDatabaseTarget,
+  resolveDisposableDatabaseServerExpectation,
+} from '@/libs/disposableDatabaseTarget';
 import * as schema from '@/models/Schema';
 
 const RAW_URL = process.env.CONCURRENCY_TEST_DATABASE_URL ?? '';
-let parsedUrl: URL | null = null;
-try {
-  parsedUrl = RAW_URL ? new URL(RAW_URL) : null;
-} catch {
-  parsedUrl = null;
+const REQUIRED = process.env.GOOGLE_OUTBOX_PG_REQUIRED === 'true';
+let disposableTarget: DisposableDatabaseTarget | null = null;
+if (RAW_URL) {
+  disposableTarget = requireDisposableDatabaseTarget({ ...process.env, DATABASE_URL: RAW_URL });
+} else if (REQUIRED) {
+  throw new Error('Google outbox PostgreSQL coverage requires CONCURRENCY_TEST_DATABASE_URL.');
 }
-const databaseName = parsedUrl
-  ? decodeURIComponent(parsedUrl.pathname).replace(/^\//, '')
-  : '';
 const CHILD_RECLAIMER_TEST_NAME
   = 'child-process production reclaimer respects the live provider session lock';
 const IS_CHILD_RECLAIMER
   = process.env.GOOGLE_FENCE_CHILD_RECLAIMER === 'true';
-const IS_LOCAL_THROWAWAY = parsedUrl !== null
-  && ['127.0.0.1', 'localhost'].includes(parsedUrl.hostname)
-  && parsedUrl.username === 'qa'
-  && databaseName === 'luster_qa'
-  && !RAW_URL.includes('neon.tech');
 
 vi.mock('server-only', () => ({}));
 
@@ -104,6 +103,7 @@ let eventHook: ((args: {
 let remoteEvents = new Map<string, RemoteEvent>();
 let remoteRevision = 0;
 let mutationTransportCalls = 0;
+let executedTests = 0;
 
 async function runProductionReclaimerInIndependentProcess(jobId: string) {
   const vitestEntry = path.resolve(process.cwd(), 'node_modules/vitest/vitest.mjs');
@@ -142,6 +142,10 @@ async function runProductionReclaimerInIndependentProcess(jobId: string) {
   if (!processId) {
     throw new Error(`Independent production reclaimer emitted no PID marker: ${stdout}`);
   }
+  if (!stdout.includes('GOOGLE_OUTBOX_CHILD_POSTGRES_TESTS_EXECUTED=1')) {
+    throw new Error('Independent production reclaimer did not execute its required child case.');
+  }
+  process.stdout.write('GOOGLE_OUTBOX_CHILD_POSTGRES_TESTS_EXECUTED=1\n');
   return Number(processId);
 }
 
@@ -266,23 +270,20 @@ function calendarInput(mutationVersion: string, eventId?: string) {
   };
 }
 
-const suite = IS_LOCAL_THROWAWAY ? describe : describe.skip;
+const suite = disposableTarget ? describe : describe.skip;
 
 suite('Google outbox PostgreSQL fences', () => {
   beforeAll(async () => {
-    pool = new pg.Pool({
-      connectionString: RAW_URL,
-      max: 10,
-      application_name: 'codex-google-outbox-fence-test',
-    });
-    const safety = await pool.query<{ database_name: string; database_user: string }>(
-      'SELECT current_database() AS database_name, current_user AS database_user',
-    );
-    if (
-      safety.rows[0]?.database_name !== 'luster_qa'
-      || safety.rows[0]?.database_user !== 'qa'
-    ) {
-      throw new Error('REFUSING_NON_THROWAWAY_POSTGRES');
+    if (!disposableTarget) {
+      throw new Error('Disposable target absent inside active Google outbox suite.');
+    }
+    const expectedServer = resolveDisposableDatabaseServerExpectation(disposableTarget);
+    pool = new pg.Pool({ connectionString: disposableTarget.connectionString, max: 10 });
+    const client = await pool.connect();
+    try {
+      await attestDisposableDatabaseSession(client, disposableTarget, expectedServer);
+    } finally {
+      client.release();
     }
     db = drizzle(pool, { schema });
     holder.db = db;
@@ -305,6 +306,7 @@ suite('Google outbox PostgreSQL fences', () => {
   }, 60_000);
 
   beforeEach(async () => {
+    executedTests += 1;
     if (IS_CHILD_RECLAIMER) {
       vi.stubGlobal('fetch', vi.fn(providerFetch));
       return;
@@ -352,6 +354,12 @@ suite('Google outbox PostgreSQL fences', () => {
   afterAll(async () => {
     vi.unstubAllGlobals();
     await pool?.end();
+
+    expect(executedTests).toBe(IS_CHILD_RECLAIMER ? 1 : 7);
+
+    process.stdout.write(IS_CHILD_RECLAIMER
+      ? `GOOGLE_OUTBOX_CHILD_POSTGRES_TESTS_EXECUTED=${executedTests}\n`
+      : `GOOGLE_OUTBOX_PARENT_POSTGRES_TESTS_EXECUTED=${executedTests}\n`);
   });
 
   (IS_CHILD_RECLAIMER ? it : it.skip)(CHILD_RECLAIMER_TEST_NAME, async () => {

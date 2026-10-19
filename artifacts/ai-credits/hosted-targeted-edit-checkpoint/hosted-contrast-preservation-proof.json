@@ -1,0 +1,12 @@
+{
+  "revision": 24,
+  "artifactId": "95e03ac8-2fd3-4c23-8d4a-305af5a49063",
+  "beforeSourceHash": "032a92d14f612554314237eba6f104a9ea585f8fcd560b534bec986beffafe11",
+  "afterSourceHash": "8d3e1f49905161e9a705875756313029163307b53ca8513895c0714e24324e84",
+  "language": "en",
+  "manualWordingPreserved": true,
+  "businessHoursBookingServicesStaffAndContentUnchanged": true,
+  "manualGeneratedSourceRepair": false,
+  "sourceSha": "eb7327ce3913400195d9ff210690a60b8bd9dbde",
+  "productionTouched": false
+}

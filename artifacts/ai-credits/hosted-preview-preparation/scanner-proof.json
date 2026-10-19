@@ -1,0 +1,18 @@
+{
+  "historyBase": "8265697f041e1f6e3adc6462dabef8ba3523384c",
+  "historyHead": "37459a5e27cafb04c6afd217689004f3f600d85f",
+  "trackedFiles": 4918,
+  "generatedFiles": 0,
+  "reviewedCommits": 158,
+  "exitCode": 0,
+  "scannerTests": {
+    "passed": 36,
+    "failed": 0,
+    "skipped": 0
+  },
+  "verifiedHistoricalDigestCommit": "10bf877e539f47cd8fb57b2ef12fb9b5779534d4",
+  "exactPathKeyValueBinding": true,
+  "changedMovedAndAdjacentSecretsRejected": true,
+  "historyRewritten": false,
+  "broadExemptionAdded": false
+}

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { beginPublicBookingAttempt, clearPublicBookingAttempt, clearResolvedPublicBookingAttempt, readPublicBookingAttempt, recoverPublicBookingAttempt, resolvePublicBookingAttempt } from './publicBookingRecovery.client';
+import { beginPublicBookingAttempt, clearPublicBookingAttempt, clearResolvedPublicBookingAttempt, markPublicBookingAttemptSafeToRetry, readPublicBookingAttempt, recoverPublicBookingAttempt, resolvePublicBookingAttempt } from './publicBookingRecovery.client';
 
 const attemptId = '123e4567-e89b-12d3-a456-426614174000';
 const receipt = { data: { appointmentId: 'appointment-a', appointment: { id: 'appointment-a', status: 'confirmed' } } };
@@ -29,6 +29,19 @@ describe('manual booking receipt recovery', () => {
     expect(readPublicBookingAttempt('b')).toBeNull();
   });
 
+  it('permits only an explicitly safe v2 attempt to resume with the exact original identity', () => {
+    const first = beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath: '/book/confirm' });
+
+    expect(markPublicBookingAttemptSafeToRetry('a', attemptId, first.recoveryKey)).toBe(true);
+    expect(readPublicBookingAttempt('a')).toMatchObject({ safeToRetry: true, attemptId, recoveryKey: first.recoveryKey });
+    expect(beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath: '/book/confirm' })).toEqual(
+      expect.objectContaining({ attemptId, recoveryKey: first.recoveryKey, startedAt: first.startedAt, safeToRetry: true }),
+    );
+    expect(() => beginPublicBookingAttempt({ salonId: 'a', attemptId: crypto.randomUUID(), confirmationPath: '/book/confirm' }))
+      .toThrow('BOOKING_RECOVERY_REQUIRED');
+    expect(markPublicBookingAttemptSafeToRetry('a', crypto.randomUUID(), first.recoveryKey)).toBe(false);
+  });
+
   it('reconciles lost success by reads without ever resubmitting creation', async () => {
     vi.useFakeTimers();
     beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath: '/book/confirm' });
@@ -42,6 +55,18 @@ describe('manual booking receipt recovery', () => {
     expect(readPublicBookingAttempt('a')?.state).toBe('resolved');
     expect(vi.mocked(fetch).mock.calls.every(([url]) => String(url).endsWith('/status'))).toBe(true);
     expect(JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string).attemptId).toBe(attemptId);
+  });
+
+  it('returns the locked pending state as explicit permission to retry the same v2 attempt', async () => {
+    const attempt = beginPublicBookingAttempt({ salonId: 'a', attemptId, confirmationPath: '/book/confirm' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ kind: 'pending' }) }));
+
+    await expect(recoverPublicBookingAttempt('a')).resolves.toEqual({ kind: 'pending' });
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string)).toMatchObject({
+      attemptId,
+      recoveryKey: attempt.recoveryKey,
+      version: 2,
+    });
   });
 
   it('retains unknown outcomes after failed reads and repeated recovery', async () => {
