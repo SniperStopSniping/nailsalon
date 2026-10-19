@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import type { CustomSiteBookingPolicy } from './booking-policy';
 import { canvaDesignSchema } from './canva';
 import type { WebsiteDetails } from './website-details';
 
@@ -38,6 +39,7 @@ export type CustomSiteData = {
   business: { name: string; city: string; address: string | null; bio: string; hours: Record<string, { open: string; close: string } | null>; hoursLabel?: string };
   services: { id: string; name: string; description: string | null; priceCents: number; priceLabel: string; durationMinutes: number }[];
   bookingRules?: Record<string, unknown>;
+  bookingPolicy?: CustomSiteBookingPolicy | null;
   details?: WebsiteDetails;
   currency: string;
   preview: boolean;

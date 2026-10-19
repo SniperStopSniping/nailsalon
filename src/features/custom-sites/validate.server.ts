@@ -9,7 +9,7 @@ import { customSiteSourceSchema } from './contracts';
 
 const TAGS = new Set('main section article aside header footer nav div span p h1 h2 h3 h4 h5 h6 strong em b i small br hr ul ol li dl dt dd figure figcaption blockquote button a img picture details summary template label time mark svg path circle ellipse rect line polyline polygon g title desc'.split(' '));
 const ATTRS = new Set('id class role title alt width height viewBox viewbox preserveAspectRatio preserveaspectratio d fill stroke stroke-width stroke-linecap stroke-linejoin cx cy r rx ry x y x1 y1 x2 y2 points transform opacity tabindex hidden open type'.split(' '));
-const FIELDS = new Set(['business.name', 'business.city', 'business.address', 'business.bio', 'business.hoursLabel', 'service.name', 'service.description', 'service.priceLabel', 'service.durationMinutes']);
+const FIELDS = new Set(['business.name', 'business.city', 'business.address', 'business.bio', 'business.hoursLabel', 'service.name', 'service.description', 'service.priceLabel', 'service.durationMinutes', 'booking.policyTitle', 'booking.policyText']);
 const IMAGE_HINTS: Record<string, readonly string[]> = { loading: ['lazy', 'eager'], decoding: ['async', 'sync', 'auto'], fetchpriority: ['high', 'low', 'auto'] };
 type SourceNode = { tagName?: string; attrs?: { name: string; value: string }[]; childNodes?: SourceNode[]; content?: SourceNode };
 
@@ -112,6 +112,9 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
         continue;
       }
       if (attr.name === 'data-luster-link' && node.tagName === 'a' && ['instagram', 'email', 'phone'].includes(attr.value)) {
+        continue;
+      }
+      if (attr.name === 'data-luster-booking-policy' && attr.value === '' && ['section', 'article', 'aside', 'div'].includes(node.tagName ?? '')) {
         continue;
       }
       if (attr.name === 'data-luster-canva-area' && ['a', 'button'].includes(node.tagName ?? '') && source.canva?.areas.some(area => area.id === attr.value)) {

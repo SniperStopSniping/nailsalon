@@ -77,6 +77,15 @@
     root.querySelectorAll('[data-luster-field^="details."]').forEach((node) => {
       node.textContent = String(detailText[node.dataset.lusterField.slice(8)] ?? '');
     });
+    // Policy visibility is determined on the server from the canonical booking
+    // settings. Removing it later must clear old source text, not leave a copy.
+    const policy = data.bookingPolicy;
+    root.querySelectorAll('[data-luster-field^="booking."]').forEach((node) => {
+      node.textContent = String((node.dataset.lusterField === 'booking.policyTitle' ? policy?.title : policy?.text) ?? '');
+    });
+    root.querySelectorAll('[data-luster-booking-policy]').forEach((node) => {
+      node.hidden = !policy?.text;
+    });
     // Only trusted contact bindings can navigate; generated hrefs remain forbidden.
     root.querySelectorAll('a[data-luster-link]').forEach((node) => {
       const kind = node.dataset.lusterLink;

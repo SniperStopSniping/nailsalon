@@ -15,12 +15,13 @@ import { customSiteArtifactSchema as artifacts, customSiteGenerationSchema as jo
 
 import { storeCustomArtifact } from './artifacts.server';
 import { assertWebsiteAssetBudget, assetDataUrl, ownedAssets } from './assets.server';
+import { publicCustomSiteBookingPolicy } from './booking-policy';
 import { generateCanvaSource } from './canva-generate.server';
 import { bindWebsiteContacts } from './contacts.server';
 import { customSiteGenerateSchema, customSiteSourceSchema } from './contracts';
 import { CUSTOM_SITE_OUTPUT_SCHEMA, CUSTOM_SITE_PROMPT } from './prompt';
 import { validateCustomSource } from './validate.server';
-import { assertWebsiteDetailsCoverage } from './website-coverage.server';
+import { assertBookingPolicyCoverage, assertWebsiteDetailsCoverage } from './website-coverage.server';
 
 // Each paid generation is admitted only after exact multimodal token counting.
 const MAX_OUTPUT = 14000;
@@ -88,7 +89,8 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
         // Reject oversized legacy selections before token counting/reservation,
         // provider calls or paid repair, rather than after generating a design.
         assertWebsiteAssetBudget(media);
-        const context = JSON.stringify({ websiteDetails: document.website.content.websiteDetails, business: { ...previewBusinessIdentity(document), address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
+        const publicBookingPolicy = publicCustomSiteBookingPolicy(document.bookingPolicy);
+        const context = JSON.stringify({ publicBookingPolicy, websiteDetails: document.website.content.websiteDetails, business: { ...previewBusinessIdentity(document), address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
         if (Buffer.byteLength(context + CUSTOM_SITE_PROMPT + input.message) > 140000) {
           throw new SetupError('INVALID', 'This design is too large for one generation. Simplify the saved source first.');
         }
@@ -119,6 +121,7 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
             }
             source = validateCustomSource(bindWebsiteContacts(source, document.website.content.websiteDetails), allowedImages, true);
             assertWebsiteDetailsCoverage(source.html, document.website.content.websiteDetails);
+            assertBookingPolicyCoverage(source.html, publicBookingPolicy);
             await db.update(calls).set({ validation: 'passed' }).where(eq(calls.id, callId));
             break;
           } catch (error) {

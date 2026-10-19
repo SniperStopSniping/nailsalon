@@ -7,8 +7,10 @@ import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { assertAiCreditExecution } from '@/features/ai-credits/context.server';
 import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
 import { ownedAssets } from '@/features/custom-sites/assets.server';
+import { publicCustomSiteBookingPolicy } from '@/features/custom-sites/booking-policy';
 import { canvaDraftBlockers } from '@/features/custom-sites/canva-data.server';
 import { customSourceImageIds } from '@/features/custom-sites/validate.server';
+import { assertBookingPolicyCoverage } from '@/features/custom-sites/website-coverage.server';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
@@ -489,6 +491,16 @@ export async function reviewSetupHead(tx: SetupTransaction, head: Awaited<Return
   if (id) {
     const { artifact } = await assertCustomArtifact(tx, head.workspace.salonId, id);
     review.blockers.push(...canvaDraftBlockers(head.revision.document, artifact.source));
+    if (!artifact.source.canva) {
+      try {
+        assertBookingPolicyCoverage(artifact.source.html, publicCustomSiteBookingPolicy(head.revision.document.bookingPolicy));
+      } catch (error) {
+        if (!(error instanceof SetupError) || error.code !== 'INVALID') {
+          throw error;
+        }
+        review.blockers.push('Your website design needs to include your saved booking policy. Ask Luster to add it before publishing.');
+      }
+    }
   }
   return review;
 }

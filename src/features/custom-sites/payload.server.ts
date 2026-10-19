@@ -8,6 +8,7 @@ import { db } from '@/libs/DB';
 
 import { assertCustomArtifact } from './artifacts.server';
 import { assetDataUrl } from './assets.server';
+import { publicCustomSiteBookingPolicy } from './booking-policy';
 import { canvaFactsMatch, canvaServiceKey } from './canva-data.server';
 import type { CustomSiteData, CustomSitePayload, CustomSiteSource } from './contracts';
 import { customSiteDataFromSetup } from './setup-data';
@@ -38,6 +39,7 @@ export function customSiteRendererOrigin() {
   }
 }
 export async function customSitePayload(salonId: string, artifactId: string, data: CustomSiteData): Promise<CustomSitePayload> {
+  data = { ...data, bookingPolicy: publicCustomSiteBookingPolicy(data.bookingRules?.policy) };
   const { artifact, media } = await assertCustomArtifact(db, salonId, artifactId);
   if (artifact.source.canva && !data.preview && (!artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, data))) {
     // Never serialize stale raster text/bytes, including an address the owner

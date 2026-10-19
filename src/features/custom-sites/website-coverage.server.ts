@@ -4,6 +4,7 @@ import { parseFragment } from 'parse5';
 
 import { SetupError } from '@/features/business-setup/contracts';
 
+import type { CustomSiteBookingPolicy } from './booking-policy';
 import { CONTACT_KINDS, recoverSavedContacts } from './contacts.server';
 import type { WebsiteDetails } from './website-details';
 
@@ -53,5 +54,31 @@ export function assertWebsiteDetailsCoverage(html: string, details?: WebsiteDeta
   }
   if (missing.length) {
     throw new SetupError('INVALID', `Include these missing saved details using their bindings: ${missing.join(', ')}.`);
+  }
+}
+
+/** A policy must stay bound to the same approved text as the booking flow. */
+export function assertBookingPolicyCoverage(html: string, policy: CustomSiteBookingPolicy | null) {
+  if (!policy) {
+    return;
+  }
+  const fields = new Set<string>();
+  function visit(node: any, insidePolicy = false) {
+    if (node.tagName === 'template' || node.attrs?.some((a: any) => a.name === 'hidden' || (a.name === 'aria-hidden' && a.value === 'true'))) {
+      return;
+    }
+    insidePolicy ||= node.attrs?.some((a: any) => a.name === 'data-luster-booking-policy') === true;
+    for (const attr of node.attrs ?? []) {
+      if (insidePolicy && attr.name === 'data-luster-field') {
+        fields.add(attr.value);
+      }
+    }
+    for (const child of node.childNodes ?? []) {
+      visit(child, insidePolicy);
+    }
+  }
+  visit(parseFragment(html));
+  if (!fields.has('booking.policyTitle') || !fields.has('booking.policyText')) {
+    throw new SetupError('INVALID', 'Include the saved booking policy using booking.policyTitle and booking.policyText inside a visible data-luster-booking-policy section.');
   }
 }

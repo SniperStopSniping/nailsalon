@@ -7,8 +7,9 @@ import { z } from 'zod';
 
 import { assertCustomArtifact } from '@/features/custom-sites/artifacts.server';
 import { assetDataUrl } from '@/features/custom-sites/assets.server';
+import { publicCustomSiteBookingPolicy } from '@/features/custom-sites/booking-policy';
 import { customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
-import { assertWebsiteDetailsCoverage } from '@/features/custom-sites/website-coverage.server';
+import { assertBookingPolicyCoverage, assertWebsiteDetailsCoverage } from '@/features/custom-sites/website-coverage.server';
 import { db } from '@/libs/DB';
 import { prepareDepositActivation } from '@/libs/depositActivation.server';
 import { checkEndpointRateLimit } from '@/libs/rateLimit';
@@ -108,6 +109,9 @@ export async function publishSetup(actor: SetupActor, raw: unknown) {
       }
       const { artifact } = await assertCustomArtifact(tx, salon.id, draft.website.config.customFrontendId);
       assertWebsiteDetailsCoverage(artifact.source.html, draft.website.content.websiteDetails);
+      if (!artifact.source.canva) {
+        assertBookingPolicyCoverage(artifact.source.html, publicCustomSiteBookingPolicy(draft.bookingPolicy));
+      }
       if (draft.business.exactAddress && draft.business.locationDisplayMode !== 'full_address' && JSON.stringify(artifact.source).toLowerCase().includes(draft.business.exactAddress.toLowerCase())) {
         throw new SetupError('INVALID', 'Remove your private address from the design before publishing.');
       }

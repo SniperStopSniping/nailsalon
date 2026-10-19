@@ -872,6 +872,95 @@ describe('approved model costs', () => {
 describe('metered owner generation and automatic repair', () => {
   const response = (source: unknown, usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | null = { inputTokens: 2000, outputTokens: 1000, cachedInputTokens: 0 }) => ({ status: 'completed' as const, usage, items: [{ type: 'message' as const, text: JSON.stringify(source) }] });
 
+  it('repairs missing public policy bindings, then keeps later policy edits independent of generated source', async () => {
+    const actor = await fixture();
+    const policy = { enabled: true, title: 'Before your visit', text: 'Please arrive on time.\nContact us to cancel.', showOnServicePage: true, showBeforeConfirmation: true, showAfterConfirmation: false, showInConfirmationEmail: true, acknowledgment: { required: true, text: 'I agree to the policy.' } };
+    const initial = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: policy }] });
+    const connected = { ...editorialSource, html: `${editorialSource.html}<section data-luster-booking-policy><h2 data-luster-field="booking.policyTitle"></h2><p data-luster-field="booking.policyText"></p></section>` };
+    const createResponse = vi.fn().mockResolvedValueOnce(response(editorialSource)).mockResolvedValueOnce(response(connected));
+    const generated = await generateCustomSite(actor, { expectedRevision: initial.revision.revision, operationId: randomUUID(), message: 'Create the website with my saved details.', referenceIds: [] }, { createResponse });
+    const context = JSON.parse(createResponse.mock.calls[0]![0].input.find((item: any) => item.role === 'developer').content);
+
+    expect(context.publicBookingPolicy).toEqual({ title: policy.title, text: policy.text });
+    expect(JSON.stringify(context)).not.toContain('I agree to the policy.');
+    expect(createResponse).toHaveBeenCalledTimes(2);
+    expect(createResponse.mock.calls[1]![0].input.at(-1).content).toContain('saved booking policy');
+    expect((await reviewSetup(actor)).blockers).toEqual([]);
+    expect(customSiteDataFromSetup(generated.head.revision.document).bookingPolicy).toEqual({ title: policy.title, text: policy.text });
+
+    const edited = await editSetup(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: { ...policy, text: 'Contact us if you need to cancel.' } }] });
+
+    expect(edited.revision.document.website.config.customFrontendId).toBe(generated.artifactId);
+    expect(customSiteDataFromSetup(edited.revision.document).bookingPolicy?.text).toBe('Contact us if you need to cancel.');
+    expect(createResponse).toHaveBeenCalledTimes(2);
+
+    const [live] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(JSON.stringify(live?.settings)).not.toContain('Contact us if you need to cancel.');
+
+    const hidden = await editSetup(actor, { expectedRevision: edited.revision.revision, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: { ...policy, showOnServicePage: false } }] });
+
+    expect(customSiteDataFromSetup(hidden.revision.document).bookingPolicy).toBeNull();
+    expect(hidden.revision.document.website.config.customFrontendId).toBe(generated.artifactId);
+  });
+
+  it('keeps confirmation-only policy copy out of generation and blocks approval of a newly visible unbound policy', async () => {
+    const actor = await fixture();
+    const policy = { enabled: true, title: 'Booking agreement', text: 'Confirmation-only copy', showOnServicePage: false, showBeforeConfirmation: true, showAfterConfirmation: false, showInConfirmationEmail: true };
+    const initial = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: policy }] });
+    const createResponse = vi.fn().mockResolvedValue(response(editorialSource));
+    const generated = await generateCustomSite(actor, { expectedRevision: initial.revision.revision, operationId: randomUUID(), message: 'Create the website.', referenceIds: [] }, { createResponse });
+    const context = JSON.parse(createResponse.mock.calls[0]![0].input.find((item: any) => item.role === 'developer').content);
+
+    expect(context.publicBookingPolicy).toBeNull();
+    expect(JSON.stringify(context)).not.toContain(policy.text);
+
+    await editSetup(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: { ...policy, showOnServicePage: true } }] });
+    const review = await reviewSetup(actor);
+
+    expect(review.blockers).toContain('Your website design needs to include your saved booking policy. Ask Luster to add it before publishing.');
+    await expect(approveSetup(actor, review.revision, review.hash)).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('publishes an exact policy revision idempotently and leaves later draft wording private', async () => {
+    const actor = await fixture();
+    const policy = { enabled: true, title: 'Before your visit', text: 'Please arrive on time.', showOnServicePage: true, showBeforeConfirmation: true, showAfterConfirmation: false, showInConfirmationEmail: true };
+    const initial = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: policy }] });
+    const connected = { ...editorialSource, html: `${editorialSource.html}<section data-luster-booking-policy><h2 data-luster-field="booking.policyTitle"></h2><p data-luster-field="booking.policyText"></p></section>` };
+    const generated = await generateCustomSite(actor, { expectedRevision: initial.revision.revision, operationId: randomUUID(), message: 'Create my site.', referenceIds: [] }, { createResponse: vi.fn().mockResolvedValue(response(connected)) });
+    const previous = { render: process.env.CUSTOM_SITE_RENDER_ORIGIN, app: process.env.NEXT_PUBLIC_APP_URL, verified: process.env.CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED };
+    vi.stubEnv('CUSTOM_SITE_RENDER_ORIGIN', 'https://renderer.example.net');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://luster.example.com');
+    vi.stubEnv('CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED', 'true');
+    try {
+      const review = await reviewSetup(actor);
+      const approval = await approveSetup(actor, review.revision, review.hash);
+      const input = { revision: review.revision, approvalId: approval.id, operationId: randomUUID() };
+      const published = await publishSetup(actor, input);
+
+      expect((await publishSetup(actor, input)).receipt.id).toBe(published.receipt.id);
+
+      const reopened = await restartSetup(actor, generated.head.revision.revision);
+      const edited = await editSetup(actor, { expectedRevision: reopened.revision.revision, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: { ...policy, text: 'Updated, unapproved draft policy.' } }] });
+      const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+      const snapshot = await database.transaction(tx => readSetupSnapshot(tx, salon!));
+      const live = await customSitePayload(actor.salonId, generated.artifactId, { ...customSiteDataFromSetup(snapshot.document), preview: false });
+      const preview = await customSitePayload(actor.salonId, generated.artifactId, customSiteDataFromSetup(edited.revision.document));
+      const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+
+      expect(live.data.bookingPolicy).toEqual({ title: policy.title, text: policy.text });
+      expect(preview.data.bookingPolicy?.text).toBe('Updated, unapproved draft policy.');
+      expect(preview.source).toEqual(artifact!.source);
+      expect(live.source.html).toBe(preview.source.html);
+      expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(1);
+    } finally {
+      vi.stubEnv('CUSTOM_SITE_RENDER_ORIGIN', previous.render);
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', previous.app);
+      vi.stubEnv('CUSTOM_SITE_ISOLATED_ORIGIN_VERIFIED', previous.verified);
+    }
+  });
+
   it('starts with no previous source, preserves business setup and keeps the earlier design restorable', async () => {
     const actor = await fixture();
     const original = await saveCustomSource(actor, { source: editorialSource, assetIds: [], expectedRevision: 2, operationId: randomUUID() });

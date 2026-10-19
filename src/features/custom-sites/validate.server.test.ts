@@ -5,6 +5,14 @@ import { validateCustomSource } from './validate.server';
 vi.mock('server-only', () => ({}));
 const source = { title: 'Original', html: '<main><h1 data-luster-field="business.name"></h1><div data-luster-services></div><template data-luster-service><article><span data-luster-field="service.name"></span><button data-luster-book>Book</button></article></template></main>', css: 'main{display:grid;grid-template-columns:2fr 1fr}@media(max-width:600px){main{display:block}}', javascript: '', analysis: '', limitations: [] };
 
+it('allows only explicit public policy bindings and the trusted visibility marker', () => {
+  const html = `${source.html}<section data-luster-booking-policy><h2 data-luster-field="booking.policyTitle"></h2><p data-luster-field="booking.policyText"></p></section>`;
+
+  expect(validateCustomSource({ ...source, html }, new Set()).html).toContain('booking.policyText');
+  expect(() => validateCustomSource({ ...source, html: html.replace('booking.policyText', 'booking.acknowledgment') }, new Set())).toThrow('unsupported attribute');
+  expect(() => validateCustomSource({ ...source, html: html.replace('data-luster-booking-policy', 'data-luster-booking-policy="false"') }, new Set())).toThrow('unsupported attribute');
+});
+
 describe('custom frontend source validation', () => {
   it('keeps legacy source hashes compatible and preserves valid declared document languages', () => {
     expect(Object.hasOwn(validateCustomSource(source, new Set()), 'language')).toBe(false);
