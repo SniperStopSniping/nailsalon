@@ -3115,6 +3115,7 @@ test('unpublished non-free-solo owner previews stay private until confirmed webs
 
     try {
       const impersonation = await ownerContext.request.post('/api/super-admin/impersonate', {
+        headers: { Origin: e2eOrigin },
         data: { salonId: SYNTHETIC_SALON_ID },
       });
 
@@ -3196,7 +3197,7 @@ test('unpublished non-free-solo owner previews stay private until confirmed webs
 
       const layoutPublish = await ownerContext.request.post(
         `/api/admin/booking-page?salonSlug=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}`,
-        { data: { action: 'publish' } },
+        { headers: { Origin: e2eOrigin }, data: { action: 'publish' } },
       );
 
       expect(layoutPublish.status()).toBe(200);
@@ -3276,7 +3277,9 @@ test('unpublished non-free-solo owner previews stay private until confirmed webs
     } finally {
       try {
         if (impersonating) {
-          const stopped = await ownerContext.request.delete('/api/super-admin/impersonate');
+          const stopped = await ownerContext.request.delete('/api/super-admin/impersonate', {
+            headers: { Origin: e2eOrigin },
+          });
 
           expect(stopped.ok(), await stopped.text()).toBe(true);
         }
@@ -3386,6 +3389,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
 
     try {
       const impersonation = await ownerContext.request.post('/api/super-admin/impersonate', {
+        headers: { Origin: e2eOrigin },
         data: { salonId: SYNTHETIC_SALON_ID },
       });
 
@@ -3634,7 +3638,9 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
     } finally {
       try {
         if (impersonating) {
-          const stopImpersonation = await ownerContext.request.delete('/api/super-admin/impersonate');
+          const stopImpersonation = await ownerContext.request.delete('/api/super-admin/impersonate', {
+            headers: { Origin: e2eOrigin },
+          });
 
           expect(stopImpersonation.ok(), await stopImpersonation.text()).toBe(true);
         }
@@ -3844,6 +3850,7 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
 
     try {
       const impersonation = await ownerContext.request.post('/api/super-admin/impersonate', {
+        headers: { Origin: e2eOrigin },
         data: { salonId: SYNTHETIC_SALON_ID },
       });
 
@@ -4039,7 +4046,9 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
     } finally {
       try {
         if (impersonating) {
-          const stopImpersonation = await ownerContext.request.delete('/api/super-admin/impersonate');
+          const stopImpersonation = await ownerContext.request.delete('/api/super-admin/impersonate', {
+            headers: { Origin: e2eOrigin },
+          });
 
           expect(stopImpersonation.ok(), await stopImpersonation.text()).toBe(true);
         }

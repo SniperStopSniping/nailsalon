@@ -30,7 +30,7 @@ test('owner edits starting prices, resumes, reviews wording and resolves a stale
   await page.route('**/api/admin/custom-sites**', route => route.fulfill({ json: { head: head(), assets: [], preferences: null, history: [], attempts: [], configured: true, payload: null, rendererOrigin: null } }));
   await page.goto('/?builder=1');
   await page.getByRole('button', { name: 'Details', exact: true }).click();
-  const form = page.locator('form.setup-service').first();
+  const form = page.locator('form.setup-service').filter({ has: page.getByRole('textbox', { name: 'Service', exact: true }) }).first();
   await form.getByRole('spinbutton', { name: 'Price', exact: true }).fill('75');
   await form.getByRole('button', { name: 'Save service' }).click();
 
