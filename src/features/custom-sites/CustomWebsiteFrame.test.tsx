@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { compileCanvaDesign } from './canva';
@@ -21,6 +22,50 @@ afterEach(() => {
 });
 
 describe('custom website trusted parent bridge', () => {
+  it('does not start the server-rendered frame before hydration installs its bridge', () => {
+    const markup = renderToString(<CustomWebsiteFrame payload={payload} rendererOrigin="https://renderer.example" />);
+    const serverContainer = document.createElement('div');
+    serverContainer.innerHTML = markup;
+    const serverFrame = serverContainer.querySelector('iframe')!;
+
+    expect(serverFrame).not.toHaveAttribute('src');
+    expect(serverFrame).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+
+    render(<CustomWebsiteFrame payload={payload} rendererOrigin="https://renderer.example" />);
+
+    expect(screen.getByTitle('Custom site')).toHaveAttribute('src', 'https://renderer.example/renderer');
+  });
+
+  it('loads a changed draft into a fresh session and rejects the previous session acknowledgement', () => {
+    const { rerender } = render(<CustomWebsiteFrame payload={payload} rendererOrigin="https://renderer.example" />);
+    const frame = screen.getByTitle('Custom site') as HTMLIFrameElement;
+    const firstSend = vi.spyOn(frame.contentWindow!, 'postMessage');
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'renderer-ready' } })));
+    const oldChannel = firstSend.mock.calls[0]![0].channel;
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'rendered', channel: oldChannel } })));
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    const next = { ...payload, source: { ...payload.source, title: 'New saved design' }, data: { ...payload.data, preview: true } };
+    rerender(<CustomWebsiteFrame payload={next} rendererOrigin="https://renderer.example" />);
+    const currentFrame = screen.getByTitle('New saved design') as HTMLIFrameElement;
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: currentFrame.contentWindow, origin: 'null', data: { type: 'rendered', channel: oldChannel } })));
+
+    expect(screen.getByRole('status')).toHaveTextContent('Loading your custom website');
+
+    const nextSend = vi.spyOn(currentFrame.contentWindow!, 'postMessage');
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: currentFrame.contentWindow, origin: 'null', data: { type: 'renderer-ready' } })));
+    const initialization = nextSend.mock.calls[0]![0];
+
+    expect(initialization.channel).not.toBe(oldChannel);
+    expect(initialization.payload).toEqual(next);
+    expect(initialization.payload.data.preview).toBe(true);
+
+    act(() => window.dispatchEvent(new MessageEvent('message', { source: currentFrame.contentWindow, origin: 'null', data: { type: 'rendered', channel: initialization.channel } })));
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('shows actual photo loading, reports failure and offers a safe preview reload', () => {
     vi.spyOn(nativeLoader, 'nativeImageLoader').mockReturnValue({ request: vi.fn(), dispose: vi.fn() });
     const media = { artifactId: 'a0000000-0000-4000-8000-000000000001', mediaIds: ['b0000000-0000-4000-8000-000000000001'] };

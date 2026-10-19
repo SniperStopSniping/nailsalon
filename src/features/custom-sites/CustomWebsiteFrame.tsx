@@ -7,7 +7,6 @@ import { nativeImageLoader } from './native-image-loader';
 
 export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, managePath }: { payload: CustomSitePayload; rendererOrigin: string; bookingPath?: string; managePath?: string }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const channelRef = useRef<string | null>(null);
   const rendered = useRef(false);
   const [attempt, setAttempt] = useState(0);
   const [height, setHeight] = useState(800);
@@ -24,8 +23,17 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
     return () => window.removeEventListener('resize', resize);
   }, []);
   useEffect(() => {
-    const channel = channelRef.current ?? crypto.randomUUID();
-    channelRef.current = channel;
+    const target = frame.current;
+    if (!target) {
+      return;
+    }
+    // Install the bridge before starting navigation. In particular, an SSR
+    // iframe must not begin loading while the parent is still hydrating.
+    // A new payload also needs a fresh renderer and channel, otherwise the
+    // already-initialized renderer can keep displaying the previous draft.
+    const channel = crypto.randomUUID();
+    rendered.current = false;
+    setStatus('Loading your custom website…');
     const { nativeMedia, ...rendererPayload } = payload;
     let photoFailed = false;
     let pendingPhotos = 0;
@@ -35,7 +43,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
           photoFailed = true;
           setStatus('A photo could not be loaded.');
         }
-        frame.current?.contentWindow?.postMessage({ type: 'native-image', channel, mediaId, dataUrl }, '*');
+        target.contentWindow?.postMessage({ type: 'native-image', channel, mediaId, dataUrl }, '*');
       }, (count) => {
         pendingPhotos = count;
         if (rendered.current && !photoFailed) {
@@ -48,10 +56,10 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         setStatus('The website is taking longer to load.');
       }
     }, 15000);
-    function message(event: MessageEvent) {
+    const message = (event: MessageEvent) => {
       // The sandbox deliberately has an opaque origin. Bind messages to this
       // exact frame and channel; no other salon frame can speak for it.
-      if (event.source !== frame.current?.contentWindow || event.origin !== 'null') {
+      if (event.source !== target.contentWindow || event.origin !== 'null') {
         return;
       }
       if (event.data?.type === 'renderer-ready') {
@@ -61,7 +69,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         }
         // Opaque origins cannot be named as targetOrigin. The destination is
         // exclusively the server-validated static renderer's WindowProxy.
-        frame.current?.contentWindow?.postMessage({ type: 'initialize', channel, payload: rendererPayload }, '*');
+        target.contentWindow?.postMessage({ type: 'initialize', channel, payload: rendererPayload }, '*');
         return;
       }
       if (event.data?.channel !== channel) {
@@ -106,8 +114,9 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
           }
           break;
       }
-    }
+    };
     window.addEventListener('message', message);
+    target.src = `${rendererOrigin}/renderer`;
     return () => {
       window.clearTimeout(slow);
       photos?.dispose();
@@ -116,7 +125,6 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
   }, [payload, rendererOrigin, bookingPath, managePath, attempt]);
   function reloadWebsite() {
     rendered.current = false;
-    channelRef.current = null;
     setStatus('Loading your custom website…');
     setAttempt(value => value + 1);
   }
@@ -149,7 +157,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         </div>
       )}
       {/* Separate site AND opaque origin: no cookies, persistent storage or cross-salon channels. */}
-      <iframe key={attempt} ref={frame} title={payload.source.title} src={`${rendererOrigin}/renderer`} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" style={{ width: '100%', height, border: 0, display: 'block' }} />
+      <iframe key={attempt} ref={frame} title={payload.source.title} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" style={{ width: '100%', height, border: 0, display: 'block' }} />
       {bookingHref && <p className="p-3 text-center text-sm"><a className="underline" href={bookingHref}>Open booking menu</a></p>}
     </div>
   );
