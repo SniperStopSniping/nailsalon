@@ -7,7 +7,7 @@ import { TLSSocket } from 'node:tls';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { vi } from 'vitest';
+import { beforeAll, vi } from 'vitest';
 
 import { PREVIEW_SERVICE_IMAGE_FIXTURE as FIXTURE } from '../../scripts/fixtures/preview-service-image-fixtures';
 import {
@@ -161,10 +161,32 @@ class AttestedPGlite implements FixtureDatabase {
   }
 }
 
+let migratedDataDir: Blob | File | null = null;
+
+beforeAll(async () => {
+  const template = new PGlite();
+  try {
+    await template.waitReady;
+    await migrate(drizzle(template), { migrationsFolder: path.join(process.cwd(), 'migrations') });
+    migratedDataDir = await template.dumpDataDir();
+  } finally {
+    await template.close();
+  }
+});
+
 async function migratedDatabase() {
-  const client = new PGlite();
-  await migrate(drizzle(client), { migrationsFolder: path.join(process.cwd(), 'migrations') });
-  return { client, database: new AttestedPGlite(client) };
+  if (!migratedDataDir) {
+    throw new Error('Migrated PGlite snapshot is unavailable.');
+  }
+
+  const client = new PGlite({ loadDataDir: migratedDataDir });
+  try {
+    await client.waitReady;
+    return { client, database: new AttestedPGlite(client) };
+  } catch (error) {
+    await client.close();
+    throw error;
+  }
 }
 
 async function countRows(client: PGlite, text: string, values: unknown[] = []) {
@@ -483,8 +505,7 @@ describe('Preview service-image fixture target contract', () => {
 
 describe('Preview service-image fixture behavior', () => {
   it('documents the exact migration-ledger SELECT-only role contract without ownership or role membership', async () => {
-    const client = new PGlite();
-    await migrate(drizzle(client), { migrationsFolder: path.join(process.cwd(), 'migrations') });
+    const { client } = await migratedDatabase();
     try {
       await client.query('CREATE ROLE fixture_ledger_migrator NOLOGIN');
       await client.query('CREATE ROLE fixture_ledger_reader NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT');
@@ -528,6 +549,28 @@ describe('Preview service-image fixture behavior', () => {
     } finally {
       await client.query('RESET ROLE').catch(() => {});
       await client.close();
+    }
+  });
+
+  it('restores each test database from an isolated migrated snapshot', async () => {
+    const first = await migratedDatabase();
+    try {
+      await first.client.query('CREATE TABLE snapshot_isolation_probe (id text PRIMARY KEY)');
+      await first.client.query('INSERT INTO snapshot_isolation_probe (id) VALUES ($1)', ['first-test-only']);
+    } finally {
+      await first.client.close();
+    }
+
+    const second = await migratedDatabase();
+    try {
+      const probe = await second.client.query<{ count: string }>(`SELECT count(*) AS count
+        FROM pg_catalog.pg_class relation
+        JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public' AND relation.relname = 'snapshot_isolation_probe'`);
+
+      expect(Number(probe.rows[0]!.count)).toBe(0);
+    } finally {
+      await second.client.close();
     }
   });
 

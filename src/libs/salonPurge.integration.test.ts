@@ -16,7 +16,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -45,7 +45,20 @@ const SALON = 'salon_purge_target';
 const OTHER_SALON = 'salon_purge_bystander';
 
 let client: PGlite;
+let clientOpen = false;
 let db: ReturnType<typeof drizzle<typeof schema>>;
+let migratedDataDir: Blob | File | null = null;
+
+beforeAll(async () => {
+  const template = new PGlite();
+  try {
+    await template.waitReady;
+    await migrate(drizzle(template, { schema }), { migrationsFolder: path.join(process.cwd(), 'migrations') });
+    migratedDataDir = await template.dumpDataDir();
+  } finally {
+    await template.close();
+  }
+});
 
 /**
  * Every table the purge plan touches gets at least one row, so a missing or
@@ -442,14 +455,33 @@ async function snapshot(salonId: string): Promise<Record<string, number>> {
 }
 
 beforeEach(async () => {
-  client = new PGlite();
-  await client.waitReady;
-  db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
-  holder.db = db;
+  if (!migratedDataDir) {
+    throw new Error('Migrated PGlite snapshot is unavailable.');
+  }
 
-  await seedSalon(SALON, 'target', 0);
-  await seedSalon(OTHER_SALON, 'bystander', 1);
+  client = new PGlite({ loadDataDir: migratedDataDir });
+  clientOpen = true;
+  try {
+    await client.waitReady;
+    db = drizzle(client, { schema });
+    holder.db = db;
+
+    await seedSalon(SALON, 'target', 0);
+    await seedSalon(OTHER_SALON, 'bystander', 1);
+  } catch (error) {
+    holder.db = null;
+    clientOpen = false;
+    await client.close();
+    throw error;
+  }
+});
+
+afterEach(async () => {
+  holder.db = null;
+  if (clientOpen) {
+    clientOpen = false;
+    await client.close();
+  }
 });
 
 describe('purgeSalonData', () => {
