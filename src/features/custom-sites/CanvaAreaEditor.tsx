@@ -159,6 +159,7 @@ export function CanvaAreaEditor({ payload, endpoint, disabled, onSave, onReview,
                 {Object.entries(payload.serviceKeys ?? {}).map(([key, id]) => (
                   <option key={key} value={`service:${key}`}>
                     Book
+                    {' '}
                     {payload.data.services.find(service => service.id === id)?.name}
                   </option>
                 ))}

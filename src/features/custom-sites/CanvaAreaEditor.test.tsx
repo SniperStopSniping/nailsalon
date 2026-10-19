@@ -68,3 +68,19 @@ it('keeps a manually saved contact link editable without changing its artwork or
   expect(onSave.mock.calls[0]![0].canva.areas[0].action).toEqual({ type: 'manual_link', href: 'https://www.instagram.com/updated_studio/' });
   expect(onSave.mock.calls[0]![0].canva.ownerReviewed).toBe(false);
 });
+
+it('offers readable service choices and saves the actual catalog binding', () => {
+  const input = payload();
+  const key = 'b'.repeat(64);
+  input.data.services = [{ id: 'authorized-live-service', name: 'Gel Manicure', description: null, priceCents: 6500, priceLabel: '$65', durationMinutes: 60 }];
+  input.serviceKeys = { [key]: 'authorized-live-service' };
+  const onSave = vi.fn();
+  render(<CanvaAreaEditor payload={input} endpoint="/api/admin/custom-sites?salonSlug=test" disabled={false} onSave={onSave} onReview={vi.fn()} open onOpenChange={vi.fn()} />);
+
+  expect(screen.getByRole('option', { name: 'Book Gel Manicure' })).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Opens' }), { target: { value: `service:${key}` } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save clickable areas' }));
+
+  expect(onSave.mock.calls[0]![0].canva.areas[0].action).toEqual({ type: 'service', serviceKey: key });
+});

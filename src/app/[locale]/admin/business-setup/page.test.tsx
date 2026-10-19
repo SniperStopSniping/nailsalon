@@ -2,19 +2,20 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ clerkUserId: null as string | null, denied: 0 }));
+const state = vi.hoisted(() => ({ clerkUserId: null as string | null, denied: 0, credits: false }));
 vi.mock('next/navigation', () => ({ notFound: () => {
   throw new Error('NOT_FOUND');
 } }));
-vi.mock('@/features/ai-credits/config.server', () => ({ aiCreditsEnabled: () => false }));
+vi.mock('@/features/ai-credits/config.server', () => ({ aiCreditsEnabled: () => state.credits }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: async () => state.denied ? { response: new Response(null, { status: state.denied }) } : { salon: { id: 'synthetic-salon', slug: 'synthetic', publicationStatus: 'published' }, aiEnabled: false, clerkUserId: state.clerkUserId } }));
-vi.mock('@/features/business-setup/SetupEditor', () => ({ SetupEditor: ({ manualMode }: { manualMode?: boolean }) => <div>{manualMode ? 'Saved manual editor' : 'Saved editor'}</div> }));
+vi.mock('@/features/business-setup/SetupEditor', () => ({ SetupEditor: ({ manualMode, creditsEnabled }: { manualMode?: boolean; creditsEnabled?: boolean }) => <div data-credits-enabled={String(creditsEnabled)}>{manualMode ? 'Saved manual editor' : 'Saved editor'}</div> }));
 vi.mock('@/features/business-setup/ClerkSetupSession', () => ({ ClerkSetupSession: ({ children, userId }: { children: ReactNode; userId: string }) => <section aria-label={`Clerk readiness for ${userId}`}>{children}</section> }));
 vi.mock('@/features/business-setup/RecoverSetupSession', () => ({ RecoverSetupSession: () => <div>Generic sign-in recovery</div> }));
 
 beforeEach(() => {
   state.clerkUserId = null;
   state.denied = 0;
+  state.credits = false;
 });
 
 afterEach(cleanup);
@@ -51,8 +52,10 @@ it.each([403, 404])('keeps server authorization rejection for status %i', async 
 });
 
 it('opens the same owner-authorized editor in manual mode without requiring AI access', async () => {
+  state.credits = true;
   const Page = (await import('./page')).default;
   render(await Page({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({ salon: 'synthetic', mode: 'manual' }) }));
 
   expect(screen.getByText('Saved manual editor')).toBeVisible();
+  expect(screen.getByText('Saved manual editor')).toHaveAttribute('data-credits-enabled', 'false');
 });

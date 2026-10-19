@@ -831,6 +831,7 @@ it('opens manual Canva setup in Preview and keeps ordinary chat and generation o
 
   expect(screen.getByText('Your Canva artwork stays as-is. Check its links, then review and approve your website. This manual editor does not use AI credits.')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('complementary', { name: 'AI credit balance' })).not.toBeInTheDocument();
   expect(requests.filter(request => request.action === 'message' || request.action === 'generate')).toHaveLength(0);
 
   fireEvent.click(screen.getByRole('button', { name: 'Details' }));
