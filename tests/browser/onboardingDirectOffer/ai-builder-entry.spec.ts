@@ -30,7 +30,7 @@ test('the real intro and account-entry components fit phones and select the corr
   await page.goto('/?startup=1&aiIntro=1');
 
   await expect(page.getByRole('heading', { name: /Your business/ })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Build with AI · from $10 CAD' })).toHaveAttribute('href', '/en/ai-website?account=sign-up');
+  await expect(page.getByRole('link', { name: 'Build with AI · from $10 CAD' })).toHaveAttribute('href', '/en/ai-website?account=sign-up#account');
   expect(requests).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 
