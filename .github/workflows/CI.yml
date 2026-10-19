@@ -199,6 +199,12 @@ jobs:
 
       - run: npm ci
 
+      - name: Verify installed dependency graph
+        run: |
+          set -euo pipefail
+          npm ls --all --json > "$RUNNER_TEMP/installed-dependency-graph.json"
+          echo 'INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1'
+
       - name: Test CI evidence and cancellation contracts
         run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
 
@@ -342,6 +348,9 @@ jobs:
               # Local combined tooling graph: D security patches, Vitest4,
               # Storybook local Webpack5.111.1 and npm10.9.9/tar7.5.22.
               68378a97e8f7292264e15565a299b4b5c04e47b3:5467895180e9024f1227adf9b47b9c42ce7c4d4c) ;;
+              # Preserve distinct Next0.5.15 and Intl compiler0.5.23 SWC
+              # helper requirements with an explicit compatible peer provider.
+              72714ec554388ba617898e14c78a0556f475bc65:547a7f34a8855333a1cfbdebbdd32393b8be31c3) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"

@@ -1,3 +1,5 @@
+/// <reference types="vitest/jsdom" />
+
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
@@ -942,8 +944,10 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
   it('retains the same saved site and plan retry key when dashboard navigation is interrupted', async () => {
     const user = userEvent.setup();
-    const navigationErrors = vi.spyOn(console, 'error').mockImplementation(() => {});
-    onTestFinished(() => navigationErrors.mockRestore());
+    const navigationErrors: string[] = [];
+    const onNavigationError = (error: Error) => navigationErrors.push(error.message);
+    jsdom.virtualConsole.on('jsdomError', onNavigationError);
+    onTestFinished(() => jsdom.virtualConsole.off('jsdomError', onNavigationError));
     mocks.auth.isSignedIn = true;
     mocks.userState.user = verifiedClerkUser();
     mocks.status.mockResolvedValue({ claim: savedSite });
@@ -992,10 +996,9 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
       siteId: savedSite.siteId,
     });
     expect(mocks.claim).not.toHaveBeenCalled();
-    expect(navigationErrors).toHaveBeenCalledTimes(2);
-    expect(navigationErrors.mock.calls.map(([error]) => String(error).split('\n')[0])).toEqual([
-      'Error: Not implemented: navigation (except hash changes)',
-      'Error: Not implemented: navigation (except hash changes)',
+    expect(navigationErrors).toEqual([
+      'Not implemented: navigation (except hash changes)',
+      'Not implemented: navigation (except hash changes)',
     ]);
   });
 

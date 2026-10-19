@@ -1,7 +1,9 @@
 /* eslint-disable no-template-curly-in-string -- GitHub expressions are literal workflow contracts. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -168,6 +170,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['cf9ee4410133e7254924abfee7a7a70e0592a25b', 'c7279e61b579800514e86c260774a902c25b26b4'],
     ['fcf749d8a0e3a531756b221ed60848df2b540355', '1a0d21a18e49f9d77dcecde059cdbf20a788a621'],
     ['68378a97e8f7292264e15565a299b4b5c04e47b3', '5467895180e9024f1227adf9b47b9c42ce7c4d4c'],
+    ['72714ec554388ba617898e14c78a0556f475bc65', '547a7f34a8855333a1cfbdebbdd32393b8be31c3'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
@@ -175,6 +178,11 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   const run = (manifest, lock) => spawnSync('bash', ['-eu', '-c', statement], {
     env: { dependency_manifest_blob: manifest, dependency_lock_blob: lock },
   }).status;
+  const currentPair = ['package.json', 'package-lock.json'].map((file) => {
+    const contents = readFileSync(new URL(`../${file}`, import.meta.url));
+    return createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex');
+  });
+  assert.equal(run(...currentPair), 0, 'The current manifest and lock contents must be a reviewed pair');
   for (const [manifest, lock] of reviewed) {
     assert.equal(run(manifest, lock), 0);
     assert.notEqual(run('0'.repeat(40), lock), 0);
@@ -188,6 +196,26 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     }
   }
   assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+});
+
+test('installed compiler helpers satisfy Next and Intl distinct requirements', () => {
+  const graphCheck = jobs['test-core'].steps.find(step => step.name === 'Verify installed dependency graph');
+  assert.ok(graphCheck);
+  assert.match(graphCheck.run, /set -euo pipefail/);
+  assert.match(graphCheck.run, /npm ls --all --json/);
+  assert.match(graphCheck.run, /INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1/);
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const rootRequire = createRequire(new URL('../package.json', import.meta.url));
+  const nextRequire = createRequire(rootRequire.resolve('next/package.json'));
+  const intlRequire = createRequire(rootRequire.resolve('next-intl'));
+  const compilerRequire = createRequire(intlRequire.resolve('@swc/core'));
+
+  assert.equal(manifest.dependencies['@swc/helpers'], '0.5.23');
+  assert.equal(rootRequire('@swc/helpers/package.json').version, '0.5.23');
+  assert.equal(nextRequire('./package.json').dependencies['@swc/helpers'], '0.5.15');
+  assert.equal(nextRequire('@swc/helpers/package.json').version, '0.5.15');
+  assert.equal(compilerRequire('./package.json').peerDependencies['@swc/helpers'], '>=0.5.17');
+  assert.equal(compilerRequire('@swc/helpers/package.json').version, '0.5.23');
 });
 
 test('npm CLI owner chain stays on the patched compatible 10.x bundle', () => {
