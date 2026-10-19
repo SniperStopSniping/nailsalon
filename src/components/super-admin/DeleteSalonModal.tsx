@@ -3,6 +3,8 @@
 import { AlertTriangle, Trash2, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
+import { useModalFocusLifecycle } from '@/hooks/useModalFocusLifecycle';
 import type { SalonDeletionStatus } from '@/models/salonDeletion';
 
 // =============================================================================
@@ -33,7 +35,9 @@ export function DeleteSalonModal({
   onSuccess,
 }: DeleteSalonModalProps) {
   const confirmInputId = useId();
+  const modalRootRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const [confirmText, setConfirmText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,12 +184,22 @@ export function DeleteSalonModal({
     onClose();
   };
 
+  useBodyScrollLock(isOpen);
+  useModalFocusLifecycle({
+    isOpen,
+    onClose: handleClose,
+    rootRef: modalRootRef,
+    contentRef: modalRef,
+    initialFocusRef: titleRef,
+    closeOnEscape: !loading,
+  });
+
   if (!isOpen) {
     return null;
   }
 
   return (
-    <div className="fixed inset-0 z-[60] overflow-hidden">
+    <div ref={modalRootRef} className="fixed inset-0 z-[60] overflow-hidden">
       {/*
         Backdrop. A real <button> so the click handler sits on an interactive
         element, but hidden from assistive tech and the tab order: it would
@@ -209,7 +223,7 @@ export function DeleteSalonModal({
               <div className="flex size-10 items-center justify-center rounded-full bg-red-100">
                 <AlertTriangle className="size-5 text-red-600" />
               </div>
-              <h2 id={`${confirmInputId}-title`} className="text-lg font-semibold text-gray-900">Delete Salon</h2>
+              <h2 ref={titleRef} id={`${confirmInputId}-title`} tabIndex={-1} className="text-lg font-semibold text-gray-900">Delete Salon</h2>
             </div>
             <button
               type="button"

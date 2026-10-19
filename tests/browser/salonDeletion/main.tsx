@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { DeleteSalonModal } from '@/components/super-admin/DeleteSalonModal';
 
 export function DeletionReviewFixture() {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <main className="min-h-screen bg-stone-50 p-6 text-stone-900">
       <h1 className="text-xl font-semibold">Synthetic deletion review</h1>
