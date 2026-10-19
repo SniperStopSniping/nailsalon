@@ -29,6 +29,8 @@ vi.mock('@clerk/nextjs/server', () => ({
   createRouteMatcher: () => () => false,
 }));
 
+import { WebsitePublishReadinessError } from '@/features/onboarding-v1-integration/publication-readiness.server';
+
 import middleware from '../../../../../middleware';
 import { POST } from './route';
 
@@ -178,6 +180,22 @@ describe('POST /api/admin/salon/publish', () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ error: { code: 'PUBLISH_FAILED' } });
+    expect(logAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed conflict when design readiness prevents first publication', async () => {
+    publishWebsite.mockRejectedValueOnce(new WebsitePublishReadinessError(
+      'DESIGN_IMAGES_PENDING',
+      'Your design images have not finished saving. Return to your setup and retry the images before publishing.',
+    ));
+
+    const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: {
+      code: 'DESIGN_IMAGES_PENDING',
+      message: 'Your design images have not finished saving. Return to your setup and retry the images before publishing.',
+    } });
     expect(logAuditEvent).not.toHaveBeenCalled();
   });
 

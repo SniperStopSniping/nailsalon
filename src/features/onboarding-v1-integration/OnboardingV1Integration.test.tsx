@@ -1010,10 +1010,10 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.status.mockResolvedValue({ claim: savedSite });
     mocks.claimMedia.mockResolvedValue({
       failures: [{
-        assetId: 'cover-asset',
-        fileName: 'IMG_7373.jpeg',
-        message: 'Your cover photo could not be saved. Your local copy is still safe.',
-        role: 'cover',
+        assetId: 'design-asset',
+        fileName: 'design.webp',
+        message: 'Your design photo could not be saved. Your local copy is still safe.',
+        role: 'custom_design',
       }],
       verifiedRevision: 1,
     });
@@ -1024,6 +1024,12 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
     expect(screen.getByText(/photos listed earlier remain only on this device/u)).toBeVisible();
 
+    await user.click(screen.getByRole('button', { name: 'Publish my website & open dashboard' }));
+
+    expect(await screen.findByText('Your photos have not finished saving. Select Edit my site and save them before publishing.')).toBeVisible();
+    expect(mocks.savePlan).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+
     view.unmount();
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
@@ -1032,7 +1038,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claimMedia).toHaveBeenCalledTimes(1);
     expect(loadOnboardingIntegrationFlow()).toMatchObject({
       mediaComplete: false,
-      mediaFailures: [expect.objectContaining({ assetId: 'cover-asset' })],
+      mediaFailures: [expect.objectContaining({ assetId: 'design-asset' })],
       phase: 'plans',
       savedSite: { siteId: savedSite.siteId },
     });

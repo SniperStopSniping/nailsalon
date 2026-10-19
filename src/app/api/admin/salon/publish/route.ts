@@ -1,4 +1,5 @@
 import { hasEditingSetup } from '@/features/business-setup/manual-website.server';
+import { WebsitePublishReadinessError } from '@/features/onboarding-v1-integration/publication-readiness.server';
 import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { hasUnpublishedBookingPageChanges, resolveBookingPageConfig } from '@/libs/bookingPageConfig';
@@ -70,7 +71,10 @@ export async function POST(request: Request) {
   let result;
   try {
     result = await publishWebsite(salon.id);
-  } catch {
+  } catch (error) {
+    if (error instanceof WebsitePublishReadinessError) {
+      return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
+    }
     return Response.json(
       { error: { code: 'PUBLISH_FAILED', message: 'Your website could not be published. Your saved setup is safe. Please try again.' } },
       { status: 503 },
