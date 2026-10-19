@@ -2550,7 +2550,7 @@ describe('AI clickable Canva artwork', () => {
     const [original] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
     const design = original!.source.canva!;
     const secondArea = { ...design.areas[0]!, id: 'second-booking', page: 1 };
-    const source = compileCanvaDesign({ ...design, manualOrigin: { siteId: randomUUID(), revisionId: randomUUID(), revision: 1 }, pages: [design.pages[0]!, { ...design.pages[0]!, alt: 'Second page' }], areas: [...design.areas, secondArea], controls: [{ id: 'after-page', afterPage: 0, label: 'Book an appointment', action: { type: 'book' } }] });
+    const source = compileCanvaDesign({ ...design, notes: ['Review printed contact details on the remaining artwork.'], manualOrigin: { siteId: randomUUID(), revisionId: randomUUID(), revision: 1 }, pages: [design.pages[0]!, { ...design.pages[0]!, alt: 'Second page' }], areas: [...design.areas, secondArea], controls: [{ id: 'after-page', afterPage: 0, label: 'Book an appointment', action: { type: 'book' } }] });
     const saved = await saveCustomSource(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), source, assetIds: original!.assetIds });
     const bytes = await sharp({ create: { width: 900, height: 500, channels: 3, background: '#e3ead9' } }).png().toBuffer();
     const replacement = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'new-layout.png', { type: 'image/png' }), 'reference');
@@ -2567,6 +2567,7 @@ describe('AI clickable Canva artwork', () => {
     expect(final!.source.canva!.controls).toEqual(source.canva!.controls);
     expect(final!.source.canva!.ownerReviewed).toBe(false);
     expect(final!.source.canva!.visibleText).toBe('');
+    expect(final!.source.canva!.notes).toEqual(source.canva!.notes);
     expect(replaced.head.revision.document.designBrief?.referenceIds).toEqual([replacement.id, saved.head.revision.document.designBrief!.referenceIds[0]]);
     expect(replaced.head.revision.document.services).toEqual(saved.head.revision.document.services);
     expect(replaced.head.revision.document.business).toEqual(saved.head.revision.document.business);
@@ -2575,6 +2576,23 @@ describe('AI clickable Canva artwork', () => {
     expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toEqual(calls);
     expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
     expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, saved.artifact.id)))[0]!.source).toEqual(saved.artifact.source);
+  });
+
+  it('clears old image findings when replacing all artwork, preserving saved history and requiring a fresh review', async () => {
+    const { actor, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result({ ...answer(), notes: ['The previous image has no visible Instagram handle.'] })) });
+    const [original] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+    const bytes = await sharp({ create: { width: 900, height: 500, channels: 3, background: '#e3ead9' } }).png().toBuffer();
+    const replacement = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'new-artwork.png', { type: 'image/png' }), 'reference');
+    const replaced = await replaceCanvaPage(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), pageIndex: 0, pageAssetId: original!.source.canva!.pages[0]!.assetId, replacementId: replacement.id, newDesignConfirmed: true });
+    const [final] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, replaced.artifactId));
+
+    expect(original!.source.canva!.notes).toEqual(['The previous image has no visible Instagram handle.']);
+    expect(final!.source.canva).toMatchObject({ notes: [], visibleText: '', areas: [], ownerReviewed: false });
+    expect((await reviewSetup(actor)).blockers.join(' ')).toContain('Canva artwork');
+    expect(replaced.head.revision.document.business).toEqual(generated.head.revision.document.business);
+    expect(replaced.head.revision.document.services).toEqual(generated.head.revision.document.services);
+    expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, original!.id)))[0]!.source).toEqual(original!.source);
   });
 
   it('replaces only the selected use of a shared Canva image and retains assets needed by the other page', async () => {

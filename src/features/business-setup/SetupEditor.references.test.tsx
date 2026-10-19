@@ -432,6 +432,29 @@ it('keeps publication explicit and bound to the review, then offers continuing f
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message Luster' })).toBeEnabled());
 });
 
+it.each([
+  { path: 'designBrief.mode', title: 'How to use your design', before: 'rebuild', after: 'keep_design' },
+  { path: 'designBrief', title: 'Design matching and chosen images', before: { mode: 'rebuild', fidelity: 'inspiration', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] }, after: { mode: 'keep_design', fidelity: 'match', referenceIds: [], ownedReferenceIds: [], websiteAssetIds: [] } },
+])('describes $path as a design change rather than a booking setting', async ({ path, title, before, after }) => {
+  const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (url, options) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'review') {
+      return { ok: true, json: async () => ({ data: { revision, hash: 'exact-hash', changes: [{ path, before, after }], blockers: [] } }) } as Response;
+    }
+    return originalFetch(url, options);
+  });
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+  await screen.findByRole('heading', { name: title });
+
+  expect(screen.getByText(/Before:/).parentElement).toHaveTextContent('Create a new editable website');
+  expect(screen.getByText(/After:/).parentElement).toHaveTextContent('Keep my original artwork and make it clickable');
+  expect(screen.queryByRole('heading', { name: 'Booking setting' })).not.toBeInTheDocument();
+  expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
+});
+
 it('does not upload a file or grant rights before permission is checked', async () => {
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
   await screen.findByText('Saved as draft');

@@ -67,7 +67,15 @@ export async function replaceCanvaPage(actor: SetupActor, raw: unknown) {
   }
   const image = await canvaWebsiteImage(actor, original!);
   const pages = design.pages.map((item, index) => index === pageIndex ? { ...item, assetId: image.id, width: metadata.width!, height: metadata.height!, ...(input.newDesignConfirmed ? { alt: `${base.business.name} — design page ${index + 1}`.slice(0, 3000) } : {}) } : item);
-  const source = compileCanvaDesign({ ...design, ownerReviewed: false, pages, ...(input.newDesignConfirmed ? { areas: design.areas.filter(area => area.page !== pageIndex), visibleText: '' } : {}) }, base.website.content.websiteDetails);
+  const source = compileCanvaDesign({ ...design, ownerReviewed: false, pages, ...(input.newDesignConfirmed
+    ? {
+        areas: design.areas.filter(area => area.page !== pageIndex),
+        visibleText: '',
+        // Notes are not page-scoped. Keep them when other artwork remains,
+        // but don't show the previous design's findings for a whole new image.
+        notes: design.pages.length === 1 ? [] : design.notes,
+      }
+    : {}) }, base.website.content.websiteDetails);
   const stillUsed = pages.some((page, index) => index !== pageIndex && page.assetId === input.pageAssetId);
   const oldHash = media.find(asset => asset.id === input.pageAssetId)?.hash;
   const oldReferences = new Set(media.filter(asset => asset.role === 'reference' && oldHash && asset.hash === oldHash).map(asset => asset.id));

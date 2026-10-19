@@ -1,0 +1,70 @@
+{
+  "environment": "isolated_preview",
+  "appGitSha": "b738fca4027822d210328318356f05f07cbe774a",
+  "appDeploymentId": "dpl_FhrEbdq5wZ8gTomM1YtDMADqoeAZ",
+  "rendererGitSha": "0e65facb",
+  "trial": "asset-backed native photos on AI-preserved Canva using owner controls",
+  "generatedSourceManuallyRepaired": false,
+  "developerActions": [
+    "Restored saved AI Canva and native photo draft 93",
+    "Replaced the printed Dynasty artwork through normal owner controls with owned synthetic test artwork to avoid publishing another business identity",
+    "Confirmed artwork review",
+    "Approved and published exact draft 97",
+    "Signed out in a separate browser",
+    "Completed the original booking flow as an anonymous synthetic customer",
+    "Restored original design and approved and published exact draft 98"
+  ],
+  "publishedArtifact": "d0e76e72-cc41-458c-8c3c-f882b8f1183d",
+  "publishedRevision": 97,
+  "publishedReceipt": {
+    "id": "ae449f23-58c7-4ae3-b866-5aa74adad732",
+    "revision": 97,
+    "approval_id": "cf1faf45-2697-4b7f-a2e7-933d5c147e1b",
+    "operation_id": "3fda50df-d462-4d06-9015-91cfa37674bc",
+    "media_finalized": true,
+    "published_at": "2026-10-19T20:37:39.165Z"
+  },
+  "nativeImageStorageKinds": [
+    "asset"
+  ],
+  "nativeImageDimensions": [
+    {
+      "width": 1200,
+      "height": 480
+    },
+    {
+      "width": 480,
+      "height": 960
+    }
+  ],
+  "anonymousMediaHTTP": {
+    "beforeApproval": 404,
+    "publishedWide": 200,
+    "publishedPortrait": 200,
+    "crossOrigin": 403,
+    "afterRestore": 404
+  },
+  "mediaHeaders": {
+    "contentType": "image/webp",
+    "cacheControl": "private, no-store, max-age=0",
+    "varyCookie": true
+  },
+  "restoredArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+  "restoredReceipt": {
+    "id": "e4c5db2b-79ef-4fe5-b3cc-026ef86eb112",
+    "revision": 98,
+    "approval_id": "da6d9040-4223-4052-a1d9-50e25068c128",
+    "operation_id": "703c3d94-1c51-419e-bef9-143e0feeede7",
+    "media_finalized": true,
+    "published_at": "2026-10-19T20:42:25.921Z"
+  },
+  "additionalAICalls": 0,
+  "additionalAIUsageCad": 0,
+  "productionChanged": false,
+  "limitations": [
+    "Synthetic geometry fixtures demonstrate publication and backend integration, not fidelity to a new AI-generated visual design.",
+    "The first Chrome website load stalled; one visible Reload website recovered it. A separate signed-out browser loaded automatically. Cause not established.",
+    "At 390px, the portrait is naturally taller than the frame viewport and requires scrolling inside the site. Native images rendered at their correct 2:1 portrait and 2.5:1 wide proportions.",
+    "The completed booking uses the visible Open booking menu integration, not a newly added image hotspot."
+  ]
+}

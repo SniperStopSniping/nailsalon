@@ -62,6 +62,7 @@ const LABELS: Record<string, string> = {
   'siteSlug': 'Your booking link name',
   'designBrief': 'Design matching and chosen images',
   'designBrief.fidelity': 'How closely to match your design',
+  'designBrief.mode': 'How to use your design',
   'designBrief.referenceIds': 'Design references',
   'designBrief.ownedReferenceIds': 'Your own design artwork',
   'designBrief.websiteAssetIds': 'Website photos and logo',
@@ -121,10 +122,16 @@ function reviewValue(value: unknown): string {
   return String(value).replaceAll('_', ' ');
 }
 function designReviewValue(value: unknown): string {
+  if (value === 'keep_design') {
+    return 'Keep my original artwork and make it clickable';
+  }
+  if (value === 'rebuild') {
+    return 'Create a new editable website';
+  }
   const parsed = designBriefSchema.safeParse(value);
   if (parsed.success) {
     const brief = parsed.data;
-    return `${brief.fidelity === 'match' ? 'Match my design closely' : 'Use it as inspiration'} · ${brief.referenceIds.length} design reference(s) · ${brief.ownedReferenceIds.length} confirmed as your own · ${brief.websiteAssetIds.length} website photo(s) or logo(s). Review the selected images in Preview.`;
+    return `${designReviewValue(brief.mode ?? 'rebuild')} · ${brief.fidelity === 'match' ? 'Match my design closely' : 'Use it as inspiration'} · ${brief.referenceIds.length} design reference(s) · ${brief.ownedReferenceIds.length} confirmed as your own · ${brief.websiteAssetIds.length} website photo(s) or logo(s). Review the selected images in Preview.`;
   }
   if (Array.isArray(value)) {
     return `${value.length} selected image(s), shown in Preview`;
