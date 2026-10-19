@@ -5,6 +5,8 @@ import {
   checkOnboardingSiteSlugAvailability,
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
+  prepareOnboardingCanva,
+  resolveOnboardingOrganization,
   saveOnboardingPlanIntent,
 } from './client';
 import type { OnboardingClaimSuccess } from './contracts';
@@ -31,6 +33,33 @@ const jsonResponse = (body: unknown, status = 200): Response => new Response(
 );
 
 describe('onboarding integration client', () => {
+  it('sends the pending session token only on the organization endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
+      created: false,
+      organizations: [{ id: 'org_owner', name: 'Owner Studio' }],
+    } }));
+    await resolveOnboardingOrganization('Owner Studio', { fetcher, sessionToken: 'synthetic-session-token' });
+
+    expect(fetcher).toHaveBeenCalledWith('/api/onboarding/v1/organization', {
+      body: JSON.stringify({ businessName: 'Owner Studio' }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer synthetic-session-token' },
+      method: 'POST',
+      signal: undefined,
+    });
+  });
+
+  it('keeps the ordinary cookie-based organization request free of an invented token', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
+      created: false,
+      organizations: [{ id: 'org_owner', name: 'Owner Studio' }],
+    } }));
+    await resolveOnboardingOrganization('Owner Studio', { fetcher });
+
+    expect(fetcher).toHaveBeenCalledWith('/api/onboarding/v1/organization', expect.objectContaining({
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  });
+
   it('checks a site URL through the anonymous availability route', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
       available: false,
@@ -183,4 +212,11 @@ describe('onboarding integration client', () => {
         status: 503,
       }));
   });
+});
+
+it('retries an interrupted Canva preparation safely without exposing a raw browser error', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('Failed to fetch'));
+
+  await expect(prepareOnboardingCanva({ siteId: savedSite.siteId, expectedRevision: 4 }, { fetcher })).rejects.toMatchObject({ status: 0, message: 'We could not confirm your design is ready for review. Your saved setup is safe. Please try again.' });
+  expect(fetcher).toHaveBeenCalledOnce();
 });

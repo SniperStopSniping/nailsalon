@@ -79,6 +79,19 @@ describe('buildSmartFitClientKeys', () => {
 });
 
 describe('buildSmartFitDayContext — working window', () => {
+  it('resolves the same salon-local weekday as booking eligibility in Tokyo', () => {
+    const context = buildSmartFitDayContext({
+      ...baseArgs(),
+      timeZone: 'Asia/Tokyo',
+      locationBusinessHours: { wednesday: { open: '10:00', close: '16:00' } },
+      gridAnchorMs: zonedTimeToUtc({ date: DATE, time: '00:00', timeZone: 'Asia/Tokyo' }).getTime(),
+    });
+
+    expect(context).not.toBeNull();
+    expect(context?.workStartMs).toBe(new Date('2026-07-22T01:00:00Z').getTime());
+    expect(context?.workEndMs).toBe(new Date('2026-07-22T07:00:00Z').getTime());
+  });
+
   it('converts the weekly schedule to UTC instants on the slot-grid basis', () => {
     const context = buildSmartFitDayContext(baseArgs());
 

@@ -5,11 +5,14 @@ import { withSentryConfig } from '@sentry/nextjs';
 import createJiti from 'jiti';
 import withNextIntl from 'next-intl/plugin';
 
+import { preparePdfArtworkAssets } from './scripts/lib/prepare-pdf-artwork-assets.mjs';
+
 const jiti = createJiti(fileURLToPath(import.meta.url));
 
 const { assertEnvironmentIsolation } = jiti('./src/libs/environmentIsolation.ts');
 assertEnvironmentIsolation(process.env);
 jiti('./src/libs/Env');
+preparePdfArtworkAssets(fileURLToPath(new URL('.', import.meta.url)));
 const packageJson = jiti('./package.json');
 const {
   assertProductionSentryBuildEnv,
@@ -84,6 +87,31 @@ const baseNextConfig = bundleAnalyzer(
       dirs: ['.'],
       ignoreDuringBuilds: true,
     },
+    async headers() {
+      const previews = ['/admin/business-setup/preview/:slug', '/:locale/admin/business-setup/preview/:slug'].map(source => ({
+        source,
+        headers: [
+          { key: 'Content-Security-Policy', value: 'sandbox allow-same-origin; form-action \'none\'; frame-ancestors \'self\'' },
+          { key: 'Cache-Control', value: 'private, no-store' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+        ],
+      }));
+      return [{
+        source: '/assets/pdfjs/:version/pdf.worker.legacy.min.mjs',
+        headers: [
+          { key: 'Content-Security-Policy', value: 'default-src \'none\'; script-src \'self\' \'wasm-unsafe-eval\'; connect-src \'self\'' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ],
+      }, ...previews, ...['/website-preview/:token', '/:locale/website-preview/:token'].map(source => ({
+        source,
+        headers: [
+          { key: 'Cache-Control', value: 'private, no-store' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+        ],
+      }))];
+    },
     images: {
       remotePatterns: [
         {
@@ -141,9 +169,6 @@ export default shouldEnableSentryPlugin
       // Note: Check that the configured route will not match with your Next.js middleware, otherwise reporting of client-
       // side errors will fail.
       tunnelRoute: '/monitoring',
-
-      // Hides source maps from generated client bundles
-      hideSourceMaps: true,
 
       // Automatically tree-shake Sentry logger statements to reduce bundle size
       disableLogger: true,

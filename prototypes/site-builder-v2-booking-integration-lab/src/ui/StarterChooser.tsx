@@ -120,7 +120,7 @@ const STARTER_CHOICE_COPY: Record<OriginStarter, StarterChoiceCopy> = {
   },
   your_design: {
     cta: 'Start with Your Design',
-    description: 'Use your Canva design, AI artwork, or your own image.',
+    description: 'Upload your design and add booking and contact links yourself. No AI needed.',
     id: 'your_design',
     includesLabel: 'Includes',
     title: 'Your Design',
@@ -862,6 +862,7 @@ function YourDesignDemo({ reducedMotion, pageVisible }: { reducedMotion: boolean
 }
 
 export type StarterChoiceGridProps = {
+  onBuildAi?: () => void;
   businessName?: string;
   committingStarter?: OriginStarter | null;
   logoUrl?: string;
@@ -877,6 +878,7 @@ export function StarterChoiceGrid({
   committingStarter = null,
   logoUrl,
   onChoose,
+  onBuildAi,
   ownerName,
   publicLocation,
   reducedMotion = false,
@@ -890,7 +892,10 @@ export function StarterChoiceGrid({
         className="final-starter-grid"
         data-committing={committingStarter ? 'true' : undefined}
       >
-        {STARTER_CHOICES.map((starter) => {
+        {STARTER_CHOICES.filter(starter => !onBuildAi || starter.id !== 'multi_page').map((definition) => {
+          const starter = onBuildAi && definition.id === 'your_design'
+            ? { ...definition, title: 'Your Canva Design', description: 'Keep your artwork. Add booking and contact links yourself.', cta: 'Use my Canva design' }
+            : definition;
           const previewActive = playback.activeId === starter.id;
           const selected = selectedStarter === starter.id;
           const actionLabel = selected
@@ -962,11 +967,39 @@ export function StarterChoiceGrid({
               )
             : choice;
         })}
+        {onBuildAi && (
+          <button type="button" className="final-starter-card" data-starter-id="ai" onClick={onBuildAi}>
+            <span className="final-starter-card__copy">
+              <span className="final-starter-card__identity">
+                <strong>Build with AI</strong>
+                <small>Let’s build your website and get your business ready for bookings. AI helps with your design, services, prices, hours, and booking settings.</small>
+              </span>
+              <span className="final-starter-card__included">
+                <small>Your ideas, brought to life</small>
+                <span>Upload a design or describe your idea. Refine it in chat, then review and publish.</span>
+              </span>
+              <span className="final-starter-card__action">
+                Start with AI
+                <ArrowRight aria-hidden="true" size={18} />
+              </span>
+            </span>
+            <span className="final-starter-ai-preview" aria-hidden="true">
+              <Sparkles size={28} />
+              <strong>“Make something beautiful for my business.”</strong>
+              <small>One conversation. Your website and booking setup.</small>
+            </span>
+          </button>
+        )}
       </div>
-
+      {onBuildAi && (
+        <p className="final-starter-manual">
+          <button type="button" aria-pressed={selectedStarter === 'multi_page'} onClick={() => onChoose('multi_page')}>Set up manually</button>
+          <span>Use the full website editor.</span>
+        </p>
+      )}
       <div className="final-starter-reassurance">
         <strong>Nothing is permanent.</strong>
-        <span>Every starting point uses the same editor. Add, remove, or rearrange pages and sections anytime.</span>
+        <span>{onBuildAi ? 'Your work stays saved. Keep refining it with AI or manual controls, and review changes before they go live.' : 'Every starting point uses the same editor. Add, remove, or rearrange pages and sections anytime.'}</span>
       </div>
     </>
   );

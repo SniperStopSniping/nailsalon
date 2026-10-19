@@ -7,6 +7,8 @@ export type PublicBookingAttempt = {
   recoveryKey: string;
   confirmationPath: string;
   state: 'pending' | 'resolved';
+  /** A locked status read saw no linked appointment; any retry must reuse this key. */
+  safeToRetry?: boolean;
   response?: any;
 };
 
@@ -30,6 +32,7 @@ export function readPublicBookingAttempt(salonId: string): PublicBookingAttempt 
     || !uuid.test(value.recoveryKey) || typeof value.confirmationPath !== 'string'
     || !value.confirmationPath.startsWith('/') || value.confirmationPath.startsWith('//')
     || value.confirmationPath.includes('\\') || [...value.confirmationPath].some(character => character.charCodeAt(0) <= 32)
+    || (value.safeToRetry !== undefined && (typeof value.safeToRetry !== 'boolean' || (value.safeToRetry && (value.version !== 2 || value.state !== 'pending'))))
     || !['pending', 'resolved'].includes(value.state)
     || (value.state === 'resolved' && !isPublicBookingReceipt(value.response))) {
     throw new Error('BOOKING_RECOVERY_STORAGE_INVALID');
@@ -40,7 +43,7 @@ export function readPublicBookingAttempt(salonId: string): PublicBookingAttempt 
 function save(value: PublicBookingAttempt): void {
   sessionStorage.setItem(key(value.salonId), JSON.stringify(value));
   const saved = readPublicBookingAttempt(value.salonId);
-  if (saved?.attemptId !== value.attemptId || saved.recoveryKey !== value.recoveryKey || saved.state !== value.state) {
+  if (saved?.attemptId !== value.attemptId || saved.recoveryKey !== value.recoveryKey || saved.state !== value.state || saved.safeToRetry !== value.safeToRetry) {
     throw new Error('BOOKING_RECOVERY_STORAGE_UNAVAILABLE');
   }
 }
@@ -48,12 +51,25 @@ function save(value: PublicBookingAttempt): void {
 export function beginPublicBookingAttempt(args: { salonId: string; attemptId: string; confirmationPath: string; protocolVersion?: 1 | 2 }): PublicBookingAttempt {
   const existing = readPublicBookingAttempt(args.salonId);
   if (existing?.state === 'pending') {
+    if (existing.version === 2 && existing.safeToRetry === true && existing.attemptId === args.attemptId) {
+      return existing;
+    }
     throw new Error('BOOKING_RECOVERY_REQUIRED');
   }
   const { protocolVersion = 2, ...identity } = args;
   const value: PublicBookingAttempt = { ...identity, version: protocolVersion, ...(protocolVersion === 2 ? { startedAt: new Date().toISOString() } : {}), recoveryKey: crypto.randomUUID(), state: 'pending' };
   save(value);
   return value;
+}
+
+/** Marks only the matching v2 pending attempt after a locked status read returns pending. */
+export function markPublicBookingAttemptSafeToRetry(salonId: string, attemptId: string, recoveryKey: string): boolean {
+  const existing = readPublicBookingAttempt(salonId);
+  if (existing?.version !== 2 || existing.state !== 'pending' || existing.attemptId !== attemptId || existing.recoveryKey !== recoveryKey) {
+    return false;
+  }
+  save({ ...existing, safeToRetry: true });
+  return true;
 }
 
 export function resolvePublicBookingAttempt(salonId: string, response: any): void {
@@ -103,6 +119,12 @@ export async function recoverPublicBookingAttempt(salonId: string): Promise<any 
         signal: controller.signal,
       });
       const result = response.ok ? await response.json() : null;
+      if (result?.kind === 'pending') {
+        // The status transaction locks the attempt row. This confirms there is
+        // no committed link at this instant; the retry must retain this key so
+        // a concurrently completed request resolves through the same fence.
+        return { kind: 'pending' };
+      }
       if (result?.kind === 'resolved_failure') {
         // Only an authoritative server failure releases this exact capability.
         // A delayed response must never clear a newer attempt in the same tab.

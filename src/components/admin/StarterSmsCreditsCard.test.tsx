@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { StarterSmsCreditsCard } from './StarterSmsCreditsCard';
@@ -13,8 +13,12 @@ vi.mock('@clerk/nextjs', () => ({
 const fetchMock = vi.fn();
 const endpoint = '/api/admin/salon/communications/starter-credits';
 
-function statusResponse(status: 'verified' | 'verification_required' | 'unclaimed', canClaim: boolean) {
-  return new Response(JSON.stringify({ data: { status, canClaim } }), { status: 200 });
+function statusResponse(
+  status: 'verified' | 'verification_required' | 'unclaimed',
+  canClaim: boolean,
+  verification?: { email: boolean; phone: boolean },
+) {
+  return new Response(JSON.stringify({ data: { status, canClaim, ...(verification ? { verification } : {}) } }), { status: 200 });
 }
 
 describe('StarterSmsCreditsCard', () => {
@@ -51,11 +55,19 @@ describe('StarterSmsCreditsCard', () => {
   });
 
   it('sends an unverified owner to the Clerk profile instead of requesting contact data', async () => {
-    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    let statusReads = 0;
+    let resolveProfileRecheck!: (response: Response) => void;
+    fetchMock.mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
-        return new Response(JSON.stringify({ data: { granted: false, status: 'verification_required' } }), { status: 200 });
+        return Promise.resolve(new Response(JSON.stringify({ data: { granted: false, status: 'verification_required' } }), { status: 200 }));
       }
-      return statusResponse('verification_required', true);
+      statusReads += 1;
+      if (statusReads === 2) {
+        return new Promise<Response>((resolve) => {
+          resolveProfileRecheck = resolve;
+        });
+      }
+      return Promise.resolve(statusResponse('verification_required', true));
     });
 
     render(<StarterSmsCreditsCard salonId="salon_a" hasKnownStarterCredits={false} onClaimed={vi.fn()} />);
@@ -68,6 +80,14 @@ describe('StarterSmsCreditsCard', () => {
     expect(await screen.findByText('Verify your primary email and phone number to claim your free texts.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Verify email and phone' }));
+
+    expect(resolveProfileRecheck).toBeTypeOf('function');
+
+    await act(async () => {
+      resolveProfileRecheck(statusResponse('verification_required', true, { email: false, phone: false }));
+    });
+
+    expect(await screen.findByRole('button', { name: 'Verify email and phone' })).toBeEnabled();
 
     expect(mocks.openUserProfile).toHaveBeenCalledOnce();
   });

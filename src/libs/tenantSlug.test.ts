@@ -46,6 +46,8 @@ describe('tenantSlug helpers', () => {
   });
 
   it.each([
+    'ai-website-test',
+    'ai-website',
     'manage',
     'onboarding-v1',
     'owner',
@@ -82,6 +84,8 @@ describe('tenantSlug helpers', () => {
   });
 
   it.each([
+    'ai-website-test',
+    'ai-website',
     'manage',
     'onboarding-v1',
     'owner',

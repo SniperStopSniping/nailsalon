@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
-import { getMessages, unstable_setRequestLocale } from 'next-intl/server';
+import { getMessages, setRequestLocale } from 'next-intl/server';
 
 import { DevRoleSwitcherLoader } from '@/components/DevRoleSwitcherLoader';
 import { getResolvedSalon } from '@/libs/tenant';
@@ -49,7 +49,7 @@ export default async function RootLayout(props: {
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
 }) {
-  unstable_setRequestLocale((await props.params).locale);
+  setRequestLocale((await props.params).locale);
 
   // Fetch messages for internationalization
   const messages = await getMessages();

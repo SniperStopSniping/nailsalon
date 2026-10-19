@@ -72,10 +72,8 @@ import { OwnerAssistantSalonMissingError } from './getSalonOverview.server';
  * docs/OWNER_ASSISTANT_CHAT.md §3; multi-location is an elite-tier feature and
  * out of scope for this slice.
  *
- * TIMEZONE LIMITATION: the booking policy engine resolves weekdays and
- * schedule windows in America/Toronto (`getDayNameForDate`,
- * `isWindowWithinSchedule` in `bookingPolicy.ts`). A salon on any other
- * timezone would get a confidently wrong answer, so step 0 refuses instead.
+ * Weekdays and schedule windows use the salon's resolved booking timezone,
+ * through the same policy engine as the public booking route.
  */
 
 /** Same fallback the public route uses when no service is named. */
@@ -83,9 +81,6 @@ const DEFAULT_DURATION_MINUTES = 30;
 
 /** How far ahead an explicit date may look. */
 const MAX_DAYS_AHEAD = 60;
-
-/** The only timezone the booking policy engine is correct for today. */
-const SUPPORTED_TIME_ZONE = 'America/Toronto';
 
 /** At most this many names come back with a `clarify`. */
 const MAX_CLARIFY_OPTIONS = 8;
@@ -330,21 +325,6 @@ export async function diagnoseDayAvailability(
     customersCanBookNow: false,
   } as const;
 
-  // Step 0 — the policy engine is Toronto-bound; say so instead of guessing.
-  if (timeZone !== SUPPORTED_TIME_ZONE) {
-    return {
-      ...base,
-      checked: {
-        timezone: timeZone,
-        serviceName: null,
-        durationMinutes: DEFAULT_DURATION_MINUTES,
-        bufferMinutes: bookingConfig.bufferMinutes,
-        technician: 'any',
-      },
-      causes: [cause('timezone_unsupported')],
-    };
-  }
-
   // Step 2 — name resolution. A name the owner typed is matched against their
   // own rows; it never selects anything outside this salon.
   const [allServices, activeTechnicians] = await Promise.all([
@@ -447,7 +427,7 @@ export async function diagnoseDayAvailability(
   const { startOfDay, endOfDay } = getZonedDayBounds(requested.dateKey, timeZone);
 
   if (hoursCeiling.businessHours) {
-    const dayName = getDayNameForDate(startOfDay);
+    const dayName = getDayNameForDate(startOfDay, timeZone);
     if (!hoursCeiling.businessHours[dayName]) {
       causes.push(cause('closed_that_day'));
       // Nothing below can add a fact: with the ceiling closed, the engine
@@ -522,6 +502,7 @@ export async function diagnoseDayAvailability(
 
   for (const candidate of technicians) {
     const schedule = getEffectiveScheduleForWindow({
+      timeZone,
       startTime: startOfDay,
       weeklySchedule: candidate.weeklySchedule,
       override: bookingPolicy.overridesByTechnician.get(candidate.id),

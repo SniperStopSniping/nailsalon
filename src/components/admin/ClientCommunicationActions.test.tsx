@@ -48,6 +48,12 @@ function renderActions(overrides: Partial<React.ComponentProps<typeof ClientComm
   return { onOpenNativeUrl };
 }
 
+async function settleFetchEffects() {
+  await act(async () => {
+    await Promise.all(fetchMock.mock.results.map(({ value }) => Promise.resolve(value)));
+  });
+}
+
 describe('ClientCommunicationActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -158,6 +164,7 @@ describe('ClientCommunicationActions', () => {
         email: 'ava@example.com',
       },
     });
+    await settleFetchEffects();
 
     for (const label of [
       'Text',
@@ -185,6 +192,7 @@ describe('ClientCommunicationActions', () => {
       primaryAction: { label: 'View appointment', onClick: onPrimaryAction },
       client: { id: 'client_1', fullName: 'Ava Nguyen', phone: '', email: null },
     });
+    await settleFetchEffects();
 
     fireEvent.click(screen.getByRole('button', { name: 'View appointment' }));
 
@@ -286,6 +294,7 @@ describe('ClientCommunicationActions', () => {
         email: 'ada@example.com',
       },
     });
+    await settleFetchEffects();
 
     expect(screen.getByRole('link', { name: 'Call' }))
       .toHaveAttribute('href', 'tel:4165550201');
@@ -302,6 +311,7 @@ describe('ClientCommunicationActions', () => {
         email: null,
       },
     });
+    await settleFetchEffects();
 
     const email = screen.getByTestId('client-email-action');
 

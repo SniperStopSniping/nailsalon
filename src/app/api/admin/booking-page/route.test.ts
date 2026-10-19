@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/features/business-setup/manual-website.server', () => ({
+  editSharedSetupWebsite: vi.fn(async () => false),
+  hasEditingSetup: vi.fn(async () => false),
+  getSetupEditingRevision: vi.fn(async () => null),
+}));
+
 // `@/libs/DB` (reached through the preset mirror below) is `import
 // 'server-only'`; this route test runs outside a Server Component.
 vi.mock('server-only', () => ({}));

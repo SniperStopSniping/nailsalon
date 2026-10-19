@@ -2,3 +2,4 @@
 // function payload limit. Reserve 250 KB for multipart framing and metadata.
 export const ONBOARDING_MEDIA_MAX_REQUEST_BYTES = 4_000_000;
 export const ONBOARDING_MEDIA_MAX_FILE_BYTES = 3_750_000;
+export const ONBOARDING_MEDIA_MAX_DECODED_PIXELS = 40_000_000;

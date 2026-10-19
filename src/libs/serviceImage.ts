@@ -378,6 +378,9 @@ export function resolveServiceCardImage(service: ServiceImageInput): string {
   if (!isUnusablePublicServiceImageUrl(service.imageUrl)) {
     return normalizeImageUrlValue(service.imageUrl);
   }
+  if (service.bookingCategory === 'other') {
+    return '/assets/images/services/other-service.svg';
+  }
 
   const templateKey = service.templateKey?.trim() ?? '';
 

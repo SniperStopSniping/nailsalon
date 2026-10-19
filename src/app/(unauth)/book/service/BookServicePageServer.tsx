@@ -8,6 +8,9 @@ import { Suspense } from 'react';
 import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { CustomWebsiteFrame } from '@/features/custom-sites/CustomWebsiteFrame';
+import { customSiteArtworkPolicy, customSiteDataFromLive } from '@/features/custom-sites/live-data.server';
+import { customSitePayload, customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
 import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { resolveBookingExperience } from '@/libs/bookingExperience';
@@ -47,6 +50,8 @@ const NEW_CLIENT_PROMO_END_DATE = '2026-04-30';
 
 export type BookServicePageProps = {
   searchParams: {
+    nativeBooking?: string;
+    publishedWebsite?: string;
     locationId?: string;
     salonSlug?: string;
     campaign?: string;
@@ -112,7 +117,7 @@ export async function renderBookServicePage({
     id: salon.id,
     publicationStatus: salon.publicationStatus,
     freeSoloEnabled: salon.freeSoloEnabled,
-  });
+  }, { publishedView: !requireOwnerDraftPreview && searchParams.publishedWebsite === '1' });
   if (requireOwnerDraftPreview
     && (!previewGate.allowed || !previewGate.isPreviewingDraftConfig)) {
     notFound();
@@ -434,18 +439,31 @@ export async function renderBookServicePage({
     throw new Error('PUBLIC_CATALOGUE_UNAVAILABLE');
   }
   const l1Snapshot = l1SnapshotResult?.ok ? projectPublicBookingCatalog(l1SnapshotResult.snapshot, publicBookableServiceIds) : undefined;
+  const bookingServices = l1Snapshot
+    ? services.filter(service => l1Snapshot.services.some(item => item.id === service.id && item.effectiveConfirmationMode !== 'consultation')).map((service) => {
+      const entry = l1Snapshot.services.find(item => item.id === service.id)!;
+      const parent = entry.parentServiceId ? l1Snapshot.services.find(item => item.id === entry.parentServiceId) : null;
+      return { ...service, name: parent ? `${parent.name} · ${entry.variantLabel ?? entry.name}` : entry.name };
+    })
+    : services;
 
+  // Custom frontend is only an entrance into the ORIGINAL booking journey.
+  // nativeBooking preserves all canonical availability, add-on and payment rules.
+  const rendererOrigin = customSiteRendererOrigin();
+  if (activeBookingPageSide.customFrontendId && rendererOrigin && searchParams.nativeBooking !== '1' && !ownerPreviewState.isPreviewing) {
+    const payload = await customSitePayload(salon.id, activeBookingPageSide.customFrontendId, customSiteDataFromLive({ salon, content: activeBookingPageContentSide, services: bookingServices, booking: bookingConfig }), { artworkPolicy: customSiteArtworkPolicy(salon.settings) });
+    const base = `/${params?.locale ?? 'en'}/${encodeURIComponent(salon.slug)}`;
+    // Refresh the isolated document when either immutable source or canonical
+    // service/business data changes during a client navigation.
+    if (!payload.artworkUnavailable) {
+      return <CustomWebsiteFrame key={JSON.stringify([activeBookingPageSide.customFrontendId, payload.data])} payload={payload} rendererOrigin={rendererOrigin} bookingPath={`${base}/book/service?publishedWebsite=1`} managePath={`${base}/find-booking`} />;
+    }
+  }
   const bookingContent = (
     <BookServiceClient
       l1Snapshot={l1Snapshot}
       enforceRequiredAddOns={bookingConfig.enforceRequiredAddOns}
-      services={l1Snapshot
-        ? services.filter(service => l1Snapshot.services.some(item => item.id === service.id && item.effectiveConfirmationMode !== 'consultation')).map((service) => {
-          const entry = l1Snapshot.services.find(item => item.id === service.id)!;
-          const parent = entry.parentServiceId ? l1Snapshot.services.find(item => item.id === entry.parentServiceId) : null;
-          return { ...service, name: parent ? `${parent.name} · ${entry.variantLabel ?? entry.name}` : entry.name };
-        })
-        : services}
+      services={bookingServices}
       addOns={addOns}
       serviceAddOnRules={serviceAddOnRules}
       bookingFlow={bookingFlow}

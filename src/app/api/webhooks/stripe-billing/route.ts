@@ -39,6 +39,7 @@ import * as Sentry from '@sentry/nextjs';
 import { and, eq, isNull } from 'drizzle-orm';
 import type Stripe from 'stripe';
 
+import { handleAiCreditBillingEvent } from '@/features/ai-credits/webhook.server';
 import {
   claimBillingEvent,
   failBillingEvent,
@@ -987,6 +988,10 @@ async function classifyCheckoutSession(
 }
 
 async function handleEvent(event: Stripe.Event): Promise<HandlerOutcome> {
+  const aiCredits = await handleAiCreditBillingEvent(event);
+  if (aiCredits) {
+    return aiCredits;
+  }
   const created = new Date(event.created * 1000);
 
   switch (event.type) {

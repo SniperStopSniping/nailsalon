@@ -772,6 +772,10 @@ export type OnboardingClaimConflict =
   };
 
 export type OnboardingClaimSuccess = {
+  /** Server-derived routing only; the publication API repeats all checks. */
+  requiresArtworkReview?: boolean;
+  /** Continue in the current shared editor after a committed manual handoff. */
+  manualSetupLinked?: boolean;
   claimId: string;
   created: boolean;
   dashboardUrl: string;

@@ -32,7 +32,7 @@ import {
   buildRescheduleTaxSnapshot,
   validateInvoiceTaxSnapshot,
 } from '@/libs/taxConfig';
-import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
+import { addDaysToDateKey, getDateKeyInTimeZone, getZonedDayBounds, isZonedTimeMatch, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type AddOnCategory,
   type Appointment,
@@ -842,6 +842,7 @@ async function validateTimeAndTechnician(args: {
   const capabilityMode = resolveTechnicianCapabilityMode([technician], args.requestedServices);
 
   const decision = canTechnicianTakeAppointment({
+    timeZone: args.loaded.timeZone,
     startTime: args.startTime,
     endTime,
     weeklySchedule: technician.weeklySchedule,
@@ -1113,11 +1114,10 @@ async function findNextAvailableStart(
   const capabilityMode = resolveTechnicianCapabilityMode([technician], requestedServices);
   const slots = getAllSlots(loaded.slotIntervalMinutes);
   const searchStart = new Date(loaded.appointment.startTime.getTime() + loaded.slotIntervalMinutes * 60 * 1000);
+  const firstDateKey = getDateKeyInTimeZone(searchStart, loaded.timeZone);
 
   for (let offset = 0; offset < SEARCH_DAYS_AHEAD; offset++) {
-    const day = new Date(searchStart);
-    day.setDate(searchStart.getDate() + offset);
-    const dateKey = getDateKeyInTimeZone(day, loaded.timeZone);
+    const dateKey = addDaysToDateKey(firstDateKey, offset);
     const { startOfDay, endOfDay } = getZonedDayBounds(dateKey, loaded.timeZone);
     const bookingPolicy = await loadBookingPolicy({
       salonId: loaded.appointment.salonId,
@@ -1133,11 +1133,12 @@ async function findNextAvailableStart(
       const startTime = zonedTimeToUtc({ date: dateKey, time: slot, timeZone: loaded.timeZone });
       const endTime = new Date(startTime.getTime() + totalDurationMinutes * 60 * 1000);
 
-      if (startTime <= searchStart) {
+      if (!isZonedTimeMatch(startTime, { date: dateKey, time: slot, timeZone: loaded.timeZone }) || startTime <= searchStart) {
         continue;
       }
 
       const decision = canTechnicianTakeAppointment({
+        timeZone: loaded.timeZone,
         startTime,
         endTime,
         weeklySchedule: technician.weeklySchedule,

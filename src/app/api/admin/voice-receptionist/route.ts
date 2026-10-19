@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { requireAdminSalon, requireRealSalonOwner } from '@/libs/adminAuth';
+import { hasExactRequestOrigin } from '@/libs/requestOriginGuard';
 import { voiceReceptionistReadiness } from '@/libs/voiceReceptionist/settings';
 import {
   getVoiceSettings,
@@ -21,11 +22,6 @@ const updateSchema = z.object({
   answerMode: z.enum(['always', 'after_hours']).optional(),
   callbackEnabled: z.boolean().optional(),
 }).strict();
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  return !!origin && origin === new URL(request.url).origin;
-}
 
 async function ownerContext(request: Request) {
   const parsed = querySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
@@ -81,7 +77,7 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  if (!sameOrigin(request)) {
+  if (!hasExactRequestOrigin(request)) {
     return Response.json({ error: { message: 'Invalid request origin.' } }, { status: 403 });
   }
   const context = await ownerContext(request);

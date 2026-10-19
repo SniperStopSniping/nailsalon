@@ -2,7 +2,7 @@
  * Billing keeps existing account history and portal access while routing
  * owners to the shared access/credits overview instead of obsolete plans.
  */
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -132,6 +132,12 @@ function mockEndpoints(options: {
     }
 
     return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+  });
+}
+
+async function settleFetchEffects() {
+  await act(async () => {
+    await Promise.all(fetchMock.mock.results.map(({ value }) => Promise.resolve(value)));
   });
 }
 
@@ -271,6 +277,7 @@ describe('Account & Plan — shared access and credits overview', () => {
         leafOnly
       />,
     );
+    await settleFetchEffects();
 
     expect(screen.queryByText('Plans')).not.toBeInTheDocument();
   });

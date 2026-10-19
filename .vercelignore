@@ -17,3 +17,8 @@ local/
 production/luster-videos/
 test-results/
 playwright-report/
+# Owner-generation evidence is review material, not public application content.
+artifacts/business-setup/
+
+# Browser screenshots/provider-trial receipts are never runtime inputs.
+artifacts/ai-credits/

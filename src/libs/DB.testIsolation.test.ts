@@ -24,22 +24,81 @@ describe('database test isolation', () => {
   });
 
   it('selects the in-memory PGlite database and never creates a Postgres pool', async () => {
-    // The PGlite branch announces itself via console.warn; that log is expected.
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const { db } = await import('./DB');
-
-    expect(db).toBeDefined();
-
     const globals = globalThis as typeof globalThis & {
+      pgDrizzle?: unknown;
       pgPool?: unknown;
       pgTargetFingerprint?: unknown;
       pgliteClient?: unknown;
+      pgliteDataSource?: unknown;
+      pgliteDrizzle?: unknown;
+      pgliteSeeded?: boolean;
     };
+    const globalKeys = [
+      'pgDrizzle',
+      'pgPool',
+      'pgTargetFingerprint',
+      'pgliteClient',
+      'pgliteDataSource',
+      'pgliteDrizzle',
+      'pgliteSeeded',
+    ] as const;
+    const previousGlobals = new Map(globalKeys.map(key => [
+      key,
+      {
+        present: Object.prototype.hasOwnProperty.call(globals, key),
+        value: globals[key],
+      },
+    ] as const));
 
-    expect(globals.pgPool).toBeUndefined();
-    expect(globals.pgTargetFingerprint).toBeUndefined();
-    expect(globals.pgliteClient).toBeDefined();
+    vi.resetModules();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    class PGliteMock {
+      waitReady = Promise.resolve();
+    }
+    const pgliteConstructor = vi.fn(PGliteMock);
+    const drizzleDatabase = {};
+    const drizzlePglite = vi.fn(() => drizzleDatabase);
+    const migratePglite = vi.fn().mockResolvedValue(undefined);
+
+    vi.doMock('@electric-sql/pglite', () => ({ PGlite: pgliteConstructor }));
+    vi.doMock('drizzle-orm/pglite', () => ({ drizzle: drizzlePglite }));
+    vi.doMock('drizzle-orm/pglite/migrator', () => ({ migrate: migratePglite }));
+
+    for (const key of globalKeys) {
+      delete globals[key];
+    }
+    // Skip application fixture seeding: this unit test concerns target
+    // selection, while real PGlite migration/seed behavior is covered by the
+    // PGlite integration suites.
+    globals.pgliteSeeded = true;
+
+    try {
+      const { db, usesRuntimePostgres } = await import('./DB');
+
+      expect(db).toBe(drizzleDatabase);
+      expect(usesRuntimePostgres).toBe(false);
+      expect(pgliteConstructor).toHaveBeenCalledOnce();
+      expect(globals.pgliteClient).toBeDefined();
+      expect(drizzlePglite).toHaveBeenCalledWith(globals.pgliteClient, expect.any(Object));
+      expect(migratePglite).toHaveBeenCalledOnce();
+      expect(globals.pgPool).toBeUndefined();
+      expect(globals.pgDrizzle).toBeUndefined();
+      expect(globals.pgTargetFingerprint).toBeUndefined();
+    } finally {
+      vi.doUnmock('@electric-sql/pglite');
+      vi.doUnmock('drizzle-orm/pglite');
+      vi.doUnmock('drizzle-orm/pglite/migrator');
+      vi.resetModules();
+
+      for (const [key, previous] of previousGlobals) {
+        if (previous.present) {
+          Object.assign(globals, { [key]: previous.value });
+        } else {
+          delete globals[key];
+        }
+      }
+    }
   });
 
   it('fails loudly instead of connecting when a DATABASE_URL leaks into a test run', async () => {

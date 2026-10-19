@@ -14,20 +14,40 @@ delete testEnv.DATABASE_URL;
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
   test: {
+    // next-intl v4 is ESM and imports Next's extensionless entry points.
+    // Let Vite resolve those imports as Next does instead of Node's ESM loader.
+    server: { deps: { inline: ['next-intl'] } },
     globals: true, // This is needed by @testing-library to be cleaned up after each test
-    include: [
-      'src/**/*.test.{js,jsx,ts,tsx}',
-      // P8a operator-script pure guard tests (scripts/lib/billingScriptGuards.ts)
-      // live beside the scripts they guard, not under src/.
-      'scripts/**/*.test.{js,ts}',
-    ],
     coverage: {
       include: ['src/**/*'],
       exclude: ['src/**/*.stories.{js,jsx,ts,tsx}', '**/*.d.ts'],
     },
-    environmentMatchGlobs: [
-      ['**/*.test.tsx', 'jsdom'],
-      ['src/hooks/**/*.test.ts', 'jsdom'],
+    projects: [
+      {
+        // Inline projects do not inherit root Vite/test options in Vitest 4
+        // unless extends is explicit. Keep the root setup, env, plugin and
+        // Next Intl transform active in both environments.
+        extends: true,
+        test: {
+          name: 'node',
+          include: [
+            'src/**/*.test.{js,jsx,ts,tsx}',
+            // P8a operator-script pure guard tests live beside the scripts
+            // they guard, not under src/.
+            'scripts/**/*.test.{js,ts}',
+          ],
+          exclude: ['src/**/*.test.tsx', 'src/hooks/**/*.test.ts'],
+          environment: 'node',
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'jsdom',
+          include: ['src/**/*.test.tsx', 'src/hooks/**/*.test.ts'],
+          environment: 'jsdom',
+        },
+      },
     ],
     setupFiles: ['./vitest-setup.ts'],
     env: testEnv,

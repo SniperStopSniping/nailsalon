@@ -2,7 +2,7 @@
 import { fileURLToPath } from 'node:url';
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
+import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Client } from 'pg';
 
 import { deriveBookingCategory } from '../src/libs/bookingCategory';
@@ -51,7 +51,7 @@ const SYNTHETIC_SALON = {
   zipCode: '00000',
 };
 
-type Db = ReturnType<typeof drizzle>;
+type Db = NodePgDatabase;
 type Environment = Record<string, string | undefined>;
 
 function formatPhoneE164(phone: string) {

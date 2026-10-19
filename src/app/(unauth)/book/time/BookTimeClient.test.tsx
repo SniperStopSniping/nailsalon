@@ -650,13 +650,13 @@ describe('BookTimeClient', () => {
       expect(screen.queryByTestId(/^time-slot-/)).not.toBeInTheDocument();
     });
 
-    it('keeps a long preparation message concise and customer-facing', async () => {
+    it('distinguishes service duration from the time reserved around an appointment', async () => {
       mockAvailability(['13:45'], [], 190, 180);
 
       renderTimeStep(180);
 
       expect(await screen.findByText(/Your service takes/)).toHaveTextContent(
-        'Your service takes 3h plus 10 minutes of preparation time.',
+        'Your service takes 3h. An extra 10 minutes is reserved around your appointment.',
       );
       expect(screen.queryByText(/Times marked unavailable/)).not.toBeInTheDocument();
     });

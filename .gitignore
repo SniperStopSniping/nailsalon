@@ -66,9 +66,17 @@ local
 /public/uploads/services/
 /public/uploads/onboarding-profile/
 /public/uploads/cover/
+# Pinned PDF.js assets are copied from node_modules by next.config.mjs.
+/public/assets/pdfjs/
 
 # vercel
 .vercel
 
 # owner-assistant eval reports (scripts/owner-assistant-eval.ts). Never commit a run.
 /eval-reports/
+
+# Generated owner-builder evidence stays outside application releases.
+/artifacts/business-setup/
+/artifacts/ai-credits/**
+!/artifacts/ai-credits/published-preview-checkpoint/
+!/artifacts/ai-credits/published-preview-checkpoint/candidate-secret-scan-proof.json

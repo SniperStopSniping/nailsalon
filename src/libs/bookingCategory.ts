@@ -11,6 +11,8 @@ export function deriveBookingCategory(category: ServiceCategory): BookingCategor
       return 'pedicure';
     case 'combo':
       return 'combo';
+    case 'other':
+      return 'other';
     default:
       return 'manicure';
   }
@@ -20,10 +22,17 @@ export const BOOKING_CATEGORY_META: Record<BookingCategory, { label: string; ico
   manicure: { label: 'Manicure', icon: '💅' },
   pedicure: { label: 'Pedicure', icon: '🦶' },
   combo: { label: 'Combos', icon: '✨' },
+  other: { label: 'Other services', icon: '◇' },
 };
 
 /** The only main service categories any user-facing surface may show. */
-export const VISIBLE_BOOKING_CATEGORIES: BookingCategory[] = ['manicure', 'pedicure', 'combo'];
+export const VISIBLE_BOOKING_CATEGORIES: BookingCategory[] = ['manicure', 'pedicure', 'combo', 'other'];
+
+/** Existing nail salons retain their tabs; the neutral group appears when used. */
+export function visibleBookingCategories(services: { bookingCategory?: BookingCategory | null; category: ServiceCategory | string }[]): BookingCategory[] {
+  const used = new Set(services.map(service => resolveVisibleBookingCategory(service)));
+  return VISIBLE_BOOKING_CATEGORIES.filter(category => used.has('other') ? used.has(category) : category !== 'other');
+}
 
 /**
  * Canonical visible group for any service-shaped record — the single rule
