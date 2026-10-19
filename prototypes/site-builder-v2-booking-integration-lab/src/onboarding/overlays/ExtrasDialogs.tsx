@@ -1149,6 +1149,22 @@ export function CanvaDialog({
     syncCanvaDraft(onUpdate, result.section, displayMode, placement);
   };
 
+  const changeDisplayMode = (mode: CanvaDisplayMode) => {
+    // Connected setup saves links and backgrounds as they change. Size belongs
+    // in that same saved draft, including when the owner closes or refreshes.
+    // Standalone upload callers retain their explicit Save handoff.
+    if (section && controller && onPreview) {
+      const result = controller.updateSettings(section.id, settings => ({ ...settings, displayMode: mode }));
+      if (!result.success || !result.section) {
+        setError(result.failure?.message ?? 'The size could not be saved. Try again.');
+        return;
+      }
+      syncCanvaDraft(onUpdate, result.section, mode, state.canva.placement);
+    }
+    setDisplayMode(mode);
+    setError('');
+  };
+
   useEffect(() => {
     if (!open) {
       wasOpenRef.current = false;
@@ -1499,7 +1515,7 @@ export function CanvaDialog({
               <legend>Size</legend>
               {DESIGN_DISPLAY_CHOICES.map(([mode, label, description]) => (
                 <label key={mode}>
-                  <input aria-label={label} checked={displayMode === mode} name="canva-display" type="radio" value={mode} onChange={() => setDisplayMode(mode)} />
+                  <input aria-label={label} checked={displayMode === mode} name="canva-display" type="radio" value={mode} onChange={() => changeDisplayMode(mode)} />
                   <span className="custom-design-display-copy">
                     <strong>{label}</strong>
                     <small>{description}</small>

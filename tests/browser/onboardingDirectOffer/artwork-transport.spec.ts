@@ -37,7 +37,11 @@ const visiblePixels = async (buffer: Buffer) => {
   return pixels;
 };
 
-for (const [name, width, height] of [['tall', 1200, 4000], ['wide', 1600, 800], ['small', 279, 1280]] as const) {
+for (const [name, width, height, displayMode, displayLabel] of [
+  ['tall', 1200, 4000, 'full_width', 'Full width'],
+  ['wide', 1600, 800, 'contained', 'Wide & centred'],
+  ['small', 279, 1280, 'full_width', 'Full width'],
+] as const) {
   test(`manual ${name} artwork retains pixels, links and background through reload and transport`, async ({ page }, testInfo) => {
     test.setTimeout(90_000);
 
@@ -60,13 +64,14 @@ for (const [name, width, height] of [['tall', 1200, 4000], ['wide', 1600, 800], 
 
     await dialog.getByText('Size & background', { exact: true }).click();
     await dialog.getByRole('button', { name: 'Use cream background' }).click();
+    await dialog.getByRole('radio', { name: displayLabel, exact: true }).check();
 
     await expect.poll(() => page.evaluate((key) => {
       const document = JSON.parse(localStorage.getItem(key)!);
-      const design = document?.pages.flatMap((p: { sections: { sectionType: string; settings: { background: { mode: string }; images: { interactiveAreas: unknown[] }[] } }[] }) => p.sections)
+      const design = document?.pages.flatMap((p: { sections: { sectionType: string; settings: { background: { mode: string }; displayMode: string; images: { interactiveAreas: unknown[] }[] } }[] }) => p.sections)
         .find((s: { sectionType: string }) => s.sectionType === 'custom_design');
-      return { background: design?.settings.background.mode, links: design?.settings.images[0].interactiveAreas.length };
-    }, documentStorageKey)).toEqual({ background: 'custom', links: 1 });
+      return { background: design?.settings.background.mode, displayMode: design?.settings.displayMode, links: design?.settings.images[0].interactiveAreas.length };
+    }, documentStorageKey)).toEqual({ background: 'custom', displayMode, links: 1 });
 
     const documentBefore = await page.evaluate(key => localStorage.getItem(key), documentStorageKey);
 

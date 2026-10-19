@@ -900,6 +900,7 @@ describe('optional Gallery and Canva surfaces', () => {
     const onClose = vi.fn();
     const onPreview = vi.fn();
     const onAdd = vi.fn();
+    let rejectDisplaySave = false;
     const saveSettings = vi.fn()
       .mockImplementationOnce(() => ({ success: false, section: currentSection, failure: { message: 'Could not save. Try again.' } }))
       .mockImplementation(() => ({ success: true, section: currentSection }));
@@ -923,7 +924,11 @@ describe('optional Gallery and Canva surfaces', () => {
         available: true,
         saveSettings,
         updateSettings: (_: string, update: (settings: CustomDesignSectionInstance['settings']) => CustomDesignSectionInstance['settings']) => {
-          currentSection = { ...currentSection, settings: update(currentSection.settings) };
+          const settings = update(currentSection.settings);
+          if (rejectDisplaySave && settings.displayMode !== currentSection.settings.displayMode) {
+            return { success: false, section: currentSection, failure: { message: 'The size could not be saved. Try again.' } };
+          }
+          currentSection = { ...currentSection, settings };
           replaceSection();
           return { success: true, section: currentSection };
         },
@@ -999,6 +1004,25 @@ describe('optional Gallery and Canva surfaces', () => {
 
     expect(currentSection.settings.background).toEqual({ mode: 'custom', color: '#FFF8F0' });
     expect(currentSection.settings.images[0]?.interactiveAreas).toEqual(originalAreas);
+
+    const originalDisplayMode = currentSection.settings.displayMode;
+    rejectDisplaySave = true;
+    await user.click(screen.getByRole('radio', { name: 'Full width' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('The size could not be saved. Try again.');
+    expect(currentSection.settings.displayMode).toBe(originalDisplayMode);
+    expect(screen.getByRole('radio', { name: 'Full width' })).not.toBeChecked();
+
+    rejectDisplaySave = false;
+    await user.click(screen.getByRole('radio', { name: 'Full width' }));
+
+    expect(currentSection.settings.displayMode).toBe('full_width');
+    expect(latest.canva.displayMode).toBe('full_width');
+    expect(currentSection.settings.background).toEqual({ mode: 'custom', color: '#FFF8F0' });
+    expect(currentSection.settings.images[0]?.interactiveAreas).toEqual(originalAreas);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onPreview).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Preview website' }));
 
