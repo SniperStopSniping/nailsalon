@@ -334,7 +334,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(112);
+    expect(journal.entries).toHaveLength(113);
     expect(journal.entries.slice(106)).toEqual([
       { idx: 106, version: '7', when: 1792267728000, tag: '0107_ai_credit_wallet', breakpoints: true },
       { idx: 107, version: '7', when: 1792270500000, tag: '0108_ai_request_metering', breakpoints: true },
@@ -342,6 +342,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       { idx: 109, version: '7', when: 1792284000000, tag: '0110_setup_add_on_publication', breakpoints: true },
       { idx: 110, version: '7', when: 1792287000000, tag: '0111_other_service_categories', breakpoints: true },
       { idx: 111, version: '7', when: 1792303500000, tag: '0112_ai_operator_expense_budget', breakpoints: true },
+      { idx: 112, version: '7', when: 1792449000000, tag: '0113_salon_deletion_cleanup', breakpoints: true },
     ]);
     expect(journal.entries[105]).toMatchObject({ idx: 105, when: 1792105694761, tag: '0106_setup_shared_previews_cap_80' });
     expect(journal.entries[104]).toMatchObject({ idx: 104, when: 1792105694760, tag: '0105_setup_ai_trial_cap_50' });
@@ -393,7 +394,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [78, 'Review 0077'],
     [94, 'phone identity 0094'],
     [106, 'shared previews 0106'],
-  ])('upgrades a %s ledger through AI credits, staff and add-on publication, service categories and bounded operator expenses through 0112', async (existingCount) => {
+  ])('upgrades a %s ledger through AI credits, staff and add-on publication, service categories, bounded operator expenses and deletion recovery through 0113', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -411,7 +412,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(112);
+      expect(rows.rows).toHaveLength(113);
       expect(rows.rows.map(row => row.hash)).toEqual(migrations.map(migration => migration.hash));
       expect(Number(rows.rows[93]?.created_at)).toBe(1790609459475);
       expect(Number(rows.rows[94]?.created_at)).toBe(1790745061453);
