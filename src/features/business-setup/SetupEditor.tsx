@@ -958,7 +958,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                     e.preventDefault();
                     const form = new FormData(e.currentTarget);
                     const { origin: _origin, confirmed: _confirmed, priceLabelNeedsReview: _priceLabelNeedsReview, ...values } = service;
-                    const proposed = { ...values, name: String(form.get('name')), priceCents: Math.round(Number(form.get('price')) * 100), priceDisplayText: String(form.get('priceDisplayText')).trim() || null, durationMinutes: Number(form.get('duration')) };
+                    const proposed = { ...values, name: String(form.get('name')), priceCents: Math.round(Number(form.get('price')) * 100), priceDisplayText: String(form.get('priceDisplayText')).trim() || null, durationMinutes: Number(form.get('duration')), preparationBufferMinutes: Number(form.get('preparationBufferMinutes')), cleanupBufferMinutes: Number(form.get('cleanupBufferMinutes')) };
                     const pricing = updateSetupServicePricing(service, proposed, draft.booking.currency);
                     void run(() => edit([{ type: 'service', values: { ...proposed, priceDisplayText: pricing.priceDisplayText } }]));
                   }}
@@ -984,6 +984,18 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                       <input name="priceDisplayText" maxLength={240} defaultValue={service.priceDisplayText ?? ''} placeholder="For example: From $65" />
                     </label>
                     <small>Leave empty to display the booking price. A starting price can say “From”.</small>
+                  </details>
+                  <details>
+                    <summary>Preparation &amp; cleanup time</summary>
+                    <p>Extra time reserved before and after this service, separate from its appointment length and the booking buffer above.</p>
+                    <label>
+                      Preparation time (minutes)
+                      <input name="preparationBufferMinutes" type="number" min="0" max="120" step="1" defaultValue={service.preparationBufferMinutes} required />
+                    </label>
+                    <label>
+                      Cleanup time (minutes)
+                      <input name="cleanupBufferMinutes" type="number" min="0" max="120" step="1" defaultValue={service.cleanupBufferMinutes} required />
+                    </label>
                   </details>
                   {service.priceLabelNeedsReview && <p role="alert">Your booking price changed. Update or clear the old price wording before publishing.</p>}
                   <small>

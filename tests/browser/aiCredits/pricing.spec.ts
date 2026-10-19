@@ -36,6 +36,9 @@ test('owner edits starting prices, resumes, reviews wording and resolves a stale
 
   await expect.poll(() => draft.services[0]?.priceDisplayText).toBe('From $75.00');
   expect(draft.services[0]?.priceCents).toBe(7500);
+  expect(draft.services[0]?.durationMinutes).toBe(60);
+  expect(draft.services[0]?.preparationBufferMinutes).toBe(0);
+  expect(draft.services[0]?.cleanupBufferMinutes).toBe(10);
 
   await page.reload();
   await page.getByRole('button', { name: 'Details', exact: true }).click();
@@ -86,4 +89,27 @@ test('owner edits starting prices, resumes, reviews wording and resolves a stale
   expect(requests.filter(request => ['approve', 'publish'].includes(request.action))).toEqual([]);
 
   await page.screenshot({ path: path.join(directory, `resolved-${info.project.name}.png`), fullPage: true });
+  await page.getByRole('button', { name: 'Details', exact: true }).click();
+  await form.getByText('Preparation & cleanup time', { exact: true }).click();
+  await form.getByRole('spinbutton', { name: 'Preparation time (minutes)', exact: true }).fill('5');
+  await form.getByRole('spinbutton', { name: 'Cleanup time (minutes)', exact: true }).fill('15');
+  await form.getByRole('button', { name: 'Save service' }).click();
+
+  await expect.poll(() => draft.services[0]?.cleanupBufferMinutes).toBe(15);
+  expect(draft.services[0]?.preparationBufferMinutes).toBe(5);
+  expect(draft.services[0]?.durationMinutes).toBe(60);
+  expect(draft.services[0]?.priceCents).toBe(8500);
+  expect(draft.booking.bufferMinutes).toBe(baseline.booking.bufferMinutes);
+
+  await page.reload();
+  await page.getByRole('button', { name: 'Details', exact: true }).click();
+  await form.getByText('Preparation & cleanup time', { exact: true }).click();
+
+  await expect(form.getByRole('spinbutton', { name: 'Preparation time (minutes)', exact: true })).toHaveValue('5');
+  await expect(form.getByRole('spinbutton', { name: 'Cleanup time (minutes)', exact: true })).toHaveValue('15');
+
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+
+  await expect(review.getByText(/5 minutes preparation, 15 minutes cleanup/)).toBeVisible();
+  expect(requests.filter(request => ['approve', 'publish'].includes(request.action))).toEqual([]);
 });
