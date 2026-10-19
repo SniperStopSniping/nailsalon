@@ -273,6 +273,38 @@ describe('BookConfirmClient', () => {
     />,
   );
 
+  it('shows the committed artist from a fresh receipt instead of the requested artist', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointment: { id: 'appt_assigned_artist', status: 'confirmed' },
+        technician: { id: 'tech_2', name: 'Morgan Test Artist', avatarUrl: null },
+      },
+    }), { status: 201 }));
+    renderBasicConfirm();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    const summary = await screen.findByTestId('booking-confirmed-summary');
+
+    expect(summary).toHaveTextContent('Morgan Test Artist');
+    expect(summary).not.toHaveTextContent('Taylor');
+    expect(screen.getByText('You’re booked with Morgan.')).toBeInTheDocument();
+  });
+
+  it.each([null, undefined])('does not claim the requested artist when a fresh receipt has no assigned artist: %s', async (technician) => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_unknown_artist', status: 'confirmed' }, technician },
+    }), { status: 201 }));
+    renderBasicConfirm();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    const summary = await screen.findByTestId('booking-confirmed-summary');
+
+    expect(summary).not.toHaveTextContent('Taylor');
+    expect(screen.queryByText('You’re booked with Taylor.')).not.toBeInTheDocument();
+  });
+
   it('submits a versioned basket without falling back to the legacy selection fields', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: { appointment: { id: 'appt_basket', status: 'confirmed' } },

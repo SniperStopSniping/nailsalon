@@ -433,6 +433,8 @@ function selectionAwareSelect<T>(
 describe('POST /api/appointments booking policy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Rejected requests deliberately do not consume queued insert responses.
+    db.insert.mockReset();
     publicBookingRetentionCampaignRows = [];
     publicBookingTechnicianRows = [{ id: 'tech_1', salonId: 'salon_1', name: 'Taylor', isActive: true, specialties: [], primaryLocationId: null, weeklySchedule: { friday: { start: '09:00', end: '18:00' } } }];
     publicBookingTechnicianServiceRows = [{ technicianId: 'tech_1', serviceId: 'srv_1', enabled: true }];
@@ -648,6 +650,7 @@ describe('POST /api/appointments booking policy', () => {
     appointmentId: string;
     salonClientId: string;
     clientPhone: string;
+    technicianId?: string;
   }) {
     let appointmentValues: Record<string, unknown> | null = null;
     db.insert
@@ -659,7 +662,7 @@ describe('POST /api/appointments booking policy', () => {
               ...values,
               id: options.appointmentId,
               salonId: 'salon_1',
-              technicianId: 'tech_1',
+              technicianId: options.technicianId ?? 'tech_1',
               locationId: null,
               clientPhone: options.clientPhone,
               clientName: null,
@@ -706,6 +709,85 @@ describe('POST /api/appointments booking policy', () => {
       }),
     }));
   }
+
+  function enableFoundingSalonTeam() {
+    getSalonBySlug.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      name: 'Salon A',
+      freeSoloEnabled: true,
+      settings: { bookingExperience: { policy: { enabled: false } } },
+    });
+    const requested = {
+      id: 'tech_2',
+      salonId: 'salon_1',
+      name: 'Morgan',
+      avatarUrl: null,
+      isActive: true,
+      weeklySchedule: { friday: { start: '10:00', end: '17:00' } },
+      enabledServiceIds: ['srv_1'],
+      serviceIds: ['srv_1'],
+      specialties: [],
+      primaryLocationId: null,
+    };
+    getTechnicianById.mockResolvedValue(requested);
+    publicBookingTechnicianRows.push(requested);
+    publicBookingTechnicianServiceRows.push({ technicianId: 'tech_2', serviceId: 'srv_1', enabled: true });
+    return requested;
+  }
+
+  it('keeps an explicit artist on a founding salon when another eligible artist is free', async () => {
+    enableFoundingSalonTeam();
+    canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+    const state = mockSuccessfulAppointmentInserts({ appointmentId: 'appt_team', salonClientId: 'client_1', clientPhone: '1111111111', technicianId: 'tech_2' });
+
+    const response = await postBooking({ technicianId: 'tech_2' });
+
+    expect(response.status).toBe(201);
+    expect(state.appointmentValues).toMatchObject({ technicianId: 'tech_2' });
+    expect(getTechnicianById).toHaveBeenCalledWith('tech_2', 'salon_1');
+    await expect(response.json()).resolves.toMatchObject({ data: { technician: { id: 'tech_2', name: 'Morgan' } } });
+  });
+
+  it('rejects an unavailable requested artist instead of silently choosing a free artist on a founding salon', async () => {
+    enableFoundingSalonTeam();
+    canTechnicianTakeAppointment.mockImplementation(({ weeklySchedule }) => weeklySchedule?.friday?.start === '10:00'
+      ? { available: false, reason: 'outside_schedule' }
+      : { available: true, schedule: { start: '09:00', end: '18:00' } });
+    mockSuccessfulAppointmentInserts({ appointmentId: 'must_not_create_unavailable', salonClientId: 'client_1', clientPhone: '1111111111' });
+
+    const response = await postBooking({ technicianId: 'tech_2' });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'OUTSIDE_SCHEDULE' } });
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('validates a requested artist within the founding salon before any write', async () => {
+    enableFoundingSalonTeam();
+    getTechnicianById.mockResolvedValue(null);
+    canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+    mockSuccessfulAppointmentInserts({ appointmentId: 'must_not_create_foreign', salonClientId: 'client_1', clientPhone: '1111111111' });
+
+    const response = await postBooking({ technicianId: 'foreign_or_inactive_artist' });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'INVALID_TECHNICIAN' } });
+    expect(getTechnicianById).toHaveBeenCalledWith('foreign_or_inactive_artist', 'salon_1');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('still assigns any eligible artist when a founding salon visitor chooses no preference', async () => {
+    enableFoundingSalonTeam();
+    canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+    const state = mockSuccessfulAppointmentInserts({ appointmentId: 'appt_any', salonClientId: 'client_1', clientPhone: '1111111111' });
+
+    const response = await postBooking({ technicianId: null });
+
+    expect(response.status).toBe(201);
+    expect(getTechnicianById).not.toHaveBeenCalled();
+    expect(state.appointmentValues).toMatchObject({ technicianId: 'tech_1' });
+  });
 
   it('rejects a booking inside the salon-configured minimum notice window', async () => {
     getSalonById.mockResolvedValue({

@@ -1128,7 +1128,7 @@ async function createAppointmentFromRequestCore(
     // Normalize technicianId: treat "any", "", whitespace-only as null
     // This ensures we NEVER store "any" string in the database
     const rawTechId = typeof data.technicianId === 'string' ? data.technicianId.trim() : '';
-    let normalizedTechnicianId = (!rawTechId || rawTechId.toLowerCase() === 'any') ? null : rawTechId;
+    const normalizedTechnicianId = (!rawTechId || rawTechId.toLowerCase() === 'any') ? null : rawTechId;
 
     // Normalize clientName: trim + empty→null
     let normalizedClientName = data.clientName?.trim() || null;
@@ -1279,9 +1279,10 @@ async function createAppointmentFromRequestCore(
         error: { code: 'ANONYMOUS_CUSTOMER_ACCESS_INVALID', message: 'Trusted salon access did not match this booking.' },
       } satisfies ErrorResponse, { status: 403 });
     }
-    if (salon.freeSoloEnabled) {
-      normalizedTechnicianId = null;
-    }
+    // The founding/free-solo flag is not the visitor's artist choice. A salon
+    // can later add a team; preserve explicit selection for the tenant-scoped
+    // technician, eligibility and availability checks below. Only a genuine
+    // no-preference request may select another eligible artist.
     let customerBookingOperation: Awaited<ReturnType<typeof readCustomerBookingOperation>> | null = null;
     if (access.kind === 'anonymous_customer') {
       try {

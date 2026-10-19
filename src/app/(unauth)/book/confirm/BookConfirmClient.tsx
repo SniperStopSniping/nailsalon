@@ -2153,6 +2153,7 @@ export function BookConfirmClient({
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
   const [receiptConfirmed, setReceiptConfirmed] = useState(false);
+  const [receiptTechnician, setReceiptTechnician] = useState<TechnicianSummary>(null);
   const [recoveredReceipt, setRecoveredReceipt] = useState<any>(null);
   const [bookingResultStatus, setBookingResultStatus]
     = useState<BookingResultStatus>('confirmed');
@@ -2274,6 +2275,13 @@ export function BookConfirmClient({
     if (fromRecovery) {
       setRecoveredReceipt(data);
     }
+    const assigned = data?.data?.technician;
+    setReceiptTechnician(
+      typeof assigned?.id === 'string' && assigned.id.trim()
+      && typeof assigned.name === 'string' && assigned.name.trim()
+        ? { id: assigned.id, name: assigned.name, imageUrl: typeof assigned.avatarUrl === 'string' ? assigned.avatarUrl : null }
+        : null,
+    );
     const recoveredStatus = data?.data?.appointment?.status;
     setReceiptConfirmed(recoveredStatus === 'confirmed');
     if (fromRecovery && recoveredStatus === 'awaiting_payment' && !data?.data?.deposit?.checkoutUrl) {
@@ -3399,7 +3407,7 @@ export function BookConfirmClient({
         bookingStatus={bookingResultStatus}
         services={recovered?.services ?? services}
         addOns={recovered?.addOns ?? addOns}
-        technician={recovered ? recovered.technician : technician}
+        technician={recovered ? recovered.technician : receiptTechnician}
         totalPrice={recovered?.totalPrice ?? resolvedTotalPrice}
         totalDuration={recovered?.totalDuration ?? resolvedTotalDuration}
         dateStr={recovered?.dateStr ?? dateStr}
