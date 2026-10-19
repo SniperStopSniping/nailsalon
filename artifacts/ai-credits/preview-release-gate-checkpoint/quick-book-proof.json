@@ -1,0 +1,40 @@
+{
+  "execution": {
+    "exitCode": 0,
+    "externalRequestsBlocked": 0,
+    "sourceHead": "78d07b23b33de1a4e0e2213635dc5db866741118",
+    "fixtureOnly": true,
+    "realBookingOrProviderClaim": false,
+    "retries": 0,
+    "repeatEach": 3
+  },
+  "stats": {
+    "startTime": "2026-10-19T01:24:58.555Z",
+    "duration": 35762.301,
+    "expected": 3,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "errors": [],
+  "testFile": "tests/browser/booking-theme/media-layouts.spec.ts",
+  "testName": "cover_profile balances 0\u20135 facts, long content and missing media",
+  "project": "mobile-webkit",
+  "widths": [
+    320,
+    390
+  ],
+  "casesPerWidth": 11,
+  "sourceOrTestEdits": false,
+  "initialInvocation": {
+    "exitCode": 1,
+    "executed": 0,
+    "reason": "Anchored filter did not match full Playwright test titles; only private runner filter corrected."
+  },
+  "ownedPortsStopped": [
+    3138,
+    3443,
+    3444,
+    3445
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "name": "services-first",
+  "exactPrompt": "Put services above the gallery.",
+  "scope": "website",
+  "beforeRevision": 41,
+  "afterRevision": 42,
+  "status": "completed",
+  "elapsedMs": 39785,
+  "calls": [
+    {
+      "id": "2ca26a9d-3e84-4833-8bf0-730bedab4892",
+      "operation_id": "9edcab9f-c4cb-4b7c-9b4e-de5213d82dfd",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 14175,
+      "output_tokens": 5141,
+      "cost_micro_usd": 4343,
+      "elapsed_ms": 36098,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false,
+  "artifactId": "d04bc775-7ace-4ebe-82c5-80a5cf0c3da6",
+  "sourceHash": "670e205dcf3dd968e35fd5455b6ae8e7e3b8cd51d38d8d41f2a8f349c198d6ef",
+  "businessAndHistoricalAppointmentsPreserved": true,
+  "historicalAppointments": 4,
+  "bothPhotosUsed": true
+}

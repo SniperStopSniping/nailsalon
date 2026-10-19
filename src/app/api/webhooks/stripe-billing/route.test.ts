@@ -6,6 +6,7 @@
  * gate, end-to-end invoice processing through the window engine, and the
  * retryable-500 → reclaim → poison ladder.
  */
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -76,6 +77,7 @@ const stripeMock = vi.hoisted(() => ({
   // an invoice's own subscription) through these — unset by default; each
   // test that needs them supplies its own resolved value.
   charges: { retrieve: vi.fn() },
+  disputes: { retrieve: vi.fn() },
   // R-6: `retrieve` returns the invoice with an embedded (possibly
   // truncated) line page; `listLineItems` is the paging escape hatch the
   // route takes ONLY when that page says `has_more`.
@@ -2637,5 +2639,64 @@ describe('stripe-billing webhook pipeline', () => {
       expect(row!.status).toBe('processed');
       expect(row!.salonId).toBe('s_attr_topup');
     });
+  });
+});
+
+describe('paid AI credit fulfillment through the existing billing webhook', () => {
+  it('verifies payment, grants once, recovers a won dispute and reverses a later refund', async () => {
+    const { beginAiCreditPurchase, aiCreditOverview } = await import('@/features/ai-credits/wallet.server');
+    const actor = { salonId: randomUUID(), adminId: randomUUID() };
+    await db.insert(schema.adminUserSchema).values({ id: actor.adminId });
+    await db.insert(schema.salonSchema).values({ id: actor.salonId, slug: actor.salonId, name: 'Paid AI synthetic' });
+    await db.insert(schema.adminSalonMembershipSchema).values({ ...actor, role: 'owner' });
+    const purchase = await beginAiCreditPurchase(actor, { planEnv: 'test', operationId: randomUUID(), packKey: 'ai_10_cad_v1', stripePriceId: 'price_ai_fixture', stripeCustomerId: 'cus_ai_fixture' });
+    const sessionId = `cs_${randomUUID()}`;
+    const paymentIntent = `pi_${randomUUID()}`;
+    const session = {
+      id: sessionId,
+      status: 'complete',
+      livemode: false,
+      customer: 'cus_ai_fixture',
+      metadata: { purpose: 'ai_credit_topup', salonId: actor.salonId, planEnv: 'test', purchaseId: purchase.id, packKey: purchase.packKey },
+      currency: 'cad',
+      amount_subtotal: 1000,
+      amount_total: 1000,
+      total_details: { amount_tax: 0 },
+      payment_status: 'paid',
+      payment_intent: { id: paymentIntent, latest_charge: { id: 'ch_ai_fixture', amount_refunded: 0, disputed: false } },
+      line_items: { has_more: false, data: [{ quantity: 1, price: { id: 'price_ai_fixture' } }] },
+    };
+    stripeMock.checkout.sessions.retrieve.mockResolvedValue(session);
+    const event = stripeEvent('checkout.session.completed', session);
+    const response = await post(event);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ outcome: 'processed' });
+    expect(await aiCreditOverview(actor, 'test')).toMatchObject({ availableMicroCad: 10_000_000 });
+    expect((await post(event)).status).toBe(200);
+    expect((await post(stripeEvent('checkout.session.completed', session))).status).toBe(200);
+    expect(await aiCreditOverview(actor, 'test')).toMatchObject({ availableMicroCad: 10_000_000 });
+
+    const dispute = { id: 'dp_ai_fixture', charge: 'ch_ai_fixture', payment_intent: paymentIntent, livemode: false, status: 'needs_response' };
+    stripeMock.disputes.retrieve.mockResolvedValue(dispute);
+    stripeMock.charges.retrieve.mockResolvedValue({ id: 'ch_ai_fixture', payment_intent: paymentIntent, livemode: false, amount_refunded: 0, disputed: true });
+
+    expect((await post(stripeEvent('charge.dispute.created', dispute))).status).toBe(200);
+    expect(await aiCreditOverview(actor, 'test')).toMatchObject({ availableMicroCad: 0 });
+
+    stripeMock.disputes.retrieve.mockResolvedValue({ ...dispute, status: 'won' });
+    stripeMock.charges.retrieve.mockResolvedValue({ id: 'ch_ai_fixture', payment_intent: paymentIntent, livemode: false, amount_refunded: 250, disputed: true });
+
+    // The closed event's embedded status is deliberately old. Only the current
+    // server-retrieved dispute authorizes recovery, preserving the 25% refund.
+    expect((await post(stripeEvent('charge.dispute.closed', dispute))).status).toBe(200);
+    expect((await post(stripeEvent('charge.dispute.created', dispute))).status).toBe(200);
+    expect(await aiCreditOverview(actor, 'test')).toMatchObject({ availableMicroCad: 7_500_000 });
+
+    stripeMock.charges.retrieve.mockResolvedValue({ id: 'ch_ai_fixture', payment_intent: paymentIntent, livemode: false, amount_refunded: 1000, disputed: false });
+
+    expect((await post(stripeEvent('charge.refunded', { id: 'ch_ai_fixture', payment_intent: paymentIntent }))).status).toBe(200);
+    expect(await aiCreditOverview(actor, 'test')).toMatchObject({ availableMicroCad: 0 });
+    expect(await db.select().from(schema.smsCreditAccountSchema).where(eq(schema.smsCreditAccountSchema.salonId, actor.salonId))).toHaveLength(0);
   });
 });

@@ -1,0 +1,54 @@
+{
+  "step": "message",
+  "operationId": "0c1c5290-98b0-4205-bf18-660c8f883ac6",
+  "status": "passed",
+  "startedAt": "2026-10-17T23:24:02.943Z",
+  "elapsedMs": 105585,
+  "beforeRevision": 2,
+  "afterRevision": 4,
+  "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+  "calls": [
+    {
+      "id": "616890b3-4b54-4912-99aa-e4f3a89061f8",
+      "operation_id": "0c1c5290-98b0-4205-bf18-660c8f883ac6",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4358,
+      "output_tokens": 300,
+      "cost_micro_usd": 695,
+      "charged_micro_cad": 1390,
+      "credit_cost_micro_cad": "1946",
+      "elapsed_ms": 3809,
+      "validation": "passed"
+    },
+    {
+      "id": "7b1cb249-7036-4733-afb1-9c27e9c83ff6",
+      "operation_id": "19e88686-46ee-41f2-82fa-dac85f8aa5d2",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 2383,
+      "output_tokens": 4771,
+      "cost_micro_usd": 53666,
+      "charged_micro_cad": 107332,
+      "credit_cost_micro_cad": "150265",
+      "elapsed_ms": 85367,
+      "validation": "passed"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "parent_id": null,
+      "source_hash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6"
+    }
+  ],
+  "appointments": [],
+  "browserErrors": [
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+  ],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

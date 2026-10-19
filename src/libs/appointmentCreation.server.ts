@@ -49,7 +49,6 @@ import {
 import { type BookingBasket, validateBookingBasket } from '@/libs/bookingParams';
 import {
   canTechnicianTakeAppointment,
-  getTorontoDateString,
   loadBookingPolicy,
   type LoadedBookingPolicy,
   resolveBookingHoursCeiling,
@@ -92,8 +91,10 @@ import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { CLIENT_BOOKING_BLOCKED_MESSAGE } from '@/libs/clientBookingRestriction';
 import {
+  BOOKING_TRANSACTION_RETRY_POLICY,
   type CanonicalSalonClientIdentity,
   ClientLifecycleStabilizationError,
+  isRetryableClientLifecycleError,
   type LifecycleSqlHandle,
   lockOperationalSalonClientContactWithHandle,
   lockSalonClientIdentityKeysWithHandle,
@@ -169,6 +170,7 @@ import {
   registerPublicBookingAttempt,
 } from '@/libs/publicBookingAttempt.server';
 import { checkPublicBookingAttemptRateLimit } from '@/libs/publicBookingAttemptRateLimit';
+import { assertCurrentPublicBookingAvailability } from '@/libs/publicBookingCommitAvailability.server';
 import {
   checkPublicBookingRateLimit,
   getPublicBookingClientIp,
@@ -226,7 +228,7 @@ import {
   buildBookingTaxSnapshot,
   resolveTaxConfig,
 } from '@/libs/taxConfig';
-import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
+import { getDateKeyInTimeZone, getZonedDayBounds, isZonedTimeMatch, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type Appointment,
   APPOINTMENT_STATUSES,
@@ -506,6 +508,13 @@ class BookingIdentityAppearedError extends Error {
   constructor() {
     super('BOOKING_IDENTITY_APPEARED');
     this.name = 'BookingIdentityAppearedError';
+  }
+}
+
+class BookingTransactionRetryExhaustedError extends Error {
+  constructor() {
+    super('BOOKING_TRANSACTION_RETRY_EXHAUSTED');
+    this.name = 'BookingTransactionRetryExhaustedError';
   }
 }
 
@@ -1119,7 +1128,7 @@ async function createAppointmentFromRequestCore(
     // Normalize technicianId: treat "any", "", whitespace-only as null
     // This ensures we NEVER store "any" string in the database
     const rawTechId = typeof data.technicianId === 'string' ? data.technicianId.trim() : '';
-    let normalizedTechnicianId = (!rawTechId || rawTechId.toLowerCase() === 'any') ? null : rawTechId;
+    const normalizedTechnicianId = (!rawTechId || rawTechId.toLowerCase() === 'any') ? null : rawTechId;
 
     // Normalize clientName: trim + empty→null
     let normalizedClientName = data.clientName?.trim() || null;
@@ -1270,9 +1279,10 @@ async function createAppointmentFromRequestCore(
         error: { code: 'ANONYMOUS_CUSTOMER_ACCESS_INVALID', message: 'Trusted salon access did not match this booking.' },
       } satisfies ErrorResponse, { status: 403 });
     }
-    if (salon.freeSoloEnabled) {
-      normalizedTechnicianId = null;
-    }
+    // The founding/free-solo flag is not the visitor's artist choice. A salon
+    // can later add a team; preserve explicit selection for the tenant-scoped
+    // technician, eligibility and availability checks below. Only a genuine
+    // no-preference request may select another eligible artist.
     let customerBookingOperation: Awaited<ReturnType<typeof readCustomerBookingOperation>> | null = null;
     if (access.kind === 'anonymous_customer') {
       try {
@@ -1333,6 +1343,13 @@ async function createAppointmentFromRequestCore(
         timeZone: bookingConfig.timezone,
       })
       : rawParsedStartTime;
+    if (requestedDate && requestedTime && !isZonedTimeMatch(parsedStartTime, {
+      date: requestedDate,
+      time: requestedTime,
+      timeZone: bookingConfig.timezone,
+    })) {
+      return Response.json({ error: { code: 'INVALID_START_TIME', message: 'That time is unavailable on this date. Please choose another time.' } } satisfies ErrorResponse, { status: 400 });
+    }
     const canonicalStartTime = parsedStartTime.toISOString();
 
     let actorRole: 'guest' | 'client' | 'staff' | 'admin' = 'guest';
@@ -2535,7 +2552,7 @@ async function createAppointmentFromRequestCore(
       );
     }
 
-    const bookingDate = getTorontoDateString(startTime);
+    const bookingDate = getDateKeyInTimeZone(startTime, bookingConfig.timezone);
     const { startOfDay: bookingStartOfDay, endOfDay: bookingEndOfDay } = getZonedDayBounds(
       bookingDate,
       bookingConfig.timezone,
@@ -2688,6 +2705,7 @@ async function createAppointmentFromRequestCore(
     const pickAnyAvailableTechnician = (policy: LoadedBookingPolicy) => {
       const isAvailable = (tech: (typeof candidateTechnicians)[number]): boolean => {
         const decision = canTechnicianTakeAppointment({
+          timeZone: bookingConfig.timezone,
           startTime,
           endTime: blockedEndTime,
           weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
@@ -2739,6 +2757,7 @@ async function createAppointmentFromRequestCore(
       const decision = bypassAvailabilityGate
         ? null
         : canTechnicianTakeAppointment({
+          timeZone: bookingConfig.timezone,
           startTime,
           endTime: blockedEndTime,
           weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
@@ -2923,6 +2942,7 @@ async function createAppointmentFromRequestCore(
 
     if (!bypassAvailabilityGate) {
       const finalDecision = canTechnicianTakeAppointment({
+        timeZone: bookingConfig.timezone,
         startTime,
         endTime: blockedEndTime,
         weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
@@ -3865,6 +3885,7 @@ async function createAppointmentFromRequestCore(
         now: configuration.capturedAt,
       });
       const decision = canTechnicianTakeAppointment({
+        timeZone: bookingConfig.timezone,
         startTime,
         endTime: blockedEndTime,
         weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
@@ -3976,6 +3997,8 @@ async function createAppointmentFromRequestCore(
       let expectedTerminalClientId = originalOperationalClient?.id
         ?? preliminaryCanonicalIdentity?.terminal.id
         ?? null;
+      const bookingTransactionRetry = !normalizedOriginalApptId
+        && (access.kind === 'anonymous_customer' || Boolean(directPublicBookingAttempt));
 
       for (let identityAttempt = 0; identityAttempt < 2; identityAttempt += 1) {
         try {
@@ -4067,6 +4090,13 @@ async function createAppointmentFromRequestCore(
                 const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
                 await revalidateAnonymousMaterialInTx(tx, salonClient, configuration);
               }
+              if (isNewPublicBooking && access.kind !== 'anonymous_customer') {
+                const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
+                if (!technician) {
+                  throw new CustomerBookingOperationError('slot_unavailable');
+                }
+                await assertCurrentPublicBookingAvailability(tx, { salonId: salon.id, technicianId: technician.id, locationId: validatedLocationId, services, strictServiceAssignments: Boolean(normalizedBaseServiceId || normalizedBookingBasket), expectedBooking: bookingConfig, currentBooking: resolveBookingConfigFromSettings(configuration.settings), startTime, blockedEndTime, date: bookingDate, startOfDay: bookingStartOfDay, endOfDay: bookingEndOfDay, now: configuration.capturedAt });
+              }
               if (access.kind === 'anonymous_customer') {
                 await access.executionGuard?.(tx);
               }
@@ -4100,9 +4130,12 @@ async function createAppointmentFromRequestCore(
             return access.kind === 'anonymous_customer' || normalizedBookingBasket !== null || catalogOutcome.status === 'ok'
               ? db.transaction(transaction, { isolationLevel: 'serializable' })
               : db.transaction(transaction);
-          });
+          }, {}, bookingTransactionRetry ? BOOKING_TRANSACTION_RETRY_POLICY : undefined);
         } catch (error) {
           if (!(error instanceof BookingIdentityAppearedError)) {
+            if (bookingTransactionRetry && isRetryableClientLifecycleError(error)) {
+              throw new BookingTransactionRetryExhaustedError();
+            }
             throw error;
           }
           const refreshedIdentity = await resolveCanonicalSalonClientIdentity({
@@ -5656,6 +5689,15 @@ async function createAppointmentFromRequestCore(
     bookingSucceeded = true;
     return Response.json(response, { status: 201 });
   } catch (error) {
+    if (error instanceof BookingTransactionRetryExhaustedError) {
+      return Response.json({
+        error: {
+          code: 'BOOKING_TEMPORARILY_UNAVAILABLE',
+          message: 'We could not complete your booking because of temporary database contention. Please retry this booking shortly.',
+          retryAfterSeconds: 1,
+        },
+      } satisfies ErrorResponse, { status: 503, headers: { 'Retry-After': '1' } });
+    }
     if (error instanceof ClientBookingBlockedError) {
       return Response.json({
         error: {

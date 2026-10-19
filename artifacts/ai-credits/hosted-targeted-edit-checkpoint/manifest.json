@@ -1,0 +1,58 @@
+[
+  {
+    "path": "README.md",
+    "sha256": "402ce8a0701c2ce968664c88b782cda2a7b6f4412ccd2c8e4170f030d5131519"
+  },
+  {
+    "path": "caption-accessibility-proof.json",
+    "sha256": "75e7e37d2571d42429d847206f7c2a2867657c9dcfe97854a169c24b5a09f4b9"
+  },
+  {
+    "path": "hosted-accounting-proof.json",
+    "sha256": "5bf8e95bdfb8fe24c85935fbbdad993aebf6d27e1257608f7ce9cb01130efa78"
+  },
+  {
+    "path": "hosted-contrast-desktop.png",
+    "sha256": "1cf136fed0e7a5dfdac6ac21ac22b706da1cc1bff9f347482aebfc073284590e"
+  },
+  {
+    "path": "hosted-contrast-exact-review.png",
+    "sha256": "2da6f7c5407d1d1ef12331b14a3450f53198584bf874b0d5f7dbf1b10827562f"
+  },
+  {
+    "path": "hosted-contrast-mobile.png",
+    "sha256": "682ceeb4710bd57b6dbc12d2d7453b3e4dd519416f110537ff39e97809d30e5f"
+  },
+  {
+    "path": "hosted-contrast-narrow-mobile.png",
+    "sha256": "5caaa1a463962ca771715ed3f9a08f1fc7532aef7ec16d7869da1872ff82dfa8"
+  },
+  {
+    "path": "hosted-contrast-original-flow-proof.json",
+    "sha256": "2d75c1aff72dc48d58350bd514a381f70e95b88cbb2f9a1de3fc45f5b05aaf56"
+  },
+  {
+    "path": "hosted-contrast-preservation-proof.json",
+    "sha256": "7374669c6d33c8a30aecd4488d89800bcf74e4b862bc2251ee034d7ed463ac4b"
+  },
+  {
+    "path": "hosted-contrast-public-mobile.png",
+    "sha256": "0566d72cd1ccb8ca715def067b959e5b011e625b7e8af45a102a3fa11231561e"
+  },
+  {
+    "path": "hosted-contrast-publication-proof.json",
+    "sha256": "9e3cf265405b7437f552facb431616b36bafc79ec379d1d3ebfef7041cd725f6"
+  },
+  {
+    "path": "hosted-contrast-published.png",
+    "sha256": "0aa24495acf8a35935877a24ab6fb3bcbf681300269f9629b179f9c1820a303d"
+  },
+  {
+    "path": "hosted-contrast-render-proof.json",
+    "sha256": "7757bc445391dec5ca5a91034e9b383e99af80f83572b00b62d6f2a20d894c76"
+  },
+  {
+    "path": "model-step.json",
+    "sha256": "daa3fcb2332ac37cf7a03d766f1413e050e9c6de9ff59fb1fd8b2359166c0319"
+  }
+]

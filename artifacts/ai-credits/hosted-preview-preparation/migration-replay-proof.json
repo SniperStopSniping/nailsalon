@@ -1,0 +1,16 @@
+{
+  "exitCode": 0,
+  "environment": "preview",
+  "migrationReplayNoOp": true,
+  "before": {
+    "migrations": 112,
+    "budgets": "ae9c9478a616dac14a91b9347c12a031",
+    "credit_entries": 0
+  },
+  "after": {
+    "migrations": 112,
+    "budgets": "ae9c9478a616dac14a91b9347c12a031",
+    "credit_entries": 0
+  },
+  "productionTouched": false
+}

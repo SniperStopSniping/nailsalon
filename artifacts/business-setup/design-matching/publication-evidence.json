@@ -1,0 +1,22 @@
+{
+  "testedAt": "2026-10-15T17:06:56.060Z",
+  "salonSlug": "ai-onboarding-082c9d52379e",
+  "artifactId": "08167c8d-5e28-402f-b407-97ba116fac8e",
+  "receipt": {
+    "id": "39ddce90-4d95-44b0-99de-00920be87d25",
+    "salonId": "ai_trial_082c9d52379e486333773583c0344458",
+    "workspaceId": "40c7226b-9b77-44c0-81a5-2f78f2818ccc",
+    "revision": 15,
+    "operationId": "6fa13e37-955e-4e0a-a6c1-05c4879a377c",
+    "approvalId": "c852cf5c-873b-4f99-ab3e-d00ea35118d8",
+    "actorId": "76351038-7034-4233-84a1-1f8b14766f03",
+    "serviceIds": {
+      "draft_upload_28d5fde6-0512-498c-987a-4aff75368d0a_0": "fd5e9a9f-77fe-4bb1-951c-d4d46036724d",
+      "draft_upload_28d5fde6-0512-498c-987a-4aff75368d0a_1": "f7303de9-52b1-4521-a2f1-4aac450327b1"
+    },
+    "publishedAt": "2026-10-15T17:06:55.710Z",
+    "mediaFinalized": true
+  },
+  "throughOwnerUi": true,
+  "environment": "isolated-preview"
+}

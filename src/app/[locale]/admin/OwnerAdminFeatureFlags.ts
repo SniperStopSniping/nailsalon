@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react';
 
 export type OwnerAdminFeatureFlags = {
+  aiBusinessSetupEnabled?: boolean;
   onboardingV1IntegrationEnabled: boolean;
   /**
    * The dark-launched Section Gallery. Owner surfaces only offer a link to
@@ -14,6 +15,7 @@ export type OwnerAdminFeatureFlags = {
 };
 
 export const OwnerAdminFeatureFlagsContext = createContext<OwnerAdminFeatureFlags>({
+  aiBusinessSetupEnabled: false,
   onboardingV1IntegrationEnabled: false,
   sectionLibraryV1Enabled: false,
 });

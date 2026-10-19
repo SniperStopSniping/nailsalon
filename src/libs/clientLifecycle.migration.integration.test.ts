@@ -792,7 +792,11 @@ describePostgres.sequential('client lifecycle migration chain', () => {
       const blocked = runProtectedLifecycleMigration();
 
       expect(blocked.status).toBe(1);
-      expect(blocked.stderr).toContain('canceling statement due to lock timeout');
+      expect(blocked.stderr).toContain(
+        'Client lifecycle migration failed after PostgreSQL lock timeout (SQLSTATE 55P03).',
+      );
+      expect(blocked.stderr).not.toContain('Failed query:');
+      expect(blocked.stderr).not.toContain('params:');
       expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
         '1784950000006',
       );

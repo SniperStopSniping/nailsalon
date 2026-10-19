@@ -1,0 +1,32 @@
+[
+  {
+    "name": "botanical-rain-lily.jpg",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/7/7b/Pink_rain_lily_in_Rajshahi_01.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Pink_rain_lily_in_Rajshahi_01.jpg",
+    "author": "Kryesmin",
+    "expectedDimensions": [
+      4000,
+      3000
+    ],
+    "bytes": 7768668,
+    "sha256": "2390aa7657f90897da293d5ba84d7eb7c4049396f4fc7417142d07a68a1b55d9",
+    "license": "CC0-1.0",
+    "purpose": "Licensed botanical layout test; not salon portfolio work",
+    "originalRemovedAfterVerifiedUiUpload": true
+  },
+  {
+    "name": "botanical-colour-inspiration.jpg",
+    "url": "https://upload.wikimedia.org/wikipedia/commons/6/6b/Flowers%2C_images.jpg",
+    "page": "https://commons.wikimedia.org/wiki/File:Flowers,_images.jpg",
+    "author": "Renukarenu1861",
+    "expectedDimensions": [
+      3840,
+      2560
+    ],
+    "bytes": 1813480,
+    "sha256": "cb3f2ae1c7c683ce82e31778679dedd83e20896882d0cd81c8c3dcea643e1678",
+    "license": "CC0-1.0",
+    "purpose": "Licensed botanical layout test; not salon portfolio work",
+    "originalRemovedAfterVerifiedUiUpload": true
+  }
+]

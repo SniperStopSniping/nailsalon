@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "sourceSha": "70af527e58e960cbff137c81bcd79249e3a90792",
+  "browserName": "webkit",
+  "entryPath": "more",
+  "newBrowserContext": true,
+  "noRestoredCookies": true,
+  "actualPasswordSignIn": true,
+  "noLegacyAdminCookie": true,
+  "sameOwner": true,
+  "savedWebsiteLoaded": true,
+  "refresh": true,
+  "providerResponsesUnmodified": true,
+  "nativeBrowserCookies": true,
+  "browserErrors": [],
+  "modelCalls": 0,
+  "realAuthenticationCallsOccurred": true,
+  "credentialBoundary": {
+    "scope": "Rendered documents, builder APIs, static client assets and renderer text responses.",
+    "checkedTextResponses": 82,
+    "credentialLeaks": 0,
+    "unreadableTextResponses": 0,
+    "rawBodiesStored": false,
+    "checkedDocuments": 6,
+    "actualPrivateCredentialsChecked": 4
+  }
+}

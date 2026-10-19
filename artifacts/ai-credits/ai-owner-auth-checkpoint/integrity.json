@@ -1,0 +1,56 @@
+{
+  "sourceSha": "0879b3b7ca62e2268c0c0d798b57e3d14acd2946",
+  "files": [
+    {
+      "name": "README.md",
+      "sha256": "b34b96f248c90916e3e0edc7ab1b88d59a3dff24d5e0f4a70925d14805c7603b"
+    },
+    {
+      "name": "capacity-preflight-proof.json",
+      "sha256": "b14e05cf1a77d0acd9fd0a532c31c3192391b2d07f6216464e0cab1990cc8055"
+    },
+    {
+      "name": "checks.json",
+      "sha256": "4ca0ad7fae0f9e673c7898e4b40aaa8af7c920c5ea06e71f9f1ec5ecf8b8356a"
+    },
+    {
+      "name": "new-owner-builder.png",
+      "sha256": "21bbf0896632a33bdcc6cebcd330a0199f8c093bd05d22c05301b9f1a28f1130"
+    },
+    {
+      "name": "new-owner-proof.json",
+      "sha256": "fa5a3d46cdbec4015edbd3df378525cf1cf87bfca418d44512f4bf6baeba978e"
+    },
+    {
+      "name": "optimized-build-proof.json",
+      "sha256": "e6235f14afd9a04dfdca6a06b4ab694da43f14d4d63a3361ecae762f6a2b4f79"
+    },
+    {
+      "name": "regression-after-proof.json",
+      "sha256": "4858310386a6367ea7f84d6c5a4a868468df6a6b4874272595a0015e4da1efb8"
+    },
+    {
+      "name": "regression-before-proof.json",
+      "sha256": "c26bc9eedcc7392340ee65fdfa1e5e4bb7c2abcd3688f49c6a7e7fc7bb066ab6"
+    },
+    {
+      "name": "returning-owner-preview.png",
+      "sha256": "3af52110977d44cb5475fcb9af72cca2dd30cb4cd6b6b83a30aa3a156869898d"
+    },
+    {
+      "name": "returning-owner-proof.json",
+      "sha256": "38eab0d95d63f831b02f8b3b495ee669c7ea600d516215324846cf2d439d4598"
+    },
+    {
+      "name": "returning-owner-sign-in.png",
+      "sha256": "028a3e9d2fec579c8cb836600d5e6884fc0d8f6844d2c3b6c6cd1d3278661ca8"
+    },
+    {
+      "name": "tenant-isolation-proof.json",
+      "sha256": "22498617446c984ce5025a326cf072323d3f932dcb64fc2d3db83245f53a0ac9"
+    }
+  ],
+  "privateCredentialMatches": 0,
+  "privateFixtureCredentialsStored": false,
+  "ownedRuntimeChildrenStopped": true
+}

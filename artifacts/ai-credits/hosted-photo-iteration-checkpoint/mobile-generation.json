@@ -1,0 +1,32 @@
+{
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "name": "mobile-spacing",
+  "exactPrompt": "Make the mobile version less crowded.",
+  "scope": "website",
+  "beforeRevision": 42,
+  "afterRevision": 43,
+  "status": "completed",
+  "elapsedMs": 46320,
+  "calls": [
+    {
+      "id": "df7643a8-5fbd-41c4-bb10-5da0a2ee0354",
+      "operation_id": "72df5942-5c44-4352-adc3-438fbd99a6de",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 14162,
+      "output_tokens": 5584,
+      "cost_micro_usd": 4563,
+      "elapsed_ms": 42897,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false,
+  "artifactId": "ab082f4e-1a6c-4001-81ea-62fc68bfb480",
+  "sourceHash": "bd3ec7708fb274e937b74fc9f8b8f96884a431b4697744c375a5b2bad981ff1a",
+  "businessAndHistoricalAppointmentsPreserved": true,
+  "historicalAppointments": 4,
+  "bothPhotosUsed": true
+}

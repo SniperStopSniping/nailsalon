@@ -1,0 +1,487 @@
+{
+  "scope": "Local synthetic wallet-metered owner workflow. No Stripe purchase, production data, or deployment.",
+  "intervention": "Fixed shared draft projection after a real isolation assertion failure; retained failed results and generated sources, then reran from a fresh synthetic owner. No generated source was manually repaired.",
+  "providerEstimateMicroUsd": 181151,
+  "limitations": [
+    "General visual direction, not an exact recreation. Reference photos/branding were not copied; no owner photos supplied.",
+    "Fake Clerk development profile and synthetic legacy owner session. Real signup/checkout remain unverified.",
+    "The first cold navigation timed out before any provider call."
+  ],
+  "runs": [
+    {
+      "trial": "paid-ai-merlot-4ffc513a",
+      "run": "2026-10-18T00-59-01-409Z-message",
+      "step": "message",
+      "trialScope": "business_and_website",
+      "browserName": "chromium",
+      "salonSlug": "paid-ai-merlot-4ffc513a",
+      "lostPublishResponse": false,
+      "status": "failed",
+      "failure": "page.goto: Timeout 60000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3197/admin/business-setup?salon=paid-ai-merlot-4ffc513a\", waiting until \"domcontentloaded\"\u001b[22m\n",
+      "startedAt": "2026-10-18T00:59:01.833Z",
+      "elapsedMs": 90016,
+      "artifactId": null,
+      "calls": [],
+      "artifacts": [],
+      "appointments": [],
+      "liveServicePricesAfter": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsAfter": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "bookingSubmissionCount": 0,
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "trial": "paid-ai-merlot-4ffc513a",
+      "run": "2026-10-18T01-00-54-881Z-message",
+      "step": "message",
+      "trialScope": "business_and_website",
+      "browserName": "chromium",
+      "salonSlug": "paid-ai-merlot-4ffc513a",
+      "lostPublishResponse": false,
+      "operationId": "788b033e-fec1-4ea0-a3fd-0ef5e0709b68",
+      "status": "failed",
+      "failure": "Chat changes must not update live business, payment, messaging or public website settings.\n+ actual - expected\n\n+ '775ac8ad1ad39ad184abccfa74e3b4875a9f70bad0082846b1b964edbc7731cc'\n- 'c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206'\n",
+      "startedAt": "2026-10-18T01:00:55.077Z",
+      "elapsedMs": 92873,
+      "beforeRevision": 1,
+      "afterRevision": 4,
+      "artifactId": "048536f4-93d2-43f8-acd7-07c5d366dac7",
+      "calls": [
+        {
+          "id": "fa760a1b-6d58-4bf5-81b5-d28d74fef096",
+          "operation_id": "788b033e-fec1-4ea0-a3fd-0ef5e0709b68",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 4816,
+          "output_tokens": 577,
+          "cost_micro_usd": 891,
+          "charged_micro_cad": 1782,
+          "credit_cost_micro_cad": "2495",
+          "elapsed_ms": 6200,
+          "validation": "passed"
+        },
+        {
+          "id": "13269079-9ef8-4401-97dc-2d713d8d5f94",
+          "operation_id": "ddbbdd09-3b34-422a-bf38-c9cc404a7cec",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 2318,
+          "output_tokens": 4222,
+          "cost_micro_usd": 48014,
+          "charged_micro_cad": 96028,
+          "credit_cost_micro_cad": "134440",
+          "elapsed_ms": 67541,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "048536f4-93d2-43f8-acd7-07c5d366dac7",
+          "parent_id": null,
+          "source_hash": "87118fbe02b1f553a04db925e1c4c070d7712f6254028e399fe208cccd9b2a92"
+        }
+      ],
+      "appointments": [],
+      "liveServicePricesBefore": [],
+      "liveServicePricesAfter": [],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "liveSettingsAfter": "775ac8ad1ad39ad184abccfa74e3b4875a9f70bad0082846b1b964edbc7731cc",
+      "bookingSubmissionCount": 0,
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "trial": "paid-ai-merlot-4ffc513a",
+      "run": "2026-10-18T01-03-36-623Z-preview",
+      "step": "preview",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "salonSlug": "paid-ai-merlot-4ffc513a",
+      "lostPublishResponse": false,
+      "status": "passed",
+      "startedAt": "2026-10-18T01:03:37.211Z",
+      "elapsedMs": 15442,
+      "beforeRevision": 4,
+      "afterRevision": 4,
+      "artifactId": "048536f4-93d2-43f8-acd7-07c5d366dac7",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "048536f4-93d2-43f8-acd7-07c5d366dac7",
+          "parent_id": null,
+          "source_hash": "87118fbe02b1f553a04db925e1c4c070d7712f6254028e399fe208cccd9b2a92"
+        }
+      ],
+      "appointments": [],
+      "liveServicePricesBefore": [],
+      "liveServicePricesAfter": [],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "775ac8ad1ad39ad184abccfa74e3b4875a9f70bad0082846b1b964edbc7731cc",
+      "liveSettingsAfter": "775ac8ad1ad39ad184abccfa74e3b4875a9f70bad0082846b1b964edbc7731cc",
+      "bookingSubmissionCount": 0,
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "trial": "paid-ai-merlotfresh-7c8bff85",
+      "run": "2026-10-18T01-05-20-266Z-message",
+      "step": "message",
+      "trialScope": "business_and_website",
+      "browserName": "chromium",
+      "salonSlug": "paid-ai-merlotfresh-7c8bff85",
+      "lostPublishResponse": false,
+      "operationId": "24e176f3-0bb8-46c9-a8d5-a7cfb3508e11",
+      "status": "passed",
+      "startedAt": "2026-10-18T01:05:20.737Z",
+      "elapsedMs": 114222,
+      "beforeRevision": 1,
+      "afterRevision": 4,
+      "artifactId": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+      "calls": [
+        {
+          "id": "1cbb1075-52ec-4573-afb4-acd809c90037",
+          "operation_id": "24e176f3-0bb8-46c9-a8d5-a7cfb3508e11",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 4822,
+          "output_tokens": 553,
+          "cost_micro_usd": 880,
+          "charged_micro_cad": 1760,
+          "credit_cost_micro_cad": "2464",
+          "elapsed_ms": 5732,
+          "validation": "passed"
+        },
+        {
+          "id": "46263950-9dd9-4d52-849a-891e6ef3fe5a",
+          "operation_id": "0527cc91-167e-424e-ac41-2e7fcc06aa91",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 2313,
+          "output_tokens": 5195,
+          "cost_micro_usd": 57731,
+          "charged_micro_cad": 115462,
+          "credit_cost_micro_cad": "161647",
+          "elapsed_ms": 85777,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        }
+      ],
+      "appointments": [],
+      "liveServicePricesBefore": [],
+      "liveServicePricesAfter": [],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "liveSettingsAfter": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "bookingSubmissionCount": 0,
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "keyboardMenu": "passed"
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "trial": "paid-ai-merlotfresh-7c8bff85",
+      "run": "2026-10-18T01-07-28-686Z-booking-link",
+      "step": "booking-link",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "salonSlug": "paid-ai-merlotfresh-7c8bff85",
+      "lostPublishResponse": false,
+      "status": "passed",
+      "startedAt": "2026-10-18T01:07:28.874Z",
+      "elapsedMs": 12736,
+      "beforeRevision": 4,
+      "afterRevision": 5,
+      "artifactId": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        }
+      ],
+      "appointments": [],
+      "liveServicePricesBefore": [],
+      "liveServicePricesAfter": [],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "liveSettingsAfter": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "bookingSubmissionCount": 0,
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "trial": "paid-ai-merlotfresh-7c8bff85",
+      "run": "2026-10-18T01-07-52-055Z-message",
+      "step": "message",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "salonSlug": "paid-ai-merlotfresh-7c8bff85",
+      "lostPublishResponse": false,
+      "operationId": "9fa9ddb8-32c0-4c2c-be32-862620bbc266",
+      "status": "passed",
+      "startedAt": "2026-10-18T01:07:52.231Z",
+      "elapsedMs": 83885,
+      "beforeRevision": 5,
+      "afterRevision": 6,
+      "artifactId": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+      "calls": [
+        {
+          "id": "d84d7c38-5712-452c-b2dc-553949bebf4b",
+          "operation_id": "9fa9ddb8-32c0-4c2c-be32-862620bbc266",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5119,
+          "output_tokens": 168,
+          "cost_micro_usd": 724,
+          "charged_micro_cad": 1448,
+          "credit_cost_micro_cad": "2028",
+          "elapsed_ms": 3286,
+          "validation": "passed"
+        },
+        {
+          "id": "64eb3ebc-1b2e-4cca-b243-0f37e3f80ccb",
+          "operation_id": "9c1d4790-c506-4722-baab-86af4503208c",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 7105,
+          "output_tokens": 5515,
+          "cost_micro_usd": 72911,
+          "charged_micro_cad": 145822,
+          "credit_cost_micro_cad": "204151",
+          "elapsed_ms": 70621,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        },
+        {
+          "id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "parent_id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "source_hash": "b6a5c62e7614cf36776ae1a9b93206c6b4c7e6e2d1f5c6aaad5ce1bfe4be6394"
+        }
+      ],
+      "appointments": [],
+      "liveServicePricesBefore": [],
+      "liveServicePricesAfter": [],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "liveSettingsAfter": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "bookingSubmissionCount": 0,
+      "contactChecks": [],
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "keyboardMenu": "passed"
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "trial": "paid-ai-merlotfresh-7c8bff85",
+      "run": "2026-10-18T01-09-21-392Z-publish",
+      "step": "publish",
+      "trialScope": "website",
+      "browserName": "chromium",
+      "salonSlug": "merlot-nail-atelier-test",
+      "lostPublishResponse": true,
+      "status": "passed",
+      "startedAt": "2026-10-18T01:09:21.575Z",
+      "elapsedMs": 9812,
+      "beforeRevision": 6,
+      "afterRevision": 7,
+      "artifactId": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        },
+        {
+          "id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "parent_id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "source_hash": "b6a5c62e7614cf36776ae1a9b93206c6b4c7e6e2d1f5c6aaad5ce1bfe4be6394"
+        }
+      ],
+      "appointments": [],
+      "liveServicePricesBefore": [],
+      "liveServicePricesAfter": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 6500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "c29d7e4d43ff797197c7060755f50e04d29f09b8f3eb41e351bee1e9ecbd7206",
+      "liveSettingsAfter": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "bookingSubmissionCount": 0,
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [
+        "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "trial": "paid-ai-merlotfresh-7c8bff85",
+      "run": "2026-10-18T01-09-45-663Z-book",
+      "step": "book",
+      "trialScope": "website",
+      "browserName": "webkit",
+      "salonSlug": "merlot-nail-atelier-test",
+      "lostPublishResponse": false,
+      "status": "passed",
+      "startedAt": "2026-10-18T01:09:46.963Z",
+      "elapsedMs": 30540,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "parent_id": null,
+          "source_hash": "6b7d0add114f45459df385e86370efbbcab525ca47ee1a8d2047d8c0c3c647b6"
+        },
+        {
+          "id": "fba0a6d4-d886-40b7-b6f7-034defb65334",
+          "parent_id": "c8ebaa3e-87d9-478a-b6f9-98c9b53efb7d",
+          "source_hash": "b6a5c62e7614cf36776ae1a9b93206c6b4c7e6e2d1f5c6aaad5ce1bfe4be6394"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_d6696a46-ca89-4fa8-8546-63a81b5b1b7a",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        }
+      ],
+      "liveServicePricesBefore": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 6500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveServicePricesAfter": [
+        {
+          "id": "36a3aa2e-78d8-4670-89ee-d0ebacf08116",
+          "name": "BIAB",
+          "price": 6500,
+          "duration_minutes": 75
+        },
+        {
+          "id": "5a586b9e-cff3-4ef0-9dc5-64cae8154575",
+          "name": "Gel-X full set",
+          "price": 8500,
+          "duration_minutes": 90
+        }
+      ],
+      "liveAddOnsBefore": [],
+      "liveAddOnsAfter": [],
+      "liveSettingsBefore": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "liveSettingsAfter": "1659cf980fd9ca55b828233919786c61a7018a4a295f155bb8c60738a930efe5",
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "contactChecks": [],
+      "interactionChecks": [],
+      "browserErrors": [
+        "Error: Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    }
+  ]
+}

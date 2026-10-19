@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "provider": "Stripe sandbox",
+  "hosted": true,
+  "realMoney": false,
+  "packCad": 10,
+  "purchaseId": "4ccdb897-652e-4432-b0d2-390acff2af46",
+  "sessionVerifiedByProvider": true,
+  "beforeMicroCad": 0,
+  "ledger": [
+    {
+      "kind": "purchase",
+      "count": 1,
+      "micro_cad": "10000000"
+    }
+  ],
+  "purchaseStatus": "paid",
+  "ownerUIConfirmed": true,
+  "productionTouched": false
+}

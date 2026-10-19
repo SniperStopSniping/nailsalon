@@ -243,6 +243,9 @@ describe('ClientInsightsPanel', () => {
 
     expect(JSON.parse(String(snoozeCall?.[1]?.body))).not.toHaveProperty('messageSnapshot');
 
+    // A recorded request is earlier than the response, refreshed insights,
+    // and clearing actionBusy. Wait for the next user action to be available.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mark complete' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Mark complete' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/admin/retention',

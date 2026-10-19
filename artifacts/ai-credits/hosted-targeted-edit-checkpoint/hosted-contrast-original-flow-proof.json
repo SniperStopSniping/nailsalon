@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "sourceSha": "eb7327ce3913400195d9ff210690a60b8bd9dbde",
+  "publishedRevision": 24,
+  "engine": "WebKit",
+  "signedOut": true,
+  "canonicalServiceId": "774fd1cd-1e6c-4396-abbd-757613f3328c",
+  "priceCents": 7500,
+  "durationMinutes": 75,
+  "eligibleStaff": true,
+  "originalAvailabilityOffered": true,
+  "existingAppointmentsPreserved": 2,
+  "newAppointments": 0,
+  "newAiCalls": 0,
+  "productionTouched": false
+}

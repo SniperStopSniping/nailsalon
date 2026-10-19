@@ -1,0 +1,48 @@
+{
+  "passed": true,
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "beforeRevision": 38,
+  "afterRevision": 39,
+  "inputPurpose": "CC0 botanical layout tests, not salon portfolio",
+  "sourceLicenseVerified": true,
+  "actualOwnerUiUpload": true,
+  "uploadRequests": [
+    {
+      "observedPostDataBytes": 1306132
+    },
+    {
+      "observedPostDataBytes": 408
+    }
+  ],
+  "images": [
+    {
+      "id": "3fd19f50-3cc4-4c55-ac5d-2a8f24bd5a07",
+      "inputName": "botanical-rain-lily.jpg",
+      "originalBytes": 7768668,
+      "uploadedBytes": 247190,
+      "width": 2048,
+      "height": 1536,
+      "format": "webp",
+      "cameraMetadataRemoved": true,
+      "proportionsPreserved": true,
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "f52d9d1f-f4e0-4837-bb3f-3f8c8d4b4dfe",
+      "inputName": "botanical-colour-inspiration.jpg",
+      "originalBytes": 1813480,
+      "uploadedBytes": 177678,
+      "width": 3840,
+      "height": 2560,
+      "format": "webp",
+      "cameraMetadataRemoved": true,
+      "proportionsPreserved": true,
+      "license": "CC0-1.0"
+    }
+  ],
+  "servicesAndSettingsPreserved": true,
+  "liveWebsiteUnchanged": true,
+  "newModelCalls": 0,
+  "uploadSizeInstrumentationNote": "Playwright may omit multipart file bytes; observedPostDataBytes is not wire size. Both real uploads succeeded and returned the verified normalized images.",
+  "taskCreatedOriginalBytesReclaimed": 9582148
+}

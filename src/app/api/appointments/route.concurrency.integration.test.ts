@@ -19,7 +19,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, gt, inArray, lt } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
@@ -66,9 +66,49 @@ const IS_LOCAL_THROWAWAY = parsedConcurrencyUrl != null
   && !RAW_URL.includes('neon.tech');
 
 vi.mock('server-only', () => ({}));
+const redisMockState = vi.hoisted(() => {
+  const values = new Map<string, string>();
+  let enabled = false;
+  const client = {
+    get: async (key: string) => values.get(key) ?? null,
+    set: async (key: string, value: string, ...options: Array<string | number>) => {
+      if (options.includes('NX')) {
+        if (values.has(key)) {
+          return null;
+        }
+        values.set(key, value);
+        return 'OK';
+      }
+      values.set(key, value);
+      return 'OK';
+    },
+    eval: async (_script: string, _keyCount: number, key: string, token: string) => {
+      if (values.get(key) !== token) {
+        return 0;
+      }
+      values.delete(key);
+      return 1;
+    },
+  };
+
+  return {
+    client,
+    reset: () => {
+      enabled = false;
+      values.clear();
+    },
+    enable: () => {
+      enabled = true;
+    },
+    isEnabled: () => enabled,
+  };
+});
+
 vi.mock('@/core/redis/redisClient', () => ({
-  redis: null,
-  isRedisAvailable: vi.fn(async () => false),
+  get redis() {
+    return redisMockState.isEnabled() ? redisMockState.client : null;
+  },
+  isRedisAvailable: vi.fn(async () => redisMockState.isEnabled()),
 }));
 
 const holder = vi.hoisted(() => ({
@@ -334,6 +374,9 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // Redis stays disabled for the established route cases. The focused
+    // idempotency replay case enables this in-memory fixture explicitly.
+    redisMockState.reset();
     // The losing request logs its conflict, and the redis-less environment
     // warns about idempotency caching. Both are expected here.
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -4933,5 +4976,173 @@ suite('POST /api/appointments — genuine concurrency', () => {
       lastError: 'SUPERSEDED',
     });
     expect(deliveries).toHaveLength(0);
+  });
+
+  it('free-solo preserves an explicit eligible technician in the response and persisted appointment', async () => {
+    const { POST } = await import('@/app/api/appointments/route');
+    await db.update(schema.salonSchema)
+      .set({ freeSoloEnabled: true })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+
+    // Both seeded technicians have identical all-week schedules and are enabled
+    // for this service, so the fallback and explicit choice use valid slots.
+    const technicians = await db.select().from(schema.technicianSchema)
+      .where(and(
+        eq(schema.technicianSchema.salonId, SALON_ID),
+        inArray(schema.technicianSchema.id, [TECH_ID, SECOND_TECH_ID]),
+      ));
+
+    expect(technicians.map(tech => tech.id).sort()).toEqual([TECH_ID, SECOND_TECH_ID].sort());
+    expect(technicians.every(tech => tech.isActive)).toBe(true);
+
+    const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+
+    expect(technicians.every(tech => weekdays.every(day =>
+      tech.weeklySchedule?.[day]?.start === '00:00'
+      && tech.weeklySchedule?.[day]?.end === '23:45',
+    ))).toBe(true);
+
+    const serviceAssignments = await db.select().from(schema.technicianServicesSchema)
+      .where(and(
+        inArray(schema.technicianServicesSchema.technicianId, [TECH_ID, SECOND_TECH_ID]),
+        eq(schema.technicianServicesSchema.serviceId, SERVICE_ID),
+        eq(schema.technicianServicesSchema.enabled, true),
+      ));
+
+    expect(serviceAssignments.map(assignment => assignment.technicianId).sort())
+      .toEqual([TECH_ID, SECOND_TECH_ID].sort());
+
+    const fallbackResponse = await POST(bookingRequest({
+      technicianId: 'any',
+      startTime: '2099-09-05T15:00:00.000Z',
+      clientName: 'Synthetic Any Artist',
+      clientEmail: 'staff-any@example.invalid',
+      clientPhone: '4165554100',
+    }));
+
+    expect(fallbackResponse.status).toBe(201);
+
+    const fallbackBody = await fallbackResponse.json() as {
+      data: { appointmentId: string; technician: { id: string } | null };
+    };
+
+    expect([TECH_ID, SECOND_TECH_ID]).toContain(fallbackBody.data.technician?.id);
+
+    const explicitlyRequestedTech = fallbackBody.data.technician?.id === TECH_ID
+      ? SECOND_TECH_ID
+      : TECH_ID;
+    const targetStart = new Date('2099-09-06T15:00:00.000Z');
+    const targetEnd = new Date(targetStart.getTime() + 60 * 60_000);
+    const occupiedTargetSlot = await db.select().from(schema.appointmentSchema)
+      .where(and(
+        eq(schema.appointmentSchema.salonId, SALON_ID),
+        lt(schema.appointmentSchema.startTime, targetEnd),
+        gt(schema.appointmentSchema.endTime, targetStart),
+        inArray(schema.appointmentSchema.technicianId, [TECH_ID, SECOND_TECH_ID]),
+        inArray(schema.appointmentSchema.status, ['pending', 'confirmed', 'in_progress']),
+      ));
+
+    expect(occupiedTargetSlot).toHaveLength(0);
+    expect(await db.select().from(schema.technicianBlockedSlotSchema)
+      .where(inArray(schema.technicianBlockedSlotSchema.technicianId, [TECH_ID, SECOND_TECH_ID])))
+      .toHaveLength(0);
+    expect(await db.select().from(schema.technicianTimeOffSchema)
+      .where(inArray(schema.technicianTimeOffSchema.technicianId, [TECH_ID, SECOND_TECH_ID])))
+      .toHaveLength(0);
+
+    const selectedResponse = await POST(bookingRequest({
+      technicianId: explicitlyRequestedTech,
+      startTime: targetStart.toISOString(),
+      clientName: 'Synthetic Explicit Staff',
+      clientEmail: 'staff-explicit@example.invalid',
+      clientPhone: '4165554101',
+    }));
+
+    expect.soft(selectedResponse.status).toBe(201);
+
+    const selectedBody = await selectedResponse.json() as {
+      data?: { appointmentId?: string; technician?: { id: string } | null };
+    };
+
+    expect.soft(selectedBody.data?.technician?.id).toBe(explicitlyRequestedTech);
+
+    if (selectedBody.data?.appointmentId) {
+      const [selectedAppointment] = await db.select()
+        .from(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.id, selectedBody.data.appointmentId))
+        .limit(1);
+
+      expect.soft(selectedAppointment?.technicianId).toBe(explicitlyRequestedTech);
+    } else {
+      expect.soft(selectedBody.data?.appointmentId).toBeTruthy();
+    }
+  });
+
+  it('free-solo includes staff selection in idempotent replay fingerprints', async () => {
+    // This test verifies cache/replay payload hashing, so it supplies a small
+    // deterministic Redis double. Other cases preserve the suite's original
+    // redis:null behavior and continue to exercise PostgreSQL only.
+    redisMockState.enable();
+    const { POST } = await import('@/app/api/appointments/route');
+    await db.update(schema.salonSchema)
+      .set({ freeSoloEnabled: true })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+
+    const idempotencyKey = randomUUID();
+    const input = {
+      startTime: '2099-09-08T15:00:00.000Z',
+      clientName: 'Synthetic Idempotency Staff',
+      clientEmail: 'staff-idempotency@example.invalid',
+      clientPhone: '4165554103',
+      technicianId: TECH_ID,
+    };
+    const request = (technicianId: string) => new Request('http://localhost/api/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({
+        salonSlug: 'concurrency-salon',
+        baseServiceId: SERVICE_ID,
+        ...input,
+        technicianId,
+      }),
+    });
+
+    const first = await POST(request(TECH_ID));
+
+    expect(first.status).toBe(201);
+
+    const firstBody = await first.json() as {
+      data: { appointmentId: string; technician: { id: string } | null };
+    };
+    const [persisted] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, firstBody.data.appointmentId))
+      .limit(1);
+
+    expect(persisted?.technicianId).toBe(firstBody.data.technician?.id);
+
+    const sameStaffReplay = await POST(request(TECH_ID));
+
+    const replayBody = await sameStaffReplay.json() as {
+      data?: { appointmentId: string; technician: { id: string } | null };
+      error?: { code?: string };
+      meta?: { cached?: boolean };
+    };
+
+    expect(
+      sameStaffReplay.status,
+      `same-staff replay returned ${replayBody.error?.code ?? 'no structured error code'}`,
+    ).toBe(201);
+
+    expect(replayBody.data?.appointmentId).toBe(firstBody.data.appointmentId);
+    expect(replayBody.data?.technician?.id).toBe(firstBody.data.technician?.id);
+    expect(replayBody.meta?.cached).toBe(true);
+
+    const changedStaffReplay = await POST(request(SECOND_TECH_ID));
+
+    expect(changedStaffReplay.status).toBe(409);
+    await expect(changedStaffReplay.json()).resolves.toMatchObject({
+      error: { code: 'IDEMPOTENCY_KEY_REUSE' },
+    });
+    expect(await activeAppointments()).toHaveLength(1);
   });
 });

@@ -1,0 +1,69 @@
+{
+  "sha": "f60b83f8f9cf6fd6b22b7d7e0e9b21a6d32f6bf7",
+  "nodeVersion": "v22.23.2",
+  "build": {
+    "code": 0,
+    "startedAt": "2026-10-18T01:18:40.568Z",
+    "completedAt": "2026-10-18T01:21:46.014Z",
+    "scope": "Complete next build from a clean Git archive; separate from the running development app.",
+    "configuration": "Approved synthetic CI auth/payment placeholders, disposable loopback PostgreSQL, no real provider credentials; outbound network restricted to loopback and public font hosts."
+  },
+  "secretScan": {
+    "exitCode": 0,
+    "trackedFilesChecked": 4498,
+    "generatedFilesChecked": 596,
+    "publicFilesChecked": 622,
+    "publicBytes": 8475715,
+    "syntheticServerCanaryMatches": 0,
+    "scope": "Tracked source plus optimized static assets, and a separate negative check of public static, HTML and RSC surfaces."
+  },
+  "workflowContracts": {
+    "passed": 18,
+    "skipped": 0,
+    "addOnMigrationPinned": true,
+    "publicationRequiredCount": 12
+  },
+  "publicationConcurrency": {
+    "passed": 12,
+    "total": 12,
+    "skipped": 0
+  },
+  "externalState": {
+    "checkedAt": "2026-10-18T01:26:40.820Z",
+    "project": "isla-nail-studio",
+    "productionBranch": "main",
+    "previewDeploymentsDisabled": true,
+    "appOrigin": "https://luster-ai-builder-test.vercel.app",
+    "rendererOrigin": "https://luster-ai-render-test.vercel.app",
+    "appEnvironment": "preview",
+    "billingPlanEnvironment": "test",
+    "onlyAttestedPreviewDatabaseHost": true,
+    "existingDeployedAppSha": "9385222",
+    "existingRendererBootSha256": "31a29acb18a00a6f1a9bfea3661c58ec7a7e9a816adceba25c6e5bd0dd10198f",
+    "requiredRendererBootSha256": "39b6397481810388e79cdd34d604db72f804b1bfbe7e24f25824e2971cb88028",
+    "rendererNeedsUpdate": true,
+    "sharedHealthStatus": 503,
+    "sharedHealthReason": "Optional production integrations intentionally absent in this isolated Preview; DB/schema checks are ready. This is not claimed as passing hosted release health."
+  },
+  "auth": {
+    "localFrontend": "Deliberate placeholder",
+    "developmentKeyAccepted": false,
+    "instanceReadStatus": 401,
+    "realSignupVerified": false
+  },
+  "boundaries": {
+    "pushed": false,
+    "deployed": false,
+    "productionMigrationsApplied": false,
+    "productionDataChanged": false,
+    "newBillableModelCalls": 0
+  },
+  "pending": [
+    "Actual Clerk signup and cross-device account flow need a valid Development key pair.",
+    "Real Stripe sandbox checkout/webhook acceptance still awaits the deferred test key.",
+    "Confirm remaining hosted resource isolation and update the separate renderer before hosted acceptance.",
+    "Run current custom frontend/booking behavior against the optimized HTTPS boundary.",
+    "Additional owned-photo/Canva/PDF/style acceptance and the real introductory walkthrough.",
+    "Held push/PR updates, remote CI/review and protected-main production release."
+  ]
+}

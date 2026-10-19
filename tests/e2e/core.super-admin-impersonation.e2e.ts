@@ -16,13 +16,25 @@ test('super admin can impersonate a salon, save a policy, and end impersonation'
     waitUntil: 'domcontentloaded',
   });
 
-  await expect(page.getByRole('heading', { name: /super admin/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Platform Control Center', exact: true })).toBeVisible();
 
-  await page.getByPlaceholder('Search salons, slugs, or owner phones...').fill(e2eConfig.salonName);
+  const organizationsResponse = page.waitForResponse((response) => {
+    if (!response.url().includes('/api/super-admin/organizations')) {
+      return false;
+    }
+    return new URL(response.url()).searchParams.get('q') === e2eConfig.salonSlug;
+  });
+  const search = page.getByPlaceholder('Search salons, slugs, or owner phones...');
+  const targetRow = page.getByRole('row').filter({ hasText: e2eConfig.salonSlug });
 
-  await expect(page.getByText(e2eConfig.salonName)).toBeVisible();
+  await search.fill(e2eConfig.salonSlug);
+  const filteredOrganizations = await organizationsResponse;
+  const filteredBody = await filteredOrganizations.json();
 
-  await page.getByRole('button', { name: 'View' }).first().click();
+  expect(filteredBody.items.map((item: { slug: string }) => item.slug)).toEqual([e2eConfig.salonSlug]);
+  await expect(targetRow).toBeVisible();
+
+  await targetRow.getByRole('button', { name: 'View' }).click();
 
   await expect(page.getByText('Salon Details')).toBeVisible();
 
@@ -64,24 +76,92 @@ test('super admin can impersonate a salon, save a policy, and end impersonation'
     salonSlug: e2eConfig.salonSlug,
   });
 
-  expect(impersonateStart.ok, JSON.stringify(impersonateStart.body)).toBeTruthy();
+  let impersonationStarted = false;
+  let originalPhotoMode: string | null = null;
 
-  await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`, {
-    waitUntil: 'domcontentloaded',
-  });
+  try {
+    expect(impersonateStart.ok, JSON.stringify(impersonateStart.body)).toBeTruthy();
 
-  await expect(page).toHaveURL(appPathPattern('/admin'));
-  await expect(page.getByTestId('admin-impersonation-banner')).toBeVisible();
+    impersonationStarted = true;
 
-  await page.goto(appPath('/admin/policies'), { waitUntil: 'domcontentloaded' });
+    await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`, {
+      waitUntil: 'domcontentloaded',
+    });
 
-  await expect(page.getByRole('heading', { level: 1, name: /policy settings/i })).toBeVisible();
+    await expect(page).toHaveURL(appPathPattern('/admin'));
+    await expect(page.getByTestId('admin-impersonation-banner')).toBeVisible();
 
-  await page.getByRole('button', { name: /save changes/i }).click();
+    await page.goto(appPath('/admin/policies'), { waitUntil: 'domcontentloaded' });
 
-  await expect(page.getByRole('button', { name: /saved!/i })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Appointment Photo Rules' }),
+    ).toBeVisible();
 
-  await page.getByTestId('admin-end-impersonation').click();
+    const beforePhoto = page.getByLabel('Before Photo to Start');
 
-  await expect(page).toHaveURL(appPathPattern('/super-admin'));
+    originalPhotoMode = await beforePhoto.inputValue();
+
+    const savedPhotoMode = originalPhotoMode === 'required' ? 'off' : 'required';
+
+    await beforePhoto.selectOption(savedPhotoMode);
+    await page.getByRole('button', { name: 'Save photo rules' }).click();
+
+    await expect(page.getByRole('button', { name: /saved!/i })).toBeVisible();
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    await expect(page.getByLabel('Before Photo to Start')).toHaveValue(savedPhotoMode);
+  } finally {
+    if (impersonationStarted) {
+      try {
+        if (originalPhotoMode !== null) {
+          await page.goto(appPath('/admin/policies'), { waitUntil: 'domcontentloaded' });
+
+          const beforePhoto = page.getByLabel('Before Photo to Start');
+
+          await expect(beforePhoto).toBeVisible();
+
+          await beforePhoto.selectOption(originalPhotoMode);
+          await page.getByRole('button', { name: 'Save photo rules' }).click();
+
+          await expect(page.getByRole('button', { name: /saved!/i })).toBeVisible();
+
+          await page.reload({ waitUntil: 'domcontentloaded' });
+
+          await expect(page.getByLabel('Before Photo to Start')).toHaveValue(originalPhotoMode);
+        }
+      } finally {
+        await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`, {
+          waitUntil: 'domcontentloaded',
+        });
+
+        const endImpersonation = page.getByTestId('admin-end-impersonation');
+
+        await expect(endImpersonation).toBeVisible();
+
+        const endResponse = page.waitForResponse(response => (
+          response.url().includes('/api/super-admin/impersonate')
+          && response.request().method() === 'DELETE'
+        ));
+
+        await endImpersonation.click();
+        const ended = await endResponse;
+
+        expect(ended.ok(), await ended.text()).toBe(true);
+        await expect(page).toHaveURL(appPathPattern('/super-admin'));
+
+        const statusResponse = await page.request.get('/api/super-admin/impersonate');
+        const status = await statusResponse.json();
+
+        expect(statusResponse.ok()).toBe(true);
+        expect(status).toMatchObject({ isImpersonating: false, session: null });
+
+        await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`, {
+          waitUntil: 'domcontentloaded',
+        });
+
+        await expect(page.getByTestId('admin-impersonation-banner')).toHaveCount(0);
+      }
+    }
+  }
 });

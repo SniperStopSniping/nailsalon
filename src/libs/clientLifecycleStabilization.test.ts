@@ -3,6 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  BOOKING_TRANSACTION_RETRY_POLICY,
   buildSalonClientIdentityLockKeys,
   buildSalonClientIdentityLockKeySet,
   ClientLifecycleStabilizationError,
@@ -1271,5 +1272,57 @@ describe('client lifecycle stabilization', () => {
     expect(isClientLifecycleTransactionTimeoutError(
       databaseError('23514'),
     )).toBe(false);
+  });
+
+  it('applies the booking-only eight-attempt exponential full-jitter policy', async () => {
+    expect(BOOKING_TRANSACTION_RETRY_POLICY).toEqual({
+      maxAttempts: 8,
+      retryAdmissionWindowMs: 10_000,
+      baseDelayMs: 50,
+      maxDelayMs: 800,
+    });
+
+    const retry = vi.fn().mockRejectedValue(databaseError('40001'));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(withClientLifecycleTransactionRetry(retry, {
+      sleep,
+      random: () => 1,
+    }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toMatchObject({ code: '40001' });
+
+    expect(retry).toHaveBeenCalledTimes(8);
+    expect(sleep.mock.calls).toEqual([[50], [100], [200], [400], [800], [800], [800]]);
+  });
+
+  it('does not admit a booking retry past the ten-second window', async () => {
+    let now = 0;
+    const retry = vi.fn(async () => {
+      now = 9_950;
+      throw databaseError('40001');
+    });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(withClientLifecycleTransactionRetry(retry, {
+      sleep,
+      random: () => 1,
+      now: () => now,
+    }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toMatchObject({ code: '40001' });
+
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a non-retryable booking transaction error', async () => {
+    const error = databaseError('23505');
+    const operation = vi.fn().mockRejectedValue(error);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(withClientLifecycleTransactionRetry(operation, {
+      sleep,
+      random: () => 1,
+    }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toBe(error);
+
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
   });
 });

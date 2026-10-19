@@ -1,0 +1,128 @@
+{
+  "sourceSha": "edba16273fd23ad8c85fae092c1d92d49146e209",
+  "files": [
+    {
+      "name": "README.md",
+      "sha256": "eabc2a158802a214f25ac4ac2eda399ee0653f98a09152db2299426bde22af8d"
+    },
+    {
+      "name": "artifact-lineage.json",
+      "sha256": "b4467c54eeef650c870da15022de8c300e2b6a77deef34474dc741d549f15224"
+    },
+    {
+      "name": "balance-updated-mobile.png",
+      "sha256": "c518cb937b334e3664b7c1e9231fbd2f05011f1bd2520721c5e72b71a986c783"
+    },
+    {
+      "name": "booking-proof.json",
+      "sha256": "80141aff567b833421e75fd3c3b50115ed331e482090b5e91cede65876838efc"
+    },
+    {
+      "name": "business-intake.png",
+      "sha256": "42810f95439381f640299f11d06b27442e2ffdcb1e5f8611c734b8f44a9ae7c9"
+    },
+    {
+      "name": "checkout-proof.json",
+      "sha256": "4ed1377ff83c815856097d86316764ded543f444f5730e11e6c921dee76164cc"
+    },
+    {
+      "name": "checks.json",
+      "sha256": "3f8b0d07e085cf4bdbb63ee731d847acf77e4ffb631fe0e7f8bb1003a4224fc0"
+    },
+    {
+      "name": "costs.json",
+      "sha256": "306427a163f49e28ed9102617e546e0ac40306b38f4c164e21eacbcad99f85a9"
+    },
+    {
+      "name": "editable-recommendations.png",
+      "sha256": "23e80f8c453b8704cfe9c9c41692b80b1ef2a8fd7dda28f5577f4e68a12e0764"
+    },
+    {
+      "name": "exact-review.png",
+      "sha256": "e532a3d1ca164c87e2c1a99b149c4e27c3d87595dacf996e5a93b613a8f7f610"
+    },
+    {
+      "name": "first-ai-desktop.png",
+      "sha256": "40ac0160be585ae8bd461eb8314c3c6cd9dc1fd31d5485ce6588923471ccf314"
+    },
+    {
+      "name": "first-ai-mobile.png",
+      "sha256": "f4bf3753c5c258313bde106f8eddce710c6c0e6b95030f2bbdd72469be0895ba"
+    },
+    {
+      "name": "generate-proof.json",
+      "sha256": "63e96c4220cb42d9799a93dbdd4fc789c6885a0ab42b27c19431ebadf06df559"
+    },
+    {
+      "name": "intake-proof.json",
+      "sha256": "edb0665fe4a2f54af0cf744004805695b30932ebd0ebef5f410edc22ea8a5988"
+    },
+    {
+      "name": "manual-service-price.png",
+      "sha256": "78c773705ff80f7bbaee12a238d0104b671815d6aab923af5c2578fab55b89c0"
+    },
+    {
+      "name": "manual-wording.png",
+      "sha256": "c5ce8cb9d3edb10cd4a1ae4fb2e29a0813a6b4a22c639d7076cfbbccc55f4df4"
+    },
+    {
+      "name": "mobile-service-target.png",
+      "sha256": "2c5624d1c1411f052b15599b2dc09495f4467da2e56ef86ea835eedc8a3b0b3f"
+    },
+    {
+      "name": "optimized-build-proof.json",
+      "sha256": "47a4269aa2a3848d104602096d27e99eece711b4f209f6ff5d561478d5e4b2fb"
+    },
+    {
+      "name": "original-booking-completed.png",
+      "sha256": "1ce3483e76ed6e6b20c9c366a8a5cf6eb2ded4abcdc2f6f2829da7eafb8dd8f6"
+    },
+    {
+      "name": "owner-design-message.png",
+      "sha256": "798aebc380963cee0817e2b6bc516846b2904aa769fc6f747341b9bd264863ec"
+    },
+    {
+      "name": "owner-return-preview.png",
+      "sha256": "520566ddf0c2d965e2f8ee4a4fc52b0e3f642418b2f68bdf989f9985365354ca"
+    },
+    {
+      "name": "owner-return-proof.json",
+      "sha256": "4627409a7ef055804e0ac6e1685a7dfbd61be7155f62ac359f428ebcaf821f62"
+    },
+    {
+      "name": "postgres-concurrency-proof.json",
+      "sha256": "a207ff5b1a2bedaf0c1976b66a12e499c9eaf94d87a2eee7acdd8ee3f376c6c2"
+    },
+    {
+      "name": "publication-proof.json",
+      "sha256": "6109c4230c75656c8c60a4639372430bdcd9769ff7090679feffcfd1e0ce046b"
+    },
+    {
+      "name": "publication-recovered.png",
+      "sha256": "ae5589b436cdf9087edb6f1268aed381dcad992a235109a18f9d66614795edbc"
+    },
+    {
+      "name": "refine-proof.json",
+      "sha256": "cb0c3c0ca81df661a63e2a637fc9579ec51aa17ecfb6d12344f9fb01e99b337f"
+    },
+    {
+      "name": "refined-mobile.png",
+      "sha256": "3814581ffca122e1c36864f5324fd4380e66f525438e3fb2a502e20522c1b935"
+    },
+    {
+      "name": "signup-proof.json",
+      "sha256": "6e87e327ef571b16724506edab8ccf67621c9ddf792e668e03b84a2e41bb0849"
+    },
+    {
+      "name": "temporary-hold-mobile.png",
+      "sha256": "6c8974f40f548efd200ce8256239e0292b08c35e275bd3ad4dd90e826e8bb963"
+    },
+    {
+      "name": "touch-proof.json",
+      "sha256": "796d2a411428bec79afb3d2f5811860063cb209e1ea8d9d108c870922fff0a2f"
+    }
+  ],
+  "credentialsScanned": 4,
+  "credentialMatches": 0,
+  "privateAccountCredentialsStored": false
+}

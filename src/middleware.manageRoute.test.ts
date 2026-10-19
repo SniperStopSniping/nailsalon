@@ -64,4 +64,14 @@ describe('middleware — host-relative /manage links', () => {
 
     expect(intlMiddleware).toHaveBeenCalled();
   });
+
+  it.each(['/website-preview/synthetic-token', '/fr/website-preview/synthetic-token'])('keeps shared draft links private from caches and referrers: %s', async (path) => {
+    intlMiddleware.mockImplementation(() => NextResponse.next({ headers: { 'Referrer-Policy': 'origin-when-cross-origin' } }));
+    const response = await middleware(request(path), event);
+
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive');
+    expect(response.headers.get('location')).toBeNull();
+  });
 });

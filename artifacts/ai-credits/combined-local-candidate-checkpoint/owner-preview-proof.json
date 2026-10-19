@@ -1,0 +1,57 @@
+{
+  "passed": true,
+  "sourceSha": "f481debeaea9a1d6adf1352a061f723f4fdf5310",
+  "previews": [
+    {
+      "label": "current-published",
+      "published": true,
+      "revision": 9,
+      "desktop": true,
+      "mobile": true,
+      "standardPreview": true,
+      "previewBookingDisabled": true,
+      "canonicalPriceCents": 7000,
+      "durationMinutes": 75
+    }
+  ],
+  "refreshResumedSamePublishedRevision": true,
+  "publicationRevision": 9,
+  "websiteAndBusinessUnchanged": true,
+  "siteSourceHashUnchanged": true,
+  "serviceIdsStable": true,
+  "services": [
+    {
+      "id": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+      "name": "BIAB",
+      "price": 7000,
+      "duration_minutes": 75
+    },
+    {
+      "id": "d4aaa9cb-bef8-4099-a86f-625c3d5300b5",
+      "name": "Gel manicure",
+      "price": 5000,
+      "duration_minutes": 60
+    }
+  ],
+  "existingAppointments": [
+    {
+      "id": "appt_f8fa06e3-4516-41f3-9048-c885ea2d15ad",
+      "total_price": 7000,
+      "total_duration_minutes": 75
+    }
+  ],
+  "walletUnchanged": {
+    "balance": "9775907",
+    "model_calls": 7
+  },
+  "modelCalls": 0,
+  "appointmentPosts": 0,
+  "browserErrors": [],
+  "actions": [
+    "open",
+    "open"
+  ],
+  "manualDesignSourceRepair": false,
+  "hostedDeployment": false,
+  "productionChanged": false
+}

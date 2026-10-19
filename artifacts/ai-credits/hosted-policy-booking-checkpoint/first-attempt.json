@@ -1,0 +1,40 @@
+{
+  "sourceSha": "43a4436e2ea9f276d6387af75fc9711b5a804529",
+  "exactPrompt": "Show my saved booking agreement on the website, in the rounded policy area before services. Keep the sage design and my services.",
+  "beforeRevision": 33,
+  "afterRevision": 35,
+  "operationId": "3344a895-c8a3-4ec8-a6ff-25938d096c03",
+  "turnStatus": "completed",
+  "acceptancePassed": false,
+  "failure": "Saved agreement was copied into website details, leaving service-page policy visibility false and risking stale wording.",
+  "artifact": {
+    "id": "0dcfc627-7687-4f1c-966d-b03eaa1519ff",
+    "source_hash": "7bb6e848153bb6c6202b7dc8f9660fe8a4d6b5b60e1117e1c6f80730416d3455"
+  },
+  "calls": [
+    {
+      "id": "964f4426-2c0e-44b7-97a8-1e53b40bb053",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 7001,
+      "output_tokens": 4200,
+      "cost_micro_usd": 59501,
+      "elapsed_ms": 64678,
+      "validation": "passed"
+    },
+    {
+      "id": "4668635f-a6a2-4f87-9243-33875e953ed2",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5806,
+      "output_tokens": 272,
+      "cost_micro_usd": 862,
+      "elapsed_ms": 3563,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false
+}

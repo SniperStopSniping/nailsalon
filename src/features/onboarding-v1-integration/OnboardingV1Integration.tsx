@@ -216,10 +216,12 @@ const usePersistentFlow = () => {
 
 export function OnboardingV1Integration({
   authProviders = FALLBACK_AUTH_PROVIDER_AVAILABILITY,
+  aiBuilderEnabled = false,
   initialResumeDraft,
   locale,
 }: {
   authProviders?: OnboardingAuthProviderAvailability;
+  aiBuilderEnabled?: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
 }) {
@@ -252,6 +254,7 @@ export function OnboardingV1Integration({
   return mounted
     ? (
         <OnboardingV1Runtime
+          aiBuilderEnabled={aiBuilderEnabled}
           key={setupGeneration}
           authProviders={authProviders}
           initialResumeDraft={resuming ? initialResumeDraft : undefined}
@@ -269,11 +272,13 @@ export function OnboardingV1Integration({
 
 function OnboardingV1Runtime({
   authProviders,
+  aiBuilderEnabled,
   initialResumeDraft,
   locale,
   onSwitchSetup,
 }: {
   authProviders: OnboardingAuthProviderAvailability;
+  aiBuilderEnabled: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
   onSwitchSetup: () => void;
@@ -322,6 +327,7 @@ function OnboardingV1Runtime({
     >
       <FeedbackProvider testMode={false}>
         <OnboardingIntegrationController
+          aiBuilderEnabled={aiBuilderEnabled}
           authProviders={authProviders}
           existingCustomMediaByLogicalId={existingCustomMediaByLogicalId}
           initialResumeDraft={initialResumeDraft}
@@ -336,6 +342,7 @@ function OnboardingV1Runtime({
 
 function OnboardingIntegrationController({
   authProviders,
+  aiBuilderEnabled,
   existingCustomMediaByLogicalId,
   initialResumeDraft,
   lab,
@@ -344,6 +351,7 @@ function OnboardingIntegrationController({
 }: {
   authProviders: OnboardingAuthProviderAvailability;
   existingCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId;
+  aiBuilderEnabled: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   lab: ReturnType<typeof useLabDocument>;
   locale: string;
@@ -1040,6 +1048,10 @@ function OnboardingIntegrationController({
     if (planInFlightRef.current || !flow.savedSite || !savedSiteVerified || !planAccountId) {
       return;
     }
+    if (!flow.mediaComplete && (flow.mediaFailures.length > 0 || flow.savedSite.media.failed > 0 || flow.savedSite.media.pending > 0)) {
+      setPlanConfirmation('Your photos have not finished saving. Select Edit my site and save them before publishing.');
+      return;
+    }
     planInFlightRef.current = true;
     setPlanPending(true);
     setPlanConfirmation(null);
@@ -1047,12 +1059,14 @@ function OnboardingIntegrationController({
       ? flow.planIdempotencyKey
       : renewPlanIdempotencyKey();
     setFlow(current => ({ ...current, planIdempotencyKey, selectedPlan: intent }));
+    let savedPlanIntent: OnboardingPlanIntent | null = null;
     try {
       const result = await saveOnboardingPlanIntent({
         idempotencyKey: planIdempotencyKey,
         intent,
         siteId: flow.savedSite.siteId,
       });
+      savedPlanIntent = result.intent;
       if (accountIdRef.current !== planAccountId) {
         return;
       }
@@ -1095,14 +1109,19 @@ function OnboardingIntegrationController({
       if (error instanceof OnboardingIntegrationRequestError && error.code === 'FOUNDING_OFFER_CLOSED') {
         setPlanOfferClosed(true);
       }
-      setPlanConfirmation(error instanceof Error
+      const message = error instanceof Error
         ? error.message
-        : 'Your plan choice could not be saved. Nothing was charged.');
+        : savedPlanIntent
+          ? 'We could not confirm that your website is live. Your saved setup is safe. Please try again.'
+          : 'Your plan choice could not be saved. Nothing was charged.';
+      setPlanConfirmation(savedPlanIntent
+        ? `Your ${savedPlanIntent === 'founding_interest' ? 'free lifetime plan' : 'plan choice'} is saved. ${message}`
+        : message);
     } finally {
       setPlanPending(false);
       planInFlightRef.current = false;
     }
-  }, [flow.planIdempotencyKey, flow.savedSite, flow.selectedPlan, locale, savedSiteVerified, setFlow]);
+  }, [flow.mediaComplete, flow.mediaFailures.length, flow.planIdempotencyKey, flow.savedSite, flow.selectedPlan, locale, savedSiteVerified, setFlow]);
 
   const currentPayload = resolvePayload();
 
@@ -1345,6 +1364,7 @@ function OnboardingIntegrationController({
         <OnboardingApp
           forceReview={forceReview}
           integration={{
+            onBuildAi: aiBuilderEnabled ? () => window.location.assign(`/${locale}/ai-website`) : undefined,
             checkSiteSlugAvailability,
             renderSetupRecovery: (saveBeforeSwitch, onMenuAction) => <DeviceSetupRecovery previous beforeSwitch={saveBeforeSwitch} onMenuAction={onMenuAction} onSwitch={onSwitchSetup} />,
             hasSavedSite: savedSiteVerified,

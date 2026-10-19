@@ -1,0 +1,142 @@
+{
+  "applicationCommit": "3cca3b97a55db05a1463a1b49ae2e04fb65d0315",
+  "applicationDeployment": "dpl_7xpTNE2K2b5cXtW5QKF6pU2YEPh9",
+  "rendererDeployment": "dpl_6ryD6Dv3pQpz6XZwDkgFTJ6SddzQ",
+  "testLink": "https://luster-ai-builder-test.vercel.app/ai-website-test",
+  "productionChanged": false,
+  "suppliedReference": {
+    "testedAt": "2026-10-15T21:33:01.260Z",
+    "fixture": "ai-details-0ac5d588fc4c",
+    "firstRevision": 4,
+    "artifactId": "f2abf877-ca0e-4857-8cfe-5a9cbda7b4a2",
+    "recoveredAfterHarnessSelectorFailure": true,
+    "detailsSections": 2,
+    "unreadablePolicyTextDisclosed": true,
+    "instagramClickable": true,
+    "locationDirectionsVisible": true,
+    "firstPromptDidNotAskForLinks": true,
+    "manualSourceEdits": false,
+    "operationIds": [
+      "7fc7f7db-57f4-460b-bb69-45a0d8827c4e"
+    ],
+    "refreshResumes": true,
+    "finalRevision": 5,
+    "finalArtifactId": "012d9eab-ecec-48f4-a2c7-b18c38815ce1",
+    "lostResponseRecovered": true,
+    "followupPostedOnce": true,
+    "calls": [
+      {
+        "model": "gpt-6-astra",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 3125,
+        "output_tokens": 923,
+        "charged_micro_cad": 170410,
+        "elapsed_ms": 17224,
+        "validation": "unchecked"
+      },
+      {
+        "model": "gpt-6-astra",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 2495,
+        "output_tokens": 5370,
+        "charged_micro_cad": 599360,
+        "elapsed_ms": 95467,
+        "validation": "passed"
+      },
+      {
+        "model": "gpt-6-astra",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 3526,
+        "output_tokens": 141,
+        "charged_micro_cad": 102236,
+        "elapsed_ms": 3891,
+        "validation": "unchecked"
+      },
+      {
+        "model": "gpt-6-astra",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 7326,
+        "output_tokens": 4931,
+        "charged_micro_cad": 676236,
+        "elapsed_ms": 51238,
+        "validation": "passed"
+      }
+    ],
+    "totalCombinedCad": 32.266204,
+    "liveState": {
+      "publication_status": "draft",
+      "online_booking_enabled": false,
+      "appointments": 0
+    }
+  },
+  "clearSyntheticReference": {
+    "testedAt": "2026-10-15T21:48:03.813Z",
+    "fixture": "ai-clear-verified-4893fc4c2704",
+    "firstRevision": 4,
+    "artifactId": "e12aedef-38d3-4bb5-9c1b-02266f1f2e8a",
+    "elapsedMs": 104494,
+    "detailsSections": 7,
+    "instagramClickable": true,
+    "locationDirectionsVisible": true,
+    "firstPromptDidNotAskForLinks": true,
+    "manualSourceEdits": false,
+    "operationIds": [
+      "ab49d38a-03c2-4a20-b151-b521bf3d14bc"
+    ],
+    "refreshResumes": true,
+    "calls": [
+      {
+        "model": "gpt-6-astra",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5419,
+        "output_tokens": 739,
+        "charged_micro_cad": 209360,
+        "elapsed_ms": 11355,
+        "validation": "unchecked"
+      },
+      {
+        "model": "gpt-6-astra",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 4924,
+        "output_tokens": 2991,
+        "charged_micro_cad": 422186,
+        "elapsed_ms": 50693,
+        "validation": "Display prices through service.priceLabel, never as copied price text."
+      },
+      {
+        "model": "gpt-6-astra",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 7753,
+        "output_tokens": 2712,
+        "charged_micro_cad": 351828,
+        "elapsed_ms": 37878,
+        "validation": "passed"
+      }
+    ],
+    "totalCombinedCad": 33.442764,
+    "liveState": {
+      "publication_status": "draft",
+      "online_booking_enabled": false,
+      "appointments": 0
+    }
+  },
+  "clearReferenceFirstFailedAttempt": {
+    "reason": "Conversation extracted details but deferred generation until an unnecessary review",
+    "chargedCad": 0.193186,
+    "fixedBy": "Explicit first-website intent starts generation once essentials are present"
+  },
+  "thisRoundChargedCad": 2.724802,
+  "combinedTrialAllowanceUsedCad": 33.442764,
+  "approvedCapCad": 40,
+  "remainingCad": 6.557236,
+  "deterministicTests": 139,
+  "rendererBrowserTests": 9,
+  "manualGeneratedSourceEdits": false
+}

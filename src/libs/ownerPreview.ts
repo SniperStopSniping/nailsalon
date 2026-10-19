@@ -207,7 +207,13 @@ export type DraftSalonGateResult =
  */
 export async function resolveDraftSalonAccess(
   salon: OwnerPreviewSalonInput,
+  options: { publishedView?: boolean } = {},
 ): Promise<DraftSalonGateResult> {
+  // An explicit customer view may select only an already-public website.
+  // It never admits an unpublished salon or exposes its saved draft.
+  if (options.publishedView && salon.publicationStatus === 'published') {
+    return { allowed: true, isPreviewingDraftSalon: false, isPreviewingDraftConfig: false, actorType: null };
+  }
   const isDraftSalon = salon.freeSoloEnabled && salon.publicationStatus !== 'published';
 
   const preview = await resolveOwnerPreviewContext(salon.id);

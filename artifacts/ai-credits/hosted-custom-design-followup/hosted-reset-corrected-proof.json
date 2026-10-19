@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "hosted": true,
+  "sourceSha": "609d6329a24084ad46e7640514cff2b2deb5687e",
+  "beforeRevision": 19,
+  "afterRevision": 20,
+  "approvedContactsRetained": true,
+  "unapprovedImageContactsPoliciesDirectionsRemoved": true,
+  "designAndReferenceSelectionCleared": true,
+  "approvedServiceIdentityAnd75PriceRetained": true,
+  "newModelCalls": 0,
+  "productionTouched": false
+}

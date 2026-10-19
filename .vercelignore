@@ -17,3 +17,5 @@ local/
 production/luster-videos/
 test-results/
 playwright-report/
+# Owner-generation evidence is review material, not public application content.
+artifacts/business-setup/

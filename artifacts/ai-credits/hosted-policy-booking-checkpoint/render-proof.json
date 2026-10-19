@@ -1,0 +1,123 @@
+{
+  "passed": true,
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "revision": 37,
+  "artifactId": "830e40f3-0233-458d-be66-c78328905cbe",
+  "devices": [
+    {
+      "device": "desktop",
+      "layout": {
+        "width": 1440,
+        "content": 1440,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "ordering": {
+        "policyTop": 668.109375,
+        "servicesTop": 968.28125
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "canonicalPolicyMatches": true
+    },
+    {
+      "device": "tablet",
+      "layout": {
+        "width": 768,
+        "content": 768,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "ordering": {
+        "policyTop": 621.015625,
+        "servicesTop": 945.59375
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "canonicalPolicyMatches": true
+    },
+    {
+      "device": "mobile",
+      "layout": {
+        "width": 390,
+        "content": 390,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "ordering": {
+        "policyTop": 546.53125,
+        "servicesTop": 931.671875
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "canonicalPolicyMatches": true
+    },
+    {
+      "device": "narrow-mobile",
+      "layout": {
+        "width": 320,
+        "content": 320,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "ordering": {
+        "policyTop": 571.578125,
+        "servicesTop": 1003.421875
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "canonicalPolicyMatches": true
+    }
+  ],
+  "previewAppointmentPosts": 0,
+  "captureMethod": "Fresh page before interaction; later agreement/services captures are explicitly scrolled views.",
+  "manualSourceRepair": false
+}

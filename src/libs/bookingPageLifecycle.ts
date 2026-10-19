@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import {
   applyPreparedCanonicalProfileMediaPromotion,
@@ -8,6 +8,7 @@ import {
   discardPreparedCanonicalProfileMediaPromotion,
   prepareCanonicalProfileMediaForPublish,
 } from '@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.server';
+import { assertFirstLaunchDesignReady } from '@/features/onboarding-v1-integration/publication-readiness.server';
 import {
   type BookingPageDraftPatch,
   bookingPageDraftPatchSchema,
@@ -21,7 +22,7 @@ import {
   updateBookingPageContentDraftInTransaction,
 } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
-import { salonSchema } from '@/models/Schema';
+import { businessSetupWorkspaceSchema, salonSchema } from '@/models/Schema';
 
 export type BookingPageLifecycleAction = 'publish' | 'revert';
 
@@ -136,9 +137,18 @@ async function synchronizeLifecycle(
         return null;
       }
 
+      const [setup] = await tx.select({ id: businessSetupWorkspaceSchema.id }).from(businessSetupWorkspaceSchema).where(and(eq(businessSetupWorkspaceSchema.salonId, salonId), eq(businessSetupWorkspaceSchema.status, 'editing')));
+      if (setup) {
+        throw new Error('Review and publish this website with its business setup.');
+      }
+
       // A retry must never publish edits made after the first successful launch.
       if (action === 'first-publish' && existing.publicationStatus === 'published') {
         return { salon: existing, applied: false };
+      }
+
+      if (action === 'first-publish') {
+        await assertFirstLaunchDesignReady(tx, salonId);
       }
 
       const config = resolveBookingPageConfig(existing.settings);

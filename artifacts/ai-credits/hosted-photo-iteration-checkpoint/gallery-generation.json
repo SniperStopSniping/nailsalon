@@ -1,0 +1,45 @@
+{
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "name": "flower-gallery",
+  "exactPrompt": "Add both flower photos as a colour-inspiration gallery before my services. These are stock test photos, not my salon's work. Keep the rest of the design.",
+  "scope": "website",
+  "beforeRevision": 39,
+  "afterRevision": 40,
+  "status": "completed",
+  "elapsedMs": 49291,
+  "calls": [
+    {
+      "id": "51c9d8c9-62de-4b21-b74a-27c485aa5036",
+      "operation_id": "a67e5681-92c3-4673-a877-6a7daa040e29",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 6245,
+      "output_tokens": 373,
+      "cost_micro_usd": 968,
+      "elapsed_ms": 6086,
+      "validation": "passed"
+    },
+    {
+      "id": "1b2c3ef3-afc8-4953-adb5-1baf6824863e",
+      "operation_id": "f64409ab-191e-40b1-95c8-e4c50081b072",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 13307,
+      "output_tokens": 5400,
+      "cost_micro_usd": 4364,
+      "elapsed_ms": 39301,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false,
+  "artifactId": "8b96fb3a-8c43-4d89-ab23-28061f3ba313",
+  "sourceHash": "244815f7dd12a732654ad102b88386b62dcb3f860fc3901caa762cb810bfb9b1",
+  "businessAndHistoricalAppointmentsPreserved": true,
+  "historicalAppointments": 4,
+  "bothPhotosUsed": true
+}

@@ -37,6 +37,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
+// Custom artifact storage is a server-only boundary, like the other DB queries.
+const { customSiteRendererOrigin, customSitePayload } = vi.hoisted(() => ({
+  customSiteRendererOrigin: vi.fn<() => string | null>(() => null),
+  customSitePayload: vi.fn(),
+}));
+vi.mock('@/features/custom-sites/payload.server', () => ({ customSiteRendererOrigin, customSitePayload }));
+
 vi.mock('next/headers', () => ({
   cookies: async () => ({ get: () => undefined, getAll: () => [] }),
 }));
@@ -224,6 +231,7 @@ vi.mock('@/app/(unauth)/book/service/BookServiceClient', () => ({
 }));
 
 /* eslint-disable import/first */
+import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import type { Salon } from '@/models/Schema';
 
 import SlugTenantLayout from '../../layout';
@@ -265,6 +273,7 @@ function ownerSession() {
 describe('Real nested route: [locale]/[slug]/layout.tsx wrapping [locale]/[slug]/book/service/page.tsx', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    customSiteRendererOrigin.mockReturnValue(null);
     notFound.mockImplementation(() => {
       throw new Error('NOT_FOUND_SENTINEL');
     });
@@ -361,5 +370,40 @@ describe('Real nested route: [locale]/[slug]/layout.tsx wrapping [locale]/[slug]
     expect(notFound).not.toHaveBeenCalled();
     expect(redirectMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId('owner-preview-banner')).not.toBeInTheDocument();
+  });
+
+  it('opens the LIVE custom website for its signed-in owner after publication', async () => {
+    const salon = { ...DRAFT_SALON, publicationStatus: 'published' };
+    getResolvedSalon.mockResolvedValue(salon);
+    getPublicPageContext.mockResolvedValue({ salon, appearance: { mode: 'custom', themeKey: null } });
+    getAdminSession.mockResolvedValue(ownerSession());
+    const config = resolveBookingPageConfig({});
+    vi.mocked(resolveBookingPageConfig).mockReturnValueOnce({
+      ...config,
+      live: { ...config.live, customFrontendId: 'approved-public-artifact' },
+      draft: { ...config.draft, customFrontendId: 'unapproved-private-artifact' },
+    });
+    customSiteRendererOrigin.mockReturnValue('https://isolated.example');
+    customSitePayload.mockResolvedValue({ source: { title: 'Published website' }, data: { preview: false, services: [] }, images: {} });
+    const page = await BookServicePage({
+      searchParams: Promise.resolve({ publishedWebsite: '1' }),
+      params: Promise.resolve({ locale: 'en', slug: SALON_SLUG }),
+    });
+    render(await SlugTenantLayout({ children: page, params: Promise.resolve({ locale: 'en', slug: SALON_SLUG }) }));
+
+    expect(customSitePayload).toHaveBeenCalledWith(SALON_ID, 'approved-public-artifact', expect.objectContaining({ preview: false }));
+    expect(screen.getByTitle('Published website')).toHaveAttribute('src', 'https://isolated.example/renderer');
+    expect(screen.getByRole('link', { name: 'Open booking menu' })).toHaveAttribute('href', `/en/${SALON_SLUG}/book/service?publishedWebsite=1&nativeBooking=1`);
+    expect(screen.queryByTestId('owner-preview-banner')).not.toBeInTheDocument();
+  });
+
+  it('does not let the customer-view query publish or expose a draft salon', async () => {
+    getAdminSession.mockResolvedValue(null);
+
+    await expect(BookServicePage({
+      searchParams: Promise.resolve({ publishedWebsite: '1' }),
+      params: Promise.resolve({ locale: 'en', slug: SALON_SLUG }),
+    })).rejects.toThrow('REDIRECT:');
+    expect(customSitePayload).not.toHaveBeenCalled();
   });
 });

@@ -50,7 +50,7 @@ jobs:
     needs: secret-scan
     strategy:
       matrix:
-        node-version: [20.x, 22.6] # Need to use 22.6 due to Next.js build errors: https://github.com/vercel/next.js/issues/69263
+        node-version: [20.x, 22.6, 24.x] # Keep compatibility lanes and validate the intended Node 24 runtime.
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     name: Build with ${{ matrix.node-version }}
@@ -126,7 +126,7 @@ jobs:
     needs: secret-scan
     strategy:
       matrix:
-        node-version: [20.x]
+        node-version: [24.x]
 
     name: Application tests
     runs-on: ubuntu-latest
@@ -199,8 +199,14 @@ jobs:
 
       - run: npm ci
 
+      - name: Verify installed dependency graph
+        run: |
+          set -euo pipefail
+          npm ls --all --json > "$RUNNER_TEMP/installed-dependency-graph.json"
+          echo 'INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1'
+
       - name: Test CI evidence and cancellation contracts
-        run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs
+        run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
 
       # The deposits ladder is additive by construction. These paths carry the
       # SaaS billing surface, dependency manifests, migration set, deploy
@@ -305,9 +311,46 @@ jobs:
               ea2893563cf943de48bbd6ba91881946fe4c9f98:da93db3e2a143e0b8694b3231265f4e8b8885d5a) ;;
               # Same reviewed Sharp graph after main's 1.142.36 version bump.
               f5212c5c05d6cf9a89a3e63c2643f03bbf223d75:3500380b6019dbab17b1c137064ee1c1e3963eda) ;;
+              # Node 24 runtime pin: package metadata only; dependency graph unchanged.
+              30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b:8e1b8a6010053efb7bd0fb883f4674537829cdd0) ;;
               # Compatible SMS transport, multipart, ID and editor-parser fixes;
               # Cloudinary alone resolves patched lodash despite the dev-tool pin.
               b7e4591c8df9d94b82b281587cec8f98b0f5439e:9576667ec691e6f5aba41486cfbbcf8e32d6b3ee) ;;
+              # Custom website builder: constrained JS/HTML parsers, PDF references
+              # and private-suffix isolation; Acorn retains main's 8.18.0 version.
+              ed0e8734ece6869797c94dfa57037955df0d02e5:433031ed9d0c705c548bc522e585e15d69648dba) ;;
+              # Same builder dependencies after main's 1.143.1 release bump.
+              7a219ff506106dca631528df8bf7877ca28c4b71:03917548fdcf78991dfd60a487783cfbdefa5ab0) ;;
+              # Identical reviewed builder dependency graph after main's 1.143.2
+              # release bump. Both manifests differ only in version fields.
+              021dfc548a7955ac279af6576c880b87ff36d87a:99e31ce606948ad4d522d0f3da2ec9d372b0db7d) ;;
+              # Prelaunch security refresh: Next 15.5.28, Sentry 10.76.2,
+              # patched PostCSS, and compatible dependency closure only.
+              e8611651650ec97880c8a67e05b795a26efaa6cb:8f5742e82fcd36ec2185235d4bfa08bd383a7966) ;;
+              # Same audited refresh with explicit Node24 deployment engine.
+              30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b:8e1b8a6010053efb7bd0fb883f4674537829cdd0) ;;
+              # Local integration retains that patched graph and adds only the
+              # already reviewed AI parsing/PDF/private-suffix dependencies.
+              8c510528ccff7fa01b70bb29cb42dd6a32452ac2:f9473055446d79e1ccce710cd0924b3a677c5844) ;;
+              # Combined candidate: Drizzle ORM 0.45.4 + next-intl 4.14.9,
+              # retaining PR461 Node24, Sentry 10 and AI dependency graph.
+              415d1c90eb42ea7230692a3f241d6febe7e872d6:c7bb0015690ce967afed8f1776d28ced92d5f116) ;;
+              # Compatible development-only transitive security patches for
+              # cipher-base, elliptic, pbkdf2, sha.js and Handlebars.
+              415d1c90eb42ea7230692a3f241d6febe7e872d6:f0c9aa4940a835250395d2098565f07802bb950e) ;;
+              # Vitest4 toolchain migration: project-based Node/jsdom config,
+              # matching coverage/expect packages and Vite6; the compatible
+              # shared magic-string/source-map transitive pins move with it.
+              2c85781c86ede9f53b02c36bd36751a0bae4e5e4:960fa1603f11ff1a10084331ff43b95d8ea68a9e) ;;
+              # Separately reviewed Storybook and npm tar security pairs.
+              cf9ee4410133e7254924abfee7a7a70e0592a25b:c7279e61b579800514e86c260774a902c25b26b4) ;;
+              fcf749d8a0e3a531756b221ed60848df2b540355:1a0d21a18e49f9d77dcecde059cdbf20a788a621) ;;
+              # Local combined tooling graph: D security patches, Vitest4,
+              # Storybook local Webpack5.111.1 and npm10.9.9/tar7.5.22.
+              68378a97e8f7292264e15565a299b4b5c04e47b3:5467895180e9024f1227adf9b47b9c42ce7c4d4c) ;;
+              # Preserve distinct Next0.5.15 and Intl compiler0.5.23 SWC
+              # helper requirements with an explicit compatible peer provider.
+              72714ec554388ba617898e14c78a0556f475bc65:547a7f34a8855333a1cfbdebbdd32393b8be31c3) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -506,6 +549,23 @@ jobs:
               migrations/0096_rebooking_reminders.sql) ;;
               # Explicit owner claim: lifetime core pricing, paid usage unchanged.
               migrations/0097_founding_lifetime_core.sql) ;;
+              # Owner-approved AI setup: draft/source/usage/private-asset storage only.
+              migrations/0098_business_setup_drafts.sql) ;;
+              migrations/0099_custom_frontend_sources.sql) ;;
+              migrations/0100_setup_ai_trial_evidence.sql) ;;
+              migrations/0101_setup_timestamp_instants.sql) ;;
+              migrations/0102_custom_site_private_preview_images.sql) ;;
+              migrations/0103_custom_site_asset_storage_choice.sql) ;;
+              migrations/0104_setup_upload_reviews.sql) ;;
+              # Owner-approved cumulative trial ceilings and private preview shares.
+              migrations/0105_setup_ai_trial_cap_50.sql) ;;
+              migrations/0106_setup_shared_previews_cap_80.sql) ;;
+              migrations/0107_ai_credit_wallet.sql) ;;
+              migrations/0108_ai_request_metering.sql) ;;
+              migrations/0109_setup_staff_publication.sql) ;;
+              migrations/0110_setup_add_on_publication.sql) ;;
+              migrations/0111_other_service_categories.sql) ;;
+              migrations/0112_ai_operator_expense_budget.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -963,6 +1023,35 @@ jobs:
             exit 1
           fi
 
+          # AI setup SQL may be introduced only at these exact postimages.
+          # Already-shipped SQL stays immutable, including additive rewrites.
+          while read -r file expected_blob; do
+            if ! git diff --quiet "$base" -- "$file"; then
+              if git cat-file -e "$base:$file" 2>/dev/null \
+                || [ "$(git diff --name-status "$base" -- "$file")" != $'A\t'"$file" ] \
+                || [ "$(git hash-object "$file")" != "$expected_blob" ]; then
+                echo "::error::AI setup migrations must be new files at the pinned postimages."
+                exit 1
+              fi
+            fi
+          done <<'AI_SETUP_MIGRATIONS'
+          migrations/0098_business_setup_drafts.sql 95f1ebe6ce842d1834baedaba70f7733deed57ec
+          migrations/0099_custom_frontend_sources.sql 13b73c00ae86594ae585922fdb967aed9583e08f
+          migrations/0100_setup_ai_trial_evidence.sql 8f8346dbad47d8a2d940aa9e94773e01b1c1b3d7
+          migrations/0101_setup_timestamp_instants.sql c1fd9b453b49a814ab8683bb4d1d9df772a18a02
+          migrations/0102_custom_site_private_preview_images.sql e8a181f7f590b51c98b3b14bf896ee197bdd17d5
+          migrations/0103_custom_site_asset_storage_choice.sql 2d9634222c474275a6e5c1f23e53da09bd1131dc
+          migrations/0104_setup_upload_reviews.sql fc49a6d1425ddd9529eea23fabd7debfb3239dff
+          migrations/0105_setup_ai_trial_cap_50.sql a33718ba4e450fc52ea6aa8a920834c2fee33d98
+          migrations/0106_setup_shared_previews_cap_80.sql 194771119c8766649fb3a564d6d0540377a8afa8
+          migrations/0107_ai_credit_wallet.sql 13880d46e7d80e563177b6956f9dba0f2be21eff
+          migrations/0108_ai_request_metering.sql 9dc64ff20e3994236a174817fe6cdd6f19276ab1
+          migrations/0109_setup_staff_publication.sql 620a8e4ef0cf4efb12c1e81af4d356191ee28cae
+          migrations/0110_setup_add_on_publication.sql fa7b0b96f9475baea8b3d995048f0ab0464c61fb
+          migrations/0111_other_service_categories.sql d53a465feb451bbd8279331796e102375b552726
+          migrations/0112_ai_operator_expense_budget.sql eebc64176f6a19b50f4d232837588e1e2c1e5645
+          AI_SETUP_MIGRATIONS
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -1028,6 +1117,21 @@ jobs:
               0095_salon_chooser_visibility) ;;
               0096_rebooking_reminders) ;;
               0097_founding_lifetime_core) ;;
+              0098_business_setup_drafts) ;;
+              0099_custom_frontend_sources) ;;
+              0100_setup_ai_trial_evidence) ;;
+              0101_setup_timestamp_instants) ;;
+              0102_custom_site_private_preview_images) ;;
+              0103_custom_site_asset_storage_choice) ;;
+              0104_setup_upload_reviews) ;;
+              0105_setup_ai_trial_cap_50) ;;
+              0106_setup_shared_previews_cap_80) ;;
+              0107_ai_credit_wallet) ;;
+              0108_ai_request_metering) ;;
+              0109_setup_staff_publication) ;;
+              0110_setup_add_on_publication) ;;
+              0111_other_service_categories) ;;
+              0112_ai_operator_expense_budget) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1125,6 +1229,39 @@ jobs:
 
       - name: Run unit tests
         run: npm run test -- --coverage
+
+      - name: Verify prepaid AI wallet concurrency on disposable PostgreSQL
+        env:
+          CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          AI_CREDIT_CONCURRENCY_REQUIRED: 'true'
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism src/features/ai-credits/wallet.concurrency.integration.test.ts --reporter=json --outputFile=ai-credit-concurrency.json
+          node -e 'const r=require("./ai-credit-concurrency.json"); if(!r.success || r.numPassedTests!==8 || r.numTotalTests!==8 || r.numPendingTests!==0) process.exit(1)'
+
+      - name: Verify AI owner entry concurrency on disposable PostgreSQL
+        env:
+          CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          AI_ENTRY_CONCURRENCY_REQUIRED: 'true'
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism src/features/business-setup/entry.concurrency.integration.test.ts --reporter=json --outputFile=ai-entry-concurrency.json
+          node -e 'const r=require("./ai-entry-concurrency.json"); if(!r.success || r.numPassedTests!==2 || r.numTotalTests!==2 || r.numPendingTests!==0) process.exit(1)'
+
+      - name: Verify AI setup publication concurrency on disposable PostgreSQL
+        env:
+          CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          AI_SETUP_PUBLICATION_CONCURRENCY_REQUIRED: 'true'
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism src/features/business-setup/publication.concurrency.integration.test.ts --reporter=json --outputFile=ai-publication-concurrency.json
+          node -e 'const r=require("./ai-publication-concurrency.json"); if(!r.success || r.numPassedTests!==13 || r.numTotalTests!==13 || r.numPendingTests!==0) process.exit(1)'
 
       # Coverage is still collected on PRs. Only trusted main executes the
       # provider upload step with its repository credential.
@@ -1266,6 +1403,10 @@ jobs:
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/ownerAssistant/playwright.config.ts --output=test-results/owner-assistant-components
 
+      - name: Verify AI credit purchase interface and recovery in mobile browsers
+        if: matrix.suite == 'onboarding-owner'
+        run: node node_modules/playwright/cli.js test --config tests/browser/aiCredits/playwright.config.ts --output=test-results/ai-credit-components
+
       - name: Verify platform policy labels and navigation
         if: matrix.suite == 'onboarding-owner'
         run: node node_modules/playwright/cli.js test --config tests/browser/platformPolicy/playwright.config.ts --output=test-results/platform-policy-components
@@ -1374,6 +1515,15 @@ jobs:
           LUSTER_CAPTURE_EVIDENCE: '0'
         run: npx playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts tests/e2e/founding-offer.spec.ts tests/e2e/owner-chrome-polish.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
 
+      - name: Verify manual Your Design upload and clickable links
+        if: matrix.suite == 'onboarding-owner'
+        timeout-minutes: 8
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        env:
+          LUSTER_LAB_PORT: '4199'
+          LUSTER_LAB_URL: http://127.0.0.1:4199
+        run: npx playwright test --config playwright.your-design.config.ts --output=../../test-results/your-design
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -1433,11 +1583,20 @@ jobs:
           grep -Fqx '# pass 10' runtime-dependency-security.log
           grep -Fqx '# skipped 0' runtime-dependency-security.log
 
+      - name: Verify timezone rules and booking conversion on Node 24
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/timezone-node24.node-test.mjs | tee timezone-node24.log
+          grep -Fqx '# tests 1' timezone-node24.log
+          grep -Fqx '# pass 1' timezone-node24.log
+          grep -Fqx '# skipped 0' timezone-node24.log
+
   test:
     # Preserve the live ruleset context; success requires the application job
     # and every browser matrix member. A failed/cancelled shard cannot pass.
     name: Run all tests (20.x)
-    needs: [test-core, test-components, monitoring-node24]
+    needs: [test-core, test-components, monitoring-node24, deposits-postgres-concurrency, google-outbox-postgres]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -1446,10 +1605,14 @@ jobs:
           CORE_RESULT: ${{ needs.test-core.result }}
           COMPONENTS_RESULT: ${{ needs.test-components.result }}
           MONITORING_RESULT: ${{ needs.monitoring-node24.result }}
+          DEPOSITS_POSTGRES_RESULT: ${{ needs.deposits-postgres-concurrency.result }}
+          GOOGLE_OUTBOX_RESULT: ${{ needs.google-outbox-postgres.result }}
         run: |
           test "$CORE_RESULT" = success
           test "$COMPONENTS_RESULT" = success
           test "$MONITORING_RESULT" = success
+          test "$DEPOSITS_POSTGRES_RESULT" = success
+          test "$GOOGLE_OUTBOX_RESULT" = success
 
   uiqi-release-conditions:
     name: UIQI release conditions
@@ -1529,10 +1692,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Use Node.js 20
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
 
       - name: Install dependencies
@@ -1740,6 +1903,62 @@ jobs:
           cleanup_v133
           trap - EXIT
 
+  google-outbox-postgres:
+    name: Calendar outbox PostgreSQL process fences
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_DB: luster_e2e_ci_disposable
+          POSTGRES_USER: luster_e2e_ci
+          POSTGRES_PASSWORD: luster-e2e-ci-only-password
+        ports:
+          - '127.0.0.1:55432:5432'
+        options: >-
+          --health-cmd "pg_isready -U luster_e2e_ci -d luster_e2e_ci_disposable"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+      GOOGLE_OUTBOX_PG_REQUIRED: 'true'
+      LUSTER_DISPOSABLE_DATABASE: 'true'
+      BILLING_PLAN_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - name: Install dependencies
+        run: HUSKY=0 npm ci
+      - name: Require Calendar outbox parent and independent child coverage
+        shell: bash
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism src/libs/integrationOutbox.postgres.integration.test.ts \
+            | tee google-outbox-postgres.log
+          grep -Fqx 'GOOGLE_OUTBOX_PARENT_POSTGRES_TESTS_EXECUTED=7' google-outbox-postgres.log
+          grep -Fqx 'GOOGLE_OUTBOX_CHILD_POSTGRES_TESTS_EXECUTED=1' google-outbox-postgres.log
+      - name: Upload Calendar outbox PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-outbox-postgres
+          path: google-outbox-postgres.log
+          if-no-files-found: error
+          retention-days: 7
+
   deposits-postgres-concurrency:
     name: D5 deposits PostgreSQL concurrency (zero skips)
     needs: secret-scan
@@ -1787,10 +2006,10 @@ jobs:
           # Exercise the reviewed PR commit, never GitHub's synthetic merge ref.
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Use Node.js 20
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
 
       - name: Install dependencies
@@ -1813,6 +2032,44 @@ jobs:
           grep -Fqx \
             'D5_REAL_POSTGRES_TESTS_EXECUTED=6 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d5-postgres-concurrency.log
+
+      - name: Run runtime PostgreSQL pool cooldown regressions and prove zero skips
+        shell: bash
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          D5_POOL_COOLDOWN_REQUIRED: 'true'
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/runtimeDatabasePoolClient.integration.test.ts \
+            | tee runtime-database-pool-cooldown-postgres.log
+          grep -Fqx \
+            'RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=4 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0' \
+            runtime-database-pool-cooldown-postgres.log
+
+      - name: Run D5 Calendar claim and revert races and prove zero skips
+        shell: bash
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/deposits/deposits.d5Calendar.concurrency.integration.test.ts \
+            | tee d5-calendar-postgres.log
+          grep -Fqx \
+            'D5_REAL_POSTGRES_TESTS_EXECUTED=3 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            d5-calendar-postgres.log
+
+      - name: Upload D5 Calendar PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d5-calendar-postgres
+          path: d5-calendar-postgres.log
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Run all D6/D6.1 real-PostgreSQL money races and prove zero skips
         shell: bash
@@ -1895,7 +2152,7 @@ jobs:
             src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts \
             | tee customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=12 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=43 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=62 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
 
       - name: Verify calendar block and booking fence races on real PostgreSQL with zero skips
         shell: bash
@@ -1977,7 +2234,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
       - run: HUSKY=0 npm ci
       - run: npx vitest run --no-file-parallelism 'src/libs/communicationDispatcher.concurrency.integration.test.ts'
@@ -2012,7 +2269,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
       - run: HUSKY=0 npm ci
       - name: Run billing real-PostgreSQL money suites and prove zero skips
@@ -2069,10 +2326,10 @@ jobs:
           # merge ref. Push runs use the pushed commit.
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Use Node.js 20
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
 
       - name: Install dependencies
@@ -2128,7 +2385,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
       - run: HUSKY=0 npm ci
       # The rest of the suite replays these migrations on PGlite. This job is
@@ -2191,10 +2448,10 @@ jobs:
           # Exercise the reviewed PR commit, never GitHub's synthetic merge ref.
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Use Node.js 20
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
 
       - name: Install dependencies
@@ -2264,7 +2521,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
       - run: npm ci
       - name: Prove concurrent correction and erasure isolation
@@ -2303,7 +2560,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
           cache: npm
       - run: npm ci
       - run: npx vitest run src/libs/publicBookingAttempt.concurrency.integration.test.ts --no-file-parallelism

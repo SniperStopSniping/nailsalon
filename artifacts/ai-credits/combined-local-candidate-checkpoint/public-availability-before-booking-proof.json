@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "sourceSha": "f481debeaea9a1d6adf1352a061f723f4fdf5310",
+  "anonymous": true,
+  "browser": "webkit",
+  "iphone13Emulation": true,
+  "physicalDevice": false,
+  "nativeTapActions": true,
+  "canonicalService": {
+    "id": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+    "name": "BIAB",
+    "price": 7000,
+    "duration_minutes": 75
+  },
+  "eligibleStaff": [
+    {
+      "id": "4e16acea-16f9-4ec0-a439-f042a8e390c9",
+      "name": "AI Test Owner"
+    }
+  ],
+  "originalBookingRoute": true,
+  "visualSlotInViewport": true,
+  "visualAncestorOpacityChecked": true,
+  "selectedDay": "calendar-day-2026-10-20",
+  "firstAvailableTime": "time-slot-11:30",
+  "privateAddressAbsentFromPublicDocument": true,
+  "appointmentPosts": 0,
+  "noNewAppointmentClaimed": true,
+  "existingAppointmentsUnchanged": 1,
+  "modelCalls": 0,
+  "creditBalanceUnchanged": "9775907",
+  "browserErrors": [],
+  "productionChanged": false,
+  "hostedDeployment": false
+}

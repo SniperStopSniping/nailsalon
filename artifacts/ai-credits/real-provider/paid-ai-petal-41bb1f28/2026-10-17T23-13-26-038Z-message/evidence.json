@@ -1,0 +1,73 @@
+{
+  "step": "message",
+  "operationId": "ffb29bcb-934a-48a9-a06e-d5b5b5ea7e17",
+  "status": "passed",
+  "startedAt": "2026-10-17T23:13:26.228Z",
+  "elapsedMs": 65792,
+  "beforeRevision": 8,
+  "afterRevision": 9,
+  "artifactId": "b8e59455-53da-4a37-baff-baf4fde64756",
+  "calls": [
+    {
+      "id": "ce54bd4b-b759-4cf5-8fb4-d9f16bc8665d",
+      "operation_id": "ffb29bcb-934a-48a9-a06e-d5b5b5ea7e17",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4597,
+      "output_tokens": 134,
+      "cost_micro_usd": 642,
+      "charged_micro_cad": 1284,
+      "credit_cost_micro_cad": "1798",
+      "elapsed_ms": 2591,
+      "validation": "passed"
+    },
+    {
+      "id": "2a2f19c0-ef77-4f02-aabc-49f5354a84a1",
+      "operation_id": "834673fd-763e-4a19-9b10-f950522d4f74",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 10048,
+      "output_tokens": 8755,
+      "cost_micro_usd": 5634,
+      "charged_micro_cad": 11268,
+      "credit_cost_micro_cad": "15776",
+      "elapsed_ms": 53214,
+      "validation": "passed"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "parent_id": null,
+      "source_hash": "b3921231228c69956d0421f9837026ef6a4354383eac0fc9c24f93f2cff6a76b"
+    },
+    {
+      "id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+      "parent_id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "source_hash": "fe535fc03bf2c749283357087fc25bbfd0ae10f7034d007078dcb31c2ac5fa81"
+    },
+    {
+      "id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+      "parent_id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+      "source_hash": "97149190987a7f9764350ab43fabec16ae4c1b0435b99514e0bc1289dcf75e5a"
+    },
+    {
+      "id": "dfda0819-4646-4de8-af16-917114ffa583",
+      "parent_id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+      "source_hash": "195baa87185b4a399963165cb19da03eee9dd6b3843d5bf66b39dd956f20e8fb"
+    },
+    {
+      "id": "b8e59455-53da-4a37-baff-baf4fde64756",
+      "parent_id": "dfda0819-4646-4de8-af16-917114ffa583",
+      "source_hash": "e4e3c9e3f4107bcbba06509b29777addd5b2f5f8c73e5e82c697f3ce7280b94a"
+    }
+  ],
+  "appointments": [],
+  "browserErrors": [
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+  ],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

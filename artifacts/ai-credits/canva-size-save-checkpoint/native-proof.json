@@ -1,0 +1,197 @@
+{
+  "sourceSha": "6584d6b421f5c059ac0ebbb292478e84a652754c",
+  "candidateHead": "6584d6b421f5c059ac0ebbb292478e84a652754c",
+  "status": "passed",
+  "results": [
+    {
+      "device": "desktop",
+      "name": "tall",
+      "width": 1200,
+      "height": 4000,
+      "status": "passed",
+      "inputBytes": 14427200,
+      "inputSha256": "40b19d4e11b39ef9d3d5d8ea86e692b4f61921b06d71edbd800994094b2ec96d",
+      "displayMode": "full_width",
+      "renderedImage": {
+        "naturalWidth": 1200,
+        "naturalHeight": 4000,
+        "width": 875.2734375,
+        "height": 2917.578125
+      },
+      "background": "rgb(255, 248, 240)",
+      "instagramClickTriggeredExpectedNavigation": true,
+      "reloadPreserved": true,
+      "noHorizontalOverflow": true
+    },
+    {
+      "device": "desktop",
+      "name": "wide",
+      "width": 1600,
+      "height": 800,
+      "status": "passed",
+      "inputBytes": 5129069,
+      "inputSha256": "e405b3881ba3893400f7b78c560337ba6faf34361589201ec62ca94f24729991",
+      "displayMode": "contained",
+      "renderedImage": {
+        "naturalWidth": 1600,
+        "naturalHeight": 800,
+        "width": 791.0546875,
+        "height": 395.52734375
+      },
+      "background": "rgb(255, 248, 240)",
+      "instagramClickTriggeredExpectedNavigation": true,
+      "reloadPreserved": true,
+      "noHorizontalOverflow": true
+    },
+    {
+      "device": "desktop",
+      "name": "small",
+      "width": 279,
+      "height": 1280,
+      "status": "passed",
+      "inputBytes": 1432147,
+      "inputSha256": "68077f2e25442eee235e776af1dd0e889b101c05e216d6be6ce0bdc86f673066",
+      "displayMode": "full_width",
+      "renderedImage": {
+        "naturalWidth": 279,
+        "naturalHeight": 1280,
+        "width": 875.2734375,
+        "height": 4015.58251953125
+      },
+      "background": "rgb(255, 248, 240)",
+      "instagramClickTriggeredExpectedNavigation": true,
+      "reloadPreserved": true,
+      "noHorizontalOverflow": true
+    },
+    {
+      "device": "mobile",
+      "name": "tall",
+      "width": 1200,
+      "height": 4000,
+      "status": "passed",
+      "inputBytes": 14427200,
+      "inputSha256": "40b19d4e11b39ef9d3d5d8ea86e692b4f61921b06d71edbd800994094b2ec96d",
+      "displayMode": "full_width",
+      "renderedImage": {
+        "naturalWidth": 1200,
+        "naturalHeight": 4000,
+        "width": 168.85337829589844,
+        "height": 562.8399658203125
+      },
+      "background": "rgb(255, 248, 240)",
+      "instagramClickTriggeredExpectedNavigation": true,
+      "reloadPreserved": true,
+      "noHorizontalOverflow": true
+    },
+    {
+      "device": "mobile",
+      "name": "wide",
+      "width": 1600,
+      "height": 800,
+      "status": "passed",
+      "inputBytes": 5129069,
+      "inputSha256": "e405b3881ba3893400f7b78c560337ba6faf34361589201ec62ca94f24729991",
+      "displayMode": "contained",
+      "renderedImage": {
+        "naturalWidth": 1600,
+        "naturalHeight": 800,
+        "width": 151.968017578125,
+        "height": 75.98403930664062
+      },
+      "background": "rgb(255, 248, 240)",
+      "instagramClickTriggeredExpectedNavigation": true,
+      "reloadPreserved": true,
+      "noHorizontalOverflow": true
+    },
+    {
+      "device": "mobile",
+      "name": "small",
+      "width": 279,
+      "height": 1280,
+      "status": "passed",
+      "inputBytes": 1432147,
+      "inputSha256": "68077f2e25442eee235e776af1dd0e889b101c05e216d6be6ce0bdc86f673066",
+      "displayMode": "full_width",
+      "renderedImage": {
+        "naturalWidth": 279,
+        "naturalHeight": 1280,
+        "width": 168.85337829589844,
+        "height": 774.6633911132812
+      },
+      "background": "rgb(255, 248, 240)",
+      "instagramClickTriggeredExpectedNavigation": true,
+      "reloadPreserved": true,
+      "noHorizontalOverflow": true
+    }
+  ],
+  "error": null,
+  "pageErrors": [],
+  "blockedApplicationWrites": [],
+  "protectedFixtureStateUnchanged": true,
+  "before": {
+    "salon": {
+      "count": 2,
+      "fingerprint": "1e658c39291d3dd91cf06d9dde66ce8e"
+    },
+    "service": {
+      "count": 2,
+      "fingerprint": "8147bef439a9793c259fc4ac5b037850"
+    },
+    "appointment": {
+      "count": 2,
+      "fingerprint": "55276834efe8f7a2cd13a78c75ed1d65"
+    },
+    "business_setup_workspace": {
+      "count": 2,
+      "fingerprint": "363712cc1f591a07277c30c7b335e0e7"
+    },
+    "custom_site_artifact": {
+      "count": 4,
+      "fingerprint": "51cc487aa55c742756d48eef892d983a"
+    },
+    "ai_credit_ledger": {
+      "count": 5,
+      "fingerprint": "5d6ca11fc516f7b419e531e6baf52a31"
+    },
+    "setup_ai_call": {
+      "count": 7,
+      "fingerprint": "83b243734fc355f726ff673206e3f846"
+    }
+  },
+  "after": {
+    "salon": {
+      "count": 2,
+      "fingerprint": "1e658c39291d3dd91cf06d9dde66ce8e"
+    },
+    "service": {
+      "count": 2,
+      "fingerprint": "8147bef439a9793c259fc4ac5b037850"
+    },
+    "appointment": {
+      "count": 2,
+      "fingerprint": "55276834efe8f7a2cd13a78c75ed1d65"
+    },
+    "business_setup_workspace": {
+      "count": 2,
+      "fingerprint": "363712cc1f591a07277c30c7b335e0e7"
+    },
+    "custom_site_artifact": {
+      "count": 4,
+      "fingerprint": "51cc487aa55c742756d48eef892d983a"
+    },
+    "ai_credit_ledger": {
+      "count": 5,
+      "fingerprint": "5d6ca11fc516f7b419e531e6baf52a31"
+    },
+    "setup_ai_call": {
+      "count": 7,
+      "fingerprint": "83b243734fc355f726ff673206e3f846"
+    }
+  },
+  "realAiCalls": 0,
+  "hostedWrites": false,
+  "accountClaimTested": false,
+  "cloudMediaUploadTested": false,
+  "publicationTested": false,
+  "ownedRuntimeStopped": true
+}

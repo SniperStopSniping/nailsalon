@@ -31,6 +31,18 @@ function relativeLuminance(hex: string): number {
 }
 
 describe('AppGrid', () => {
+  it('offers Luster AI only when the server-gated owner entry is enabled', () => {
+    const tap = vi.fn();
+    const view = render(<AppGrid onAppTap={tap} />);
+
+    expect(screen.queryByTestId('admin-app-tile-luster-ai')).not.toBeInTheDocument();
+
+    view.rerender(<AppGrid onAppTap={tap} aiBusinessSetupEnabled />);
+    fireEvent.click(screen.getByTestId('admin-app-tile-luster-ai'));
+
+    expect(tap).toHaveBeenCalledWith('luster-ai');
+  });
+
   it('passes the confirmed active salon identity to the SMS card', () => {
     render(<AppGrid salonSlug="salon-b" salonId="sal_b" onOpenCredits={vi.fn()} />);
 

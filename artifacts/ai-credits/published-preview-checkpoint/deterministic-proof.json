@@ -1,0 +1,286 @@
+{
+  "applicationSourceSha": "70af527e58e960cbff137c81bcd79249e3a90792",
+  "success": true,
+  "distinctFiles": 5,
+  "testsPassed": 61,
+  "testsFailed": 0,
+  "files": [
+    {
+      "path": "src/features/custom-sites/CustomDesignStudio.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "waits for the displayed preview and parent draft to agree before opening a full preview",
+          "status": "passed"
+        },
+        {
+          "name": "holds manual wording/source edits while generation or a later preview is loading: {\"pending\":true,\"revision\":2}",
+          "status": "passed"
+        },
+        {
+          "name": "holds manual wording/source edits while generation or a later preview is loading: {\"pending\":false,\"revision\":3}",
+          "status": "passed"
+        },
+        {
+          "name": "saves wording through the existing draft action without opening code or charging for AI",
+          "status": "passed"
+        },
+        {
+          "name": "requires separate preview consent and clears it for a later revision without reviewing artwork",
+          "status": "passed"
+        },
+        {
+          "name": "shows the saved artwork review when the parent draft arrives before its preview payload",
+          "status": "passed"
+        },
+        {
+          "name": "retries a sharper replacement with one uploaded asset and the same operation without AI generation",
+          "status": "passed"
+        },
+        {
+          "name": "clears a paid design prompt while loading and recovers the exact request after a lost response and refresh",
+          "status": "passed"
+        },
+        {
+          "name": "labels the current saved design by publication state, independently of disabled controls: true",
+          "status": "passed"
+        },
+        {
+          "name": "labels the current saved design by publication state, independently of disabled controls: false",
+          "status": "passed"
+        },
+        {
+          "name": "does not label an older displayed design as the current published version",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/custom-sites/CustomWebsiteFrame.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "custom website trusted parent bridge labels stale Canva artwork and shows the current proposed booking values separately",
+          "status": "passed"
+        },
+        {
+          "name": "custom website trusted parent bridge uses an opaque sandbox and exposes the original booking fallback",
+          "status": "passed"
+        },
+        {
+          "name": "custom website trusted parent bridge never exposes navigation from a draft or an untrusted booking destination",
+          "status": "passed"
+        },
+        {
+          "name": "custom website trusted parent bridge rejects messages from another frame and messages missing the channel",
+          "status": "passed"
+        },
+        {
+          "name": "custom website browsing viewport does not grow a viewport-height hero in response to document height",
+          "status": "passed"
+        },
+        {
+          "name": "keeps booking disabled in private previews without telling a published owner to publish again",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/business-setup/BookingSetupSummary.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "shows proposed notice, hours and separate buffers without exposing the exact address",
+          "status": "passed"
+        },
+        {
+          "name": "labels original-engine examples as simulated and excludes live customer/calendar information",
+          "status": "passed"
+        },
+        {
+          "name": "shows required booking agreement wording as a proposal with no active acceptance control",
+          "status": "passed"
+        },
+        {
+          "name": "does not invent example times when the original engine finds none",
+          "status": "passed"
+        },
+        {
+          "name": "keeps published booking labels separate from draft proposals while examples remain simulated: true",
+          "status": "passed"
+        },
+        {
+          "name": "keeps published booking labels separate from draft proposals while examples remain simulated: false",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/business-setup/PublishedSetupSummaries.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "keeps saved publication labels separate from draft proposals without activating payments: false",
+          "status": "passed"
+        },
+        {
+          "name": "keeps saved publication labels separate from draft proposals without activating payments: true",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "src/features/business-setup/SetupEditor.references.test.tsx",
+      "status": "passed",
+      "assertions": [
+        {
+          "name": "keeps Preview open when saved conversation history finishes loading after navigation",
+          "status": "passed"
+        },
+        {
+          "name": "opens the first generated preview automatically and labels suggested booking details",
+          "status": "passed"
+        },
+        {
+          "name": "labels owner-supplied service values without calling them AI recommendations",
+          "status": "passed"
+        },
+        {
+          "name": "returns a rebuild design to chat without a preset replacement or automatic submission",
+          "status": "passed"
+        },
+        {
+          "name": "returns a keep_design design to chat without a preset replacement or automatic submission",
+          "status": "passed"
+        },
+        {
+          "name": "lets the owner explicitly accept suggested hours without approving or publishing the whole draft",
+          "status": "passed"
+        },
+        {
+          "name": "fully resets the draft and chat, opens a new upload immediately, and can restore the previous draft",
+          "status": "passed"
+        },
+        {
+          "name": "lets an owner send a new design image without typing an extra prompt, and never sends on upload alone",
+          "status": "passed"
+        },
+        {
+          "name": "drops a cached earlier-session request after a reset on another device",
+          "status": "passed"
+        },
+        {
+          "name": "uploads directly in chat and uses the saved selection in the same composer (custom site: false)",
+          "status": "passed"
+        },
+        {
+          "name": "uploads directly in chat and uses the saved selection in the same composer (custom site: true)",
+          "status": "passed"
+        },
+        {
+          "name": "opens with one conversation and keeps preview and manual forms out of the default view",
+          "status": "passed"
+        },
+        {
+          "name": "reads an own design through the same chat without extraction buttons (custom site: false)",
+          "status": "passed"
+        },
+        {
+          "name": "reads an own design through the same chat without extraction buttons (custom site: true)",
+          "status": "passed"
+        },
+        {
+          "name": "renders old emphasis safely instead of showing Markdown stars",
+          "status": "passed"
+        },
+        {
+          "name": "restores image purpose, ownership, and conversation after reopening without making a model request",
+          "status": "passed"
+        },
+        {
+          "name": "detaches an image only from future design requests, preserving its library record and live site",
+          "status": "passed"
+        },
+        {
+          "name": "keeps publication explicit and bound to the review, then offers continuing from the saved website",
+          "status": "passed"
+        },
+        {
+          "name": "does not upload a file or grant rights before permission is checked",
+          "status": "passed"
+        },
+        {
+          "name": "saves website photographs separately from design references",
+          "status": "passed"
+        },
+        {
+          "name": "keeps the message available after a failed request and does not retry a paid call automatically",
+          "status": "passed"
+        },
+        {
+          "name": "shows the saved failure reason once when polling reconciles a failed message",
+          "status": "passed"
+        },
+        {
+          "name": "retains a saved failure reason after refresh without displaying duplicate stopped notices",
+          "status": "passed"
+        },
+        {
+          "name": "recovers the published state after a lost response without asking for approval again",
+          "status": "passed"
+        },
+        {
+          "name": "does not claim publication when both the response and the saved-state check are unavailable",
+          "status": "passed"
+        },
+        {
+          "name": "explains a dropped connection in plain language and keeps an unsent message",
+          "status": "passed"
+        },
+        {
+          "name": "saves a first booking link in the shared draft and shows it in exact review without publishing",
+          "status": "passed"
+        },
+        {
+          "name": "clears a sent follow-up immediately, shows progress and preserves a newly typed message",
+          "status": "passed"
+        },
+        {
+          "name": "recovers a completed message after a lost response without resending or restoring the textbox",
+          "status": "passed"
+        },
+        {
+          "name": "polls a still-running operation after disconnect and loads its result without another paid request",
+          "status": "passed"
+        },
+        {
+          "name": "keeps Canva artwork only with an explicit owner choice and does not generate on upload",
+          "status": "passed"
+        },
+        {
+          "name": "waits for saved work before enabling Preview and Details",
+          "status": "passed"
+        },
+        {
+          "name": "offers the server-gated credit balance inside the builder without starting a payment or AI request",
+          "status": "passed"
+        },
+        {
+          "name": "requires a fresh acknowledgment when the reviewed appointment impact changes",
+          "status": "passed"
+        },
+        {
+          "name": "shows the paid request limit before sending and includes it with the same saved-draft chat action",
+          "status": "passed"
+        },
+        {
+          "name": "labels a published website consistently and returns to draft labels only after starting an edit",
+          "status": "passed"
+        }
+      ]
+    }
+  ],
+  "scopedApplicationLint": "passed",
+  "nativeHarnessSyntaxAndLint": "passed",
+  "diffWhitespaceCheck": "passed"
+}

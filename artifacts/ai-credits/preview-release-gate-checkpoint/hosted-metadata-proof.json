@@ -1,0 +1,74 @@
+{
+  "project": {
+    "projectId": "prj_G7i795a439CUZOr9W2gD2DT0E2AO",
+    "projectName": "isla-nail-studio",
+    "nodeVersion": "24.x",
+    "gitLinked": true,
+    "gitLink": {
+      "type": "github",
+      "repo": "nailsalon",
+      "org": "SniperStopSniping",
+      "repoId": 1108169436,
+      "productionBranch": "main"
+    },
+    "gitDeploymentEnabled": null,
+    "gitProviderOptions": {
+      "createDeployments": "enabled"
+    },
+    "ignoreBuildCommand": {
+      "present": false,
+      "sha256": null,
+      "classification": "not configured"
+    },
+    "previewComments": {
+      "onCommit": false,
+      "onPullRequest": true
+    },
+    "protectedPreview": true,
+    "automaticDomainAssignment": true,
+    "rawEnvOrSecretValuesSaved": false,
+    "requestWasGetOnly": true
+  },
+  "branchPreviewRecords": [
+    {
+      "branch": "codex/ai-business-setup",
+      "count": 21,
+      "decrypt": false
+    },
+    {
+      "branch": "codex/ai-release-integration-20261019",
+      "count": 0,
+      "decrypt": false
+    }
+  ],
+  "commonPreviewRecords": {
+    "count": 27,
+    "allTargetsExactlyPreview": true,
+    "valuesVerified": false
+  },
+  "candidateDeploymentCount": 0,
+  "inspectedAiDeploymentPageSize": 5,
+  "latestReturnedAiDeployment": {
+    "id": "dpl_99RBzGer8JKPMnCfQdSkZu7WkJy7",
+    "gitSha": "938522270da150aa770fe106100011b4bd27271e",
+    "state": "READY",
+    "branch": "codex/ai-business-setup"
+  },
+  "heldDraftPr": {
+    "number": 455,
+    "headSha": "145ab3d5e6398e1baa00a197db7858a20e686f90",
+    "state": "OPEN",
+    "isDraft": true
+  },
+  "repositoryDeploymentOverridePresent": false,
+  "pushTreatedAsPotentialDeployment": true,
+  "allOperationsReadOnly": true,
+  "environmentDecryption": false,
+  "hostedConfigOrDataChanged": false,
+  "manualUploadGap": {
+    "sourceFile": "src/features/onboarding-v1-integration/media-storage.server.ts",
+    "hostedStorageProvider": "cloudinary_authenticated",
+    "cloudinaryConfigurationNamesPresentInInspectedPreviewRecords": false,
+    "aiPrivateImageAdapterDoesNotProveManualPath": true
+  }
+}

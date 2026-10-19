@@ -5,6 +5,7 @@ import {
   checkOnboardingSiteSlugAvailability,
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
+  resolveOnboardingOrganization,
   saveOnboardingPlanIntent,
 } from './client';
 import type { OnboardingClaimSuccess } from './contracts';
@@ -31,6 +32,33 @@ const jsonResponse = (body: unknown, status = 200): Response => new Response(
 );
 
 describe('onboarding integration client', () => {
+  it('sends the pending session token only on the organization endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
+      created: false,
+      organizations: [{ id: 'org_owner', name: 'Owner Studio' }],
+    } }));
+    await resolveOnboardingOrganization('Owner Studio', { fetcher, sessionToken: 'synthetic-session-token' });
+
+    expect(fetcher).toHaveBeenCalledWith('/api/onboarding/v1/organization', {
+      body: JSON.stringify({ businessName: 'Owner Studio' }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer synthetic-session-token' },
+      method: 'POST',
+      signal: undefined,
+    });
+  });
+
+  it('keeps the ordinary cookie-based organization request free of an invented token', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
+      created: false,
+      organizations: [{ id: 'org_owner', name: 'Owner Studio' }],
+    } }));
+    await resolveOnboardingOrganization('Owner Studio', { fetcher });
+
+    expect(fetcher).toHaveBeenCalledWith('/api/onboarding/v1/organization', expect.objectContaining({
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  });
+
   it('checks a site URL through the anonymous availability route', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
       available: false,

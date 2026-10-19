@@ -1,0 +1,15 @@
+{
+  "testedAt": "2026-10-15T17:06:33.726Z",
+  "originalId": "08167c8d-5e28-402f-b407-97ba116fac8e",
+  "replacedId": "a99e28c5-6ac3-40a1-8639-47e20c1c5c3e",
+  "removedId": "f5c647e0-a8e0-4efa-bdc8-427553034a60",
+  "restoredId": "08167c8d-5e28-402f-b407-97ba116fac8e",
+  "restoredRevision": 14,
+  "oldName": "gel-manicure.jpg",
+  "replacement": "builder-gel.jpg",
+  "sourceCssUnchanged": true,
+  "exactSourceRestored": true,
+  "businessUnchanged": true,
+  "modelCalls": 0,
+  "throughOwnerUi": true
+}

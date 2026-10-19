@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "hosted": true,
+  "finalRevision": 13,
+  "draftPriceCents": 7500,
+  "publicBeforeApprovalCents": 7000,
+  "publicAfterApprovalCents": 7500,
+  "originalMenuAfterApprovalCents": 7500,
+  "existingAppointmentPriceCents": 7000,
+  "existingAppointmentUnchanged": true,
+  "sameGeneratedDesign": true,
+  "actualInstagramClick": true,
+  "externalInstagramRequestBlocked": true,
+  "additionalAppointmentsCreated": 0,
+  "harnessCorrections": [
+    "Expected native price formatter $75 instead of $75.00",
+    "Inspected original booking page rather than late blocked Instagram popup",
+    "Corrected read-only SQL duration column to duration_minutes"
+  ],
+  "productionTouched": false
+}

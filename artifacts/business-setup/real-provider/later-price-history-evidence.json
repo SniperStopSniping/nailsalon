@@ -1,0 +1,17 @@
+{
+  "testedAt": "2026-10-15T03:48:58.087Z",
+  "method": "Owner manual controls on same draft, no model call",
+  "draftDidNotChangeLive": true,
+  "designArtifactUnchanged": true,
+  "revision": 18,
+  "liveServiceCount": 2,
+  "priceBefore": 6500,
+  "priceAfter": 6700,
+  "historicalAppointments": [
+    {
+      "id": "appt_c1b623fb-b097-4b4a-b156-5690c150ff93",
+      "total_price": 6500,
+      "total_duration_minutes": 75
+    }
+  ]
+}

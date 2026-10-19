@@ -10,7 +10,7 @@ import { canTechnicianTakeAppointment } from '@/libs/bookingPolicy';
 import type { BookingSelectionErrorCode } from '@/libs/bookingQuote';
 import type { GoogleCalendarBusyWindow } from '@/libs/googleCalendar';
 import { isBusyWindowConflict } from '@/libs/googleCalendar';
-import { zonedTimeToUtc } from '@/libs/timeZone';
+import { isZonedTimeMatch, zonedTimeToUtc } from '@/libs/timeZone';
 import type { WeeklySchedule } from '@/models/Schema';
 
 import type { DiagnosisCode } from './reasons';
@@ -31,12 +31,14 @@ import { TECHNICIAN_DECISION_DIAGNOSIS } from './reasons';
  *
  * Two hard rules govern this file:
  *
- *  1. BYTE PARITY. With `explain: false` the returned slot objects are
- *     identical to what the route produced before the extraction — same
+ *  1. BYTE PARITY for the pinned legacy fixtures. With `explain: false`
+ *     the returned slot objects preserve the original route's shape — same
  *     iteration order, same early-`continue` decisions, same rounding, same
  *     key order (`time`, `startTime`, any annotation, `availability`), because
  *     `JSON.stringify` is key-order sensitive.
- *     `route.parity.test.ts` pins this against committed snapshots.
+ *     `route.parity.test.ts` pins this against committed snapshots. Salon
+ *     timezone and daylight-saving corrections have dedicated tests; explain
+ *     mode must produce the same slots as ordinary mode for every input.
  *
  *  2. NO IDENTITY. The engine never learns who is asking. It must not import
  *     `getClientSession`, `verifyAppointmentAccessToken`,
@@ -301,6 +303,9 @@ export function computeDaySlots(
 
   for (const slot of allSlots) {
     const startTime = zonedTimeToUtc({ date, time: slot, timeZone });
+    if (!isZonedTimeMatch(startTime, { date, time: slot, timeZone })) {
+      continue;
+    }
     const insideNoticeWindow = startTime < minimumStartTime;
 
     // Non-explain: the notice floor short-circuits before anything else is
@@ -313,6 +318,7 @@ export function computeDaySlots(
     const blockedEndTime = new Date(startTime.getTime() + (visibleDurationMinutes + bufferMinutes) * 60 * 1000);
 
     const visibleDecisionFor = (tech: AvailabilityTechnician) => canTechnicianTakeAppointment({
+      timeZone,
       startTime,
       endTime: blockedEndTime,
       weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
@@ -387,6 +393,7 @@ export function computeDaySlots(
     }
 
     const decisionForTechnician = (tech: AvailabilityTechnician) => canTechnicianTakeAppointment({
+      timeZone,
       startTime,
       endTime: blockedEndTime,
       weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,

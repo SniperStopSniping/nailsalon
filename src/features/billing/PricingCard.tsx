@@ -1,10 +1,10 @@
 import { useTranslations } from 'next-intl';
 import React from 'react';
 
-import type { BillingInterval } from '@/types/Subscription';
+import type { BillingInterval, PlanId } from '@/types/Subscription';
 
 export const PricingCard = (props: {
-  planId: string;
+  planId: PlanId;
   price: number;
   interval: BillingInterval;
   button: React.ReactNode;
