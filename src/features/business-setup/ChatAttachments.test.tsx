@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { ChatAttachments } from './ChatAttachments';
@@ -102,6 +102,11 @@ it('recovers a lost save response at the six-page limit without re-uploading or 
   let revision = 2;
   let saves = 0;
   let uploads = 0;
+  let refreshes = 0;
+  let finishRefresh: () => void = () => {};
+  const refresh = new Promise<void>((resolve) => {
+    finishRefresh = resolve;
+  });
   vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
     if (options.body instanceof FormData) {
       uploads++;
@@ -129,6 +134,9 @@ it('recovers a lost save response at the six-page limit without re-uploading or 
       disabled={false}
       onBusyChange={vi.fn()}
       onSaved={async () => {
+        if (++refreshes === 1) {
+          await refresh;
+        }
         view.rerender(editor());
       }}
       initialPurpose="own"
@@ -138,8 +146,16 @@ it('recovers a lost save response at the six-page limit without re-uploading or 
   fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['pdf'], 'Canva.pdf', { type: 'application/pdf' })] } });
   fireEvent.click(screen.getByRole('checkbox', { name: /These are my files/u }));
   fireEvent.click(screen.getByRole('button', { name: 'Add to chat' }));
+  await screen.findByText('Checking your saved files…');
+
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Adding your files…' })).toBeDisabled();
+
+  await act(async () => finishRefresh());
   await screen.findByRole('alert');
-  fireEvent.click(screen.getByRole('button', { name: 'Add to chat' }));
+  const retry = await screen.findByRole('button', { name: 'Add to chat' });
+  await waitFor(() => expect(retry).toBeEnabled());
+  fireEvent.click(retry);
   await waitFor(() => expect(saves).toBe(2));
 
   expect(uploads).toBe(6);

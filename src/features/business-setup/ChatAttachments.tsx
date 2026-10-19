@@ -67,8 +67,12 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
       await work();
       await onSaved();
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Your files could not be saved. Please try again.');
+      const failure = error instanceof Error ? error.message : 'Your files could not be saved. Please try again.';
+      setProgress('Checking your saved files…');
       await onSaved().catch(() => {});
+      // Reconcile a lost response before presenting a retry. An error appearing
+      // while the upload controls are still busy looks like a stopped request.
+      setError(failure);
     } finally {
       setSaving(false);
       setProgress('');
