@@ -13,6 +13,6 @@ The follow-up reads the saved pages rather than replacing them from an older des
 - Unit cases cover the full 80-area bound, duplicate/unknown removals, collisions, changed-target-only padding, forbidden publication fields and retention of previously scanned facts without truncating privacy checks.
 - Scoped TypeScript, ESLint and diff checks passed. The first TypeScript run exhausted its 1 GB local heap; the same scoped check passed at 3 GB. No repository timeout or compiler gate was weakened.
 
-These checks use synthetic fixtures, a deterministic provider double and isolated in-memory PGlite. They are not new real-provider or hosted owner-UI acceptance evidence. No package, environment variable, database schema, pricing or SMS rule changed.
+These checks use synthetic fixtures, a deterministic provider double and isolated in-memory PGlite. They are not new real-provider generation evidence. [Subsequent hosted runtime, frame recovery and original booking observations](hosted-canva-edit-retention-checkpoint/README.md) are attributed separately. No package, environment variable, database schema, pricing or SMS rule changed.
 
 The earlier [hosted manual layout and original booking checkpoint](hosted-canva-layout-checkpoint/README.md) remains separately attributed. Native About-photo/gallery/review handoff, wider browser/fidelity qualification and final combined release gates remain unfinished.
