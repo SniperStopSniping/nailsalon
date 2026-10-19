@@ -308,7 +308,7 @@ it('shows the saved artwork review when the parent draft arrives before its prev
   await waitFor(() => expect(screen.getByRole('button', { name: 'Share this preview' })).toBeEnabled());
 });
 
-it('retries a sharper replacement with one uploaded asset and the same operation without AI generation', async () => {
+it.each(['sharper', 'new_design'] as const)('retries a %s replacement with one uploaded asset and the same operation without AI generation', async (kind) => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
   vi.stubGlobal('ResizeObserver', class {
     observe() {} disconnect() {}
@@ -337,18 +337,22 @@ it('retries a sharper replacement with one uploaded asset and the same operation
   }));
   render(<CustomDesignStudio salonSlug="test" revision={2} artifactId="first" disabled={false} aiEnabled={false} onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
   await screen.findByRole('button', { name: 'Upload sharper image' });
-  fireEvent.change(screen.getByLabelText('Sharper Canva export'), { target: { files: [new File(['image'], 'sharper.png', { type: 'image/png' })] } });
-  fireEvent.click(screen.getByRole('checkbox', { name: /same design, text and layout/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Replace image & keep links' }));
+  if (kind === 'new_design') {
+    fireEvent.click(screen.getByRole('button', { name: 'Replace design image' }));
+  }
+  const button = kind === 'new_design' ? 'Replace design & reset its links' : 'Replace image & keep links';
+  fireEvent.change(screen.getByLabelText(kind === 'new_design' ? 'New Canva design' : 'Sharper Canva export'), { target: { files: [new File(['image'], 'sharper.png', { type: 'image/png' })] } });
+  fireEvent.click(screen.getByRole('checkbox', { name: kind === 'new_design' ? 'I have permission to use this new design.' : /same design, text and layout/ }));
+  fireEvent.click(screen.getByRole('button', { name: button }));
   await screen.findByRole('alert');
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Replace image & keep links' })).toBeEnabled());
-  fireEvent.click(screen.getByRole('button', { name: 'Replace image & keep links' }));
-  await screen.findByText('Your new image is saved with the same links. Check the artwork and links before publishing. Your published website is unchanged.');
+  await waitFor(() => expect(screen.getByRole('button', { name: button })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: button }));
+  await screen.findByText(kind === 'new_design' ? 'Your new design image is saved. Add its clickable areas, then review the artwork before publishing. Your other pages and published website are unchanged.' : 'Your new image is saved with the same links. Check the artwork and links before publishing. Your published website is unchanged.');
 
   expect(uploads).toBe(1);
   expect(writes).toHaveLength(2);
   expect(writes[0]).toEqual(writes[1]);
-  expect(writes[0]).toMatchObject({ action: 'replace_canva_page', input: { expectedRevision: 2, sameDesignConfirmed: true } });
+  expect(writes[0]).toMatchObject({ action: 'replace_canva_page', input: { expectedRevision: 2, pageIndex: 0, ...(kind === 'new_design' ? { newDesignConfirmed: true } : { sameDesignConfirmed: true }) } });
 });
 
 it('clears a paid design prompt while loading and recovers the exact request after a lost response and refresh', async () => {

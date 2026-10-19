@@ -9,35 +9,43 @@ import { CanvaImageQuality, CanvaUploadQuality } from './CanvaImageQuality';
 export function CanvaArtworkQuality({ pages, disabled, onReplace }: {
   pages: CanvaDesign['pages'];
   disabled: boolean;
-  onReplace: (pageAssetId: string, file: File) => Promise<void>;
+  onReplace: (pageIndex: number, file: File, kind: 'sharper' | 'new_design') => Promise<void>;
 }) {
   const input = useRef<HTMLInputElement>(null);
-  const [selectedPage, setSelectedPage] = useState(pages[0]!.assetId);
+  const [selectedPage, setSelectedPage] = useState(0);
+  const [kind, setKind] = useState<'sharper' | 'new_design'>('sharper');
   const [files, setFiles] = useState<File[]>([]);
   const [confirmed, setConfirmed] = useState(false);
+  function choose(pageIndex: number, kind: 'sharper' | 'new_design') {
+    setSelectedPage(pageIndex);
+    setKind(kind);
+    setFiles([]);
+    setConfirmed(false);
+    if (input.current) {
+      input.current.value = '';
+      input.current.click();
+    }
+  }
   return (
     <details className="studio-step" open={pages.some(page => canvaImageQuality(page).level === 'small')}>
-      <summary>Image quality & sharper exports</summary>
+      <summary>Images &amp; layout</summary>
       <section aria-label="Canva image quality">
         {pages.map((page, index) => (
-          <div key={page.assetId}>
+          // Legacy pages have no ID; a new immutable artifact remounts this editor.
+          // eslint-disable-next-line react/no-array-index-key
+          <div key={`${page.id ?? page.assetId}:${index}`}>
             <CanvaImageQuality page={page} name={pages.length > 1 ? `Page ${index + 1}` : undefined} />
             <button
               type="button"
               disabled={disabled}
-              onClick={() => {
-                setSelectedPage(page.assetId);
-                setFiles([]);
-                setConfirmed(false);
-                if (input.current) {
-                  input.current.value = '';
-                  input.current.click();
-                }
-              }}
+              onClick={() => choose(index, 'sharper')}
             >
               Upload sharper
               {' '}
               {pages.length > 1 ? `page ${index + 1}` : 'image'}
+            </button>
+            <button type="button" disabled={disabled} onClick={() => choose(index, 'new_design')}>
+              {pages.length > 1 ? `Replace page ${index + 1}` : 'Replace design image'}
             </button>
           </div>
         ))}
@@ -45,7 +53,7 @@ export function CanvaArtworkQuality({ pages, disabled, onReplace }: {
           ref={input}
           type="file"
           className="setup-sr-only"
-          aria-label="Sharper Canva export"
+          aria-label={kind === 'new_design' ? 'New Canva design' : 'Sharper Canva export'}
           accept="image/png,image/jpeg,image/webp,application/pdf"
           disabled={disabled}
           onChange={(event) => {
@@ -59,10 +67,10 @@ export function CanvaArtworkQuality({ pages, disabled, onReplace }: {
             <CanvaUploadQuality files={files} />
             <label>
               <input type="checkbox" disabled={disabled} checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
-              This is the same design, text and layout, exported at a higher resolution. I have permission to use it.
+              {kind === 'new_design' ? 'I have permission to use this new design.' : 'This is the same design, text and layout, exported at a higher resolution. I have permission to use it.'}
             </label>
-            <p>Your links stay in place. Check them before publishing. A different layout should be attached in chat so Luster can find its links again.</p>
-            <button type="button" disabled={disabled || !confirmed} onClick={() => void onReplace(selectedPage, files[0]!)}>Replace image & keep links</button>
+            <p>{kind === 'new_design' ? 'Links inside this page will be removed so you can place them on the new design. Other pages and your booking details stay as they are. Your published website stays unchanged.' : 'Your links stay in place. Check them before publishing. For a different layout, choose Replace design image instead.'}</p>
+            <button type="button" disabled={disabled || !confirmed} onClick={() => void onReplace(selectedPage, files[0]!, kind)}>{kind === 'new_design' ? 'Replace design & reset its links' : 'Replace image & keep links'}</button>
             <button
               type="button"
               disabled={disabled}

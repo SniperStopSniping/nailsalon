@@ -77,7 +77,7 @@ it('requires same-design consent for a sharper replacement, supports cancel and 
   fireEvent.click(screen.getByRole('checkbox', { name: /same design, text and layout/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Replace image & keep links' }));
 
-  expect(onReplace).toHaveBeenCalledWith(pages[0]!.assetId, file);
+  expect(onReplace).toHaveBeenCalledWith(0, file, 'sharper');
 
   view.rerender(<CanvaArtworkQuality pages={pages} disabled onReplace={onReplace} />);
 
@@ -88,4 +88,23 @@ it('requires same-design consent for a sharper replacement, supports cancel and 
   fireEvent.click(screen.getByRole('button', { name: 'Cancel replacement' }));
 
   expect(screen.queryByRole('button', { name: 'Replace image & keep links' })).not.toBeInTheDocument();
+});
+
+it('lets an owner replace one page with a new layout and explains that only its image links reset', () => {
+  const onReplace = vi.fn().mockResolvedValue(undefined);
+  const page = { assetId: 'a0000000-0000-4000-8000-000000000001', width: 600, height: 1400, alt: 'My page' };
+  render(<CanvaArtworkQuality pages={[page, { ...page, alt: 'Second use of the same image' }]} disabled={false} onReplace={onReplace} />);
+  fireEvent.click(screen.getByText('Images & layout'));
+  fireEvent.click(screen.getByRole('button', { name: 'Replace page 2' }));
+  const file = new File(['new image'], 'new-layout.png', { type: 'image/png' });
+  fireEvent.change(screen.getByLabelText('New Canva design'), { target: { files: [file] } });
+
+  expect(screen.getByText(/Links inside this page will be removed/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Replace design & reset its links' })).toBeDisabled();
+
+  fireEvent.click(screen.getByRole('checkbox', { name: 'I have permission to use this new design.' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Replace design & reset its links' }));
+
+  expect(onReplace).toHaveBeenCalledTimes(1);
+  expect(onReplace).toHaveBeenCalledWith(1, file, 'new_design');
 });

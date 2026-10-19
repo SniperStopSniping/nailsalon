@@ -2381,6 +2381,64 @@ describe('AI clickable Canva artwork', () => {
     expect(final!.source.canva!.areas).toEqual(artifact!.source.canva!.areas);
   });
 
+  it('replaces a different Canva layout without AI, resets only its links and preserves other pages and business details', async () => {
+    const { actor, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const [original] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+    const design = original!.source.canva!;
+    const secondArea = { ...design.areas[0]!, id: 'second-booking', page: 1 };
+    const source = compileCanvaDesign({ ...design, manualOrigin: { siteId: randomUUID(), revisionId: randomUUID(), revision: 1 }, pages: [design.pages[0]!, { ...design.pages[0]!, alt: 'Second page' }], areas: [...design.areas, secondArea], controls: [{ id: 'after-page', afterPage: 0, label: 'Book an appointment', action: { type: 'book' } }] });
+    const saved = await saveCustomSource(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), source, assetIds: original!.assetIds });
+    const bytes = await sharp({ create: { width: 900, height: 500, channels: 3, background: '#e3ead9' } }).png().toBuffer();
+    const replacement = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'new-layout.png', { type: 'image/png' }), 'reference');
+    const calls = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId));
+    const edit = { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), pageIndex: 0, pageAssetId: design.pages[0]!.assetId, replacementId: replacement.id, newDesignConfirmed: true as const };
+    const replaced = await replaceCanvaPage(actor, edit);
+    const replay = await replaceCanvaPage(actor, edit);
+    const [final] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, replaced.artifactId));
+
+    expect(replay.head.revision.revision).toBe(replaced.head.revision.revision);
+    expect(final!.source.canva!.pages[0]).toMatchObject({ width: 900, height: 500, alt: `${saved.head.revision.document.business.name} — design page 1` });
+    expect(final!.source.canva!.pages[1]).toEqual(source.canva!.pages[1]);
+    expect(final!.source.canva!.areas).toEqual([secondArea]);
+    expect(final!.source.canva!.controls).toEqual(source.canva!.controls);
+    expect(final!.source.canva!.ownerReviewed).toBe(false);
+    expect(final!.source.canva!.visibleText).toBe('');
+    expect(replaced.head.revision.document.designBrief?.referenceIds).toEqual([replacement.id, saved.head.revision.document.designBrief!.referenceIds[0]]);
+    expect(replaced.head.revision.document.services).toEqual(saved.head.revision.document.services);
+    expect(replaced.head.revision.document.business).toEqual(saved.head.revision.document.business);
+    expect(replaced.head.revision.document.hours).toEqual(saved.head.revision.document.hours);
+    expect(replaced.head.revision.document.booking).toEqual(saved.head.revision.document.booking);
+    expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toEqual(calls);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, saved.artifact.id)))[0]!.source).toEqual(saved.artifact.source);
+  });
+
+  it('replaces only the selected use of a shared Canva image and retains assets needed by the other page', async () => {
+    const { actor, reference, input } = await prepared();
+    const generated = await generateCustomSite(actor, input, { createResponse: vi.fn().mockResolvedValue(result(answer())) });
+    const [original] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, generated.artifactId));
+    const design = original!.source.canva!;
+    const source = compileCanvaDesign({ ...design, pages: [design.pages[0]!, { ...design.pages[0]!, alt: 'Second page' }] });
+    const saved = await saveCustomSource(actor, { expectedRevision: generated.head.revision.revision, operationId: randomUUID(), source, assetIds: original!.assetIds });
+    const bytes = await sharp({ create: { width: 1200, height: 3600, channels: 3, background: '#e3ead9' } }).png().toBuffer();
+    const replacement = await uploadCustomAsset(actor, new File([new Uint8Array(bytes)], 'second-page-sharp.png', { type: 'image/png' }), 'reference');
+    const edit = { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), pageAssetId: design.pages[0]!.assetId, replacementId: replacement.id, sameDesignConfirmed: true as const };
+
+    await expect(replaceCanvaPage(actor, edit)).rejects.toMatchObject({ code: 'INVALID' });
+
+    const replaced = await replaceCanvaPage(actor, { ...edit, pageIndex: 1 });
+    const [final] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, replaced.artifactId));
+
+    expect(final!.source.canva!.pages[0]).toEqual(source.canva!.pages[0]);
+    expect(final!.source.canva!.pages[1]!.assetId).not.toBe(source.canva!.pages[1]!.assetId);
+    expect(final!.source.canva!.areas).toEqual(source.canva!.areas);
+    expect(final!.assetIds).toContain(design.pages[0]!.assetId);
+    expect(final!.assetIds).toContain(reference.id);
+    expect(replaced.head.revision.document.designBrief?.referenceIds).toEqual([reference.id, replacement.id]);
+    expect(final!.source.canva!.ownerReviewed).toBe(false);
+  });
+
   it('uses AI for clickable positions, preserves exact saved image bytes, and requires owner artwork review', async () => {
     const { actor, reference, input } = await prepared();
     const createResponse = vi.fn().mockResolvedValue(result(answer()));

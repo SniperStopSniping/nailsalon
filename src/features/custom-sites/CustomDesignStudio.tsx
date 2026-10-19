@@ -274,8 +274,12 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       setReply(replaceId ? 'Your draft now uses the replacement photo. Your published site is unchanged.' : 'Your photos are saved and selected for your next design.');
     });
   }
-  async function replaceArtwork(pageAssetId: string, file: File) {
+  async function replaceArtwork(pageIndex: number, file: File, kind: 'sharper' | 'new_design') {
     await action('Checking and replacing your Canva image…', async () => {
+      const pageAssetId = state?.payload?.source.canva?.pages[pageIndex]?.assetId;
+      if (!pageAssetId) {
+        throw new Error('Open your saved design before replacing its image.');
+      }
       let uploaded = replacementUploads.current.get(file);
       if (!uploaded) {
         const body = new FormData();
@@ -286,16 +290,17 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
         const response = await fetch(endpoint, { method: 'POST', body });
         const result = await response.json();
         if (!response.ok) {
-          throw new Error(result.error ?? 'Your sharper export could not be saved. Try again.');
+          throw new Error(result.error ?? 'Your design image could not be saved. Try again.');
         }
         uploaded = result.asset as DesignAsset;
         replacementUploads.current.set(file, uploaded);
       }
       const previous = replacementOperation.current;
-      const operation = previous?.file === file && previous.page === pageAssetId && previous.revision === revision ? previous : { file, page: pageAssetId, revision, id: crypto.randomUUID() };
+      const page = `${pageIndex}:${pageAssetId}:${kind}`;
+      const operation = previous?.file === file && previous.page === page && previous.revision === revision ? previous : { file, page, revision, id: crypto.randomUUID() };
       replacementOperation.current = operation;
-      await post({ action: 'replace_canva_page', input: { expectedRevision: revision, operationId: operation.id, pageAssetId, replacementId: uploaded.id, sameDesignConfirmed: true } });
-      setReply('Your new image is saved with the same links. Check the artwork and links before publishing. Your published website is unchanged.');
+      await post({ action: 'replace_canva_page', input: { expectedRevision: revision, operationId: operation.id, pageAssetId, pageIndex, replacementId: uploaded.id, ...(kind === 'new_design' ? { newDesignConfirmed: true } : { sameDesignConfirmed: true }) } });
+      setReply(kind === 'new_design' ? 'Your new design image is saved. Add its clickable areas, then review the artwork before publishing. Your other pages and published website are unchanged.' : 'Your new image is saved with the same links. Check the artwork and links before publishing. Your published website is unchanged.');
     });
   }
   const current = state?.history.find(item => item.id === artifactId);

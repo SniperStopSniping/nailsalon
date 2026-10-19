@@ -125,3 +125,15 @@ it('requires explicit same-design consent and scopes sharper artwork replacement
   expect(state.generate).not.toHaveBeenCalled();
   expect(state.business).not.toHaveBeenCalled();
 });
+
+it('accepts an explicitly selected new Canva layout without AI and rejects ambiguous consent', async () => {
+  const input = { expectedRevision: 2, operationId: crypto.randomUUID(), pageAssetId: crypto.randomUUID(), pageIndex: 1, replacementId: crypto.randomUUID(), newDesignConfirmed: true };
+  state.replaceCanva.mockResolvedValue({ head: {} });
+
+  expect((await POST(request({ action: 'replace_canva_page', input: { ...input, sameDesignConfirmed: true } }))).status).toBe(400);
+  expect(state.replaceCanva).not.toHaveBeenCalled();
+  expect((await POST(request({ action: 'replace_canva_page', input }))).status).toBe(200);
+  expect(state.replaceCanva).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, input);
+  expect(state.generate).not.toHaveBeenCalled();
+  expect(state.business).not.toHaveBeenCalled();
+});

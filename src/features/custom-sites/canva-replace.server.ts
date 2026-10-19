@@ -21,11 +21,13 @@ export const canvaReplaceSchema = z.object({
   expectedRevision: z.number().int().positive(),
   operationId: z.string().uuid(),
   pageAssetId: z.string().uuid(),
+  pageIndex: z.number().int().min(0).max(9).optional(),
   replacementId: z.string().uuid(),
-  sameDesignConfirmed: z.literal(true),
-}).strict();
+  sameDesignConfirmed: z.literal(true).optional(),
+  newDesignConfirmed: z.literal(true).optional(),
+}).strict().refine(input => Boolean(input.sameDesignConfirmed) !== Boolean(input.newDesignConfirmed), 'Choose a sharper export or confirm a new design.');
 
-/** A sharper copy of the same layout reuses saved links; it never reviews or publishes. */
+/** Same-layout copies keep links; new layouts reset only their page's links. Draft only. */
 export async function replaceCanvaPage(actor: SetupActor, raw: unknown) {
   const input = canvaReplaceSchema.parse(raw);
   const base = await db.transaction(async (tx) => {
@@ -39,35 +41,54 @@ export async function replaceCanvaPage(actor: SetupActor, raw: unknown) {
   });
   const { artifact, media } = await assertCustomArtifact(db, actor.salonId, base.website.config.customFrontendId!);
   const design = artifact.source.canva;
-  const page = design?.pages.find(page => page.assetId === input.pageAssetId);
+  const matches = design?.pages.flatMap((page, index) => page.assetId === input.pageAssetId ? [index] : []) ?? [];
+  const pageIndex = input.pageIndex ?? (matches.length === 1 ? matches[0]! : -1);
+  const page = design?.pages[pageIndex];
   if (!design || !page) {
-    throw new SetupError('INVALID', 'That page is not part of this Canva design.');
+    throw new SetupError('INVALID', 'Choose the specific page you want to replace. Your saved images and links are safe.');
+  }
+  if (page.assetId !== input.pageAssetId) {
+    throw new SetupError('INVALID', 'That image is not on the selected page. Reload your saved design before trying again.');
   }
   const [original] = await ownedAssets(db, actor.salonId, [input.replacementId]);
   if (original!.role !== 'reference' || !original!.mimeType.startsWith('image/')) {
-    throw new SetupError('INVALID', 'Choose a PNG, JPG or WebP export of the same Canva page.');
+    throw new SetupError('INVALID', 'Choose a PNG, JPG or WebP export of your Canva page.');
   }
   const url = await assetDataUrl(original!);
   const metadata = await sharp(Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'), { limitInputPixels: 40000000 }).metadata();
-  if (!metadata.width || !metadata.height || !sameCanvaProportions(page, { width: metadata.width, height: metadata.height })) {
-    throw new SetupError('INVALID', 'This image has different proportions. Your saved links are safe. Attach it in chat so Luster can find the links in its new layout.');
+  if (!metadata.width || !metadata.height) {
+    throw new SetupError('INVALID', 'This image could not be read. Choose a PNG, JPG or WebP export.');
   }
-  if (metadata.width < page.width) {
+  if (input.sameDesignConfirmed && !sameCanvaProportions(page, { width: metadata.width, height: metadata.height })) {
+    throw new SetupError('INVALID', 'This image has different proportions. Choose Replace design image to place new links on it, or use a sharper export of the same layout.');
+  }
+  if (input.sameDesignConfirmed && metadata.width < page.width) {
     throw new SetupError('INVALID', 'This export is smaller than the saved image. Choose the original Canva export at a higher resolution.');
   }
   const image = await canvaWebsiteImage(actor, original!);
-  const source = compileCanvaDesign({ ...design, ownerReviewed: false, pages: design.pages.map(item => item.assetId === input.pageAssetId ? { ...item, assetId: image.id, width: metadata.width!, height: metadata.height! } : item) }, base.website.content.websiteDetails);
+  const pages = design.pages.map((item, index) => index === pageIndex ? { ...item, assetId: image.id, width: metadata.width!, height: metadata.height!, ...(input.newDesignConfirmed ? { alt: `${base.business.name} — design page ${index + 1}`.slice(0, 3000) } : {}) } : item);
+  const source = compileCanvaDesign({ ...design, ownerReviewed: false, pages, ...(input.newDesignConfirmed ? { areas: design.areas.filter(area => area.page !== pageIndex), visibleText: '' } : {}) }, base.website.content.websiteDetails);
+  const stillUsed = pages.some((page, index) => index !== pageIndex && page.assetId === input.pageAssetId);
   const oldHash = media.find(asset => asset.id === input.pageAssetId)?.hash;
-  const oldReferences = new Set(media.filter(asset => asset.role === 'reference' && asset.hash === oldHash).map(asset => asset.id));
-  const assetIds = [...new Set([...artifact.assetIds.filter(id => id !== input.pageAssetId && !oldReferences.has(id)), original!.id, image.id])];
+  const oldReferences = new Set(media.filter(asset => asset.role === 'reference' && oldHash && asset.hash === oldHash).map(asset => asset.id));
+  const assetIds = [...new Set([...artifact.assetIds.filter(id => stillUsed || (id !== input.pageAssetId && !oldReferences.has(id))), original!.id, image.id])];
   const operations: SetupOperation[] = [];
   if (base.designBrief) {
-    // Replacing page one must not move it behind the other pages next time AI runs.
-    const referenceIds = [...new Set(base.designBrief.referenceIds.some(id => oldReferences.has(id)) ? base.designBrief.referenceIds.map(id => oldReferences.has(id) ? original!.id : id) : [...base.designBrief.referenceIds, original!.id])];
+    // Keep page order, including when only one use of a repeated image changes.
+    const brief = base.designBrief;
+    const orderedReferences = pages.flatMap((page) => {
+      if (page.assetId === image.id) {
+        return [original!.id];
+      }
+      const hash = media.find(asset => asset.id === page.assetId)?.hash;
+      const reference = brief.referenceIds.find(id => hash && media.some(asset => asset.id === id && asset.hash === hash));
+      return reference ? [reference] : [];
+    });
+    const referenceIds = [...new Set([...orderedReferences, ...brief.referenceIds.filter(id => stillUsed || !oldReferences.has(id)), original!.id])];
     if (referenceIds.length > 6) {
       throw new SetupError('INVALID', 'Remove an unused design reference before replacing this page.');
     }
-    operations.push({ type: 'design_brief', values: { ...base.designBrief, referenceIds, ownedReferenceIds: [...new Set([...base.designBrief.ownedReferenceIds.filter(id => referenceIds.includes(id)), original!.id])], websiteAssetIds: base.designBrief.websiteAssetIds.filter(id => id !== input.pageAssetId) } });
+    operations.push({ type: 'design_brief', values: { ...base.designBrief, referenceIds, ownedReferenceIds: [...new Set([...base.designBrief.ownedReferenceIds.filter(id => referenceIds.includes(id)), original!.id])], websiteAssetIds: base.designBrief.websiteAssetIds.filter(id => stillUsed || id !== input.pageAssetId) } });
   }
   const saved = await storeCustomArtifact(actor, { ...input, source, assetIds });
   operations.unshift({ type: 'custom_frontend', artifactId: saved.id });
