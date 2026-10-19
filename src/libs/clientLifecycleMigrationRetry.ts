@@ -79,7 +79,10 @@ export function isRetryableClientLifecycleMigrationError(
   error: unknown,
 ): boolean {
   const databaseError = findDatabaseError(error);
-  const code = databaseError?.code;
+  if (!databaseError) {
+    return false;
+  }
+  const code = databaseError.code;
   if (code === '40P01' || code === '40001') {
     return true;
   }
