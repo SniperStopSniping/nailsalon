@@ -28,7 +28,7 @@ type State = {
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
   attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
-export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, published = false, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange, compact = false, onAssetsChange, creditsEnabled = false }: { creditsEnabled?: boolean; compact?: boolean; onAssetsChange?: (assets: DesignAsset[]) => void; salonSlug: string; revision: number; artifactId?: string; disabled: boolean; published?: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
+export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, published = false, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange, compact = false, previewVisible = true, onAssetsChange, creditsEnabled = false }: { creditsEnabled?: boolean; compact?: boolean; previewVisible?: boolean; onAssetsChange?: (assets: DesignAsset[]) => void; salonSlug: string; revision: number; artifactId?: string; disabled: boolean; published?: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
   const [state, setState] = useState<State | null>(null);
   const [source, setSource] = useState<CustomSiteSource | null>(null);
   const [message, setMessage] = useState('');
@@ -82,7 +82,14 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     if (!box || typeof ResizeObserver === 'undefined') {
       return;
     }
-    const observer = new ResizeObserver(entries => setPreviewWidth(entries[0]?.contentRect.width ?? 680));
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      // Chat hides this panel. Keep the last useful scale instead of creating
+      // a zero-size renderer before the owner opens their preview.
+      if (width && width > 0) {
+        setPreviewWidth(width);
+      }
+    });
     observer.observe(box);
     return () => observer.disconnect();
   }, [hasPreview]);
@@ -320,20 +327,8 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       )}
       {state?.payload && (
         <div className="studio-preview">
-          <p>
-            <strong>{state.payload.source.title}</strong>
-            {' '}
-            ·
-            {' '}
-            <span>{published ? previewIsCurrent ? 'Published' : 'Saved design' : 'Saved as draft'}</span>
-          </p>
           {state.payload.source.canva && <CanvaArtworkQuality key={`quality-${state.head.revision.document.website.config.customFrontendId}`} pages={state.payload.source.canva.pages} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onReplace={replaceArtwork} />}
           {state.payload.source.canva && reply && <p role="status">{reply}</p>}
-          <details>
-            <summary>{state.payload.source.limitations.length ? `Design notes · ${state.payload.source.limitations.length} differences to review` : 'About this design'}</summary>
-            <p>{state.payload.source.analysis}</p>
-            {state.payload.source.limitations.length > 0 && <ul>{state.payload.source.limitations.map(item => <li key={item}>{item}</li>)}</ul>}
-          </details>
           {state.payload.source.canva && !state.payload.source.canva.ownerReviewed && (
             <label>
               <input type="checkbox" checked={artworkPreviewAcknowledged} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onChange={event => setArtworkPreviewAcknowledged(event.target.checked)} />
@@ -346,17 +341,6 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
             {previewIsCurrent && !busy && !pending
               ? <a href={`/admin/business-setup/design-preview/${encodeURIComponent(salonSlug)}?revision=${state.head.revision.revision}`} target="_blank" rel="noreferrer">Open full preview</a>
               : <span role="status">Updating your preview…</span>}
-            <button
-              type="button"
-              disabled={disabled || Boolean(busy || pending) || !previewIsCurrent || Boolean(state.payload.source.canva && !state.payload.source.canva.ownerReviewed && !artworkPreviewAcknowledged)}
-              onClick={() => void action('Creating your preview link…', async () => {
-                const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
-                const result = await post({ action: 'share', input: { expectedRevision: revision, token, ...(artworkPreviewAcknowledged ? { artworkPreviewAcknowledged: true } : {}) } });
-                setShare({ path: result.path, token, revision: result.revision });
-              })}
-            >
-              Share this preview
-            </button>
           </div>
           {share && (
             <div role="status">
@@ -382,9 +366,32 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           )}
           <div ref={previewBox} className="studio-frame-wrap">
             <div style={{ width: previewSize === 'mobile' ? 390 : 1280, maxWidth: previewSize === 'mobile' ? '100%' : undefined, zoom: previewSize === 'desktop' ? Math.min(1, previewWidth / 1280) : 1, margin: 'auto' }}>
-              {state.rendererOrigin ? <CustomWebsiteFrame key={`${state.head.revision.document.website.config.customFrontendId}-${state.head.revision.revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}
+              {previewVisible && (state.rendererOrigin ? <CustomWebsiteFrame key={`${state.head.revision.document.website.config.customFrontendId}-${state.head.revision.revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>)}
             </div>
           </div>
+          <p>
+            <strong>{state.payload.source.title}</strong>
+            {' '}
+            ·
+            {' '}
+            <span>{published ? previewIsCurrent ? 'Published' : 'Saved design' : 'Saved as draft'}</span>
+          </p>
+          <details>
+            <summary>{state.payload.source.limitations.length ? `Design notes · ${state.payload.source.limitations.length} differences to review` : 'About this design'}</summary>
+            <p>{state.payload.source.analysis}</p>
+            {state.payload.source.limitations.length > 0 && <ul>{state.payload.source.limitations.map(item => <li key={item}>{item}</li>)}</ul>}
+          </details>
+          <button
+            type="button"
+            disabled={disabled || Boolean(busy || pending) || !previewIsCurrent || Boolean(state.payload.source.canva && !state.payload.source.canva.ownerReviewed && !artworkPreviewAcknowledged)}
+            onClick={() => void action('Creating your preview link…', async () => {
+              const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
+              const result = await post({ action: 'share', input: { expectedRevision: revision, token, ...(artworkPreviewAcknowledged ? { artworkPreviewAcknowledged: true } : {}) } });
+              setShare({ path: result.path, token, revision: result.revision });
+            })}
+          >
+            Share this preview
+          </button>
         </div>
       )}
       {state?.payload?.source.canva && (

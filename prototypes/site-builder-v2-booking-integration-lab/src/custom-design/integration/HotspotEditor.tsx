@@ -10,7 +10,7 @@ import {
 import { Dialog } from '../../ui/Dialog';
 import { HotspotOverlay } from '../components/HotspotOverlay';
 import { parseCustomDesignAction } from '../model/actions';
-import { CUSTOM_DESIGN_MAX_AREAS_PER_IMAGE } from '../model/constants';
+import { CUSTOM_DESIGN_MAX_AREAS_PER_IMAGE, CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX } from '../model/constants';
 import {
   canonicalizeNormalizedRect,
   type CustomDesignResizeHandle,
@@ -274,6 +274,33 @@ export function HotspotEditor({
       return;
     }
     setInteractionWarning('');
+  };
+
+  const makeEasierToTap = () => {
+    if (!image || !selectedArea || asset.status !== 'ready') {
+      return;
+    }
+    const size = phoneRenderedImageSize(image);
+    if (!Number.isFinite(size.height) || size.height < CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX) {
+      setInteractionWarning('This image is too short for an easy-to-tap area. Add a button below the design instead.');
+      return;
+    }
+    // Round up so two-decimal storage keeps the requested phone target.
+    const minimumPercent = (pixels: number) => Math.ceil(CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX / pixels * 10_000) / 100;
+    const previous = selectedArea.geometry;
+    const width = Math.max(previous.width, minimumPercent(size.width));
+    const height = Math.max(previous.height, minimumPercent(size.height));
+    const geometry = canonicalizeNormalizedRect({
+      x: previous.x + (previous.width - width) / 2,
+      y: previous.y + (previous.height - height) / 2,
+      width,
+      height,
+    }).rect;
+    if (isNearFullImageArea(geometry) || hasOverlap(areasRef.current, selectedArea.id, geometry)) {
+      setInteractionWarning('There isn’t enough room for a larger tap area here. Move nearby links or add a button below the design.');
+      return;
+    }
+    tryGeometry(selectedArea.id, geometry);
   };
 
   const startPointerSession = (
@@ -689,18 +716,21 @@ export function HotspotEditor({
                       </div>
                     )
                   : null}
-                {renderedSize.width > 0 && (
-                  renderedAreaNeedsTargetWarning(selectedArea.geometry, renderedSize)
+                {(
+                  (renderedSize.width > 0 && renderedAreaNeedsTargetWarning(selectedArea.geometry, renderedSize))
                   || (image && renderedAreaNeedsTargetWarning(
                     selectedArea.geometry,
                     phoneRenderedImageSize(image),
                   ))
                 )
                   ? (
-                      <p className="custom-design-owner-inline-warning" role="status">
-                        <AlertTriangle aria-hidden="true" size={18} />
-                        This link may be difficult to tap on phones. Enlarge it or add a native Luster button.
-                      </p>
+                      <>
+                        <p className="custom-design-owner-inline-warning" role="status">
+                          <AlertTriangle aria-hidden="true" size={18} />
+                          This link may be difficult to tap on phones. Enlarge it or add a button below your design.
+                        </p>
+                        <button disabled={asset.status !== 'ready'} type="button" onClick={makeEasierToTap}>Make easier to tap</button>
+                      </>
                     )
                   : null}
               </section>

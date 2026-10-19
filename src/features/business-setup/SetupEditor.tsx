@@ -766,19 +766,20 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
           <button type="button" className="setup-back-chat" onClick={() => setTab('chat')}>← Back to chat</button>
           <div className="setup-panel-heading">
             <div>
-              <span className="setup-eyebrow">YOUR VISION, TAKING SHAPE</span>
+              {!customFrontendId && <span className="setup-eyebrow">YOUR VISION, TAKING SHAPE</span>}
               <h2>{published ? 'Your website' : customFrontendId ? 'Your website draft' : 'From inspiration to your website'}</h2>
               <p>Private preview. Booking is disabled here.</p>
               {draft && (draft.hoursOrigin === 'suggested' || draft.services.some(service => !service.confirmed && hasUnverifiedAiValues(service, draft.serviceSources?.[service.id]))) && <p role="status">Some booking details still need your review. Change them in chat or Details, then review them before publishing.</p>}
             </div>
           </div>
           {head && (
-            <>
+            <details>
+              <summary>Check booking details</summary>
               <TeamBookingSummary published={published} document={head.revision.document} />
               <AddOnBookingSummary published={published} document={head.revision.document} />
               <BookingExtrasSummary published={published} document={head.revision.document} />
               {head.revision.document.website.config.customFrontendId && <BookingSetupSummary published={published} document={head.revision.document} />}
-            </>
+            </details>
           )}
           {head && (
             <CustomDesignStudio
@@ -792,6 +793,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               onBusyChange={setStudioBusy}
               aiEnabled={aiEnabled}
               compact
+              previewVisible={tab === 'website'}
               onAssetsChange={setAssets}
               selected={selectedDesignAssets}
               setSelected={setSelectedDesignAssets}

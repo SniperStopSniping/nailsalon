@@ -6,6 +6,52 @@ import { CustomDesignStudio } from './CustomDesignStudio';
 
 vi.mock('./CustomWebsiteFrame', () => ({ CustomWebsiteFrame: () => <div>Isolated artwork preview</div> }));
 
+function savedPreviewFixture() {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  const source = { title: 'Owner design', html: '<h1 data-edit="welcome">Welcome</h1>', css: '', javascript: '', analysis: '', limitations: [] };
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ head: { revision: { revision: 3, document: { website: { config: { customFrontendId: 'saved' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: [], configured: true, rendererOrigin: 'https://renderer.example' })));
+}
+
+it('starts the isolated renderer only while preview is open and keeps unsaved manual wording', async () => {
+  savedPreviewFixture();
+  const editor = (previewVisible: boolean) => <CustomDesignStudio salonSlug="test" revision={3} artifactId="saved" disabled={false} aiEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} previewVisible={previewVisible} compact />;
+  const view = render(editor(false));
+  await screen.findByText('Owner design');
+
+  expect(screen.queryByText('Isolated artwork preview')).not.toBeInTheDocument();
+
+  fireEvent.click(await screen.findByText('Edit website wording', { exact: true }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Website text: welcome' }), { target: { value: 'My unsaved wording' } });
+  view.rerender(editor(true));
+
+  expect(screen.getByText('Isolated artwork preview')).toBeVisible();
+
+  view.rerender(editor(false));
+
+  expect(screen.queryByText('Isolated artwork preview')).not.toBeInTheDocument();
+  expect(screen.getByRole('textbox', { name: 'Website text: welcome' })).toHaveValue('My unsaved wording');
+});
+
+it('keeps the desktop preview scale when its hidden panel reports zero width', async () => {
+  savedPreviewFixture();
+  let resized: (entries: { contentRect: { width: number } }[]) => void = () => {};
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: typeof resized) {
+      resized = callback;
+    }
+
+    observe() {}
+    disconnect() {}
+  });
+  render(<CustomDesignStudio salonSlug="test" revision={3} artifactId="saved" disabled={false} aiEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
+  const viewport = (await screen.findByText('Isolated artwork preview')).parentElement!;
+  const initial = viewport.style.zoom;
+  act(() => resized([{ contentRect: { width: 0 } }]));
+
+  expect(Number.parseFloat(viewport.style.zoom)).toBeGreaterThan(0);
+  expect(viewport.style.zoom).toBe(initial);
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
