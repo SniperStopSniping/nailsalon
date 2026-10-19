@@ -1,0 +1,16 @@
+{
+  "responses": [
+    {
+      "path": "/api/appointments/availability",
+      "status": 200
+    },
+    {
+      "path": "/api/appointments",
+      "status": 201
+    }
+  ],
+  "truncated": false,
+  "hasMore": false,
+  "mouseClickFailedBeforeRequest": true,
+  "databaseCheckedBeforeKeyboardSubmission": true
+}
