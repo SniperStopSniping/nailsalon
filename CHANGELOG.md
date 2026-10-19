@@ -1,3 +1,10 @@
+## [1.143.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.143.2...v1.143.3) (2026-10-19)
+
+
+### Bug Fixes
+
+* **privacy:** disclose Google data protection mechanisms ([#464](https://github.com/SniperStopSniping/nailsalon/issues/464)) ([8ba9f8f](https://github.com/SniperStopSniping/nailsalon/commit/8ba9f8f4239cb421b8b376839915521e04f98f56))
+
 ## [1.143.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.143.1...v1.143.2) (2026-10-17)
 
 
