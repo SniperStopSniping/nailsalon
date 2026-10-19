@@ -1,0 +1,91 @@
+{
+  "passed": true,
+  "mode": "generate",
+  "message": "Now build my website. I want a bold cobalt blue and ivory look, oversized editorial lettering, asymmetrical panels, diagonal graphic accents and simple nail line drawings. Make it feel like an independent fashion magazine. Keep the mobile layout clear and easy to book. I don't have photos yet, so use original graphics. Use the business details and service suggestions we just saved.",
+  "operationId": "71f5ec27-6bcc-4071-ade0-b53cf2d12a43",
+  "beforeRevision": 2,
+  "afterRevision": 3,
+  "artifactId": "42316fe0-cbc7-4da2-acec-f3eed616e499",
+  "elapsedMs": 134602,
+  "calls": [
+    {
+      "id": "b456829b-460b-4527-9f45-c37b8ef2db2e",
+      "operation_id": "71f5ec27-6bcc-4071-ade0-b53cf2d12a43",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5374,
+      "output_tokens": 227,
+      "cost_micro_usd": 786,
+      "credit_cost_micro_cad": "2201",
+      "charged_micro_cad": 1572,
+      "elapsed_ms": 4053,
+      "validation": "passed"
+    },
+    {
+      "id": "1b1d261f-6809-494b-80e6-e0db0c38e8bb",
+      "operation_id": "1b3a1a43-7b83-44ff-930e-8f15be2e6dbc",
+      "ordinal": 0,
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 1902,
+      "output_tokens": 6372,
+      "cost_micro_usd": 68474,
+      "credit_cost_micro_cad": "191728",
+      "charged_micro_cad": 136948,
+      "elapsed_ms": 116925,
+      "validation": "passed"
+    }
+  ],
+  "priorWallet": {
+    "balance": "9997449",
+    "purchases": 1,
+    "recovery": 0
+  },
+  "nextWallet": {
+    "balance": "9803520",
+    "purchases": 1,
+    "recovery": 0
+  },
+  "reservation": {
+    "status": "settled",
+    "settled_micro_cad": "193929",
+    "reserved_micro_cad": "2000000",
+    "resolution": "completed"
+  },
+  "businessFirst": true,
+  "liveUnchanged": true,
+  "privateUntilApproval": true,
+  "refresh": true,
+  "noSeededCredit": true,
+  "manualSourceRepair": false,
+  "browserErrors": [],
+  "services": [
+    {
+      "id": "draft_biab",
+      "name": "BIAB",
+      "priceCents": 6500,
+      "durationMinutes": 75,
+      "confirmed": false,
+      "sources": {
+        "name": "owner",
+        "priceCents": "suggested",
+        "durationMinutes": "suggested"
+      }
+    },
+    {
+      "id": "draft_gel_manicure",
+      "name": "Gel manicure",
+      "priceCents": 5000,
+      "durationMinutes": 60,
+      "confirmed": false,
+      "sources": {
+        "name": "conversation",
+        "priceCents": "conversation",
+        "durationMinutes": "conversation"
+      }
+    }
+  ]
+}

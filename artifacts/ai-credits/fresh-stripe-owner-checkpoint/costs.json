@@ -1,0 +1,117 @@
+{
+  "currency": "CAD",
+  "provider": "openai",
+  "providerInvoiceVerified": false,
+  "pricing": "Provider-reported tokens at configured rates; estimated provider cost, not a reconciled invoice.",
+  "usdToCad": 1.4,
+  "providerCostMicroUsd": 80032,
+  "providerEstimatedCostMicroCad": 112045,
+  "retailDebitedMicroCad": 224093,
+  "startingPurchasedMicroCad": 10000000,
+  "remainingCreditMicroCad": 9775907,
+  "purchaseEntries": 1,
+  "recoveryEntries": 0,
+  "stages": [
+    {
+      "name": "intake",
+      "operationId": "0bf1333d-a35a-46c3-8b85-97fe19b972d5",
+      "beforeRevision": 1,
+      "afterRevision": 2,
+      "elapsedMs": 8089,
+      "calls": [
+        {
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "inputTokens": 4981,
+          "outputTokens": 575,
+          "costMicroUsd": 911,
+          "retailCostMicroCad": 2551
+        }
+      ]
+    },
+    {
+      "name": "generate",
+      "operationId": "71f5ec27-6bcc-4071-ade0-b53cf2d12a43",
+      "beforeRevision": 2,
+      "afterRevision": 3,
+      "elapsedMs": 134602,
+      "calls": [
+        {
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "inputTokens": 5374,
+          "outputTokens": 227,
+          "costMicroUsd": 786,
+          "retailCostMicroCad": 2201
+        },
+        {
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "inputTokens": 1902,
+          "outputTokens": 6372,
+          "costMicroUsd": 68474,
+          "retailCostMicroCad": 191728
+        }
+      ]
+    },
+    {
+      "name": "refine",
+      "operationId": "f00e5e3f-9a66-4c9b-b3bc-1d47a41a3e4a",
+      "beforeRevision": 3,
+      "afterRevision": 4,
+      "elapsedMs": 13984,
+      "calls": [
+        {
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "inputTokens": 5468,
+          "outputTokens": 149,
+          "costMicroUsd": 758,
+          "retailCostMicroCad": 2123
+        },
+        {
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "inputTokens": 7817,
+          "outputTokens": 6339,
+          "costMicroUsd": 4147,
+          "retailCostMicroCad": 11612
+        }
+      ]
+    },
+    {
+      "name": "touch",
+      "operationId": "33d8f1cd-4b2c-40f9-897a-63179aae7678",
+      "beforeRevision": 4,
+      "afterRevision": 5,
+      "elapsedMs": 59324,
+      "calls": [
+        {
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "inputTokens": 5534,
+          "outputTokens": 122,
+          "costMicroUsd": 753,
+          "retailCostMicroCad": 2109
+        },
+        {
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "inputTokens": 7600,
+          "outputTokens": 6505,
+          "costMicroUsd": 4203,
+          "retailCostMicroCad": 11769
+        }
+      ]
+    }
+  ],
+  "operatorDevelopmentAllocation": {
+    "capMicroCad": 11384406,
+    "conservativeChargedMicroCad": 9896702,
+    "pending": 0,
+    "remainingMicroCad": 1487704
+  },
+  "hostedPreviewAllocationMicroCad": 68615594,
+  "totalAuthorizedAllocationMicroCad": 80000000,
+  "allocationChanged": false
+}

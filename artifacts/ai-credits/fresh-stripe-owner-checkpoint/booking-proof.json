@@ -1,0 +1,200 @@
+{
+  "step": "book",
+  "trialScope": "website",
+  "browserName": "webkit",
+  "ownerAuthentication": "clerk-development",
+  "origin": "https://luster-builder.test:3443",
+  "renderer": "https://luster-render.test:3444/renderer",
+  "optimizedHttps": true,
+  "salonSlug": "studio-c58c6f3a375d43d0",
+  "lostPublishResponse": false,
+  "status": "passed",
+  "startedAt": "2026-10-18T23:57:24.882Z",
+  "elapsedMs": 7472,
+  "beforeRevision": 8,
+  "afterRevision": 8,
+  "artifactId": "25e368fe-3b40-4829-8663-a8c5b336022c",
+  "calls": [],
+  "artifacts": [
+    {
+      "id": "42316fe0-cbc7-4da2-acec-f3eed616e499",
+      "parent_id": null,
+      "source_hash": "05585956c81de8a87f97b2999ed9e42f445231d6b833f9289aa70409701ee19d"
+    },
+    {
+      "id": "66b636fd-e621-4989-ad62-7c01dcbec74e",
+      "parent_id": "42316fe0-cbc7-4da2-acec-f3eed616e499",
+      "source_hash": "85360584e23bc4e113e4196f3b88ad3094db537b89d30138d0c867b8d6fd1efa"
+    },
+    {
+      "id": "73ab231c-e712-49e3-b102-c0cb516e1471",
+      "parent_id": "66b636fd-e621-4989-ad62-7c01dcbec74e",
+      "source_hash": "1fa3106a2150fb00512e8eca47fe5d2416dedb909e917fa16811fed7c7850f15"
+    },
+    {
+      "id": "25e368fe-3b40-4829-8663-a8c5b336022c",
+      "parent_id": "73ab231c-e712-49e3-b102-c0cb516e1471",
+      "source_hash": "3d074cb55a57ff6169fbaffb611ac63e2a28f2ac661723a5667734ab08bee5a4"
+    }
+  ],
+  "appointments": [
+    {
+      "id": "appt_f8fa06e3-4516-41f3-9048-c885ea2d15ad",
+      "total_price": 7000,
+      "total_duration_minutes": 75
+    }
+  ],
+  "historicalBefore": [],
+  "liveServicePricesBefore": [
+    {
+      "id": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+      "name": "BIAB",
+      "price": 7000,
+      "duration_minutes": 75
+    },
+    {
+      "id": "d4aaa9cb-bef8-4099-a86f-625c3d5300b5",
+      "name": "Gel manicure",
+      "price": 5000,
+      "duration_minutes": 60
+    }
+  ],
+  "liveServicePricesAfter": [
+    {
+      "id": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+      "name": "BIAB",
+      "price": 7000,
+      "duration_minutes": 75
+    },
+    {
+      "id": "d4aaa9cb-bef8-4099-a86f-625c3d5300b5",
+      "name": "Gel manicure",
+      "price": 5000,
+      "duration_minutes": 60
+    }
+  ],
+  "liveAddOnsBefore": [],
+  "liveAddOnsAfter": [],
+  "liveSettingsBefore": "98dda1d943022b5c058f8d6f5f1e5bc8d648a82798e7e0e302b31a6aa3771d82",
+  "liveSettingsAfter": "98dda1d943022b5c058f8d6f5f1e5bc8d648a82798e7e0e302b31a6aa3771d82",
+  "bookingResponseStatus": 201,
+  "bookingSubmissionCount": 2,
+  "bookingNavigation": [
+    {
+      "event": "navigated",
+      "path": "/studio-c58c6f3a375d43d0/book/service"
+    },
+    {
+      "event": "navigated",
+      "path": "/studio-c58c6f3a375d43d0/book/service"
+    },
+    {
+      "event": "navigated",
+      "path": "/studio-c58c6f3a375d43d0/book/service"
+    },
+    {
+      "event": "navigated",
+      "path": "/studio-c58c6f3a375d43d0/book/service"
+    },
+    {
+      "event": "navigated",
+      "path": "/studio-c58c6f3a375d43d0/book/time"
+    },
+    {
+      "event": "navigated",
+      "path": "/studio-c58c6f3a375d43d0/book/time"
+    },
+    {
+      "event": "navigated",
+      "path": "/studio-c58c6f3a375d43d0/book/time"
+    },
+    {
+      "event": "confirm-response",
+      "status": 307
+    },
+    {
+      "event": "confirm-response",
+      "status": 200,
+      "type": "text/x-component"
+    },
+    {
+      "event": "confirm-response",
+      "status": 200,
+      "type": "application/javascript; charset=UTF-8"
+    },
+    {
+      "event": "navigated",
+      "path": "/studio-c58c6f3a375d43d0/book/confirm"
+    }
+  ],
+  "serverProbes": [
+    {
+      "kind": "virtual-preview-service-rejected",
+      "status": 400,
+      "code": "INVALID_SELECTION"
+    }
+  ],
+  "privateAddressChecks": [
+    {
+      "path": "/studio-c58c6f3a375d43d0/book/service",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    },
+    {
+      "path": "/studio-c58c6f3a375d43d0/book/service",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    },
+    {
+      "path": "/studio-c58c6f3a375d43d0/book/time",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    },
+    {
+      "path": "/api/appointments/availability",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    },
+    {
+      "path": "/studio-c58c6f3a375d43d0/book/confirm",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    }
+  ],
+  "contactChecks": [],
+  "interactionChecks": [
+    {
+      "originalBooking": true,
+      "preservedCanva": false,
+      "serviceId": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+      "serviceName": "BIAB",
+      "targetWidth": 126.3125,
+      "targetHeight": 58
+    },
+    {
+      "originalBooking": true,
+      "selectedStaff": "AI Test Owner",
+      "staffEligibilityVerified": true
+    }
+  ],
+  "browserErrors": [],
+  "funding": "Stripe sandbox purchase entries verified in the Development ledger.",
+  "fundingEvidence": {
+    "balance_micro_cad": "9775907",
+    "purchase_entries": 1,
+    "recovery_entries": 0
+  },
+  "initialOwnerDevice": {
+    "width": 390,
+    "height": 844,
+    "devicePixelRatio": 3,
+    "maxTouchPoints": 0,
+    "configuredTouch": true
+  },
+  "touchActions": true
+}
