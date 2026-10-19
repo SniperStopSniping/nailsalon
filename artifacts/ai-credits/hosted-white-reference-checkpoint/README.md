@@ -25,9 +25,17 @@ The model built original cream/blush styling, a serif masthead, outlined header 
 
 [390px phone hero](hosted-white-cua-mobile-390.jpg) · [390px service cards](hosted-white-cua-services-390.jpg)
 
-Read-only layout measurements showed no horizontal overflow at390 and1440 CSS pixels. The browser used110% zoom, so the requested viewport was adjusted until the measured CSS widths were exact. Native wide screenshot capture duplicated/cropped composited regions; those invalid captures are preserved privately and deliberately excluded from this checkpoint. **Desktop visual-fidelity acceptance remains incomplete**, despite the1440px layout measurement. The390px full-viewport CDP capture was correct. The temporary viewport override was reset. No new axe or WCAG conformance result is claimed for this style.
+Read-only layout measurements showed no horizontal overflow at390 and1440 CSS pixels. The in-app browser used110% zoom, so the requested viewport was adjusted until measured CSS widths were exact. Native wide screenshot capture duplicated/cropped composited regions; those invalid captures remain private. The390px full-viewport CDP capture was correct.
 
-The auto-opened owner Preview still put large booking summaries above the actual site. That observation led to the subsequent small UI change grouping them under “Check booking details”; this trial's screenshots predate that change.
+An independent Chrome browser then rendered the published site correctly at measured1440 and390CSSpx. Desktop service cards had three distinct398.66px-wide columns and all canonical booking controls were44px tall or larger; mobile returned to the stacked composition. Chrome's first attempt showed a blank frame and “taking longer to load”; its diagnostic API reported a paused document response. A normal reload recovered, without any source/model repair. The initial failure is retained privately; its root cause is not claimed conclusively. The correct full desktop capture closes the earlier screenshot-evidence gap. Both temporary browser viewport overrides were reset. No new axe or complete WCAG conformance result is claimed for this style.
+
+[Chrome1440px](hosted-white-chrome-desktop-loaded.jpg) · [Desktop service columns](hosted-white-chrome-desktop-services.jpg) · [Chrome390px](hosted-white-chrome-mobile-final.jpg)
+
+The auto-opened owner Preview still put large booking summaries above the actual site. That observation led to the small UI change inaa99b197 grouping them under “Check booking details”; generation screenshots predate that change.45 related editor/summary tests passed on the separate audit's qualified Vitest4 toolchain/config and owned source root; scoped lint reported zero errors/warnings and the5135-file/two-commit secret scan passed. Its pinned hosted Preview build passed explicit TypeScript validation and164/164 static pages. DB/Redis/Clerk health and exactaa99b19 health SHA matched; generic degraded status reflects deliberately unconfigured test integrations. These checks do not replace final combined CI gates.
+
+Normal owner sign-in resumed published68 on the updated test alias. The new disclosure started collapsed, opened the unchanged saved hours/currency/timezone/notice/buffer/privacy/policy facts and closed again without an AI call or business write. The retained desktop screenshot shows the website earlier in the panel. The in-app owner-phone capture was clipped/scaled and is excluded, so it is not passed off as mobile acceptance evidence.
+
+[Updated builder preview](aa99-owner-preview-collapsed.jpg)
 
 ## Exact publication and signed-out original booking
 
@@ -40,3 +48,5 @@ The UI showed Appointment confirmed. Read-only Preview database verification fou
 [Exact review](hosted-white-cua-review.jpg) · [Published status](hosted-white-cua-published.jpg) · [Original booking review](hosted-white-cua-booking-review.jpg) · [Confirmed booking](hosted-white-cua-booking-confirmed.jpg)
 
 This is isolated Preview evidence. No Production deploy, migration, live salon edit, real payment or outbound notification occurred. Raw provider outputs, source, original uploaded reference, credentials, auth states, booking-management capabilities and sharing capabilities remain outside Git. Full combined release gates and fresh-owner acceptance remain separate and are not declared complete by this checkpoint.
+
+All four separate comparison links were subsequently opened through the normal browser onaa99: sage50, pink55, burgundy65 and white68. Each rendered its own saved heading and an explicit booking-disabled notice, after the white publication. The safe `four-reference-link-proof.json` records these results without exposing capability URLs.
