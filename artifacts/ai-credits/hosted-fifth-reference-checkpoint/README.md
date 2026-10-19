@@ -78,3 +78,9 @@ The Previous designs list exposed the earlier design's saved time and request. R
 The manual wording list currently exposes generated labels such as “cover note” and “nav services”; clearer owner-facing labels and preserving the visual hierarchy of multiline heading edits are useful follow-up UX checks. This plain-paragraph test does not prove every arbitrary source edit or heading transformation.
 
 Final combined CI, broader manual Canva claim/publication/booking, original-export quality, broader staff/settings and complete accessibility acceptance remain separate gates. This checkpoint is not a declaration that the whole builder or Production release is complete. No Production merge, migration, deployment, live salon edit or outbound notification occurred.
+
+## Final source CI status
+
+Run39235325884 on exact081b completed with all unit/build/PostgreSQL/application, onboarding-owner and customer-booking jobs passing. Owner-operations failed at the known Storybook webpack invocation (`Cannot read properties of undefined (reading tap)`), and its two dependent aggregates failed. This is not a green release run. Independent native PostgreSQL verification in the separate release task reproduced both selected-artist and changed-artist/same-key defects before081b and passed the exact same two cases after the fix; its full combined creator lane is separate. The coherent dependency remediation and final combined gates remain with that task.
+
+[Exact-source CI status](source-ci-status.json)
