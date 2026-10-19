@@ -167,7 +167,7 @@ try {
   await cookieSnapshot('saved-builder');
 
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeVisible();
-  await expect(page.getByText('Published', { exact: true })).toBeVisible();
+  await expect(page.locator('.setup-save-status')).toHaveText('Published');
 
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   const renderer = `${profile.rendererOrigin}/renderer`;
@@ -180,7 +180,7 @@ try {
   await Promise.all(pendingChecks);
   await page.reload({ waitUntil: 'domcontentloaded' });
 
-  await expect(page.getByText('Published', { exact: true })).toBeVisible();
+  await expect(page.locator('.setup-save-status')).toHaveText('Published');
 
   await inspectDocuments('refreshed-builder');
   const callsAfter = Number((await database.query('SELECT count(*) FROM setup_ai_call WHERE salon_id=$1', [fixture.salonId])).rows[0].count);

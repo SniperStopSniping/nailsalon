@@ -679,7 +679,7 @@ try {
     }
     await page.reload({ waitUntil: 'domcontentloaded' });
 
-    await expect(page.getByText('Saved as draft', { exact: true })).toBeVisible();
+    await expect(page.locator('.setup-save-status')).toHaveText('Saved as draft');
 
     assert.equal((await head()).revision, after.revision, 'Refresh changed the draft.');
     if (after.document.website.config.customFrontendId) {

@@ -1,0 +1,97 @@
+{
+  "passed": true,
+  "sourceSha": "70af527e58e960cbff137c81bcd79249e3a90792",
+  "previews": [
+    {
+      "label": "published-before",
+      "published": true,
+      "revision": 8,
+      "desktop": true,
+      "mobile": true,
+      "standardPreview": true,
+      "previewBookingDisabled": true,
+      "canonicalPriceCents": 7000,
+      "durationMinutes": 75
+    },
+    {
+      "label": "draft",
+      "published": false,
+      "revision": 9,
+      "desktop": true,
+      "mobile": true,
+      "standardPreview": true,
+      "previewBookingDisabled": true,
+      "canonicalPriceCents": 7000,
+      "durationMinutes": 75
+    },
+    {
+      "label": "published-after",
+      "published": true,
+      "revision": 9,
+      "desktop": true,
+      "mobile": true,
+      "standardPreview": true,
+      "previewBookingDisabled": true,
+      "canonicalPriceCents": 7000,
+      "durationMinutes": 75
+    }
+  ],
+  "refreshResumedDraft": true,
+  "reviewedRevision": 9,
+  "reviewChanges": [],
+  "reviewBlockers": [],
+  "receipts": [
+    {
+      "revision": 8,
+      "approved_revision": 8,
+      "media_finalized": true
+    },
+    {
+      "revision": 9,
+      "approved_revision": 9,
+      "media_finalized": true
+    }
+  ],
+  "websiteAndBusinessUnchanged": true,
+  "serviceIdsStable": true,
+  "services": [
+    {
+      "id": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+      "name": "BIAB",
+      "price": 7000,
+      "duration_minutes": 75
+    },
+    {
+      "id": "d4aaa9cb-bef8-4099-a86f-625c3d5300b5",
+      "name": "Gel manicure",
+      "price": 5000,
+      "duration_minutes": 60
+    }
+  ],
+  "existingAppointments": [
+    {
+      "id": "appt_f8fa06e3-4516-41f3-9048-c885ea2d15ad",
+      "total_price": 7000,
+      "total_duration_minutes": 75
+    }
+  ],
+  "siteSourceHashUnchanged": true,
+  "walletUnchanged": {
+    "balance": "9775907",
+    "model_calls": 7
+  },
+  "modelCalls": 0,
+  "appointmentPosts": 0,
+  "browserErrors": [],
+  "actions": [
+    "open",
+    "start_editing",
+    "open",
+    "review",
+    "approve",
+    "publish"
+  ],
+  "manualDesignSourceRepair": false,
+  "hostedDeployment": false,
+  "productionChanged": false
+}
