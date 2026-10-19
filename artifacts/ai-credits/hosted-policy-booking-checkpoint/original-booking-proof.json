@@ -1,0 +1,56 @@
+{
+  "passed": true,
+  "hosted": true,
+  "engine": "WebKit",
+  "device": "iPhone13 emulation",
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "historicalAppointmentsPreserved": 3,
+  "newAppointmentsCreated": 1,
+  "aiCallsForBooking": 0,
+  "customerSignedOut": true,
+  "realOriginalBooking": true,
+  "mockedAppointment": false,
+  "bookingPostStatus": 201,
+  "appointment": {
+    "id": "appt_b329960f-69a2-4ae6-8305-6132d3bec80c",
+    "salon_id": "ai_setup_c58c6f3a375d43d0c69bf4a71f6be97b",
+    "technician_id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+    "status": "confirmed",
+    "start_time": "2026-10-20T18:00:00.000Z",
+    "end_time": "2026-10-20T19:00:00.000Z",
+    "total_price": 5000,
+    "total_duration_minutes": 60
+  },
+  "service": {
+    "id": "585573ae-827d-41cf-a0dc-625d1fa578ed",
+    "name": "Gel manicure",
+    "price": 5000,
+    "duration_minutes": 60
+  },
+  "items": [
+    {
+      "service_id": "585573ae-827d-41cf-a0dc-625d1fa578ed",
+      "price_at_booking": 5000,
+      "duration_at_booking": 60
+    }
+  ],
+  "eligibleStaff": [
+    {
+      "id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "name": "AI Test Owner"
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/appointments/availability",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/appointments",
+      "status": 201
+    }
+  ],
+  "productionTouched": false
+}

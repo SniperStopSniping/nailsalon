@@ -1,0 +1,25 @@
+{
+  "passed": true,
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "hosted": true,
+  "revision": 37,
+  "artifactId": "830e40f3-0233-458d-be66-c78328905cbe",
+  "exactRevisionApproved": true,
+  "receipts": [
+    {
+      "revision": 37,
+      "approved_revision": 37,
+      "media_finalized": true
+    }
+  ],
+  "publishReplayStatus": 200,
+  "receiptCount": 1,
+  "canonicalServicesUnchanged": true,
+  "historicalAppointmentsPreserved": 3,
+  "policyWasPrivateUntilApproval": true,
+  "onlyPolicyDisplayChanged": true,
+  "harnessCorrection": "Existing policy used application defaults rather than an explicit settings object; verified the resolved baseline before publication.",
+  "ownerAcknowledgedExistingAppointments": false,
+  "newModelCalls": 0,
+  "productionTouched": false
+}
