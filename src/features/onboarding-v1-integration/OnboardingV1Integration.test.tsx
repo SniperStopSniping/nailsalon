@@ -952,7 +952,9 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     }).jsdom.virtualConsole;
     const recordNavigationError = (error: Error) => navigationErrors.push(error);
     virtualConsole.on('jsdomError', recordNavigationError);
-    onTestFinished(() => virtualConsole.off('jsdomError', recordNavigationError));
+    onTestFinished(() => {
+      virtualConsole.off('jsdomError', recordNavigationError);
+    });
     mocks.auth.isSignedIn = true;
     mocks.userState.user = verifiedClerkUser();
     mocks.status.mockResolvedValue({ claim: savedSite });
