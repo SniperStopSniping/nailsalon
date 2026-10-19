@@ -1,0 +1,12 @@
+{
+  "sourceSha": "d7bdeaeb150b5ba6433501397c181db87bd43a30",
+  "deploymentId": "dpl_E3TiR8HtivDkjjUCBunkMTpoqVC6",
+  "projectId": "prj_G7i795a439CUZOr9W2gD2DT0E2AO",
+  "target": "isolated Preview",
+  "explicitTypesPassed": true,
+  "pages": 164,
+  "healthGitSha": "d7bdeae",
+  "dbRedisClerkReady": true,
+  "genericHealthIntentionallyDegraded": true,
+  "productionTouched": false
+}

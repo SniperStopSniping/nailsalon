@@ -1,0 +1,30 @@
+{
+  "sourceSha": "d7bdeaeb150b5ba6433501397c181db87bd43a30",
+  "nativeChromeOwnerSignIn": true,
+  "publishedRevisionResumed": 68,
+  "iframeCountWhileChatHidden": 0,
+  "firstVisiblePreviewRendered": {
+    "headline": "Good nails.A little time for you.",
+    "scriptCount": 1,
+    "title": "Custom salon website"
+  },
+  "phoneGeometry": {
+    "contentOffset": 314.59375,
+    "contentWidth": 390,
+    "frameWidth": 351,
+    "panelScrollTop": 0,
+    "viewportWidth": 390
+  },
+  "beforeFrameContentOffset": 571.1875,
+  "afterFrameContentOffset": 314.59375,
+  "earlierByPixels": 256.59375,
+  "closeAndReopenRendered": true,
+  "chosenPhoneViewRetained": true,
+  "refreshResumed": true,
+  "phoneViewChosenAutomaticallyAfterPhoneReload": true,
+  "draftIframeWidth": 351,
+  "draftIframeScrollWidth": 351,
+  "generatedSourceUnchanged": true,
+  "newProviderCalls": 0,
+  "productionTouched": false
+}
