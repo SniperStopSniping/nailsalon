@@ -90,8 +90,8 @@ it('retains all ten manual pages and eighty approved links rather than truncatin
   const original = settings.images[0]!;
   settings.images = Array.from({ length: 10 }, (_, index) => ({ ...structuredClone(original), id: `image-${index}`, interactiveAreas: Array.from({ length: 8 }, (_, link) => ({ ...structuredClone(original.interactiveAreas[0]!), id: `link-${index}-${link}`, semanticOrder: link, geometry: { x: 10, y: link * 10, width: 30, height: 5 } })) }));
   input.images.clear();
-  for (const image of settings.images) {
-    input.images.set(image.id, { assetId: randomUUID(), width: 600, height: 1400 });
+  for (const [index, image] of settings.images.entries()) {
+    input.images.set(image.id, { assetId: index === 0 ? 'cad01234-0000-4000-8000-000000000000' : randomUUID(), width: 600, height: 1400 });
   }
   const source = manualCanvaSource(input);
 

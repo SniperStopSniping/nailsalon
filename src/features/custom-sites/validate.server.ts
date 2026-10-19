@@ -12,7 +12,31 @@ const TAGS = new Set('main section article aside header footer nav div span p h1
 const ATTRS = new Set('id class role title alt width height viewBox viewbox preserveAspectRatio preserveaspectratio d fill stroke stroke-width stroke-linecap stroke-linejoin cx cy r rx ry x y x1 y1 x2 y2 points transform opacity tabindex hidden open type'.split(' '));
 const FIELDS = new Set(['business.name', 'business.city', 'business.address', 'business.bio', 'business.hoursLabel', 'service.name', 'service.description', 'service.priceLabel', 'service.durationMinutes', 'booking.policyTitle', 'booking.policyText']);
 const IMAGE_HINTS: Record<string, readonly string[]> = { loading: ['lazy', 'eager'], decoding: ['async', 'sync', 'auto'], fetchpriority: ['high', 'low', 'auto'] };
-type SourceNode = { tagName?: string; attrs?: { name: string; value: string }[]; childNodes?: SourceNode[]; content?: SourceNode };
+type SourceNode = { nodeName?: string; value?: string; tagName?: string; attrs?: { name: string; value: string }[]; childNodes?: SourceNode[]; content?: SourceNode };
+
+/** Price rules concern readable copy, never asset IDs, colours or link targets. */
+function containsCopiedPrice(root: SourceNode) {
+  const price = /(?:[$€£]|\bCAD|\bUSD)\s*\d/iu;
+  const text: string[] = [];
+  let accessiblePrice = false;
+  function collect(node: SourceNode) {
+    if (node.nodeName === '#text') {
+      text.push(node.value ?? '');
+    }
+    for (const attr of node.attrs ?? []) {
+      if (['alt', 'title', 'aria-label', 'aria-description'].includes(attr.name) && price.test(attr.value)) {
+        accessiblePrice = true;
+      }
+    }
+    node.childNodes?.forEach(collect);
+    if (node.content) {
+      collect(node.content);
+    }
+  }
+  collect(root);
+  // parse5 decodes entities; joining also catches prices split across spans.
+  return accessiblePrice || price.test(text.join(' '));
+}
 
 /** Retained revision assets are private unless this exact source uses them. */
 export function customSourceImageIds(html: string) {
@@ -78,7 +102,7 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
     if (templates.length !== 1 || !serviceBook || ['service.name', 'service.priceLabel', 'service.durationMinutes'].some(field => !fields.has(field))) {
       fail('Use one service template containing the live name, price, duration and service booking button.');
     }
-    if (/(?:[$€£]|\bCAD|\bUSD)\s*\d/iu.test(source.html)) {
+    if (containsCopiedPrice(root as SourceNode)) {
       fail('Display prices through service.priceLabel, never as copied price text.');
     }
   }

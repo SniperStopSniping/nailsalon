@@ -86,6 +86,20 @@ describe('custom frontend source validation', () => {
     expect(validateCustomSource(connected, new Set(), true).html).toContain('service.priceLabel');
     expect(() => validateCustomSource({ ...connected, html: `${connected.html}<p>BIAB $65</p>` }, new Set(), true)).toThrow('copied price text');
   });
+
+  it('does not interpret asset identities and SVG colours as copied service prices', () => {
+    const assetId = 'cad01234-0000-4000-8000-000000000000';
+    const connected = source.html.replace('<button', '<span data-luster-field="service.priceLabel"></span><span data-luster-field="service.durationMinutes"></span><button');
+    const html = `${connected}<img src="asset:${assetId}" alt="Studio artwork"><svg viewBox="0 0 10 10"><rect width="10" height="10" fill="#cad123"></rect></svg><p id="cad1234">Natural nails</p>`;
+
+    expect(validateCustomSource({ ...source, html }, new Set([assetId]), true).html).toContain(`asset:${assetId}`);
+  });
+
+  it.each(['<p>BIAB &#36;65</p>', '<p>BIAB <strong>$</strong><span>65</span></p>', '<p aria-label="BIAB CAD65">BIAB</p>', '<svg><title>BIAB USD65</title></svg>'])('rejects copied prices in decoded, split and accessible text: %s', (extra) => {
+    const connected = source.html.replace('<button', '<span data-luster-field="service.priceLabel"></span><span data-luster-field="service.durationMinutes"></span><button');
+
+    expect(() => validateCustomSource({ ...source, html: connected + extra }, new Set(), true)).toThrow('copied price text');
+  });
 });
 
 it('permits trusted contact bindings without allowing generated navigation', () => {
