@@ -552,6 +552,7 @@ jobs:
               migrations/0110_setup_add_on_publication.sql) ;;
               migrations/0111_other_service_categories.sql) ;;
               migrations/0112_ai_operator_expense_budget.sql) ;;
+              migrations/0113_salon_deletion_cleanup.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1118,12 +1119,17 @@ jobs:
               0110_setup_add_on_publication) ;;
               0111_other_service_categories) ;;
               0112_ai_operator_expense_budget) ;;
+              0113_salon_deletion_cleanup) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
                 ;;
             esac
           done <<< "$new_tags"
+
+          # 0113 must never advance Drizzle's timestamp ledger before the
+          # separately reviewed 0098–0112 dependency sequence is integrated.
+          node scripts/verify-salon-deletion-migration-order.mjs
 
           # Compared PER ENTRY against the chartered set, not as one joined
           # string: a packet that legitimately adds a cron alongside an earlier

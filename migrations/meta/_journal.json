@@ -785,6 +785,13 @@
       "when": 1792303500000,
       "tag": "0112_ai_operator_expense_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1792449000000,
+      "tag": "0113_salon_deletion_cleanup",
+      "breakpoints": true
     }
   ]
 }

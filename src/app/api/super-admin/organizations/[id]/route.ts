@@ -1,8 +1,8 @@
+import { randomUUID } from 'node:crypto';
+
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { deleteOnboardingMediaFiles, isOnboardingMediaStorageProvider } from '@/features/onboarding-v1-integration/media-storage.server';
-import { logAuditEvent } from '@/libs/auditLog';
 import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
 import {
@@ -14,6 +14,8 @@ import {
 } from '@/libs/featureEntitlements';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
+import { findSalonDeletionCleanup, runSalonDeletionCleanup, salonDeletionConfirmationDigest, salonDeletionStatus } from '@/libs/salonDeletionCleanup.server';
+import { collectSalonDeletionAssets } from '@/libs/salonDeletionMedia.server';
 import type { PurgeTx } from '@/libs/salonPurge';
 import { purgeSalonData, SalonPurgeBlockedError } from '@/libs/salonPurge';
 import { getSuperAdminInfo, logAuditAction, requireSuperAdmin } from '@/libs/superAdmin';
@@ -23,11 +25,12 @@ import {
   adminSalonMembershipSchema,
   adminUserSchema,
   appointmentSchema,
+  auditLogSchema,
   clientPreferencesSchema,
-  onboardingSiteMediaSchema,
   SALON_PLANS,
   SALON_STATUSES,
   salonAuditLogSchema,
+  salonDeletionCleanupSchema,
   salonLocationSchema,
   type SalonPlan,
   salonSchema,
@@ -640,6 +643,15 @@ export async function DELETE(
       .where(eq(salonSchema.id, id))
       .limit(1);
 
+    if (!existing && hardDelete) {
+      const confirmation = hardDeleteConfirmationSchema.safeParse(await request.json().catch(() => null));
+      const previous = await findSalonDeletionCleanup(id);
+      if (previous && confirmation.success
+        && previous.confirmationDigest === salonDeletionConfirmationDigest(previous.id, confirmation.data.confirmSlug)) {
+        const cleanup = salonDeletionStatus(previous);
+        return Response.json({ success: cleanup.status === 'completed', deletedId: id, cleanup }, { status: cleanup.status === 'completed' ? 200 : 202 });
+      }
+    }
     if (!existing) {
       return Response.json(
         { error: 'Salon not found' },
@@ -679,54 +691,56 @@ export async function DELETE(
         );
       }
 
-      // One transaction: a failure rolls the whole purge back rather than
-      // leaving the tenant half-destroyed.
-      const { mediaStorageKeys, purge } = await db.transaction(async (tx) => {
-        const mediaRows = await tx
-          .select({
-            storageKey: onboardingSiteMediaSchema.storageKey,
-            storageProvider: onboardingSiteMediaSchema.storageProvider,
-          })
-          .from(onboardingSiteMediaSchema)
-          .where(eq(onboardingSiteMediaSchema.salonId, id));
-        const purgeResult = await purgeSalonData(tx as unknown as PurgeTx, id);
-        return {
-          mediaStorageKeys: mediaRows.flatMap(row => (
-            isOnboardingMediaStorageProvider(row.storageProvider) && row.storageKey
-              ? [row.storageKey]
-              : []
-          )),
-          purge: purgeResult,
-        };
-      });
-      const mediaCleanup = await deleteOnboardingMediaFiles(mediaStorageKeys, { salonId: id });
-
-      // Written after the commit, with salonId null, so the record of the
-      // deletion survives the salon it describes.
-      await logAuditEvent({
-        salonId: null,
-        actorType: 'super_admin',
-        actorId: adminInfo?.userId ?? null,
-        action: 'salon_hard_deleted',
-        entityType: 'salon',
-        entityId: id,
-        metadata: {
-          name: existing.name,
-          slug: existing.slug,
+      // Serialize against a second delete and capture recovery state before any
+      // tenant rows disappear. The job has no salon FK and survives the purge.
+      const job = await db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(salonSchema).where(eq(salonSchema.id, id)).for('update');
+        if (!locked || !locked.deletedAt || locked.slug !== confirmation.data.confirmSlug) {
+          throw new SalonPurgeBlockedError([{ table: 'salon', column: 'deletion_state_changed', count: 1 }]);
+        }
+        const assets = await collectSalonDeletionAssets(tx, id);
+        const jobId = randomUUID();
+        await tx.insert(salonDeletionCleanupSchema).values({
+          id: jobId,
+          sourceSalonId: id,
+          confirmationDigest: salonDeletionConfirmationDigest(jobId, locked.slug),
+          mediaTotal: assets.length,
+          pendingAssets: assets,
+        });
+        const purge = await purgeSalonData(tx as unknown as PurgeTx, id);
+        const [saved] = await tx.update(salonDeletionCleanupSchema).set({
           rowsDeleted: purge.totalRows,
-          onboardingMediaCleanupFailed: mediaCleanup.failed,
-          onboardingMediaFilesRemoved: mediaCleanup.removed,
-          tables: purge.counts,
-        },
+          completedAt: assets.length === 0 ? new Date() : null,
+        }).where(eq(salonDeletionCleanupSchema.id, jobId)).returning();
+        await tx.insert(auditLogSchema).values({
+          id: `audit_${randomUUID()}`,
+          salonId: null,
+          actorType: 'super_admin',
+          actorId: adminInfo?.userId ?? null,
+          action: 'salon_hard_deleted',
+          entityType: 'salon',
+          entityId: id,
+          metadata: { name: locked.name, slug: locked.slug, rowsDeleted: purge.totalRows, tables: purge.counts, cleanupJobId: jobId },
+        });
+        return saved!;
       });
-
+      // A failed provider/status call after commit must never imply that the DB
+      // deletion failed, or lose the pending work. The durable record is truth.
+      let cleanup = salonDeletionStatus(job);
+      try {
+        cleanup = await runSalonDeletionCleanup(job.id) ?? cleanup;
+      } catch {
+        console.error('Salon records removed; media cleanup requires retry');
+      }
       return Response.json({
-        success: true,
-        message: 'Salon permanently deleted',
+        success: cleanup.status === 'completed',
+        message: cleanup.status === 'completed'
+          ? 'Salon records removed; tracked media cleanup completed. Retained records are listed separately.'
+          : 'Salon records removed. Media cleanup is unfinished and tracked for retry or review.',
         deletedId: id,
-        rowsDeleted: purge.totalRows,
-        tables: purge.counts,
-      });
+        rowsDeleted: job.rowsDeleted,
+        cleanup,
+      }, { status: cleanup.status === 'completed' ? 200 : 202 });
     }
 
     if (existing.deletedAt) {
