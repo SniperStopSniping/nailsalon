@@ -1,0 +1,23 @@
+{
+  "sourceSha": "7390cc07e85651605c1c2e690227f858b12f5fd3",
+  "beforeRevision": 31,
+  "afterRevision": 32,
+  "savedAndResumed": true,
+  "draft": {
+    "preparation": 5,
+    "cleanup": 15,
+    "duration": 75,
+    "priceCents": 7500,
+    "globalBuffer": 10
+  },
+  "live": {
+    "preparation_buffer_minutes": 0,
+    "cleanup_buffer_minutes": 0,
+    "price": 7500,
+    "duration_minutes": 75
+  },
+  "providerCallsForManualSave": 0,
+  "restoredDraftRevision": 33,
+  "restoredPreparation": 0,
+  "restoredCleanup": 0
+}
