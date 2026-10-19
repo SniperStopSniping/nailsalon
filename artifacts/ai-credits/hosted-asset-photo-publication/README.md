@@ -85,3 +85,24 @@ tokens and private uploaded content are excluded.
 
 The PR remains a draft with combined release/CI qualification outstanding. This
 checkpoint does not authorize or establish Production readiness.
+
+## Hosted follow-up verified
+
+Source **db0fbbd3** is READY in Preview deployment
+`dpl_EiVasRc6eCZXvmLJo96nTL4v7YBv`, with the test alias pointing to that exact
+deployment. The ordinary owner UI restored the saved Canva draft, replaced its
+image, and opened review. Revision **100** has zero old image notes, retains both
+Gallery photos, requires a fresh artwork review, and cannot publish until that
+review is completed. The review displays the [clear design-mode wording](clear-design-mode-review.png).
+
+The test then restored the original private draft as revision **101**. Published
+revision **98**, its original design, all 12 appointments (11 prior plus the one
+synthetic acceptance booking), services, staff, and other businesses are intact.
+There were no further provider calls or AI charges.
+
+[Hosted owner-controls proof](hosted-owner-controls-proof.json) records this
+result. The broader `/api/health` still returns **503/degraded** because test
+password authentication, verified email and Calendar are unconfigured; DB, Redis,
+Clerk and the three schema checks pass. These isolated test controls deliberately
+do not establish whole-application release health. No Production configuration or
+deployment was changed.
