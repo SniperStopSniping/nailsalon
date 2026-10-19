@@ -3,7 +3,7 @@
 import { SignIn, SignUp, useClerk } from '@clerk/nextjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { resolveOnboardingOrganization } from '@/features/onboarding-v1-integration/client';
+import { OnboardingIntegrationRequestError, resolveOnboardingOrganization } from '@/features/onboarding-v1-integration/client';
 
 import { lusterOwnerSignInAppearance } from './clerkAppearance';
 import { OwnerSignInStatus } from './OwnerSignInStatus';
@@ -66,6 +66,7 @@ export function OwnerSignInCard({ dashboardUrl, createSalonUrl, mode = 'sign-in'
   const [pendingTask, setPendingTask] = useState<PendingSessionTask | null>(null);
   const [phase, setPhase] = useState<'failed' | 'resolving'>('resolving');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [organizationUnavailable, setOrganizationUnavailable] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const mountedRef = useRef(false);
   const pendingTaskRef = useRef<PendingSessionTask | null>(null);
@@ -105,6 +106,7 @@ export function OwnerSignInCard({ dashboardUrl, createSalonUrl, mode = 'sign-in'
     inFlightTaskKeysRef.current.add(taskKey);
     setPhase('resolving');
     setErrorMessage(null);
+    setOrganizationUnavailable(false);
     void (async () => {
       const isSelectedTask = () => {
         const current = pendingTaskRef.current;
@@ -118,9 +120,14 @@ export function OwnerSignInCard({ dashboardUrl, createSalonUrl, mode = 'sign-in'
           && rawTask?.sessionId === selectedTask.sessionId
           && rawTask.taskKey === selectedTask.taskKey;
       };
-      const showFailure = () => {
+      const showFailure = (cause?: unknown) => {
         if (isSelectedTask()) {
-          setErrorMessage(RESOLUTION_FAILED_MESSAGE);
+          const unavailable = cause instanceof OnboardingIntegrationRequestError
+            && cause.code === 'ORGANIZATION_SETUP_UNAVAILABLE';
+          setOrganizationUnavailable(unavailable);
+          setErrorMessage(unavailable
+            ? 'Your account is saved. Luster needs to finish setting up access before you can continue. Please contact Luster support.'
+            : RESOLUTION_FAILED_MESSAGE);
           setPhase('failed');
         }
       };
@@ -168,8 +175,8 @@ export function OwnerSignInCard({ dashboardUrl, createSalonUrl, mode = 'sign-in'
           redirectUrl: dashboardUrl,
           session: selectedTask.sessionId,
         });
-      } catch {
-        showFailure();
+      } catch (cause) {
+        showFailure(cause);
       } finally {
         inFlightTaskKeysRef.current.delete(taskKey);
       }
@@ -210,7 +217,7 @@ export function OwnerSignInCard({ dashboardUrl, createSalonUrl, mode = 'sign-in'
   }
 
   return (
-    <OwnerSignInStatus busy={phase === 'resolving'} errorMessage={errorMessage} onRetry={retry}>
+    <OwnerSignInStatus busy={phase === 'resolving'} errorMessage={errorMessage} onRetry={retry} organizationUnavailable={organizationUnavailable}>
       {signInCard}
     </OwnerSignInStatus>
   );

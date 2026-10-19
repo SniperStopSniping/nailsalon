@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { OnboardingIntegrationRequestError } from '@/features/onboarding-v1-integration/client';
+
 import { OwnerSignInCard } from './OwnerSignInCard';
 
 type ClerkResourceListener = (resources: { session: unknown }) => void;
@@ -36,7 +38,8 @@ vi.mock('@clerk/nextjs', () => ({
   useClerk: () => mocks.clerk,
 }));
 
-vi.mock('@/features/onboarding-v1-integration/client', () => ({
+vi.mock('@/features/onboarding-v1-integration/client', async importOriginal => ({
+  ...await importOriginal<typeof import('@/features/onboarding-v1-integration/client')>(),
   resolveOnboardingOrganization: mocks.resolveOrganization,
 }));
 
@@ -111,6 +114,31 @@ describe('OwnerSignInCard branding', () => {
 });
 
 describe('OwnerSignInCard organization task', () => {
+  it('explains an unavailable account setup without a misleading salon claim or another organization form', async () => {
+    mocks.clerk.session = pendingOrganizationSession;
+    mocks.resolveOrganization.mockRejectedValueOnce(new OnboardingIntegrationRequestError('Private provider detail', {
+      code: 'ORGANIZATION_SETUP_UNAVAILABLE',
+      status: 503,
+    }));
+    render(<OwnerSignInCard mode="sign-up" dashboardUrl="/en/ai-website" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your account is saved.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Please contact Luster support.');
+    expect(screen.queryByText('Save your Luster account')).not.toBeInTheDocument();
+    expect(screen.queryByText(/salon is already waiting/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Private provider detail')).not.toBeInTheDocument();
+    expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledWith({
+      organization: 'org_1',
+      redirectUrl: '/en/ai-website',
+      session: 'sess_pending',
+    }));
+
+    expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2);
+  });
+
   it('resolves the choose-organization task without showing Clerk\'s form', async () => {
     mocks.clerk.session = pendingOrganizationSession;
 
