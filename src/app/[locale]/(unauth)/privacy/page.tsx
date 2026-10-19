@@ -11,7 +11,7 @@ export default function PrivacyPage() {
   return (
     <LusterLegalPage
       title="Privacy Policy"
-      updated="October 10, 2026"
+      updated="October 19, 2026"
       intro="Luster provides free salon booking and CRM tools for nail professionals. This policy explains the information we process to operate booking pages, owner workspaces, appointment communications, and optional integrations."
       sections={[
         {
@@ -27,6 +27,14 @@ export default function PrivacyPage() {
             'When a salon owner connects Google Calendar, Luster stores the connected account email and Google account identifier and reads the list of calendars the owner can access. The owner chooses which calendar receives Luster appointments and which calendars Luster checks for booking conflicts.',
             'For those selected calendars, Luster reads free/busy time and event information made available by Google, such as event title, date and time, description, location, status, and attendee or client contact details when present in event data. Luster stores the event information in the salon workspace to display the schedule, let the owner review or convert selected events, and keep Luster-linked appointments synchronized when they change in either system.',
             'Google refresh tokens are encrypted at rest. Access is scoped to the connected salon, and Calendar data is not sold, transferred for advertising, or used to train generalized artificial intelligence or machine learning models.',
+          ],
+        },
+        {
+          title: 'Data protection and security',
+          paragraphs: [
+            'To protect sensitive information, including Google user data, Luster uses HTTPS (TLS) to encrypt data in transit between your browser and our production service, and between Luster and Google’s OAuth and Calendar APIs.',
+            'Google OAuth refresh tokens are encrypted with AES-256-GCM authenticated encryption before they are stored in our database. The encryption key is kept in server configuration separately from the stored tokens. Refresh tokens are decrypted only in server-side integration code when needed for the Google connection; they are not sent to public booking pages.',
+            'Server-side authentication and salon-specific authorization checks protect integration settings and synchronized Google event details. Calendar connections and synchronized event records are associated with the connected salon, and access is checked against the signed-in user’s permission to manage that salon. The Google connection also uses signed, expiring authorization state to reject tampered or expired authorization responses.',
           ],
         },
         {
