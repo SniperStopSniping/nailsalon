@@ -714,14 +714,25 @@ describe('countSalonImpact', () => {
 describe('SALON_PURGE_PLAN coverage guard', () => {
   it('covers every restrict-style foreign key pointing at salon', async () => {
     const result = await db.execute(sql`
-      select tc.table_name as child, kcu.column_name as col, rc.delete_rule as rule
-      from information_schema.table_constraints tc
-      join information_schema.key_column_usage kcu on tc.constraint_name = kcu.constraint_name
-      join information_schema.constraint_column_usage ccu on tc.constraint_name = ccu.constraint_name
-      join information_schema.referential_constraints rc on tc.constraint_name = rc.constraint_name
-      where tc.constraint_type = 'FOREIGN KEY'
-        and ccu.table_name = 'salon'
-        and rc.delete_rule <> 'CASCADE'
+      select child.relname as child, child_column.attname as col,
+        case constraint_row.confdeltype
+          when 'c' then 'CASCADE'
+          when 'n' then 'SET NULL'
+          when 'd' then 'SET DEFAULT'
+          when 'r' then 'RESTRICT'
+          when 'a' then 'NO ACTION'
+        end as rule
+      from pg_catalog.pg_constraint constraint_row
+      join pg_catalog.pg_class child on child.oid = constraint_row.conrelid
+      join pg_catalog.pg_class parent on parent.oid = constraint_row.confrelid
+      join pg_catalog.pg_namespace parent_schema on parent_schema.oid = parent.relnamespace
+      cross join lateral unnest(constraint_row.conkey) with ordinality as child_key(attnum, key_ordinal)
+      join pg_catalog.pg_attribute child_column
+        on child_column.attrelid = child.oid and child_column.attnum = child_key.attnum
+      where constraint_row.contype = 'f'
+        and parent_schema.nspname = 'public'
+        and parent.relname = 'salon'
+        and constraint_row.confdeltype <> 'c'
     `);
 
     const rows = (Array.isArray(result) ? result : (result as { rows: unknown[] }).rows) as {
@@ -739,14 +750,26 @@ describe('SALON_PURGE_PLAN coverage guard', () => {
 
   it('leaves no restrict-style foreign key pointing at salon (migration 0059)', async () => {
     const result = await db.execute(sql`
-      select tc.table_name as child, kcu.column_name as col, tc.constraint_name as name, rc.delete_rule as rule
-      from information_schema.table_constraints tc
-      join information_schema.key_column_usage kcu on tc.constraint_name = kcu.constraint_name
-      join information_schema.constraint_column_usage ccu on tc.constraint_name = ccu.constraint_name
-      join information_schema.referential_constraints rc on tc.constraint_name = rc.constraint_name
-      where tc.constraint_type = 'FOREIGN KEY'
-        and ccu.table_name = 'salon'
-        and rc.delete_rule not in ('CASCADE', 'SET NULL')
+      select child.relname as child, child_column.attname as col,
+        constraint_row.conname as name,
+        case constraint_row.confdeltype
+          when 'c' then 'CASCADE'
+          when 'n' then 'SET NULL'
+          when 'd' then 'SET DEFAULT'
+          when 'r' then 'RESTRICT'
+          when 'a' then 'NO ACTION'
+        end as rule
+      from pg_catalog.pg_constraint constraint_row
+      join pg_catalog.pg_class child on child.oid = constraint_row.conrelid
+      join pg_catalog.pg_class parent on parent.oid = constraint_row.confrelid
+      join pg_catalog.pg_namespace parent_schema on parent_schema.oid = parent.relnamespace
+      cross join lateral unnest(constraint_row.conkey) with ordinality as child_key(attnum, key_ordinal)
+      join pg_catalog.pg_attribute child_column
+        on child_column.attrelid = child.oid and child_column.attnum = child_key.attnum
+      where constraint_row.contype = 'f'
+        and parent_schema.nspname = 'public'
+        and parent.relname = 'salon'
+        and constraint_row.confdeltype not in ('c', 'n')
     `);
 
     const rows = (Array.isArray(result) ? result : (result as { rows: unknown[] }).rows) as {
