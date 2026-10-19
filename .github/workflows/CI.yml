@@ -1484,6 +1484,10 @@ jobs:
 
       - name: Run storybook tests
         if: matrix.suite == 'owner-operations'
+        env:
+          # Storybook plugins use the installed Webpack package. Keep Next's
+          # compiler on that same instance instead of its bundled copy.
+          NEXT_PRIVATE_LOCAL_WEBPACK: '1'
         run: npm run test-storybook:ci
 
       - name: Verify onboarding desktop and phone geometry
