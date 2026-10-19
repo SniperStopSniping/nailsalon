@@ -35,7 +35,7 @@ export async function ownedAssets(tx: SetupTransaction | typeof db, salonId: str
   }
   return rows;
 }
-type AssetContext = { type: 'setup' } | { type: 'onboarding'; site: AuthorizedOnboardingSite };
+type AssetContext = { type: 'setup'; artwork?: true } | { type: 'onboarding'; site: AuthorizedOnboardingSite };
 
 /** The manual path shares assets without prematurely opening an AI/setup draft. */
 async function authorizeAssetContext(tx: SetupTransaction, actor: SetupActor, context: AssetContext) {
@@ -67,8 +67,8 @@ async function authorizeAssetContext(tx: SetupTransaction, actor: SetupActor, co
 }
 
 async function uploadAsset(actor: SetupActor, file: File, role: ReturnType<typeof assetRoleSchema.parse>, context: AssetContext) {
-  const manualArtwork = context.type === 'onboarding';
-  const maximum = manualArtwork ? ONBOARDING_MEDIA_MAX_FILE_BYTES : MAX_REFERENCE_BYTES;
+  const manualArtwork = context.type === 'onboarding' || (context.type === 'setup' && context.artwork === true);
+  const maximum = context.type === 'onboarding' ? ONBOARDING_MEDIA_MAX_FILE_BYTES : MAX_REFERENCE_BYTES;
   if (file.size <= 0 || file.size > maximum) {
     throw new SetupError('INVALID', manualArtwork ? 'This design needs to be prepared again before uploading.' : 'Choose a file under 3 MB.');
   }
@@ -98,7 +98,7 @@ async function uploadAsset(actor: SetupActor, file: File, role: ReturnType<typeo
   } else {
     try {
       const imagePreparation = manualArtwork
-        ? { artwork: true as const, maxOutputBytes: ONBOARDING_MEDIA_MAX_FILE_BYTES, preserveDimensions: true as const }
+        ? { artwork: true as const, maxOutputBytes: maximum, preserveDimensions: true as const }
         : role === 'reference'
           ? { artwork: true as const, maxOutputBytes: 750000 }
           : { ...(role === 'logo' ? { artwork: true as const } : {}), maxOutputBytes: MAX_WEBSITE_IMAGE_BYTES };
@@ -150,9 +150,13 @@ async function uploadAsset(actor: SetupActor, file: File, role: ReturnType<typeo
     throw e;
   }
 }
-/** Existing AI uploads retain their public response and preparation profile. */
-export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: unknown) {
-  const result = await uploadAsset(actor, file, assetRoleSchema.parse(rawRole), { type: 'setup' });
+/** AI references keep their preparation profile; explicit artwork keeps native dimensions. */
+export async function uploadCustomAsset(actor: SetupActor, file: File, rawRole: unknown, options?: { artwork: true }) {
+  const assetRole = assetRoleSchema.parse(rawRole);
+  if (options?.artwork && (assetRole !== 'reference' || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type))) {
+    throw new SetupError('INVALID', 'Choose a PNG, JPG or WebP Canva export.');
+  }
+  const result = await uploadAsset(actor, file, assetRole, { type: 'setup', artwork: options?.artwork });
   const { id, name, role, mimeType } = result.asset;
   return { id, name, role, mimeType };
 }

@@ -47,6 +47,9 @@ it('prepares every PDF page before uploading and resumes a partial upload withou
   vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
     if (options.body instanceof FormData) {
       const file = options.body.get('file') as File;
+
+      expect(options.body.get('purpose')).toBe('canva_artwork');
+
       uploads.push(file.name);
       if (file.name === 'page-2.webp' && failSecond) {
         failSecond = false;
@@ -174,4 +177,28 @@ it('requires ownership confirmation again when an inspiration upload becomes web
 
   expect(screen.getByRole('checkbox', { name: /These are my files/u })).not.toBeChecked();
   expect(screen.getByRole('button', { name: 'Add to chat' })).toBeDisabled();
+});
+
+it.each(['own', 'inspiration'] as const)('stores a %s image with its intended preparation and ownership', async (purpose) => {
+  const uploads: FormData[] = [];
+  const preferences: any[] = [];
+  const onSaved = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+    if (options.body instanceof FormData) {
+      uploads.push(options.body);
+      return Response.json({ asset: { id: 'image-one', name: 'my-design.png', role: 'reference', mimeType: 'image/png' } });
+    }
+    preferences.push(JSON.parse(options.body));
+    return Response.json({});
+  }));
+  render(<ChatAttachments salonSlug="synthetic" revision={2} brief={{ ...brief, mode: 'rebuild' }} assets={[]} selected={[]} open onClose={vi.fn()} disabled={false} onBusyChange={vi.fn()} onSaved={onSaved} initialPurpose={purpose} />);
+  fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['image'], 'my-design.png', { type: 'image/png' })] } });
+  fireEvent.click(screen.getByRole('checkbox', { name: purpose === 'own' ? /These are my files/u : /I may upload these files/u }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add to chat' }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+
+  expect(uploads).toHaveLength(1);
+  expect(uploads[0]!.get('purpose')).toBe(purpose === 'own' ? 'canva_artwork' : null);
+  expect(preferences[0].input.values.ownedReferenceIds).toEqual(purpose === 'own' ? ['image-one'] : []);
+  expect(prepared).not.toHaveBeenCalled();
 });

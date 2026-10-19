@@ -137,3 +137,24 @@ it('accepts an explicitly selected new Canva layout without AI and rejects ambig
   expect(state.generate).not.toHaveBeenCalled();
   expect(state.business).not.toHaveBeenCalled();
 });
+
+it('uses bounded artwork preparation for Canva replacements without enabling AI or billing', async () => {
+  state.upload.mockResolvedValue({ id: crypto.randomUUID(), role: 'reference' });
+  function upload(purpose: string, role = 'reference', rights = 'true') {
+    const body = new FormData();
+    body.set('file', new File(['fixture'], 'canva.png', { type: 'image/png' }));
+    body.set('role', role);
+    body.set('rightsConfirmed', rights);
+    body.set('purpose', purpose);
+    return new Request('http://localhost:3197/api/admin/custom-sites?salonSlug=ignored-browser-slug', { method: 'POST', headers: { origin: 'http://localhost:3197' }, body });
+  }
+
+  expect((await POST(upload('unknown'))).status).toBe(400);
+  expect((await POST(upload('canva_artwork', 'photo'))).status).toBe(400);
+  expect((await POST(upload('canva_artwork', 'reference', 'false'))).status).toBe(400);
+  expect(state.upload).not.toHaveBeenCalled();
+  expect((await POST(upload('canva_artwork'))).status).toBe(200);
+  expect(state.upload).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, expect.any(File), 'reference', { artwork: true });
+  expect(state.meter).not.toHaveBeenCalled();
+  expect(state.generate).not.toHaveBeenCalled();
+});

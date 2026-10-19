@@ -119,6 +119,9 @@ export function ChatAttachments({ salonSlug, revision, brief, assets, selected, 
         const data = new FormData();
         data.set('file', file);
         data.set('role', isReference ? 'reference' : purpose);
+        if (purpose === 'own' && file.type.startsWith('image/')) {
+          data.set('purpose', 'canva_artwork');
+        }
         data.set('rightsConfirmed', 'true');
         const response = await fetch(endpoint, { method: 'POST', body: data });
         const result = await response.json();

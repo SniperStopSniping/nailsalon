@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -749,7 +749,40 @@ describe('private multimodal design references', () => {
     await database.update(schema.adminSalonMembershipSchema).set({ role: 'technician' }).where(eq(schema.adminSalonMembershipSchema.adminId, actor.adminId));
 
     await expect(uploadCustomAsset(actor, file(), 'reference')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(uploadCustomAsset(actor, file(), 'reference', { artwork: true })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
+
+  it('preserves a detailed Canva replacement at native resolution instead of preparing an AI thumbnail', async () => {
+    const actor = await fixture();
+    const width = 2000;
+    const height = 900;
+    const gray = Buffer.alloc(width * height);
+    let seed = 91;
+    for (let index = 0; index < gray.length; index++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      gray[index] = seed >>> 24;
+    }
+    const png = await sharp(gray, { raw: { width, height, channels: 1 } }).png({ palette: true, colours: 256, dither: 0 }).toBuffer();
+    const file = () => new File([new Uint8Array(png)], 'detailed-canva.png', { type: 'image/png' });
+    const reference = await uploadCustomAsset(actor, file(), 'reference');
+    const artwork = await uploadCustomAsset(actor, file(), 'reference', { artwork: true });
+    const bytes = async (id: string) => {
+      const [asset] = await ownedAssets(database as any, actor.salonId, [id]);
+      const data = await assetDataUrl(asset!);
+      return Buffer.from(data.slice(data.indexOf(',') + 1), 'base64');
+    };
+    const prepared = await bytes(artwork.id);
+    const originalPixels = await sharp(png).ensureAlpha().raw().toBuffer();
+    const storedPixels = await sharp(prepared).ensureAlpha().raw().toBuffer();
+
+    expect((await sharp(await bytes(reference.id)).metadata()).width).toBeLessThan(width);
+    expect(await sharp(prepared).metadata()).toMatchObject({ width, height });
+    expect(createHash('sha256').update(storedPixels).digest('hex')).toBe(createHash('sha256').update(originalPixels).digest('hex'));
+    expect(prepared.byteLength).toBeLessThanOrEqual(3000000);
+    expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+    await expect(uploadCustomAsset(actor, file(), 'photo', { artwork: true })).rejects.toMatchObject({ code: 'INVALID' });
+  }, 15000);
 
   it('retains a damaged historical asset and allows a fresh upload to repair it without changing source history', async () => {
     const actor = await fixture();

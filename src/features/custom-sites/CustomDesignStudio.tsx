@@ -286,6 +286,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
         const [page] = await prepareCanvaPages(file, 1, setBusy);
         body.set('file', page!);
         body.set('role', 'reference');
+        body.set('purpose', 'canva_artwork');
         body.set('rightsConfirmed', 'true');
         const response = await fetch(endpoint, { method: 'POST', body });
         const result = await response.json();
@@ -454,6 +455,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                   }
                   setBusy(`Uploading ${index + 1} of ${pages.length}…`);
                   data.set('file', page);
+                  if (isReference && uploadSource === 'own' && page.type.startsWith('image/')) {
+                    data.set('purpose', 'canva_artwork');
+                  }
                   const response = await fetch(endpoint, { method: 'POST', body: data });
                   const result = await response.json();
                   if (!response.ok) {
