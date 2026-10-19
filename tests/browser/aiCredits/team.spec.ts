@@ -44,6 +44,10 @@ test('owner team controls save, resume, preview and review on desktop and phones
 
   await page.reload();
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
+
+  await expect(page.getByText('Proposed team and service choices', { exact: true })).toBeHidden();
+
+  await page.getByText('Check booking details', { exact: true }).click();
   await page.getByText('Proposed team and service choices', { exact: true }).click();
 
   await expect(page.getByText(/Alex Smith: accepting bookings; Gel manicure; monday: 11:00–17:00/)).toBeVisible();

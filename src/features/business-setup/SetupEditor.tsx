@@ -793,6 +793,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               onBusyChange={setStudioBusy}
               aiEnabled={aiEnabled}
               compact
+              previewVisible={tab === 'website'}
               onAssetsChange={setAssets}
               selected={selectedDesignAssets}
               setSelected={setSelectedDesignAssets}

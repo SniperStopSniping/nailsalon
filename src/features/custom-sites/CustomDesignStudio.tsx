@@ -28,7 +28,7 @@ type State = {
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
   attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
-export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, published = false, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange, compact = false, onAssetsChange, creditsEnabled = false }: { creditsEnabled?: boolean; compact?: boolean; onAssetsChange?: (assets: DesignAsset[]) => void; salonSlug: string; revision: number; artifactId?: string; disabled: boolean; published?: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
+export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, published = false, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange, compact = false, previewVisible = true, onAssetsChange, creditsEnabled = false }: { creditsEnabled?: boolean; compact?: boolean; previewVisible?: boolean; onAssetsChange?: (assets: DesignAsset[]) => void; salonSlug: string; revision: number; artifactId?: string; disabled: boolean; published?: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
   const [state, setState] = useState<State | null>(null);
   const [source, setSource] = useState<CustomSiteSource | null>(null);
   const [message, setMessage] = useState('');
@@ -82,7 +82,14 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
     if (!box || typeof ResizeObserver === 'undefined') {
       return;
     }
-    const observer = new ResizeObserver(entries => setPreviewWidth(entries[0]?.contentRect.width ?? 680));
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      // Chat hides this panel. Keep the last useful scale instead of creating
+      // a zero-size renderer before the owner opens their preview.
+      if (width && width > 0) {
+        setPreviewWidth(width);
+      }
+    });
     observer.observe(box);
     return () => observer.disconnect();
   }, [hasPreview]);
@@ -359,7 +366,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           )}
           <div ref={previewBox} className="studio-frame-wrap">
             <div style={{ width: previewSize === 'mobile' ? 390 : 1280, maxWidth: previewSize === 'mobile' ? '100%' : undefined, zoom: previewSize === 'desktop' ? Math.min(1, previewWidth / 1280) : 1, margin: 'auto' }}>
-              {state.rendererOrigin ? <CustomWebsiteFrame key={`${state.head.revision.document.website.config.customFrontendId}-${state.head.revision.revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>}
+              {previewVisible && (state.rendererOrigin ? <CustomWebsiteFrame key={`${state.head.revision.document.website.config.customFrontendId}-${state.head.revision.revision}`} payload={state.payload} rendererOrigin={state.rendererOrigin} /> : <p>Your website preview is not available right now. Your design is saved. Please try again before publishing.</p>)}
             </div>
           </div>
           <p>
