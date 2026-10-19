@@ -1,0 +1,63 @@
+{
+  "run": {
+    "conclusion": "failure",
+    "createdAt": "2026-10-17T19:52:51Z",
+    "databaseId": 39064348429,
+    "headSha": "145ab3d5e6398e1baa00a197db7858a20e686f90",
+    "status": "completed"
+  },
+  "failedJobs": [
+    {
+      "name": "Component and onboarding browsers (customer-booking)",
+      "jobId": 117488873973,
+      "failedSteps": [
+        {
+          "name": "Verify approved Quick Book customer compositions",
+          "conclusion": "failure"
+        }
+      ]
+    },
+    {
+      "name": "Application tests (20.x)",
+      "jobId": 117488874044,
+      "failedSteps": [
+        {
+          "name": "Deposits ladder protected surfaces",
+          "conclusion": "failure"
+        }
+      ]
+    },
+    {
+      "name": "Run all tests (20.x)",
+      "jobId": 117495820670,
+      "failedSteps": [
+        {
+          "name": "Require application and component evidence",
+          "conclusion": "failure"
+        }
+      ]
+    },
+    {
+      "name": "UIQI release conditions",
+      "jobId": 117495834482,
+      "failedSteps": [
+        {
+          "name": "Require executable UIQI evidence jobs",
+          "conclusion": "failure"
+        }
+      ]
+    }
+  ],
+  "candidateHead": "78d07b23b33de1a4e0e2213635dc5db866741118",
+  "doesNotValidateCandidate": true,
+  "actualFailureReasons": [
+    {
+      "jobId": 117488874044,
+      "reason": "Older manifest/lock pair rejected by protected-surface gate; current candidate unchanged gate passed."
+    },
+    {
+      "jobId": 117488873973,
+      "reason": "Mobile WebKit cover_profile case page.goto reported an internal WebKit error; current exact-case bounded local run passed."
+    }
+  ]
+}

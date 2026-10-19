@@ -1,0 +1,27 @@
+{
+  "candidateHead": "78d07b23b33de1a4e0e2213635dc5db866741118",
+  "applicationSourceSha": "f481debeaea9a1d6adf1352a061f723f4fdf5310",
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "972ce08a15bb32cd49aca8fa474bf9cadf67a86cb8dfe100d36ec497098ca2d5"
+    },
+    {
+      "path": "hosted-metadata-proof.json",
+      "sha256": "8183590bb7a5f8bbb7fe72b8299cb7aaa3a266992af730f7d316fbdcf487ec27"
+    },
+    {
+      "path": "older-pr-ci-proof.json",
+      "sha256": "b44d90e6765e3e33a3330f89bb7648ccd305030904451bf7fc88d7706b304a50"
+    },
+    {
+      "path": "protected-surfaces-proof.json",
+      "sha256": "f4891c3a5817ea61c8cde04e63fd52eca9aa3f8b0717df156507c1cc1f564010"
+    },
+    {
+      "path": "quick-book-proof.json",
+      "sha256": "dee01b70c57d3ef41c3de2fe4bd3508d460d8a2d658129b479923a52e7e3435f"
+    }
+  ]
+}
