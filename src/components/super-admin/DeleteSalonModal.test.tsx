@@ -192,4 +192,19 @@ describe('deletion completion reporting', () => {
     expect(fetchMock).toHaveBeenCalledWith(`/api/super-admin/deletion-cleanup/${pending.jobId}`, { method: 'POST' });
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
   });
+
+  it('shows public-media review as unfinished and does not promise automatic removal', async () => {
+    const user = userEvent.setup();
+    const onSuccess = vi.fn();
+    renderModal({ isDeleted: true, onSuccess });
+    await screen.findByText('152 rows:', { exact: false });
+    await user.type(screen.getByRole('textbox'), 'nail-salon-no5');
+    fetchMock.mockResolvedValueOnce(Response.json({ cleanup: { ...pending, status: 'review_required', reviewRequired: 1 } }, { status: 202 }));
+    await user.click(screen.getByRole('button', { name: 'Delete Permanently' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Requiring manual review: 1.');
+    expect(screen.getByText('Public, shared or unverified images need an operator’s review before cleanup can be confirmed.')).toBeInTheDocument();
+    expect(screen.queryByText(/Automatic retries are scheduled/)).not.toBeInTheDocument();
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
 });

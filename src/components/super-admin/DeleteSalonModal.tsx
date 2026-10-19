@@ -230,9 +230,10 @@ export function DeleteSalonModal({
                     <p>
                       {cleanup.status === 'completed'
                         ? 'Tracked media cleanup is complete.'
-                        : `Media cleanup is unfinished. Remaining references: ${cleanup.mediaRemaining}. Requiring ownership review: ${cleanup.reviewRequired}.`}
+                        : `Media cleanup is unfinished. Remaining references: ${cleanup.mediaRemaining}. Requiring manual review: ${cleanup.reviewRequired}.`}
                     </p>
                     {cleanup.status === 'pending' && <p>Automatic retries are scheduled. The request may remain pending until its next cleanup attempt.</p>}
+                    {cleanup.reviewRequired > 0 && <p>Public, shared or unverified images need an operator’s review before cleanup can be confirmed.</p>}
                     <p>
                       Cleanup reference:
                       {' '}
