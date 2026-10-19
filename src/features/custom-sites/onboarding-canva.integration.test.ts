@@ -1244,3 +1244,74 @@ it('reuses an owned library photo across About and Gallery and replaces About wi
   expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]!.logoUrl).toBe(before[0]!.logoUrl);
   expect(await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.salonId, test.actor.salonId))).toEqual(staff);
 });
+
+async function savedCanvaReferenceFixture() {
+  const test = await aiCanvaPhotoFixture();
+  const reference = await uploadCustomAsset(test.actor, await nativeUploadFile(400, 900, 'My original design.png'), 'reference');
+  const brief = await editSetup(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'match', mode: 'keep_design', referenceIds: [reference.id], ownedReferenceIds: [reference.id], websiteAssetIds: [] } }] });
+  // This existing immutable artifact records which reference created its
+  // artwork. New files do not inherit that provenance from their filenames.
+  const saved = await saveCustomSource(test.actor, { expectedRevision: brief.revision.revision, operationId: randomUUID(), source: test.source, assetIds: [...test.saved.artifact.assetIds, reference.id] });
+  const uploaded = await uploadCanvaNativePhoto(test.actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My own wide photo' }, await nativeUploadFile());
+  return { ...test, reference, uploaded };
+}
+
+function modelImageParts(request: ModelProviderRequest) {
+  return request.input.flatMap(item => 'role' in item && item.role === 'user' && Array.isArray(item.content) ? item.content.filter(part => part.type === 'input_image' || part.type === 'input_file') : []);
+}
+
+it('uses Luna and saved metadata for photo-only edits with the original design still attached', async () => {
+  const test = await savedCanvaReferenceFixture();
+  const provider = nativeChatProvider([{ blockId: 'native-photo-gallery', change: { type: 'layout', layout: 'editorial' } }]);
+  const result = await runSetupConversation(test.actor, { expectedRevision: test.uploaded.head.revision.revision, operationId: randomUUID(), scope: 'website', referenceIds: [test.reference.id], message: 'Make the first Gallery photo larger. Keep my artwork and settings unchanged.' }, provider);
+  const request = provider.createResponse.mock.calls[0]![0];
+  const context = nativeChatContext(request);
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect(request.model).toBe('gpt-6-luna');
+  expect(modelImageParts(request)).toEqual([]);
+  expect(context.selectedDesignAssets).toContainEqual(expect.objectContaining({ id: test.reference.id, ownBusiness: true, contentProvided: false }));
+  expect(context.nativePhotos.galleryLayouts).toContainEqual({ id: 'editorial', label: 'Large first photo' });
+  expect(result.head.revision.revision).toBe(test.uploaded.head.revision.revision + 1);
+  expect((await setupCustomSitePayload(test.actor.salonId, result.head.revision.document))!.source.canva!.nativeContent![0]).toMatchObject({ layout: 'editorial' });
+  expect(await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.salonId, test.actor.salonId))).toHaveLength(0);
+});
+
+it('still supplies saved own-business artwork for an explicit reading request', async () => {
+  const test = await savedCanvaReferenceFixture();
+  const provider = nativeChatProvider([{ blockId: 'native-photo-gallery', change: { type: 'layout', layout: 'editorial' } }]);
+  await runSetupConversation(test.actor, { expectedRevision: test.uploaded.head.revision.revision, operationId: randomUUID(), scope: 'website', referenceIds: [test.reference.id], message: 'Read my design again and make the first Gallery photo larger.' }, provider);
+  const request = provider.createResponse.mock.calls[0]![0];
+
+  expect(request.model).toBe('gpt-6.1-sol');
+  expect(modelImageParts(request)).toHaveLength(1);
+  expect(nativeChatContext(request).selectedDesignAssets).toContainEqual(expect.objectContaining({ id: test.reference.id, contentProvided: true }));
+});
+
+it('does not suppress a newly uploaded reference because its filename matches the original', async () => {
+  const test = await savedCanvaReferenceFixture();
+  const reference = await uploadCustomAsset(test.actor, await nativeUploadFile(450, 950, 'My original design.png'), 'reference');
+  const head = await editSetup(test.actor, { expectedRevision: test.uploaded.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'design_brief', values: { fidelity: 'match', mode: 'keep_design', referenceIds: [test.reference.id, reference.id], ownedReferenceIds: [test.reference.id, reference.id], websiteAssetIds: [] } }] });
+  const provider = nativeChatProvider([{ blockId: 'native-photo-gallery', change: { type: 'layout', layout: 'editorial' } }]);
+  await runSetupConversation(test.actor, { expectedRevision: head.revision.revision, operationId: randomUUID(), scope: 'website', referenceIds: [test.reference.id, reference.id], message: 'Make the first Gallery photo larger.' }, provider);
+  const request = provider.createResponse.mock.calls[0]![0];
+  const context = nativeChatContext(request);
+
+  expect(request.model).toBe('gpt-6.1-sol');
+  expect(modelImageParts(request)).toHaveLength(1);
+  expect(context.selectedDesignAssets).toContainEqual(expect.objectContaining({ id: test.reference.id, contentProvided: false }));
+  expect(context.selectedDesignAssets).toContainEqual(expect.objectContaining({ id: reference.id, contentProvided: true }));
+});
+
+it('excludes the current Canva page from Gallery choices and rejects a forged use action for it', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const artworkId = test.source.canva!.pages[0]!.assetId;
+  const photo = await uploadCustomAsset(test.actor, await nativeUploadFile(), 'photo');
+  const choices = await canvaNativePhotoChoices(test.actor.salonId, test.source.canva);
+
+  expect(choices.some(choice => choice.mediaId === artworkId)).toBe(false);
+  expect(choices).toContainEqual(expect.objectContaining({ mediaId: photo.id, role: 'gallery' }));
+
+  await expect(editCanvaNativeContent(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', change: { type: 'use', mediaId: artworkId, alt: 'Wrong photo target', createGallery: true } })).rejects.toMatchObject({ code: 'INVALID' });
+  expect((await openSetup(test.actor)).revision.revision).toBe(test.saved.head.revision.revision);
+});
