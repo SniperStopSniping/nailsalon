@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   cleanupPendingServiceImages,
+  cleanupPendingSalonDeletions,
   isCloudinaryConfigured,
 } = vi.hoisted(() => ({
   cleanupPendingServiceImages: vi.fn(),
+  cleanupPendingSalonDeletions: vi.fn(),
   isCloudinaryConfigured: vi.fn(),
 }));
+
+vi.mock('@/libs/salonDeletionCleanup.server', () => ({ cleanupPendingSalonDeletions }));
 
 vi.mock('@/libs/Cloudinary', () => ({ isCloudinaryConfigured }));
 vi.mock('@/libs/authConfig.server', () => ({
@@ -42,6 +46,7 @@ describe('/api/service-images/pending/cleanup', () => {
     vi.stubEnv('CRON_SECRET', 'expected-secret');
     isCloudinaryConfigured.mockReturnValue(true);
     cleanupPendingServiceImages.mockResolvedValue(summary);
+    cleanupPendingSalonDeletions.mockResolvedValue({ checked: 0, completed: 0, pending: 0 });
   });
 
   afterEach(() => {
@@ -84,7 +89,7 @@ describe('/api/service-images/pending/cleanup', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ data: summary });
+    expect(body).toEqual({ data: summary, salonDeletions: { checked: 0, completed: 0, pending: 0 } });
     expect(cleanupPendingServiceImages).toHaveBeenCalledTimes(1);
   });
 
@@ -99,6 +104,17 @@ describe('/api/service-images/pending/cleanup', () => {
 
     expect(response.status).toBe(200);
     expect(cleanupPendingServiceImages).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues service cleanup if the deletion queue is unavailable', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    cleanupPendingSalonDeletions.mockRejectedValueOnce(new Error('private db detail'));
+    const response = await GET(new Request('http://localhost/api/service-images/pending/cleanup', { headers: { authorization: 'Bearer expected-secret' } }));
+
+    expect(response.status).toBe(503);
+    expect(cleanupPendingServiceImages).toHaveBeenCalledOnce();
+    await expect(response.json()).resolves.toMatchObject({ data: summary, salonDeletions: { unavailable: true } });
+    expect(consoleError).toHaveBeenCalledWith('Salon deletion cleanup status unavailable');
   });
 
   it('fails closed when Cloudinary is unavailable', async () => {

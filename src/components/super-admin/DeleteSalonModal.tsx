@@ -1,7 +1,9 @@
 'use client';
 
 import { AlertTriangle, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+
+import type { SalonDeletionStatus } from '@/models/salonDeletion';
 
 // =============================================================================
 // Types
@@ -30,11 +32,20 @@ export function DeleteSalonModal({
   isDeleted,
   onSuccess,
 }: DeleteSalonModalProps) {
+  const confirmInputId = useId();
+  const modalRef = useRef<HTMLDivElement>(null);
   const [confirmText, setConfirmText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [impact, setImpact] = useState<{ tables: Record<string, number>; totalRows: number } | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
+  const [cleanup, setCleanup] = useState<SalonDeletionStatus | null>(null);
+
+  useEffect(() => {
+    if (cleanup && modalRef.current) {
+      modalRef.current.scrollTop = 0;
+    }
+  }, [cleanup]);
 
   // The mode follows the salon's state rather than a radio the operator can get
   // out of sync with. The API enforces the same rule: permanent deletion is only
@@ -119,8 +130,16 @@ export function DeleteSalonModal({
         throw new Error(data.error || 'Failed to delete salon');
       }
 
-      onSuccess();
-      onClose();
+      if (deleteType === 'hard') {
+        const data = await response.json();
+        if (!data.cleanup) {
+          throw new Error('The deletion response is incomplete. Check the recorded cleanup status before confirming completion.');
+        }
+        setCleanup(data.cleanup);
+      } else {
+        onSuccess();
+        onClose();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -128,7 +147,34 @@ export function DeleteSalonModal({
     }
   };
 
+  const checkCleanup = async () => {
+    if (!cleanup) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/super-admin/deletion-cleanup/${cleanup.jobId}`, { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok || !data.cleanup) {
+        throw new Error(data.error || 'Cleanup status could not be checked');
+      }
+      setCleanup(data.cleanup);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Cleanup status could not be checked');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleClose = () => {
+    if (loading) {
+      return;
+    }
+    if (cleanup) {
+      onSuccess();
+    }
+    setCleanup(null);
     setConfirmText('');
     setError(null);
     onClose();
@@ -156,14 +202,14 @@ export function DeleteSalonModal({
 
       {/* Modal */}
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+        <div ref={modalRef} role="dialog" aria-modal="true" aria-labelledby={`${confirmInputId}-title`} className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-xl bg-white shadow-2xl">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-full bg-red-100">
                 <AlertTriangle className="size-5 text-red-600" />
               </div>
-              <h2 className="text-lg font-semibold text-gray-900">Delete Salon</h2>
+              <h2 id={`${confirmInputId}-title`} className="text-lg font-semibold text-gray-900">Delete Salon</h2>
             </div>
             <button
               type="button"
@@ -177,106 +223,138 @@ export function DeleteSalonModal({
 
           {/* Content */}
           <div className="space-y-4 p-6">
-            <p className="text-sm text-gray-600">
-              You are about to delete
-              {' '}
-              <strong>{salonName}</strong>
-              . This is a destructive action.
-            </p>
-
-            {error && (
-              <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-
-            {/* What this action does. Determined by the salon's state, not a radio. */}
-            {deleteType === 'soft'
+            {cleanup
               ? (
-                  <div className="rounded-lg border border-gray-200 p-3">
-                    <div className="font-medium text-gray-900">Archive Salon</div>
-                    <div className="text-xs text-gray-500">
-                      Marks the salon as deleted and takes it offline, but preserves all data.
-                      You can restore it at any time. To destroy the data permanently, archive it
-                      first, then use Delete Permanently.
-                    </div>
+                  <div role="status" className="space-y-3 text-sm text-gray-700">
+                    <p className="font-semibold text-gray-900">Salon records removed</p>
+                    <p>
+                      {cleanup.status === 'completed'
+                        ? 'Tracked media cleanup is complete.'
+                        : `Media cleanup is unfinished. Remaining references: ${cleanup.mediaRemaining}. Requiring manual review: ${cleanup.reviewRequired}.`}
+                    </p>
+                    {cleanup.status === 'pending' && <p>Automatic retries are scheduled. The request may remain pending until its next cleanup attempt.</p>}
+                    {cleanup.reviewRequired > 0 && <p>Public, shared or unverified images need an operator’s review before cleanup can be confirmed.</p>}
+                    <p>
+                      Cleanup reference:
+                      {' '}
+                      <span className="break-all font-mono text-xs">{cleanup.jobId}</span>
+                    </p>
+                    <p className="font-medium">Retained separately:</p>
+                    <ul className="list-disc space-y-1 pl-5">
+                      {cleanup.retained.map(item => <li key={item}>{item}</li>)}
+                    </ul>
+                    <p>Salon deletion is separate from deleting a person’s sign-in account or disconnecting Google.</p>
                   </div>
                 )
               : (
-                  <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-                    <div className="font-medium text-red-900">Permanent Delete</div>
-                    <div className="text-xs text-red-700">
-                      Remove ALL data permanently: appointments, clients, staff, services, rewards.
-                      This CANNOT be undone.
+                  <>
+                    <p className="text-sm text-gray-600">
+                      You are about to delete
+                      {' '}
+                      <strong>{salonName}</strong>
+                      . This is a destructive action.
+                    </p>
+
+                    {error && (
+                      <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+                        {error}
+                      </div>
+                    )}
+
+                    {/* What this action does. Determined by the salon's state, not a radio. */}
+                    {deleteType === 'soft'
+                      ? (
+                          <div className="rounded-lg border border-gray-200 p-3">
+                            <div className="font-medium text-gray-900">Archive Salon</div>
+                            <div className="text-xs text-gray-500">
+                              Marks the salon as deleted and takes it offline, but preserves all data.
+                              It can be restored while its records remain. To remove active salon records,
+                              archive it first, then use Delete Permanently.
+                            </div>
+                          </div>
+                        )
+                      : (
+                          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                            <div className="font-medium text-red-900">Permanent Delete</div>
+                            <div className="text-xs text-red-700">
+                              Removes this salon’s active appointments, client records, staff, services and rewards.
+                              Required billing, payment, fraud-prevention and platform audit records are retained.
+                              People’s sign-in accounts, existing Google Calendar events, backups and cached copies
+                              are handled separately. Image cleanup is tracked and may require retries or review.
+                              This action cannot be undone from the app.
+                            </div>
+                          </div>
+                        )}
+
+                    {/* Confirmation */}
+                    <div className="border-t border-gray-200 pt-4">
+                      <label htmlFor={confirmInputId} className="mb-2 block text-sm font-medium text-gray-700">
+                        {deleteType === 'hard'
+                          ? (
+                              <>
+                                Type
+                                {' '}
+                                <strong>{salonSlug}</strong>
+                                {' '}
+                                to confirm permanent deletion
+                              </>
+                            )
+                          : (
+                              <>
+                                Type
+                                {' '}
+                                <strong>DELETE</strong>
+                                {' '}
+                                to confirm
+                              </>
+                            )}
+                      </label>
+                      <input
+                        id={confirmInputId}
+                        type="text"
+                        value={confirmText}
+                        onChange={e => setConfirmText(e.target.value)}
+                        placeholder={requiredConfirmText}
+                        className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
+                      />
                     </div>
-                  </div>
+
+                    {/* Warning for hard delete, showing the real rows about to be destroyed */}
+                    {deleteType === 'hard' && (
+                      <div className="rounded-lg border border-red-200 bg-red-100 p-3">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
+                          <div className="min-w-0 flex-1 text-xs text-red-800">
+                            <strong>Warning:</strong>
+                            {' '}
+                            This will permanently delete
+                            {impact ? ` ${impact.totalRows.toLocaleString()} rows:` : ' active salon records. Retained records are excluded.'}
+
+                            {impactLoading && <div className="mt-1 text-red-700">Counting affected records…</div>}
+
+                            {impact && impactRows.length > 0 && (
+                              <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
+                                {impactRows.map(([table, count]) => (
+                                  <li key={table} className="flex justify-between gap-3">
+                                    <span className="truncate font-mono">{table}</span>
+                                    <span className="shrink-0 font-semibold">{count.toLocaleString()}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+
+                            {impact && impactRows.length === 0 && !impactLoading && (
+                              <div className="mt-1">No rows are listed in this purge preview. Retained records are excluded.</div>
+                            )}
+
+                            <div className="mt-2 font-semibold">This CANNOT be undone.</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
-
-            {/* Confirmation */}
-            <div className="border-t border-gray-200 pt-4">
-              <label className="mb-2 block text-sm font-medium text-gray-700">
-                {deleteType === 'hard'
-                  ? (
-                      <>
-                        Type
-                        {' '}
-                        <strong>{salonSlug}</strong>
-                        {' '}
-                        to confirm permanent deletion
-                      </>
-                    )
-                  : (
-                      <>
-                        Type
-                        {' '}
-                        <strong>DELETE</strong>
-                        {' '}
-                        to confirm
-                      </>
-                    )}
-              </label>
-              <input
-                type="text"
-                value={confirmText}
-                onChange={e => setConfirmText(e.target.value)}
-                placeholder={requiredConfirmText}
-                className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-            </div>
-
-            {/* Warning for hard delete, showing the real rows about to be destroyed */}
-            {deleteType === 'hard' && (
-              <div className="rounded-lg border border-red-200 bg-red-100 p-3">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
-                  <div className="min-w-0 flex-1 text-xs text-red-800">
-                    <strong>Warning:</strong>
-                    {' '}
-                    This will permanently delete
-                    {impact ? ` ${impact.totalRows.toLocaleString()} rows:` : ' all data for this salon.'}
-
-                    {impactLoading && <div className="mt-1 text-red-700">Counting affected records…</div>}
-
-                    {impact && impactRows.length > 0 && (
-                      <ul className="mt-1 max-h-40 space-y-0.5 overflow-y-auto">
-                        {impactRows.map(([table, count]) => (
-                          <li key={table} className="flex justify-between gap-3">
-                            <span className="truncate font-mono">{table}</span>
-                            <span className="shrink-0 font-semibold">{count.toLocaleString()}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-
-                    {impact && impactRows.length === 0 && !impactLoading && (
-                      <div className="mt-1">This salon has no remaining data rows.</div>
-                    )}
-
-                    <div className="mt-2 font-semibold">This CANNOT be undone.</div>
-                  </div>
-                </div>
-              </div>
-            )}
+            {cleanup && error && <p role="alert" className="text-sm text-red-700">{error}</p>}
           </div>
 
           {/* Footer */}
@@ -287,27 +365,33 @@ export function DeleteSalonModal({
               disabled={loading}
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
             >
-              Cancel
+              {cleanup ? 'Acknowledge and close' : 'Cancel'}
             </button>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={loading || !isConfirmed}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                deleteType === 'hard'
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : 'bg-amber-600 hover:bg-amber-700'
-              }`}
-            >
-              {loading
-                ? (
-                    <div className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  )
-                : (
-                    <Trash2 className="size-4" />
-                  )}
-              {deleteType === 'hard' ? 'Delete Permanently' : 'Archive Salon'}
-            </button>
+            {cleanup
+              ? (
+                  cleanup.status !== 'completed' && <button type="button" onClick={checkCleanup} disabled={loading} className="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-50">Check cleanup status</button>
+                )
+              : (
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={loading || !isConfirmed}
+                    className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      deleteType === 'hard'
+                        ? 'bg-red-600 hover:bg-red-700'
+                        : 'bg-amber-600 hover:bg-amber-700'
+                    }`}
+                  >
+                    {loading
+                      ? (
+                          <div className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        )
+                      : (
+                          <Trash2 className="size-4" />
+                        )}
+                    {deleteType === 'hard' ? 'Delete Permanently' : 'Archive Salon'}
+                  </button>
+                )}
           </div>
         </div>
       </div>

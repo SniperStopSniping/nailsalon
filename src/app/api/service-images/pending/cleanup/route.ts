@@ -1,5 +1,6 @@
 import { constantTimeSecretEqual } from '@/libs/authConfig.server';
 import { isCloudinaryConfigured } from '@/libs/Cloudinary';
+import { cleanupPendingSalonDeletions } from '@/libs/salonDeletionCleanup.server';
 import { cleanupPendingServiceImages } from '@/libs/serviceImagePendingCleanup.server';
 
 export const dynamic = 'force-dynamic';
@@ -50,6 +51,14 @@ async function handleCleanup(request: Request): Promise<Response> {
       'Invalid or missing cron secret',
     );
   }
+  // Local-file cleanup must still run if the Cloudinary configuration is down.
+  // Provider failures remain pending in the durable deletion job.
+  let salonDeletions;
+  try {
+    salonDeletions = await cleanupPendingSalonDeletions();
+  } catch {
+    console.error('Salon deletion cleanup status unavailable');
+  }
   if (!isCloudinaryConfigured()) {
     return errorJson(
       503,
@@ -60,7 +69,7 @@ async function handleCleanup(request: Request): Promise<Response> {
 
   try {
     const result = await cleanupPendingServiceImages();
-    return Response.json({ data: result });
+    return Response.json({ data: result, salonDeletions: salonDeletions ?? { unavailable: true } }, { status: salonDeletions ? 200 : 503 });
   } catch {
     console.error('Pending service image cleanup failed');
     return errorJson(
