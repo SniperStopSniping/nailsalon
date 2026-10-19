@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 import { acknowledgeBookingPolicy, selectBookableSlotFromApi } from './support/booking';
 import { appPath, appPathPattern, e2eBaseUrl, e2eConfig, uniqueCustomerPhone } from './support/config';
@@ -7,6 +7,45 @@ const e2eOrigin = new URL(e2eBaseUrl).origin;
 
 async function continueFromService(page: Page) {
   await page.getByTestId('service-continue-button').click();
+}
+
+async function expectHydratedControl(control: Locator): Promise<void> {
+  await expect.poll(() => control.evaluate(element => (
+    Object.keys(element).some(key => key.startsWith('__reactProps$'))
+  ))).toBe(true);
+}
+
+async function fillGuestContact(page: Page, contact: { name: string; email: string; phone: string }): Promise<void> {
+  const name = page.getByLabel('Customer name');
+  const email = page.getByLabel('Customer email');
+  const phone = page.getByLabel('Customer phone');
+
+  // The confirmation heading can be streamed before React hydrates the
+  // controlled fields. Filling before the handlers attach lets hydration
+  // replace the entered value with the server-rendered empty value.
+  await expectHydratedControl(name);
+  await expectHydratedControl(email);
+  await expectHydratedControl(phone);
+
+  await name.fill(contact.name);
+  await email.fill(contact.email);
+  await phone.fill(contact.phone);
+
+  await expect(name).toHaveValue(contact.name);
+  await expect(email).toHaveValue(contact.email);
+  await expect(phone).toHaveValue(contact.phone);
+  await expect.poll(() => page.evaluate(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('luster_booking_contact') ?? '{}');
+      return [saved.name ?? '', saved.email ?? '', saved.phone ?? ''];
+    } catch {
+      return null;
+    }
+  })).toEqual([contact.name, contact.email, contact.phone]);
+}
+
+async function expectBookingReady(page: Page): Promise<void> {
+  await expect(page.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
 }
 
 test('a selected add-on keeps its price and duration through Time and Confirm', async ({ page }) => {
@@ -131,10 +170,13 @@ test('recovers a committed v2 booking after its 201 response is lost without cre
 
   const phone = uniqueCustomerPhone();
 
-  await page.getByLabel('Customer name').fill(`Recovery ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(`recovery+${Date.now()}@example.com`);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, {
+    name: `Recovery ${phone.slice(-4)}`,
+    email: `recovery+${Date.now()}@example.com`,
+    phone,
+  });
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
   const recoveredStatusResponsePromise = page.waitForResponse(response => (
     response.url().includes(`/api/public/booking-attempt/`)
     && response.url().endsWith('/status')
@@ -260,9 +302,11 @@ test('guest can book without OTP and receive an appointment management link', as
 
   await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
-  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(`guest+${Date.now()}@example.com`);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, {
+    name: `Guest ${phone.slice(-4)}`,
+    email: `guest+${Date.now()}@example.com`,
+    phone,
+  });
 
   await expect(page.getByRole('button', { name: /confirm appointment/i })).toContainText(timeStepPrice!);
 
@@ -273,6 +317,7 @@ test('guest can book without OTP and receive an appointment management link', as
   ));
 
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
 
   const bookingResponse = await bookingResponsePromise;
@@ -306,10 +351,13 @@ test('guest can book without OTP and receive an appointment management link', as
 
   await expect(page.getByRole('heading', { name: 'Review & confirm', exact: true })).toBeVisible();
 
-  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(`guest+${Date.now()}@example.com`);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, {
+    name: `Guest ${phone.slice(-4)}`,
+    email: `guest+${Date.now()}@example.com`,
+    phone,
+  });
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
 
   const rebookingResponsePromise = page.waitForResponse(response => (
     response.url().includes('/api/appointments')
@@ -382,15 +430,14 @@ test('a guest can manage multiple upcoming appointments', async ({ page }) => {
 
   // First booking succeeds.
   await walkToConfirm();
-  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(email);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, { name: `Guest ${phone.slice(-4)}`, email, phone });
   const firstBookingResponse = page.waitForResponse(response => (
     response.url().includes('/api/appointments')
     && response.request().method() === 'POST'
     && response.status() === 201
   ));
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const firstBody = await (await firstBookingResponse).json();
   const firstManageUrl = firstBody?.data?.manageUrl as string | undefined;
@@ -399,15 +446,14 @@ test('a guest can manage multiple upcoming appointments', async ({ page }) => {
 
   // A second appointment for the same guest remains a separate booking.
   await walkToConfirm();
-  await page.getByLabel('Customer name').fill(`Guest ${phone.slice(-4)}`);
-  await page.getByLabel('Customer email').fill(email);
-  await page.getByLabel('Customer phone').fill(phone);
+  await fillGuestContact(page, { name: `Guest ${phone.slice(-4)}`, email, phone });
   const secondBookingResponse = page.waitForResponse(response => (
     response.url().includes('/api/appointments')
     && response.request().method() === 'POST'
     && response.status() === 201
   ));
   await acknowledgeBookingPolicy(page);
+  await expectBookingReady(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const secondBody = await (await secondBookingResponse).json();
   const secondManageUrl = secondBody?.data?.manageUrl as string | undefined;
