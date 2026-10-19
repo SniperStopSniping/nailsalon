@@ -1,0 +1,13 @@
+# Hosted manual Canva path: observed behaviour and limits
+
+On the isolatedd0 Preview, a fresh local onboarding draft entered **Your Canva Design**. The native file picker uploaded an owned390×2597 screenshot of our generated synthetic Cobalt page. The UI warned that a sharper export would help and explained that long artwork scrolls. This fixture contains clipped-viewport content and whitespace from capture; it is not an original Canva export or a professional-quality reproduction result.
+
+Visible controls selected Instagram, accepted the synthetic username, placed an area on its printed text and enlarged it using six Taller clicks. The customer preview exposed the correct HTTPS anchor. Enter opened that destination, as did a separate direct pointer click at the visible handle. The synthetic Instagram profile does not exist; successful navigation is the claim, not profile availability. The ordinary locator click initially scrolled the area into view; the later visible-pointer and keyboard checks are the verified activations. No profile data or social interaction was changed.
+
+Refresh retained one image and one saved link. **Wide & centred** and **Dark** changed only the surrounding layout/background. The image retained its390:2597 ratio (613.8866×4087.8511 rendered in the desktop preview). Replacing it with a1440×1076 owned generated-page screenshot preserved the action but required review of its new position. The unapproved Instagram anchor was absent from the resulting customer preview. That position was intentionally left unapproved.
+
+[Clickable preview](manual-canva-cua-instagram-preview.jpg) · [Background/fit](manual-canva-cua-dark-desktop.jpg) · [Changed-shape review](manual-canva-cua-replacement-review.jpg) · [Unreviewed preview](manual-canva-cua-unreviewed-preview.jpg)
+
+This was a manual, local-draft journey with no AI request, server claim, publication or real booking. The onboarding sample catalog was not verified against the published Cobalt services. It does not prove cross-device transfer, manual publication or original booking integration for this manual path; those remain acceptance work. The independently recorded AI-site bookings must not be substituted for that missing journey.
+
+The repeated resize clicks motivated an explicit **Make easier to tap** control. Its proposed source preserves image/action identity, fits a phone target in one owner action where possible, refuses overlapping or too-short placements and retains required position review. Five new assertions plus16 related editor tests and41 existing geometry/owner/overlay assertions passed locally. Final type/lint/runtime qualification is recorded separately; that new control was not present on thed0 runtime shown here.
