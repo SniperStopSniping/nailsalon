@@ -8,6 +8,7 @@ import { cloudinary, isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import sharp from '@/libs/safeSharp.server';
 
+import { onboardingArtworkAssetId } from './artwork-storage-key';
 import { ONBOARDING_SITE_MEDIA_ROLES } from './contracts';
 import type { OnboardingMediaRole } from './media-claim-client';
 import { ONBOARDING_MEDIA_MAX_DECODED_PIXELS, ONBOARDING_MEDIA_MAX_FILE_BYTES } from './media-limits';
@@ -21,7 +22,7 @@ const CLOUD_PREFIX = 'cloudinary_authenticated:';
 const CLOUD_KEY = /^salons\/([\w-]{1,160})\/onboarding-sites\/([\w-]{1,160})\/revisions\/([\w-]{1,160})\/(profile|logo|gallery|custom_design|cover)\/([a-f0-9]{32})$/;
 const LOCAL_KEY = /^([\w-]{1,160})\/([\w-]{1,160})\/([\w-]{1,160})\/(profile|logo|gallery|custom_design|cover)\/([a-f0-9]{32})\.webp$/;
 
-export type OnboardingMediaStorageProvider = 'cloudinary_authenticated' | 'development_local';
+export type OnboardingMediaStorageProvider = 'cloudinary_authenticated' | 'development_local' | 'custom_site_asset';
 export type OnboardingMediaStorageOwner = { salonId: string; siteId?: string };
 
 export type StoredOnboardingMediaFile = {
@@ -97,7 +98,7 @@ const ownedStorageKey = (storageKey: string, owner: OnboardingMediaStorageOwner)
 export const isOnboardingMediaStorageProvider = (
   value: string | null,
 ): value is OnboardingMediaStorageProvider => (
-  value === 'cloudinary_authenticated' || value === 'development_local'
+  value === 'cloudinary_authenticated' || value === 'development_local' || value === 'custom_site_asset'
 );
 
 const resolveRoot = (): string => {
@@ -347,6 +348,14 @@ export const readOnboardingMediaFile = async (
   storageKey: string,
   owner: OnboardingMediaStorageOwner,
 ): Promise<Buffer> => {
+  if (storageKey.startsWith('custom_site_asset:')) {
+    const assetId = onboardingArtworkAssetId(storageKey, owner);
+    if (!assetId) {
+      throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'The media storage key is invalid.');
+    }
+    const { readOnboardingArtworkAsset } = await import('@/features/custom-sites/assets.server');
+    return readOnboardingArtworkAsset(owner.salonId, assetId);
+  }
   const { isCloud, key } = ownedStorageKey(storageKey, owner);
   if (!isCloud) {
     const bytes = await readFile(resolveStoragePath(key));
@@ -418,6 +427,15 @@ export const deleteOnboardingMediaFile = async (
   storageKey: string,
   owner: OnboardingMediaStorageOwner,
 ): Promise<void> => {
+  if (storageKey.startsWith('custom_site_asset:')) {
+    if (!onboardingArtworkAssetId(storageKey, owner)) {
+      throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'The media storage key is invalid.');
+    }
+    // The media row owns only an alias, not the shared immutable object. A
+    // failed/stale upload or a replaced draft cannot delete published/history
+    // bytes. The asset library and tenant lifecycle own their retention.
+    return;
+  }
   const { isCloud, key } = ownedStorageKey(storageKey, owner);
   if (isCloud) {
     assertCloudinaryConfigured();

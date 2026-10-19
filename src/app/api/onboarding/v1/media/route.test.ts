@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 
+import { SetupError } from '@/features/business-setup/contracts';
 import { ONBOARDING_MEDIA_MAX_FILE_BYTES, ONBOARDING_MEDIA_MAX_REQUEST_BYTES } from '@/features/onboarding-v1-integration/media-limits';
 import { OnboardingMediaStorageError } from '@/features/onboarding-v1-integration/media-storage.server';
 import * as schema from '@/models/Schema';
@@ -23,6 +24,7 @@ const holder = vi.hoisted(() => ({
   db: null as unknown,
 }));
 const storage = vi.hoisted(() => ({
+  artwork: vi.fn(async () => ({ byteSize: 321, height: 1400, width: 600, mimeType: 'image/webp', storageKey: 'custom_site_asset:salon:site:asset', storageProvider: 'custom_site_asset' })),
   deleteFile: vi.fn(async () => undefined),
   readFile: vi.fn(async () => Buffer.from('saved-image')),
   saveFile: vi.fn(async ({ uploadAttemptId }: { uploadAttemptId: string }) => ({
@@ -45,6 +47,8 @@ const canonical = vi.hoisted(() => ({
     storageProvider: 'cloudinary' as const,
   })),
 }));
+
+vi.mock('@/features/custom-sites/assets.server', () => ({ uploadOnboardingArtwork: storage.artwork }));
 
 vi.mock('@/libs/DB', () => ({
   get db() {
@@ -203,12 +207,28 @@ describe('POST /api/onboarding/v1/media', () => {
     const response = await POST(uploadRequest({ role: 'custom_design' }));
 
     expect(response.status).toBe(200);
-    expect(storage.saveFile).toHaveBeenCalledWith(expect.objectContaining({
-      role: 'custom_design',
-      imagePreparation: { artwork: true, maxOutputBytes: ONBOARDING_MEDIA_MAX_FILE_BYTES, preserveDimensions: true },
-      salonId: SALON_ID,
-    }));
+    expect(storage.artwork).toHaveBeenCalledWith(holder.authorized, expect.any(File));
+    expect(storage.saveFile).not.toHaveBeenCalled();
+
+    const [row] = await db.select().from(schema.onboardingSiteMediaSchema).where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    expect(row).toMatchObject({ claimStatus: 'ready', storageProvider: 'custom_site_asset', width: 600, height: 1400 });
+    expect((await POST(uploadRequest({ role: 'custom_design' }))).status).toBe(200);
+    expect(storage.artwork).toHaveBeenCalledOnce();
     expect(canonical.saveMedia).not.toHaveBeenCalled();
+  });
+
+  it.each([['STALE', 409], ['FORBIDDEN', 404]] as const)('retains the retryable media row when shared artwork authorization fails: %s', async (code, status) => {
+    await db.update(schema.onboardingSiteMediaSchema).set({ role: 'custom_design' }).where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+    storage.artwork.mockRejectedValueOnce(new SetupError(code, 'Return to your saved setup.'));
+    const response = await POST(uploadRequest({ role: 'custom_design' }));
+
+    expect(response.status).toBe(status);
+    expect(storage.saveFile).not.toHaveBeenCalled();
+
+    const [row] = await db.select().from(schema.onboardingSiteMediaSchema).where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    expect(row).toMatchObject({ claimStatus: 'failed', failureCode: code, uploadLeaseId: null });
   });
 
   it('claims only a declared role-owned item and records a server reference', async () => {
