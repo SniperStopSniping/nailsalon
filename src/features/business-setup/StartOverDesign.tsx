@@ -62,8 +62,8 @@ export function StartOverDesign({ disabled, revision, onReset }: {
         {saving && <p role="status">Starting fresh…</p>}
         {error && <p role="alert">{error}</p>}
         <div className="setup-reset-actions">
-          <button type="button" className="setup-add-files" disabled={saving} onClick={() => void reset(true)}>{saving ? 'Starting…' : attempt.current ? 'Retry start over' : 'Start fresh & upload image'}</button>
-          {!attempt.current && <button type="button" disabled={saving} onClick={() => void reset(false)}>Start fresh with an idea</button>}
+          <button type="button" className="setup-add-files" disabled={saving} onClick={() => void reset(true)}>{saving ? 'Starting…' : error ? 'Retry start over' : 'Start fresh & upload image'}</button>
+          {!error && <button type="button" disabled={saving} onClick={() => void reset(false)}>Start fresh with an idea</button>}
           <button type="button" disabled={saving} onClick={() => dialog.current?.close()}>Cancel</button>
         </div>
       </dialog>

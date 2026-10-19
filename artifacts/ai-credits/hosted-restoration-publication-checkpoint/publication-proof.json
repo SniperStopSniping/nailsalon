@@ -1,0 +1,28 @@
+{
+  "passed": true,
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "actualOwnerUi": true,
+  "revision": 49,
+  "artifactId": "c5e71d2a-c600-449e-b2ad-9fbcd58c88ff",
+  "exactDisplayedRevisionApproved": true,
+  "reviewShowedBeforeAndAfterPrice": true,
+  "priceBeforeCents": 7500,
+  "priceAfterCents": 6500,
+  "serviceId": "774fd1cd-1e6c-4396-abbd-757613f3328c",
+  "durationMinutes": 75,
+  "canonicalServiceCount": 3,
+  "receiptCount": 1,
+  "receipts": [
+    {
+      "revision": 49,
+      "approved_revision": 49,
+      "media_finalized": true
+    }
+  ],
+  "publishReplayStatus": 200,
+  "historicalAppointmentsPreserved": 4,
+  "hoursAddressBookingPolicyStaffAndEligibilityUnchanged": true,
+  "photosFinalized": true,
+  "additionalAiCalls": 0,
+  "productionTouched": false
+}

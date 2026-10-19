@@ -50,6 +50,26 @@ it('retries a lost response with the same operation and original revision even a
   expect(reset.mock.calls[1]).toEqual(reset.mock.calls[0]);
 });
 
+it('offers both fresh choices again after a successful reset and uses the latest revision for the next one', async () => {
+  const reset = vi.fn(async (_upload: boolean, _operationId: string, _expectedRevision: number) => {});
+  const { rerender } = render(<StartOverDesign revision={7} disabled={false} onReset={reset} />);
+  fireEvent.click(screen.getByRole('button', { name: /Start over/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Start fresh & upload image' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  rerender(<StartOverDesign revision={8} disabled={false} onReset={reset} />);
+  fireEvent.click(screen.getByRole('button', { name: /Start over/ }));
+
+  expect(screen.getByRole('button', { name: 'Start fresh & upload image' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Start fresh with an idea' })).toBeEnabled();
+  expect(screen.queryByRole('button', { name: 'Retry start over' })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Start fresh with an idea' }));
+  await waitFor(() => expect(reset).toHaveBeenCalledTimes(2));
+
+  expect(reset.mock.calls[1]).toEqual([false, expect.any(String), 8]);
+  expect(reset.mock.calls[1]![1]).not.toBe(reset.mock.calls[0]![1]);
+});
+
 it('shows progress and prevents closing or duplicate resets while running', async () => {
   let finish!: () => void;
   const reset = vi.fn(() => new Promise<void>((resolve) => {
