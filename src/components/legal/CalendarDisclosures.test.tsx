@@ -32,11 +32,14 @@ describe('public Calendar disclosures', () => {
     expect(screen.getByText(/the Luster appointment record remains the source of truth/)).toBeVisible();
   });
 
-  it.each([PrivacyPage, TermsPage])('retains public navigation, support and the review date', (Page) => {
+  it.each([
+    { Page: PrivacyPage, reviewDate: 'October 19, 2026' },
+    { Page: TermsPage, reviewDate: 'October 10, 2026' },
+  ])('retains public navigation, support and the review date', ({ Page, reviewDate }) => {
     render(<Page />);
 
     expect(screen.getByRole('link', { name: 'Luster' })).toHaveAttribute('href', '/');
-    expect(screen.getByText('October 10, 2026')).toBeVisible();
+    expect(screen.getByText(reviewDate)).toBeVisible();
     expect(screen.getByText(/Questions, data access requests, and deletion requests/)).toHaveTextContent('support@lustergel.app');
   });
 });
