@@ -58,3 +58,46 @@ test('shows pending cleanup, retained categories and a separately acknowledged c
 
   await expect(dialog).toBeHidden();
 });
+
+test('keeps public-image review unfinished after checking status', async ({ page }, testInfo) => {
+  let deletes = 0;
+  const cleanup = {
+    jobId: '00000000-0000-4000-8000-000000000002',
+    status: 'review_required',
+    databaseDeleted: true,
+    rowsDeleted: 8,
+    mediaTotal: 2,
+    mediaRemoved: 0,
+    mediaRemaining: 2,
+    reviewRequired: 2,
+    attempts: 0,
+    nextAttemptAt: null,
+    retained: SALON_DELETION_RETAINED,
+  };
+  await page.route('**/api/**', async (route) => {
+    if (route.request().url().endsWith('/impact')) {
+      return route.fulfill({ json: { totalRows: 8, tables: { appointment: 7, salon: 1 } } });
+    }
+    if (route.request().method() === 'DELETE') {
+      deletes += 1;
+    }
+    return route.fulfill({ status: 202, json: { cleanup } });
+  });
+  await page.goto('/');
+  const dialog = page.getByRole('dialog', { name: 'Delete Salon' });
+  await dialog.getByLabel(/to confirm permanent deletion/).fill('disposable-test-salon');
+  await dialog.getByRole('button', { name: 'Delete Permanently' }).click();
+
+  await expect(dialog.getByRole('status')).toContainText('Requiring manual review: 2.');
+  await expect(dialog).toContainText('Public, shared or unverified images need an operator’s review');
+  await expect(dialog).not.toContainText('Automatic retries are scheduled');
+
+  await dialog.getByRole('button', { name: 'Check cleanup status' }).click();
+
+  await expect(dialog.getByRole('status')).toContainText('Media cleanup is unfinished');
+  expect(deletes).toBe(1);
+
+  const screenshotDir = path.join(os.tmpdir(), 'luster-deletion-browser-proof');
+  await fs.mkdir(screenshotDir, { recursive: true });
+  await page.screenshot({ path: path.join(screenshotDir, `${testInfo.project.name}-review-required.png`), fullPage: true });
+});
