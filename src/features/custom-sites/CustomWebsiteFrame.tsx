@@ -5,10 +5,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { CustomSitePayload } from './contracts';
 import { nativeImageLoader } from './native-image-loader';
 
-export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, managePath }: { payload: CustomSitePayload; rendererOrigin: string; bookingPath?: string; managePath?: string }) {
+type FrameInput = { payload: CustomSitePayload; rendererOrigin: string; bookingPath?: string; managePath?: string };
+type FrameSession = FrameInput & { channel: string };
+
+export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, managePath }: FrameInput) {
   const frame = useRef<HTMLIFrameElement>(null);
   const rendered = useRef(false);
   const [attempt, setAttempt] = useState(0);
+  const [session, setSession] = useState<FrameSession | null>(null);
   const [height, setHeight] = useState(800);
   const [status, setStatus] = useState('Loading your custom website…');
   const bookingHref = !payload.data.preview && bookingPath?.startsWith('/') && !bookingPath.startsWith('//')
@@ -23,18 +27,22 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
     return () => window.removeEventListener('resize', resize);
   }, []);
   useEffect(() => {
+    // Create each browsing context on the client, including the first one.
+    // Use the same fresh frame as the working Reload path, rather than
+    // navigating a frame inherited from SSR or an earlier saved document.
+    setSession({ payload, rendererOrigin, bookingPath, managePath, channel: crypto.randomUUID() });
+  }, [payload, rendererOrigin, bookingPath, managePath, attempt]);
+  useEffect(() => {
     const target = frame.current;
-    if (!target) {
+    if (!target || !session) {
       return;
     }
-    // Install the bridge before starting navigation. In particular, an SSR
-    // iframe must not begin loading while the parent is still hydrating.
-    // A new payload also needs a fresh renderer and channel, otherwise the
-    // already-initialized renderer can keep displaying the previous draft.
-    const channel = crypto.randomUUID();
+    // Install the bridge before navigation. Each saved document gets its own
+    // browsing context, channel and photo loader; old frames cannot speak for it.
+    const { channel } = session;
     rendered.current = false;
     setStatus('Loading your custom website…');
-    const { nativeMedia, ...rendererPayload } = payload;
+    const { nativeMedia, ...rendererPayload } = session.payload;
     let photoFailed = false;
     let pendingPhotos = 0;
     const photos = nativeMedia
@@ -93,14 +101,14 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         case 'preview-booking': setStatus('Booking is disabled in this private preview.');
           break;
         case 'book': {
-          if (payload.data.preview || !bookingPath || !bookingPath.startsWith('/') || bookingPath.startsWith('//')) {
+          if (session.payload.data.preview || !session.bookingPath || !session.bookingPath.startsWith('/') || session.bookingPath.startsWith('//')) {
             return;
           }
           const id = event.data.serviceId;
-          if (typeof id !== 'string' || (id && !payload.data.services.some(s => s.id === id))) {
+          if (typeof id !== 'string' || (id && !session.payload.data.services.some(s => s.id === id))) {
             return;
           }
-          const url = new URL(bookingPath, window.location.origin);
+          const url = new URL(session.bookingPath, window.location.origin);
           url.searchParams.set('nativeBooking', '1');
           if (id) {
             url.searchParams.set('baseServiceId', id);
@@ -109,20 +117,20 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
           break;
         }
         case 'manage':
-          if (!payload.data.preview && managePath?.startsWith('/') && !managePath.startsWith('//')) {
-            window.location.assign(managePath);
+          if (!session.payload.data.preview && session.managePath?.startsWith('/') && !session.managePath.startsWith('//')) {
+            window.location.assign(session.managePath);
           }
           break;
       }
     };
     window.addEventListener('message', message);
-    target.src = `${rendererOrigin}/renderer`;
+    target.src = `${session.rendererOrigin}/renderer`;
     return () => {
       window.clearTimeout(slow);
       photos?.dispose();
       window.removeEventListener('message', message);
     };
-  }, [payload, rendererOrigin, bookingPath, managePath, attempt]);
+  }, [session]);
   function reloadWebsite() {
     rendered.current = false;
     setStatus('Loading your custom website…');
@@ -157,7 +165,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
         </div>
       )}
       {/* Separate site AND opaque origin: no cookies, persistent storage or cross-salon channels. */}
-      <iframe key={attempt} ref={frame} title={payload.source.title} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" style={{ width: '100%', height, border: 0, display: 'block' }} />
+      {session && <iframe key={session.channel} ref={frame} title={session.payload.source.title} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" style={{ width: '100%', height, border: 0, display: 'block' }} />}
       {bookingHref && <p className="p-3 text-center text-sm"><a className="underline" href={bookingHref}>Open booking menu</a></p>}
     </div>
   );
