@@ -31,7 +31,8 @@ import { addSection } from '../../../prototypes/site-builder-v2-booking-integrat
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import { reviewCanvaArtwork, saveCustomSource } from './artifacts.server';
-import { uploadCustomAsset, uploadOnboardingArtwork } from './assets.server';
+import { assetDataUrl, uploadCustomAsset, uploadOnboardingArtwork } from './assets.server';
+import * as customAssetStorage from './assets.server';
 import { compileCanvaDesign } from './canva';
 import { canvaDataFingerprint, canvaPriceLabelsFingerprint } from './canva-data.server';
 import { generateCanvaSource } from './canva-generate.server';
@@ -1314,4 +1315,127 @@ it('excludes the current Canva page from Gallery choices and rejects a forged us
 
   await expect(editCanvaNativeContent(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', change: { type: 'use', mediaId: artworkId, alt: 'Wrong photo target', createGallery: true } })).rejects.toMatchObject({ code: 'INVALID' });
   expect((await openSetup(test.actor)).revision.revision).toBe(test.saved.head.revision.revision);
+});
+
+it('creates About text and an owned photo through chat, then edits the same text manually with idempotent draft writes', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const photo = await uploadCustomAsset(test.actor, await nativeUploadFile(480, 960, 'My portrait.png'), 'photo');
+  const before = (await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]!;
+  const changes: CanvaNativePhotoChange[] = [
+    { blockId: 'native-about', change: { type: 'create_about', title: 'Meet the owner', text: 'A calm space for thoughtful nails.' } },
+    { blockId: 'native-about', change: { type: 'use', mediaId: photo.id, alt: 'My owner portrait' } },
+  ];
+  const provider = nativeChatProvider(changes, [{ type: 'website_details', values: { instagram: 'my_studio', sections: [{ id: 'policy', title: 'Booking policy', text: 'Please arrive on time.' }] } }]);
+  const input = { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Add an About section with my portrait. Say A calm space for thoughtful nails. Keep my booking policy and Instagram.' };
+  const result = await runSetupConversation(test.actor, input, provider);
+  const source = (await setupCustomSitePayload(test.actor.salonId, result.head.revision.document))!.source;
+  const about = source.canva!.nativeContent!.find(block => block.type === 'about')!;
+  const details = result.head.revision.document.website.content.websiteDetails!;
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect(nativeChatContext(provider.createResponse.mock.calls[0]![0]).nativePhotos.canCreateAbout).toBe(true);
+  expect(result.head.revision.revision).toBe(input.expectedRevision + 1);
+  expect(about).toMatchObject({ type: 'about', textSectionIds: ['canva-about'], image: { mediaId: photo.id, storageKind: 'asset', role: 'profile', width: 480, height: 960 } });
+  expect(source.canva!.pages).toEqual(test.source.canva!.pages);
+  expect(source.canva!.ownerReviewed).toBe(false);
+  expect(source.html).toContain('details.section_canva-about');
+  expect(source.html).toContain('details.section_policy');
+  expect(details.sections.map(section => section.id)).toEqual(['policy', 'canva-about']);
+  expect(details.instagram).toBe('my_studio');
+  expect(result.reply).toContain('Added 1 About section. Changed 1 saved photo. Saved in your draft.');
+  expect((await runSetupConversation(test.actor, input, provider)).head.revision.revision).toBe(result.head.revision.revision);
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+
+  const edit = { expectedRevision: result.head.revision.revision, operationId: randomUUID(), blockId: 'native-about', change: { type: 'about_text', sectionId: 'canva-about', title: 'About our studio', text: 'Welcome to our calm space.' } };
+  const manual = await editCanvaNativeContent(test.actor, edit);
+
+  expect((await editCanvaNativeContent(test.actor, edit)).head.revision.revision).toBe(manual.head.revision.revision);
+  expect(manual.head.revision.document.website.content.websiteDetails!.sections).toEqual([details.sections[0], { id: 'canva-about', title: 'About our studio', text: 'Welcome to our calm space.' }]);
+  await expect(editCanvaNativeContent(test.actor, { ...edit, operationId: randomUUID() })).rejects.toMatchObject({ code: 'STALE' });
+  await expect(editCanvaNativeContent(test.actor, { ...edit, expectedRevision: manual.head.revision.revision, operationId: randomUUID(), change: { ...edit.change, sectionId: 'policy' } })).rejects.toMatchObject({ code: 'INVALID' });
+  expect((await openSetup(test.actor)).revision.revision).toBe(manual.head.revision.revision);
+  expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, test.serviceId)))[0]!.price).toBe(6500);
+
+  const after = (await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]!;
+  const liveFields = (salon: typeof before) => {
+    const copy = JSON.parse(JSON.stringify(salon));
+    delete copy.updatedAt;
+    delete copy.settings.bookingPage.draft;
+    delete copy.settings.bookingPageContent.draft;
+    return copy;
+  };
+
+  expect(liveFields(after)).toEqual(liveFields(before));
+
+  // Simulate an unavailable current native photo. An intact earlier design
+  // remains restorable without loading the broken current image.
+  const normalRead = assetDataUrl;
+  const brokenPhoto = vi.spyOn(customAssetStorage, 'assetDataUrl').mockImplementation(async (asset) => {
+    if (asset.id === photo.id) {
+      throw new Error('Synthetic current photo storage outage');
+    }
+    return normalRead(asset);
+  });
+
+  const manualSource = (await records(test.actor.salonId)).artifacts.find(artifact => artifact.id === manual.artifactId)!.source;
+
+  await expect(assertCanvaNativeMedia(database as unknown as Parameters<typeof assertCanvaNativeMedia>[0], test.actor.salonId, manualSource.canva, true)).rejects.toThrow('Synthetic current photo storage outage');
+
+  const earlier = await restoreCustomSource(test.actor, { expectedRevision: manual.head.revision.revision, operationId: randomUUID(), artifactId: test.saved.artifact.id }).finally(() => brokenPhoto.mockRestore());
+
+  expect(earlier.head.revision.document.website.content.websiteDetails!.sections).toEqual([details.sections[0]]);
+  expect(earlier.head.revision.document.website.content.websiteDetails!.instagram).toBe('my_studio');
+
+  const restored = await restoreCustomSource(test.actor, { expectedRevision: earlier.head.revision.revision, operationId: randomUUID(), artifactId: manual.artifactId });
+
+  expect(restored.head.revision.document.website.content.websiteDetails!.sections).toContainEqual({ id: 'canva-about', title: 'About our studio', text: 'Welcome to our calm space.' });
+  expect(restored.head.revision.document.services).toEqual(result.head.revision.document.services);
+});
+
+it('recovers About source and shared text atomically after a stopped save without another model call', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const changes: CanvaNativePhotoChange[] = [{ blockId: 'native-about', change: { type: 'create_about', title: 'Meet me', text: 'My owner supplied introduction.' } }];
+  const provider = nativeChatProvider(changes);
+  const input = { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Add an About section. Say My owner supplied introduction.' };
+  const stopped = vi.spyOn(setupDrafts, 'editSetup').mockRejectedValueOnce(new Error('Synthetic save failure'));
+  try {
+    await expect(runSetupConversation(test.actor, input, provider)).rejects.toThrow('Finish saving');
+  } finally {
+    stopped.mockRestore();
+  }
+
+  expect((await openSetup(test.actor)).revision.revision).toBe(input.expectedRevision);
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(2);
+
+  const recovered = await recoverNativePhotoConversation(test.actor, input.operationId);
+  const replay = await recoverNativePhotoConversation(test.actor, input.operationId);
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(1);
+  expect(recovered.head.revision.revision).toBe(input.expectedRevision + 1);
+  expect(replay.head.revision.revision).toBe(recovered.head.revision.revision);
+  expect(recovered.head.revision.document.website.content.websiteDetails!.sections).toContainEqual({ id: 'canva-about', title: 'Meet me', text: 'My owner supplied introduction.' });
+  expect((await setupCustomSitePayload(test.actor.salonId, recovered.head.revision.document))!.source.canva!.nativeContent).toMatchObject([{ type: 'about', textSectionIds: ['canva-about'] }]);
+});
+
+it('enforces salon ownership and private-address protection for new About copy without saving a partial source', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const head = await editSetup(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'business', values: { homeBased: true, exactAddress: '178 Example Private Avenue', locationDisplayMode: 'city_only' } }] });
+  const edit = { expectedRevision: head.revision.revision, operationId: randomUUID(), blockId: 'native-about', change: { type: 'create_about', title: 'Visit us', text: 'Find us at 178 Example Private Avenue.' } };
+
+  await expect(editCanvaNativeContent({ ...test.actor, adminId: randomUUID() }, edit)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  await expect(editCanvaNativeContent(test.actor, edit)).rejects.toMatchObject({ code: 'INVALID' });
+  expect((await openSetup(test.actor)).revision.revision).toBe(head.revision.revision);
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(2);
+  expect((await openSetup(test.actor)).revision.document.website.content.websiteDetails?.sections ?? []).not.toContainEqual(expect.objectContaining({ text: edit.change.text }));
+});
+
+it('refuses About creation in a price-only request and cannot recover its unvalidated output', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const provider = nativeChatProvider([{ blockId: 'native-about', change: { type: 'create_about', title: 'Injected', text: 'Do not apply this.' } }]);
+  const input = { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), scope: 'service_price', message: 'Change Gel to $75.' };
+
+  await expect(runSetupConversation(test.actor, input, provider)).rejects.toMatchObject({ code: 'NOT_READY' });
+  await expect(recoverNativePhotoConversation(test.actor, input.operationId)).rejects.toMatchObject({ code: 'NOT_READY' });
+  expect((await openSetup(test.actor)).revision.revision).toBe(input.expectedRevision);
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(2);
 });

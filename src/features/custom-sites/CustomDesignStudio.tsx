@@ -355,7 +355,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
         }
       }
       nativeOperation.current = null;
-      setReply('Your photo changes are saved. Check the preview before publishing.');
+      setReply('Your changes are saved. Check the preview before publishing.');
     });
   }
   async function uploadNativePhoto(blockId: string, file: File, alt: string, replaceId?: string, createGallery?: boolean) {

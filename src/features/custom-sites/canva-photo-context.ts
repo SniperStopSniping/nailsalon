@@ -1,5 +1,14 @@
 /** Context optimization only: this never authorizes or applies an action. */
 export function usesSavedCanvaPhotoContext(message: string) {
+  // Owner-supplied About copy and known library photos need no fresh OCR.
+  // Explicit extraction, reference questions and newly uploaded files retain
+  // vision eligibility; this optimization never supplies an action permission.
+  if (message.length <= 4000
+    && /\babout\s+(?:section|text|wording|heading)\b/iu.test(message)
+    && /\b(?:add|create|write|edit|change|update|say|replace)\b/iu.test(message)
+    && !/\b(?:read|reread|re-read|extract|scan|ocr|import|transcribe)\b|\b(?:from|in|on)\b.{1,70}\b(?:image|picture|design|menu|screenshot|upload|reference)\b|\b(?:what|which|where|does|is|are)\b.{1,70}\b(?:image|picture|design|menu|screenshot|upload|reference)\b/iu.test(message)) {
+    return true;
+  }
   const reading = /\b(?:read|reread|re-read|extract|scan|ocr|import|transcribe)\b|\b(?:get|take|pull|copy|use|check|verify|find|add|set|update|change)\b.{1,100}\b(?:details?|information|info|names?|hours?|prices?|polic(?:y|ies)|addresses?|contacts?|phone|email|instagram|text|wording|location|intersection)\b|\b(?:details?|information|info|names?|hours?|prices?|polic(?:y|ies)|addresses?|contacts?|phone|email|instagram|text|wording|location|intersection)\b.{1,50}\b(?:from|in|on)\b.{1,35}\b(?:image|picture|design|menu|screenshot|upload|reference)\b|\b(?:what|which|where|does|is|are)\b.{1,100}\b(?:in|on|from)\b.{1,35}\b(?:image|picture|design|menu|screenshot|upload|reference)\b/iu;
   return message.length <= 4000
     && /\b(?:gallery|portraits?|photos?|pictures?|images?)\b/iu.test(message)

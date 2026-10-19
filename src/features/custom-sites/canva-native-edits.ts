@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
 const photo = { mediaId: z.string().uuid() };
+const aboutCopy = { title: z.string().trim().min(1).max(120), text: z.string().trim().min(1).max(3000) };
 export const canvaNativeChangeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('create_about'), ...aboutCopy }).strict(),
+  z.object({ type: z.literal('about_text'), sectionId: z.string().regex(/^[a-z][a-z0-9_-]{0,59}$/u).optional(), ...aboutCopy }).strict(),
   z.object({ type: z.literal('remove'), ...photo }).strict(),
   z.object({ type: z.literal('describe'), ...photo, alt: z.string().trim().min(1).max(500) }).strict(),
   z.object({ type: z.literal('move'), ...photo, direction: z.enum(['earlier', 'later']) }).strict(),

@@ -526,7 +526,7 @@ it.each(['edit', 'upload'] as const)('applies a native photo %s through the owne
     await screen.findByText('Your photo is saved in the draft. Check the preview before publishing.');
   } else {
     fireEvent.click(await screen.findByRole('button', { name: 'Remove from draft' }));
-    await screen.findByText('Your photo changes are saved. Check the preview before publishing.');
+    await screen.findByText('Your changes are saved. Check the preview before publishing.');
   }
 
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();

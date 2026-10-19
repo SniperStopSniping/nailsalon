@@ -6,9 +6,9 @@ import { z } from 'zod';
 import type { SetupOperation } from '@/features/business-setup/contracts';
 import { SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor } from '@/features/business-setup/drafts.server';
-import { editSetup, loadSetupHead, lockSetupSalon } from '@/features/business-setup/drafts.server';
+import { editSetup, loadSetupHead, lockSetupSalon, setupHash } from '@/features/business-setup/drafts.server';
 import { db } from '@/libs/DB';
-import { businessSetupRevisionSchema as revisions } from '@/models/Schema';
+import { businessSetupRevisionSchema as revisions, customSiteArtifactSchema as artifacts } from '@/models/Schema';
 
 import { assertCustomArtifact } from './artifacts.server';
 import type { CustomSiteSource } from './contracts';
@@ -30,8 +30,16 @@ export async function restoreCustomSource(actor: SetupActor, raw: unknown) {
     }
     const { artifact } = await assertCustomArtifact(tx, actor.salonId, input.artifactId);
     const ids = aboutIds(artifact.source);
+    const currentId = base.document.website.config.customFrontendId;
+    const [current] = currentId ? await tx.select({ source: artifacts.source, sourceHash: artifacts.sourceHash }).from(artifacts).where(and(eq(artifacts.salonId, actor.salonId), eq(artifacts.id, currentId))) : [];
+    if (currentId && (!current || setupHash(current.source) !== current.sourceHash)) {
+      throw new SetupError('NOT_READY', 'Your current design could not be checked. Your saved drafts are safe.');
+    }
+    // A broken current photo must not prevent restoring an intact older design.
+    // Only its trusted text identities are needed; do not load current images.
+    const currentIds = current ? aboutIds(current.source) : [];
     const operations: SetupOperation[] = [];
-    if (ids.length) {
+    if (ids.length || currentIds.length) {
       // Source is immutable. Its first applied revision is the authoritative
       // counterpart for bound About text, including recovery after a reset.
       const [saved] = await tx.select({ document: revisions.document }).from(revisions).where(and(eq(revisions.salonId, actor.salonId), sql`${revisions.document} #>> '{website,config,customFrontendId}' = ${artifact.id}`)).orderBy(asc(revisions.createdAt), asc(revisions.revision)).limit(1);
@@ -39,8 +47,7 @@ export async function restoreCustomSource(actor: SetupActor, raw: unknown) {
       if (sections.some(section => !section)) {
         throw new SetupError('NOT_READY', 'That saved design is missing some About wording. Your current draft is safe.');
       }
-      const current = base.document.website.config.customFrontendId ? await assertCustomArtifact(tx, actor.salonId, base.document.website.config.customFrontendId) : null;
-      const replacedIds = new Set([...ids, ...(current ? aboutIds(current.artifact.source) : [])]);
+      const replacedIds = new Set([...ids, ...currentIds]);
       const details = structuredClone(base.document.website.content.websiteDetails ?? EMPTY_WEBSITE_DETAILS);
       details.sections = [...details.sections.filter(section => !replacedIds.has(section.id)), ...sections.map(section => section!)];
       if (!websiteDetailsSchema.safeParse(details).success) {

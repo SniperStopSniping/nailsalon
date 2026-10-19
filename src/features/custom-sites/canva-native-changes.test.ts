@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 
 import { compileCanvaDesign } from './canva';
-import { applyCanvaNativePhotoChanges, canvaNativePhotoChangeSummary } from './canva-native-changes';
+import { applyCanvaNativeContentChanges, applyCanvaNativePhotoChanges, canvaNativePhotoChangeSummary } from './canva-native-changes';
 import type { CanvaNativePhotoChange, NativePhotoChoice } from './canva-native-edits';
+import { EMPTY_WEBSITE_DETAILS } from './website-details';
 
 vi.mock('server-only', () => ({}));
 
@@ -102,4 +103,50 @@ it('summarizes only the applied photo operations without model publication claim
   const { photos } = fixture();
 
   expect(canvaNativePhotoChangeSummary([{ blockId: 'gallery', change: { type: 'remove', mediaId: photos[0]!.mediaId } }, { blockId: 'gallery', change: { type: 'describe', mediaId: photos[1]!.mediaId, alt: 'Owner photograph' } }])).toBe('Removed 1 photo. Updated 1 photo description. Saved in your draft.');
+});
+
+it('adds About copy and its owned portrait together, preserves policies and avoids reserved text identities', () => {
+  const { design, photos } = fixture();
+  const original = { ...design, nativeContent: design.nativeContent!.filter(block => block.type !== 'about') };
+  const details = { ...EMPTY_WEBSITE_DETAILS, instagram: 'my_studio', sections: [{ id: 'canva-about', title: 'Booking policy', text: 'Owner supplied policy.' }] };
+  const next = applyCanvaNativeContentChanges(original, details, [
+    { blockId: 'native-about', change: { type: 'create_about', title: 'Meet the owner', text: 'A calm space for thoughtful nails.' } },
+    { blockId: 'native-about', change: { type: 'use', mediaId: photos[2]!.mediaId, alt: 'My portrait' } },
+  ], photos, true);
+
+  expect(next.details).toEqual({ ...details, sections: [...details.sections, { id: 'canva-about-1', title: 'Meet the owner', text: 'A calm space for thoughtful nails.' }] });
+  expect(next.design.nativeContent![0]).toMatchObject({ type: 'about', id: 'native-about', textSectionIds: ['canva-about-1'], image: { mediaId: photos[2]!.mediaId } });
+  expect(next.design.nativeContent![1]).toEqual(original.nativeContent![0]);
+  expect(compileCanvaDesign(next.design, next.details).html).toContain('data-luster-field="details.section_canva-about-1"');
+  expect(next.design.pages).toEqual(original.pages);
+  expect(original.ownerReviewed).toBe(true);
+  expect(details.sections).toHaveLength(1);
+});
+
+it('edits only bound About text and refuses policy substitution, duplicate About or disabled creation', () => {
+  const { design, photos } = fixture();
+  const details = { ...EMPTY_WEBSITE_DETAILS, sections: [{ id: 'about-copy', title: 'About', text: 'Original intro' }, { id: 'policy', title: 'Policies', text: 'Leave this alone' }] };
+  const change = { blockId: 'about', change: { type: 'about_text' as const, sectionId: 'about-copy', title: 'Meet me', text: 'An updated introduction' } };
+  const next = applyCanvaNativeContentChanges(design, details, [change], photos);
+
+  expect(next.details.sections).toEqual([{ id: 'about-copy', title: 'Meet me', text: 'An updated introduction' }, details.sections[1]]);
+  expect(next.design.nativeContent![0]).toMatchObject({ title: 'Meet me', image: design.nativeContent![0]!.type === 'about' ? design.nativeContent![0]!.image : undefined });
+  expect(() => applyCanvaNativeContentChanges(design, details, [{ ...change, change: { ...change.change, sectionId: 'policy' } }], photos)).toThrow('not part of this About');
+  expect(() => applyCanvaNativeContentChanges(design, details, [{ blockId: 'native-about', change: { type: 'create_about', title: 'Duplicate', text: 'Duplicate intro' } }], photos, true)).toThrow('About section changed');
+  expect(() => applyCanvaNativeContentChanges({ ...design, nativeContent: [] }, details, [{ blockId: 'native-about', change: { type: 'create_about', title: 'About', text: 'Intro' } }], photos)).toThrow('unavailable');
+  expect(details.sections[0]!.text).toBe('Original intro');
+});
+
+it('adds wording to an existing text-free About section without enabling new sections or overwriting other copy', () => {
+  const { design } = fixture();
+  const about = design.nativeContent![0]!;
+  if (about.type !== 'about') {
+    throw new Error('Missing About fixture');
+  }
+  about.textSectionIds = [];
+  const details = { ...EMPTY_WEBSITE_DETAILS, sections: [{ id: 'policy', title: 'Policies', text: 'Keep this wording.' }] };
+  const result = applyCanvaNativeContentChanges(design, details, [{ blockId: about.id, change: { type: 'about_text', title: 'Meet me', text: 'My supplied introduction.' } }], [], false);
+
+  expect(result.design.nativeContent![0]).toMatchObject({ textSectionIds: ['canva-about'], image: about.image });
+  expect(result.details.sections).toEqual([...details.sections, { id: 'canva-about', title: 'Meet me', text: 'My supplied introduction.' }]);
 });

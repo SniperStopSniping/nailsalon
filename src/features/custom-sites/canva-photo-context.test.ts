@@ -10,6 +10,8 @@ it.each([
   'Use Large first photo.',
   'Describe my Gallery photo as green nail art.',
   'Move the Gallery photo later and set BIAB to $65.',
+  'Add an About section with my portrait. Say A calm space for thoughtful nails.',
+  'Change my About text to Welcome to the studio.',
 ])('can reuse saved artwork context for a photo instruction: %s', message => expect(usesSavedCanvaPhotoContext(message)).toBe(true));
 
 it.each([
@@ -25,4 +27,6 @@ it.each([
   'Make an entirely new website from my reference.',
   'Publish the website.',
   'Make the background beige.',
+  'Read my About text from the image.',
+  'Add an About section using the text on this design.',
 ])('retains vision eligibility for extraction or unrelated requests: %s', message => expect(usesSavedCanvaPhotoContext(message)).toBe(false));

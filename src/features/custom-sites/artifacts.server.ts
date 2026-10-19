@@ -18,6 +18,8 @@ import { assertCanvaNativeMedia } from './native-media.server';
 import { containsPrivateAddress } from './private-address';
 import { customSiteDataFromSetup } from './setup-data';
 import { validateCustomSource } from './validate.server';
+import type { WebsiteDetails } from './website-details';
+import { websiteDetailsSchema } from './website-details';
 
 export async function assertCustomArtifact(tx: SetupTransaction | typeof db, salonId: string, id: string) {
   const [artifact] = await tx.select().from(artifacts).where(and(eq(artifacts.salonId, salonId), eq(artifacts.id, id)));
@@ -30,7 +32,7 @@ export async function assertCustomArtifact(tx: SetupTransaction | typeof db, sal
   await assertCanvaNativeMedia(tx, salonId, artifact.source.canva);
   return { artifact, media };
 }
-export async function storeCustomArtifact(actor: SetupActor, input: { source: CustomSiteSource; assetIds: string[]; operationId: string; expectedRevision: number }, transaction?: SetupTransaction) {
+export async function storeCustomArtifact(actor: SetupActor, input: { source: CustomSiteSource; assetIds: string[]; operationId: string; expectedRevision: number }, transaction?: SetupTransaction, preparedDetails?: WebsiteDetails) {
   const apply = async (tx: SetupTransaction) => {
     await lockSetupSalon(tx, actor);
     const media = await ownedAssets(tx, actor.salonId, input.assetIds);
@@ -47,12 +49,15 @@ export async function storeCustomArtifact(actor: SetupActor, input: { source: Cu
       throw new SetupError('STALE', 'Your saved design changed. Reload before saving this version.');
     }
     const business = head.revision.document.business;
-    if (business.exactAddress && business.locationDisplayMode !== 'full_address' && containsPrivateAddress(JSON.stringify({ bio: head.revision.document.website.content.bio, details: head.revision.document.website.content.websiteDetails }), business.exactAddress)) {
+    // Only the atomic native-content domain service supplies proposed details.
+    // They are never accepted in an upload/browser/model artifact contract.
+    const details = preparedDetails ? websiteDetailsSchema.parse(preparedDetails) : head.revision.document.website.content.websiteDetails;
+    if (business.exactAddress && business.locationDisplayMode !== 'full_address' && containsPrivateAddress(JSON.stringify({ bio: head.revision.document.website.content.bio, details }), business.exactAddress)) {
       throw new SetupError('INVALID', 'Your public website details contain your private service address. Remove it or review address visibility first.');
     }
     if (source.canva) {
       await assertCanvaNativeMedia(tx, actor.salonId, source.canva, true);
-      const trusted = validateCustomSource(compileCanvaDesign(source.canva, head.revision.document.website.content.websiteDetails), new Set(media.filter(a => a.role !== 'reference').map(a => a.id)));
+      const trusted = validateCustomSource(compileCanvaDesign(source.canva, details), new Set(media.filter(a => a.role !== 'reference').map(a => a.id)));
       if (source.html !== trusted.html || source.css !== trusted.css || source.javascript !== '') {
         throw new SetupError('INVALID', 'Keep the Canva artwork intact. Use the clickable-area controls to change its links.');
       }

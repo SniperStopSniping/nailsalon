@@ -172,3 +172,25 @@ it.each(['manual', 'ai'])('offers a first photo gallery for %s Canva without mak
   expect(onUpload).toHaveBeenCalledWith('native-photo-gallery', file, 'Salon photo', undefined, true);
   expect(screen.queryByLabelText('Gallery layout')).not.toBeInTheDocument();
 });
+
+it('creates About copy in the draft without requiring a photo, then edits the shared text identity', async () => {
+  const { payload } = fixture();
+  payload.source.canva!.nativeContent = [];
+  const onSave = vi.fn().mockResolvedValue(undefined);
+  const view = render(<CanvaNativePhotoEditor payload={payload} choices={[]} disabled={false} onSave={onSave} uploadsEnabled />);
+  openEditor();
+  fireEvent.change(await screen.findByLabelText('About wording'), { target: { value: 'A calm space for thoughtful nails.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add About section' }));
+
+  expect(onSave).toHaveBeenLastCalledWith('native-about', { type: 'create_about', title: 'About', text: 'A calm space for thoughtful nails.' });
+  expect(payload.source.canva!.nativeContent).toEqual([]);
+
+  payload.source.canva!.nativeContent = [{ type: 'about', id: 'native-about', beforePage: 1, title: 'About', textSectionIds: ['canva-about'], showBusinessName: false, showInstagram: false, showBookingButton: false }];
+  payload.data.details = { locationDirections: null, instagram: null, email: null, phone: null, sections: [{ id: 'canva-about', title: 'About', text: 'A calm space for thoughtful nails.' }] };
+  view.rerender(<CanvaNativePhotoEditor payload={payload} choices={[]} disabled={false} onSave={onSave} uploadsEnabled={false} />);
+  fireEvent.change(await screen.findByLabelText('About wording'), { target: { value: 'A welcoming space for your nails.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save About text' }));
+
+  expect(onSave).toHaveBeenLastCalledWith('native-about', { type: 'about_text', sectionId: 'canva-about', title: 'About', text: 'A welcoming space for your nails.' });
+  expect(screen.queryByRole('button', { name: 'Add About section' })).not.toBeInTheDocument();
+});

@@ -33,6 +33,32 @@ function PhotoPreview({ image, media }: { image: CanvaNativeImage; media: NonNul
       );
 }
 
+function AboutCopyForm({ title, text, disabled, onSave, creating = false }: { title: string; text: string; disabled: boolean; onSave: (title: string, text: string) => Promise<void>; creating?: boolean }) {
+  return (
+    <form
+      key={JSON.stringify([title, text])}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        void onSave(String(form.get('title') ?? ''), String(form.get('text') ?? ''));
+      }}
+    >
+      <fieldset disabled={disabled}>
+        <legend>{creating ? 'Add an About section' : 'About text'}</legend>
+        <label>
+          About heading
+          <input name="title" defaultValue={title} required maxLength={120} />
+        </label>
+        <label>
+          About wording
+          <textarea name="text" defaultValue={text} required maxLength={3000} />
+        </label>
+        <button type="submit">{creating ? 'Add About section' : 'Save About text'}</button>
+      </fieldset>
+    </form>
+  );
+}
+
 function PhotoControls({ block, choices, media, disabled, onSave, onUpload, newGallery = false }: { block: Exclude<CanvaNativeContent[number], { type: 'reviews' }>; choices: NativePhotoChoice[]; media?: CustomSitePayload['nativeMedia']; disabled: boolean; onSave: (change: CanvaNativeChange) => Promise<void>; onUpload?: (file: File, alt: string, replaceId?: string) => Promise<void>; newGallery?: boolean }) {
   const images = block.type === 'about' ? block.image ? [block.image] : [] : block.images;
   const [selected, setSelected] = useState(images[0]?.mediaId ?? '');
@@ -168,13 +194,14 @@ export function CanvaNativePhotoEditor({ payload, choices, disabled, onSave, upl
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState('');
   const canUpload = uploadsEnabled && Boolean(onUpload);
-  const blocks = (payload.source.canva?.nativeContent ?? []).filter(block => block.type !== 'reviews').filter(block => canUpload || (block.type === 'about' ? Boolean(block.image) : block.images.length > 0) || choices.some(choice => choice.role === (block.type === 'about' ? 'profile' : 'gallery')));
+  const blocks = (payload.source.canva?.nativeContent ?? []).filter(block => block.type !== 'reviews').filter(block => canUpload || block.type === 'about' || block.images.length > 0 || choices.some(choice => choice.role === 'gallery'));
+  const canCreateAbout = uploadsEnabled && !payload.source.canva?.nativeContent?.some(block => block.type === 'about' || block.id === 'native-about') && (payload.data.details?.sections.length ?? 0) < 20;
   const newGallery = canUpload && !blocks.some(block => block.type === 'gallery');
   if (newGallery) {
     blocks.push({ type: 'gallery', id: 'native-photo-gallery', title: 'Gallery', beforePage: payload.source.canva!.pages.length, layout: 'grid', images: [] });
   }
   const block = blocks.find(block => block.id === selected) ?? blocks[0];
-  if (!block) {
+  if (!block && !canCreateAbout) {
     return null;
   }
   return (
@@ -182,14 +209,18 @@ export function CanvaNativePhotoEditor({ payload, choices, disabled, onSave, upl
       <summary>About & Gallery photos</summary>
       {open && (
         <section className="studio-photo-library">
-          <p>These photos sit beside your Canva artwork. Your original design image stays unchanged.</p>
+          <p>Add your own words and photos beside your Canva artwork.</p>
+          {canCreateAbout && <AboutCopyForm title="About" text="" creating disabled={disabled} onSave={(title, text) => onSave('native-about', { type: 'create_about', title, text })} />}
           {blocks.length > 1 && (
             <label>
               Choose a section
-              <select value={block.id} onChange={event => setSelected(event.target.value)}>{blocks.map((item, index) => <option key={item.id} value={item.id}>{`${item.title} (${index + 1})`}</option>)}</select>
+              <select value={block?.id} onChange={event => setSelected(event.target.value)}>{blocks.map((item, index) => <option key={item.id} value={item.id}>{`${item.title} (${index + 1})`}</option>)}</select>
             </label>
           )}
-          <PhotoControls key={block.id} block={block} choices={choices} media={payload.nativeMedia} disabled={disabled} newGallery={newGallery && block.id === 'native-photo-gallery'} onSave={change => onSave(block.id, newGallery && block.id === 'native-photo-gallery' && change.type === 'use' ? { ...change, createGallery: true } : change)} onUpload={canUpload ? (file, alt, replaceId) => onUpload!(block.id, file, alt, replaceId, newGallery && block.id === 'native-photo-gallery' ? true : undefined) : undefined} />
+          {block?.type === 'about' && (block.textSectionIds.length
+            ? (payload.data.details?.sections ?? []).filter(section => block.textSectionIds.includes(section.id)).map(section => <AboutCopyForm key={section.id} title={section.title} text={section.text} disabled={disabled} onSave={(title, text) => onSave(block.id, { type: 'about_text', sectionId: section.id, title, text })} />)
+            : <AboutCopyForm title={block.title} text="" disabled={disabled} onSave={(title, text) => onSave(block.id, { type: 'about_text', title, text })} />)}
+          {block && <PhotoControls key={block.id} block={block} choices={choices} media={payload.nativeMedia} disabled={disabled} newGallery={newGallery && block.id === 'native-photo-gallery'} onSave={change => onSave(block.id, newGallery && block.id === 'native-photo-gallery' && change.type === 'use' ? { ...change, createGallery: true } : change)} onUpload={canUpload ? (file, alt, replaceId) => onUpload!(block.id, file, alt, replaceId, newGallery && block.id === 'native-photo-gallery' ? true : undefined) : undefined} />}
           <p>Changes are saved to your draft. Review and publish when you are ready.</p>
         </section>
       )}
