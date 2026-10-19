@@ -66,9 +66,49 @@ const IS_LOCAL_THROWAWAY = parsedConcurrencyUrl != null
   && !RAW_URL.includes('neon.tech');
 
 vi.mock('server-only', () => ({}));
+const redisMockState = vi.hoisted(() => {
+  const values = new Map<string, string>();
+  let enabled = false;
+  const client = {
+    get: async (key: string) => values.get(key) ?? null,
+    set: async (key: string, value: string, ...options: Array<string | number>) => {
+      if (options.includes('NX')) {
+        if (values.has(key)) {
+          return null;
+        }
+        values.set(key, value);
+        return 'OK';
+      }
+      values.set(key, value);
+      return 'OK';
+    },
+    eval: async (_script: string, _keyCount: number, key: string, token: string) => {
+      if (values.get(key) !== token) {
+        return 0;
+      }
+      values.delete(key);
+      return 1;
+    },
+  };
+
+  return {
+    client,
+    reset: () => {
+      enabled = false;
+      values.clear();
+    },
+    enable: () => {
+      enabled = true;
+    },
+    isEnabled: () => enabled,
+  };
+});
+
 vi.mock('@/core/redis/redisClient', () => ({
-  redis: null,
-  isRedisAvailable: vi.fn(async () => false),
+  get redis() {
+    return redisMockState.isEnabled() ? redisMockState.client : null;
+  },
+  isRedisAvailable: vi.fn(async () => redisMockState.isEnabled()),
 }));
 
 const holder = vi.hoisted(() => ({
@@ -334,6 +374,9 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // Redis stays disabled for the established route cases. The focused
+    // idempotency replay case enables this in-memory fixture explicitly.
+    redisMockState.reset();
     // The losing request logs its conflict, and the redis-less environment
     // warns about idempotency caching. Both are expected here.
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -5036,6 +5079,10 @@ suite('POST /api/appointments — genuine concurrency', () => {
   });
 
   it('free-solo includes staff selection in idempotent replay fingerprints', async () => {
+    // This test verifies cache/replay payload hashing, so it supplies a small
+    // deterministic Redis double. Other cases preserve the suite's original
+    // redis:null behavior and continue to exercise PostgreSQL only.
+    redisMockState.enable();
     const { POST } = await import('@/app/api/appointments/route');
     await db.update(schema.salonSchema)
       .set({ freeSoloEnabled: true })
