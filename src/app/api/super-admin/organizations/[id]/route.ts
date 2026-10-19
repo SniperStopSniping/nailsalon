@@ -86,6 +86,40 @@ const hardDeleteConfirmationSchema = z.object({
   confirmSlug: z.string().min(1),
 });
 
+function findForeignKeyViolation(error: unknown): {
+  constraint?: string;
+  table?: string;
+  detail?: string;
+} | null {
+  let current = error;
+  const seen = new Set<object>();
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (!current || typeof current !== 'object' || seen.has(current)) {
+      return null;
+    }
+    seen.add(current);
+
+    const candidate = current as {
+      cause?: unknown;
+      code?: unknown;
+      constraint?: unknown;
+      detail?: unknown;
+      table?: unknown;
+    };
+    if (candidate.code === '23503') {
+      return {
+        constraint: typeof candidate.constraint === 'string' ? candidate.constraint : undefined,
+        table: typeof candidate.table === 'string' ? candidate.table : undefined,
+        detail: typeof candidate.detail === 'string' ? candidate.detail : undefined,
+      };
+    }
+    current = candidate.cause;
+  }
+
+  return null;
+}
+
 async function buildBookingExperienceInspection(
   salon: Pick<typeof salonSchema.$inferSelect, 'id' | 'plan' | 'features'>,
 ): Promise<BookingExperienceEntitlementInspection> {
@@ -788,8 +822,8 @@ export async function DELETE(
     // Surface the constraint that blocked the delete. Super admins are the only
     // callers here, and a bare "Failed to delete salon" leaves them with no way
     // to diagnose which table is holding a reference.
-    const pgError = error as { code?: string; constraint?: string; table?: string; detail?: string };
-    if (pgError?.code === '23503') {
+    const pgError = findForeignKeyViolation(error);
+    if (pgError) {
       return Response.json(
         {
           error: 'Cannot delete salon: related records still reference it',
