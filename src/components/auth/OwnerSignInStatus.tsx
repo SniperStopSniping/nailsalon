@@ -12,7 +12,7 @@ export function OwnerSignInStatus({ busy, children, errorMessage, onRetry }: {
       <div className="luster-entry-card luster-auth-session-status" role="status">
         <div className="luster-auth-opening">
           <span aria-hidden="true" className="luster-auth-spinner motion-safe:animate-spin" />
-          <p>Opening your workspace…</p>
+          <p>Opening your Luster account…</p>
         </div>
       </div>
     );
@@ -21,7 +21,7 @@ export function OwnerSignInStatus({ busy, children, errorMessage, onRetry }: {
   return (
     <div className="luster-auth-recovery">
       <div className="luster-entry-card luster-auth-session-status">
-        <p className="luster-auth-session-title">We couldn’t open your workspace automatically</p>
+        <p className="luster-auth-session-title">We couldn’t finish signing you in automatically</p>
         <p role="alert">{errorMessage}</p>
         <button className="luster-entry-button luster-entry-button--primary" onClick={onRetry} type="button">Try again</button>
         <p className="luster-auth-recovery-note">

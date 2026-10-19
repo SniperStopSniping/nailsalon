@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { OwnerSignInCard } from './OwnerSignInCard';
@@ -41,8 +42,18 @@ vi.mock('@/features/onboarding-v1-integration/client', () => ({
 
 const pendingOrganizationSession = {
   currentTask: { key: 'choose-organization' },
+  getToken: vi.fn().mockResolvedValue('synthetic-session-token'),
   id: 'sess_pending',
   status: 'pending',
+};
+
+const createDeferred = <Value,>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
 };
 
 beforeEach(() => {
@@ -105,7 +116,7 @@ describe('OwnerSignInCard organization task', () => {
 
     render(<OwnerSignInCard dashboardUrl="/en/admin" />);
 
-    expect(screen.getByRole('status')).toHaveTextContent('Opening your workspace…');
+    expect(screen.getByRole('status')).toHaveTextContent('Opening your Luster account…');
     expect(screen.queryByTestId('clerk-sign-in')).not.toBeInTheDocument();
 
     await waitFor(() => {
@@ -119,10 +130,149 @@ describe('OwnerSignInCard organization task', () => {
     expect(mocks.resolveOrganization).toHaveBeenCalledOnce();
   });
 
+  it('sends the current pending session token to the organization resolver', async () => {
+    mocks.clerk.session = pendingOrganizationSession;
+
+    render(<OwnerSignInCard dashboardUrl="/en/admin" />);
+
+    await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledOnce());
+
+    expect(pendingOrganizationSession.getToken).toHaveBeenCalledWith({ skipCache: true });
+    expect(mocks.resolveOrganization).toHaveBeenCalledWith('', {
+      sessionToken: 'synthetic-session-token',
+    });
+  });
+
+  it('does not dispatch a token after the pending session is replaced while reading it', async () => {
+    let listener: ClerkResourceListener | null = null;
+    const token = createDeferred<string | null>();
+    const originalSession = {
+      ...pendingOrganizationSession,
+      getToken: vi.fn(() => token.promise),
+    };
+    mocks.clerk.addListener.mockImplementation((callback: ClerkResourceListener) => {
+      listener = (resources) => {
+        mocks.clerk.session = resources.session;
+        callback(resources);
+      };
+
+      return () => undefined;
+    });
+    mocks.clerk.session = originalSession;
+
+    render(<OwnerSignInCard dashboardUrl="/en/admin" />);
+    await waitFor(() => expect(originalSession.getToken).toHaveBeenCalledOnce());
+
+    const replacementSession = {
+      currentTask: { key: 'choose-organization' },
+      getToken: vi.fn().mockResolvedValue('replacement-session-token'),
+      id: 'sess_replacement',
+      status: 'pending',
+    };
+    await act(async () => {
+      listener?.({ session: replacementSession });
+    });
+    await act(async () => {
+      token.resolve('stale-session-token');
+      await token.promise;
+    });
+
+    await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledWith('', {
+      sessionToken: 'replacement-session-token',
+    }));
+
+    expect(mocks.resolveOrganization).not.toHaveBeenCalledWith('', {
+      sessionToken: 'stale-session-token',
+    });
+    expect(mocks.clerk.setActive).not.toHaveBeenCalledWith(expect.objectContaining({
+      session: 'sess_pending',
+    }));
+  });
+
+  it('fails closed if the raw pending session disappears before dispatch', async () => {
+    const token = createDeferred<string | null>();
+    const session = {
+      ...pendingOrganizationSession,
+      getToken: vi.fn(() => token.promise),
+    };
+    mocks.clerk.session = session;
+
+    render(<OwnerSignInCard dashboardUrl="/en/admin" />);
+    await waitFor(() => expect(session.getToken).toHaveBeenCalledOnce());
+
+    mocks.clerk.session = null;
+    await act(async () => {
+      token.resolve('stale-session-token');
+      await token.promise;
+    });
+
+    expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'We couldn’t finish signing you in. Try again.',
+    );
+  });
+
+  it('starts at most one automatic resolver attempt under StrictMode effect replay', async () => {
+    mocks.clerk.session = pendingOrganizationSession;
+
+    render(
+      <StrictMode>
+        <OwnerSignInCard dashboardUrl="/en/admin" />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledOnce());
+
+    expect(mocks.resolveOrganization).toHaveBeenCalledOnce();
+  });
+
+  it('does not activate an organization after the pending session changes during resolution', async () => {
+    let listener: ClerkResourceListener | null = null;
+    const resolution = createDeferred<{
+      created: boolean;
+      organizations: Array<{ id: string; name: string }>;
+    }>();
+    mocks.clerk.addListener.mockImplementation((callback: ClerkResourceListener) => {
+      listener = callback;
+
+      return () => undefined;
+    });
+    mocks.clerk.session = pendingOrganizationSession;
+    mocks.resolveOrganization.mockReturnValueOnce(resolution.promise);
+
+    render(<OwnerSignInCard dashboardUrl="/en/admin" />);
+    await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledOnce());
+
+    const replacementSession = {
+      currentTask: { key: 'choose-organization' },
+      getToken: vi.fn().mockResolvedValue('replacement-session-token'),
+      id: 'sess_replacement',
+      status: 'pending',
+    };
+    mocks.clerk.session = replacementSession;
+    await act(async () => {
+      listener?.({ session: replacementSession });
+    });
+    await act(async () => {
+      resolution.resolve({
+        created: true,
+        organizations: [{ id: 'org_1', name: 'My nail studio' }],
+      });
+      await resolution.promise;
+    });
+
+    expect(mocks.clerk.setActive).not.toHaveBeenCalledWith(expect.objectContaining({
+      session: 'sess_pending',
+    }));
+  });
+
   it('reacts to a session that turns pending after the password step', async () => {
     let listener: ClerkResourceListener | null = null;
     mocks.clerk.addListener.mockImplementation((callback: ClerkResourceListener) => {
-      listener = callback;
+      listener = (resources) => {
+        mocks.clerk.session = resources.session;
+        callback(resources);
+      };
 
       return () => undefined;
     });
@@ -144,14 +294,15 @@ describe('OwnerSignInCard organization task', () => {
     });
   });
 
-  it('offers a retry when the organization cannot be resolved', async () => {
+  it('offers a bounded retry message when organization resolution fails', async () => {
     mocks.clerk.session = pendingOrganizationSession;
-    mocks.resolveOrganization.mockRejectedValueOnce(new Error('We couldn’t finish setting up your business. Try again.'));
+    mocks.resolveOrganization.mockRejectedValueOnce(new Error('sensitive upstream detail'));
 
     render(<OwnerSignInCard dashboardUrl="/en/admin" />);
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t finish setting up your business. Try again.');
+      expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t finish signing you in. Try again.');
+      expect(screen.getByRole('alert')).not.toHaveTextContent('sensitive upstream detail');
     });
 
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
@@ -159,5 +310,39 @@ describe('OwnerSignInCard organization task', () => {
     await waitFor(() => {
       expect(mocks.clerk.setActive).toHaveBeenCalledOnce();
     });
+  });
+
+  it('does not resolve or activate a session after the AI entry unmounts while reading its token', async () => {
+    const token = createDeferred<string | null>();
+    const session = { ...pendingOrganizationSession, getToken: vi.fn(() => token.promise) };
+    mocks.clerk.session = session;
+    const view = render(<OwnerSignInCard mode="sign-up" dashboardUrl="/en/ai-website" signInUrl="/en/ai-website?account=sign-in" />);
+    await waitFor(() => expect(session.getToken).toHaveBeenCalledOnce());
+    view.unmount();
+    await act(async () => {
+      token.resolve('stale-session-token');
+      await token.promise;
+    });
+
+    expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+    expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+  });
+
+  it('keeps AI signup return links through a failed token and an explicit retry', async () => {
+    const getToken = vi.fn().mockResolvedValueOnce(null).mockResolvedValue('retried-session-token');
+    mocks.clerk.session = { ...pendingOrganizationSession, getToken };
+    render(<OwnerSignInCard mode="sign-up" dashboardUrl="/en/ai-website" signInUrl="/en/ai-website?account=sign-in" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We couldn’t finish signing you in. Try again.');
+    expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+    expect(getToken).toHaveBeenCalledOnce();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledWith({ organization: 'org_1', session: 'sess_pending', redirectUrl: '/en/ai-website' }));
+
+    expect(getToken).toHaveBeenCalledTimes(2);
+    expect(mocks.resolveOrganization).toHaveBeenCalledOnce();
+    expect(mocks.resolveOrganization).toHaveBeenCalledWith('', { sessionToken: 'retried-session-token' });
+    expect(mocks.signUp).toHaveBeenLastCalledWith(expect.objectContaining({ forceRedirectUrl: '/en/ai-website', signInUrl: '/en/ai-website?account=sign-in' }));
   });
 });
