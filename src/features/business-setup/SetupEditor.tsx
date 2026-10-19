@@ -50,7 +50,7 @@ type Message = {
   status: string;
 };
 type MessageRequest = { message: string; operationId: string; expectedRevision: number; scope: string; referenceIds: string[] };
-type Submission = { request: MessageRequest; status: 'sending' | 'checking' | 'failed'; startedAt: number; error?: string };
+type Submission = { request: MessageRequest; status: 'sending' | 'checking' | 'failed'; startedAt: number; hadWebsite?: boolean; error?: string };
 type UploadReview = { id: string; operations: SetupOperation[]; notes: string; expectedRevision: number };
 function uploadReviewCurrency(upload: UploadReview, fallback: string) {
   const proposed = upload.operations.find(operation => operation.type === 'booking' && operation.values.currency);
@@ -252,6 +252,11 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
     if (current) {
       const saved = data.messages.find(m => m.id === current.request.operationId);
       if (current.request.expectedRevision < newSession || saved?.status === 'completed') {
+        if (current.request.expectedRevision >= newSession && saved?.status === 'completed' && current.hadWebsite === false && data.revision.document.website.config.customFrontendId) {
+          // A refresh/lost response should finish the same first-preview handoff
+          // as the original POST, without pulling an owner out of Details.
+          setTab(currentTab => currentTab === 'chat' ? 'website' : currentTab);
+        }
         messageConnection.current?.abort();
         sendLock.current = null;
         saveSubmission(null);
@@ -386,7 +391,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
     sendLock.current = request.operationId;
     const connection = new AbortController();
     messageConnection.current = connection;
-    saveSubmission({ request, status: 'sending', startedAt: Date.now() });
+    saveSubmission({ request, status: 'sending', startedAt: Date.now(), hadWebsite: Boolean(customFrontendId) });
     setPendingMessage(request.message);
     setActivity('Working on your changes…');
     setError('');

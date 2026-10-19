@@ -132,6 +132,54 @@ it('keeps Preview open when saved conversation history finishes loading after na
   expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
 });
 
+it.each([false, true])('resumes a completed generation after refresh without resending or showing stale text (had website: %s)', async (hadWebsite) => {
+  const id = crypto.randomUUID();
+  document.website.config.customFrontendId = crypto.randomUUID();
+  messages = [{ id, message: 'Create my website from this design.', reply: 'Your draft is ready.', status: 'completed' }];
+  sessionStorage.setItem('luster-message:test', JSON.stringify({ request: { operationId: id, message: messages[0]!.message, expectedRevision: 2, scope: 'website', referenceIds: [] }, status: 'checking', startedAt: Date.now(), hadWebsite }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+
+  await waitFor(() => expect(sessionStorage.getItem('luster-message:test')).toBeNull());
+
+  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', String(!hadWebsite));
+
+  if (hadWebsite) {
+    expect(screen.getByRole('textbox', { name: 'Message Luster' })).toHaveValue('');
+  }
+
+  expect(requests.filter(request => request.action === 'message')).toHaveLength(0);
+});
+
+it('preserves Details when a resumed first design completes', async () => {
+  const id = crypto.randomUUID();
+  document.website.config.customFrontendId = crypto.randomUUID();
+  messages = [{ id, message: 'Create my website.', reply: 'Your draft is ready.', status: 'completed' }];
+  sessionStorage.setItem('luster-message:test', JSON.stringify({ request: { operationId: id, message: messages[0]!.message, expectedRevision: 2, scope: 'website', referenceIds: [] }, status: 'checking', startedAt: Date.now(), hadWebsite: false }));
+  const baseFetch = globalThis.fetch;
+  let releaseHistory: () => void = () => {};
+  const history = new Promise<void>((resolve) => {
+    releaseHistory = resolve;
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.startsWith('/api/admin/business-setup?')) {
+      await history;
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Details' })).toBeEnabled());
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+  });
+  await act(async () => releaseHistory());
+
+  await waitFor(() => expect(sessionStorage.getItem('luster-message:test')).toBeNull());
+
+  expect(screen.getByRole('button', { name: 'Details' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'false');
+  expect(requests.filter(request => request.action === 'message')).toHaveLength(0);
+});
+
 it('opens the first generated preview automatically and labels suggested booking details', async () => {
   const baseFetch = globalThis.fetch;
   vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
