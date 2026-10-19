@@ -8,6 +8,7 @@ import {
   discardPreparedCanonicalProfileMediaPromotion,
   prepareCanonicalProfileMediaForPublish,
 } from '@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.server';
+import { assertFirstLaunchDesignReady } from '@/features/onboarding-v1-integration/publication-readiness.server';
 import {
   type BookingPageDraftPatch,
   bookingPageDraftPatchSchema,
@@ -144,6 +145,10 @@ async function synchronizeLifecycle(
       // A retry must never publish edits made after the first successful launch.
       if (action === 'first-publish' && existing.publicationStatus === 'published') {
         return { salon: existing, applied: false };
+      }
+
+      if (action === 'first-publish') {
+        await assertFirstLaunchDesignReady(tx, salonId);
       }
 
       const config = resolveBookingPageConfig(existing.settings);

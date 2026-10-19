@@ -1048,6 +1048,10 @@ function OnboardingIntegrationController({
     if (planInFlightRef.current || !flow.savedSite || !savedSiteVerified || !planAccountId) {
       return;
     }
+    if (!flow.mediaComplete && (flow.mediaFailures.length > 0 || flow.savedSite.media.failed > 0 || flow.savedSite.media.pending > 0)) {
+      setPlanConfirmation('Your images have not finished saving. Select Edit my site and save them before publishing.');
+      return;
+    }
     planInFlightRef.current = true;
     setPlanPending(true);
     setPlanConfirmation(null);
@@ -1110,7 +1114,7 @@ function OnboardingIntegrationController({
       setPlanPending(false);
       planInFlightRef.current = false;
     }
-  }, [flow.planIdempotencyKey, flow.savedSite, flow.selectedPlan, locale, savedSiteVerified, setFlow]);
+  }, [flow.mediaComplete, flow.mediaFailures.length, flow.planIdempotencyKey, flow.savedSite, flow.selectedPlan, locale, savedSiteVerified, setFlow]);
 
   const currentPayload = resolvePayload();
 

@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { WebsitePublishReadinessError } from '@/features/onboarding-v1-integration/publication-readiness.server';
+
 vi.mock('@/features/business-setup/manual-website.server', () => ({
   editSharedSetupWebsite: vi.fn(async () => false),
   hasEditingSetup: vi.fn(async () => false),
@@ -182,6 +184,16 @@ describe('POST /api/admin/salon/publish', () => {
   });
 
   describe('publishing a draft', () => {
+    it.each(['DESIGN_IMAGES_PENDING', 'DESIGN_PUBLICATION_UNAVAILABLE'] as const)('returns a clear409 for %s without claiming publication or audit success', async (code) => {
+      publishWebsite.mockRejectedValue(new WebsitePublishReadinessError(code, 'Your design is not ready to publish.'));
+
+      const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: { code, message: 'Your design is not ready to publish.' } });
+      expect(logAuditEvent).not.toHaveBeenCalled();
+    });
+
     it('uses the shared atomic publication lifecycle and returns original timestamps', async () => {
       const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
       const body = await response.json();

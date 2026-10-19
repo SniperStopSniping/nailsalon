@@ -1123,6 +1123,11 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
     expect(screen.getByText(/images listed earlier are still only on this device/u)).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Publish my website & open dashboard' }));
+
+    expect(await screen.findByText('Your images have not finished saving. Select Edit my site and save them before publishing.')).toBeVisible();
+    expect(mocks.savePlan).not.toHaveBeenCalled();
     expect(mocks.publish).not.toHaveBeenCalled();
   });
 });
