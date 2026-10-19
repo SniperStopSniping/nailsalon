@@ -919,7 +919,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.userState.user = verifiedClerkUser();
     mocks.status.mockResolvedValue({ claim: savedSite });
     mocks.savePlan.mockResolvedValue({ intent: 'founding_interest', siteId: savedSite.siteId });
-    mocks.publish.mockRejectedValueOnce(new Error('Your website could not be published. Your saved setup is safe. Please try again.'));
+    mocks.publish.mockRejectedValueOnce(new Error('We could not confirm that your website is live. Your saved setup is safe. Please try again.'));
     const flow = { ...createOnboardingIntegrationFlow(), phase: 'plans' as const, savedSite, savedSiteOwnerId: 'user-owner' };
     saveOnboardingIntegrationFlow(flow);
     const originalToken = loadOnboardingState().state.anonymousDraftId;
@@ -927,7 +927,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
 
-    expect(await screen.findByText('Your website could not be published. Your saved setup is safe. Please try again.')).toBeVisible();
+    expect(await screen.findByText('Your free lifetime plan is saved. We could not confirm that your website is live. Your saved setup is safe. Please try again.')).toBeVisible();
     expect(loadOnboardingState().state.anonymousDraftId).toBe(originalToken);
     expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
     expect(navigationErrors).not.toHaveBeenCalled();
@@ -940,6 +940,23 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.publish.mock.calls).toEqual([[savedSite.salonSlug], [savedSite.salonSlug]]);
     expect(mocks.savePlan.mock.calls.map(([request]) => request.idempotencyKey)).toEqual([retryKey, retryKey]);
     expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('does not claim a plan was saved when its request failed before publication', async () => {
+    const user = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    mocks.savePlan.mockRejectedValueOnce(new Error('Your plan choice could not be saved.'));
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite, savedSiteOwnerId: 'user-owner' });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
+
+    expect(await screen.findByText('Your plan choice could not be saved.')).toBeVisible();
+    expect(screen.queryByText(/Your free lifetime plan is saved/u)).not.toBeInTheDocument();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
   });
 
   it('retains the same saved site and plan retry key when dashboard navigation is interrupted', async () => {

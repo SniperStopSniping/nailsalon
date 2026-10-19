@@ -49,5 +49,6 @@ describe('FoundingSalonOffer', () => {
 
     expect(onClaim).not.toHaveBeenCalled();
     expect(screen.getByRole('status')).toHaveTextContent('Please wait while your claim is saved.');
+    expect(button).toHaveAccessibleDescription('Please wait while your claim is saved.');
   });
 });
