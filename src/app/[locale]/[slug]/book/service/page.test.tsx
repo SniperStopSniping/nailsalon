@@ -373,7 +373,25 @@ describe('Real nested route: [locale]/[slug]/layout.tsx wrapping [locale]/[slug]
   });
 
   it('opens the LIVE custom website for its signed-in owner after publication', async () => {
-    const salon = { ...DRAFT_SALON, publicationStatus: 'published' };
+    const salon = {
+      ...DRAFT_SALON,
+      publicationStatus: 'published',
+      settings: {
+        ...DRAFT_SALON.settings,
+        bookingExperience: {
+          policy: {
+            enabled: false,
+            title: null,
+            text: null,
+            showOnServicePage: false,
+            showBeforeConfirmation: false,
+            showAfterConfirmation: false,
+            showInConfirmationEmail: false,
+            acknowledgment: { required: false, text: 'Private inactive acknowledgment' },
+          },
+        },
+      },
+    };
     getResolvedSalon.mockResolvedValue(salon);
     getPublicPageContext.mockResolvedValue({ salon, appearance: { mode: 'custom', themeKey: null } });
     getAdminSession.mockResolvedValue(ownerSession());
@@ -391,7 +409,11 @@ describe('Real nested route: [locale]/[slug]/layout.tsx wrapping [locale]/[slug]
     });
     render(await SlugTenantLayout({ children: page, params: Promise.resolve({ locale: 'en', slug: SALON_SLUG }) }));
 
-    expect(customSitePayload).toHaveBeenCalledWith(SALON_ID, 'approved-public-artifact', expect.objectContaining({ preview: false }));
+    expect(customSitePayload).toHaveBeenCalledWith(SALON_ID, 'approved-public-artifact', expect.objectContaining({ preview: false }), { artworkPolicy: expect.objectContaining({ enabled: false, acknowledgment: { required: false, text: 'Private inactive acknowledgment' } }) });
+
+    const publicData = customSitePayload.mock.calls[0]![2] as { bookingRules: { policy: unknown } };
+
+    expect(publicData.bookingRules.policy).not.toHaveProperty('acknowledgment');
     expect(screen.getByTitle('Published website')).toHaveAttribute('src', 'https://isolated.example/renderer');
     expect(screen.getByRole('link', { name: 'Open booking menu' })).toHaveAttribute('href', `/en/${SALON_SLUG}/book/service?publishedWebsite=1&nativeBooking=1`);
     expect(screen.queryByTestId('owner-preview-banner')).not.toBeInTheDocument();
