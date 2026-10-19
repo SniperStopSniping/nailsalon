@@ -1059,12 +1059,14 @@ function OnboardingIntegrationController({
       ? flow.planIdempotencyKey
       : renewPlanIdempotencyKey();
     setFlow(current => ({ ...current, planIdempotencyKey, selectedPlan: intent }));
+    let savedPlanIntent: OnboardingPlanIntent | null = null;
     try {
       const result = await saveOnboardingPlanIntent({
         idempotencyKey: planIdempotencyKey,
         intent,
         siteId: flow.savedSite.siteId,
       });
+      savedPlanIntent = result.intent;
       if (accountIdRef.current !== planAccountId) {
         return;
       }
@@ -1107,9 +1109,14 @@ function OnboardingIntegrationController({
       if (error instanceof OnboardingIntegrationRequestError && error.code === 'FOUNDING_OFFER_CLOSED') {
         setPlanOfferClosed(true);
       }
-      setPlanConfirmation(error instanceof Error
+      const message = error instanceof Error
         ? error.message
-        : 'Your plan choice could not be saved. Nothing was charged.');
+        : savedPlanIntent
+          ? 'We could not confirm that your website is live. Your saved setup is safe. Please try again.'
+          : 'Your plan choice could not be saved. Nothing was charged.';
+      setPlanConfirmation(savedPlanIntent
+        ? `Your ${savedPlanIntent === 'founding_interest' ? 'free lifetime plan' : 'plan choice'} is saved. ${message}`
+        : message);
     } finally {
       setPlanPending(false);
       planInFlightRef.current = false;
