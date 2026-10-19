@@ -74,6 +74,12 @@ export const canvaModelAreasSchema = z.array(canvaAreaSchema.extend({ geometry: 
 export function canvaAreasForModel(areas: CanvaArea[]) {
   return canvaAreasSchema.parse(areas).map(area => ({ ...area, geometry: scaledGeometry(area.geometry, 0.01) }));
 }
+export const canvaPagePresentationSchema = z.object({
+  displayMode: z.enum(['poster', 'contained', 'full_width']),
+  gapAfter: z.union([z.literal(0), z.literal(8), z.literal(16)]),
+  background: z.string().regex(/^#[a-f0-9]{6}$|^transparent$/iu),
+}).strict();
+export type CanvaPagePresentation = z.infer<typeof canvaPagePresentationSchema>;
 export const canvaDesignSchema = z.object({
   version: z.literal(1),
   pages: z.array(z.object({
@@ -83,7 +89,7 @@ export const canvaDesignSchema = z.object({
     height: z.number().int().positive().max(40000),
     alt: z.string().trim().min(1).max(3000),
     // Optional additions preserve historical immutable source byte-for-byte.
-    presentation: z.object({ displayMode: z.enum(['poster', 'contained', 'full_width']), gapAfter: z.union([z.literal(0), z.literal(8), z.literal(16)]), background: z.string().regex(/^#[a-f0-9]{6}$|^transparent$/iu) }).strict().optional(),
+    presentation: canvaPagePresentationSchema.optional(),
     anchors: z.array(z.string().regex(/^[a-z][\w-]{0,70}$/iu)).max(3).optional(),
   }).strict()).min(1).max(10),
   controls: z.array(z.object({ id: z.string().regex(/^[a-z][a-z0-9_-]{0,59}$/u), afterPage: z.number().int().min(0).max(9), label: z.string().trim().min(1).max(200), action: canvaActionSchema }).strict()).max(10).optional(),

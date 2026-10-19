@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AI_REQUEST_CREDIT_LIMIT, formatAiCredits } from '@/features/ai-credits/catalog';
 import { AI_CREDITS_CHANGED } from '@/features/ai-credits/client';
 
+import type { CanvaPagePresentation } from './canva';
 import { prepareCanvaPages } from './canva-upload';
 import { CanvaAreaEditor } from './CanvaAreaEditor';
 import { CanvaArtworkQuality } from './CanvaArtworkQuality';
@@ -19,7 +20,7 @@ import type { DesignAsset } from './WebsitePhotoLibrary';
 import { WebsitePhotoLibrary } from './WebsitePhotoLibrary';
 
 type State = {
-  head: { revision: { revision: number; document: { website: { config: { customFrontendId?: string } } } } };
+  head: { revision: { revision: number; operationId?: string; document: { website: { config: { customFrontendId?: string } } } } };
   preferences: DesignBrief | null;
   payload: CustomSitePayload | null;
   rendererOrigin: string | null;
@@ -59,6 +60,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
   const replacementUploads = useRef(new Map<File, DesignAsset>());
   const replacementOperation = useRef<{ file: File; page: string; revision: number; id: string } | null>(null);
+  const layoutOperation = useRef<{ key: string; id: string } | null>(null);
   useEffect(() => {
     if (entryMode === 'upload') {
       setShowUpload(true);
@@ -180,6 +182,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   async function action(label: string, work: () => Promise<void>) {
     setBusy(label);
     setError('');
+    setReply('');
     try {
       await work();
       await onSaved();
@@ -304,6 +307,31 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       setReply(kind === 'new_design' ? 'Your new design image is saved. Add its clickable areas, then review the artwork before publishing. Your other pages and published website are unchanged.' : 'Your new image is saved with the same links. Check the artwork and links before publishing. Your published website is unchanged.');
     });
   }
+  async function saveArtworkLayout(pageIndex: number, presentation: CanvaPagePresentation) {
+    await action('Saving your image layout…', async () => {
+      const pageAssetId = state?.payload?.source.canva?.pages[pageIndex]?.assetId;
+      if (!pageAssetId) {
+        throw new Error('Open your saved design before changing its layout.');
+      }
+      const key = JSON.stringify({ revision, pageIndex, pageAssetId, presentation });
+      const operation = layoutOperation.current?.key === key ? layoutOperation.current : { key, id: crypto.randomUUID() };
+      layoutOperation.current = operation;
+      try {
+        await post({ action: 'edit_canva_layout', input: { expectedRevision: revision, operationId: operation.id, pageIndex, pageAssetId, presentation } });
+      } catch (error) {
+        // A lost response can follow a committed save. Only a receipt on the
+        // authenticated current draft proves this exact request succeeded.
+        const recovered = await fetch(endpoint, { cache: 'no-store' }).then(async (response) => {
+          const data: State = await response.json();
+          return response.ok && data.head?.revision.operationId === operation.id;
+        }).catch(() => false);
+        if (!recovered) {
+          throw error;
+        }
+      }
+      setReply('Your image layout is saved as a draft. Your image, links and booking details are unchanged. Review it before publishing.');
+    });
+  }
   const current = state?.history.find(item => item.id === artifactId);
   const previewIsCurrent = state?.head.revision.revision === revision && state?.head.revision.document.website.config.customFrontendId === artifactId;
   const sourceEditingDisabled = disabled || Boolean(busy || pending) || !previewIsCurrent;
@@ -333,7 +361,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       )}
       {state?.payload && (
         <div className="studio-preview">
-          {state.payload.source.canva && <CanvaArtworkQuality key={`quality-${state.head.revision.document.website.config.customFrontendId}`} pages={state.payload.source.canva.pages} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onReplace={replaceArtwork} />}
+          {state.payload.source.canva && <CanvaArtworkQuality key={`quality-${state.head.revision.document.website.config.customFrontendId}`} pages={state.payload.source.canva.pages} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onReplace={replaceArtwork} onSaveLayout={saveArtworkLayout} />}
           {state.payload.source.canva && reply && <p role="status">{reply}</p>}
           {state.payload.source.canva && !state.payload.source.canva.ownerReviewed && (
             <label>
@@ -713,6 +741,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                       disabled={sourceEditingDisabled || item.id === artifactId}
                       onClick={() => void action('Restoring this design as a new draft…', async () => {
                         await post({ action: 'restore', input: { expectedRevision: revision, operationId: crypto.randomUUID(), artifactId: item.id } });
+                        setReply('This saved design is restored as a draft. Your business details and published website are unchanged.');
                       })}
                     >
                       Restore as draft

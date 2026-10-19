@@ -8,7 +8,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { PDFDocument } from 'pdf-lib';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { reviewCanvaArtwork, saveCustomSource } from '@/features/custom-sites/artifacts.server';
 import * as customArtifacts from '@/features/custom-sites/artifacts.server';
@@ -17,6 +17,7 @@ import type { CanvaArea } from '@/features/custom-sites/canva';
 import { compileCanvaDesign } from '@/features/custom-sites/canva';
 import { canvaWebsiteImage } from '@/features/custom-sites/canva-assets.server';
 import { canvaDataFingerprint, canvaServiceKey } from '@/features/custom-sites/canva-data.server';
+import { editCanvaLayout } from '@/features/custom-sites/canva-layout.server';
 import { replaceCanvaPage } from '@/features/custom-sites/canva-replace.server';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { editCustomMedia } from '@/features/custom-sites/media-edit.server';
@@ -2726,5 +2727,115 @@ describe('AI clickable Canva artwork', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('shared manual Canva image layout', () => {
+  beforeEach(() => {
+    vi.stubEnv('APP_ENV', 'preview');
+    vi.stubEnv('CUSTOM_SITE_PREVIEW_PRIVATE_IMAGES', 'true');
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function artwork() {
+    const actor = await fixture();
+    const head = await openSetup(actor);
+    const png = await sharp({ create: { width: 600, height: 1400, channels: 3, background: '#f6d7e4' } }).png().toBuffer();
+    const image = await uploadCustomAsset(actor, new File([new Uint8Array(png)], 'my-design.png', { type: 'image/png' }), 'photo');
+    const source = compileCanvaDesign({
+      version: 1,
+      pages: [
+        { id: 'first-page', assetId: image.id, width: 600, height: 1400, alt: 'First artwork page', anchors: ['manual-first'], presentation: { displayMode: 'poster', background: '#f6d7e4', gapAfter: 8 } },
+        { id: 'second-page', assetId: image.id, width: 600, height: 1400, alt: 'Second use of the artwork', anchors: ['manual-second'], presentation: { displayMode: 'contained', background: 'transparent', gapAfter: 0 } },
+      ],
+      areas: [
+        { id: 'book-first', page: 0, label: 'Book Gel manicure', geometry: { x: 10, y: 80, width: 80, height: 8 }, action: { type: 'service', serviceKey: canvaServiceKey(customSiteDataFromSetup(head.revision.document).services[0]!) } },
+        { id: 'portfolio-second', page: 1, label: 'My portfolio', geometry: { x: 10, y: 20, width: 70, height: 8 }, action: { type: 'manual_link', href: 'https://example.com/portfolio' }, appearance: 'button' },
+      ],
+      controls: [{ id: 'booking-after-second', afterPage: 1, label: 'Book an appointment', action: { type: 'book' } }],
+      manualOrigin: { siteId: randomUUID(), revisionId: randomUUID(), revision: 1 },
+      manualVisibility: { hours: false, location: true },
+      visibleText: 'My original artwork',
+      notes: [],
+      ownerReviewed: false,
+      dataFingerprint: canvaDataFingerprint(customSiteDataFromSetup(head.revision.document)),
+    });
+    const saved = await saveCustomSource(actor, { source, assetIds: [image.id], expectedRevision: 2, operationId: randomUUID() });
+    const checked = await reviewCanvaArtwork(actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID() });
+    const input = { expectedRevision: checked.head.revision.revision, operationId: randomUUID(), pageIndex: 1, pageAssetId: image.id, presentation: { displayMode: 'full_width', background: '#e8daba', gapAfter: 16 } };
+    return { actor, image, input, checked };
+  }
+
+  it('edits only the selected use of an image, preserves links and native controls, and requires a new artwork review', async () => {
+    const { actor, input, checked } = await artwork();
+    const oldReview = await reviewSetup(actor);
+    // Shared editor writes deliberately mirror bookingPage.draft. Compare all
+    // other configuration, including bookingPage.live, rather than that mirror.
+    const liveConfiguration = (row: typeof schema.salonSchema.$inferSelect) => {
+      const settings = (row.settings ?? {}) as { bookingPage?: Record<string, unknown> };
+      return { ...row, updatedAt: null, settings: { ...settings, bookingPage: { ...settings.bookingPage, draft: null } } };
+    };
+    const liveBefore = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+    const assetsBefore = await database.select().from(schema.customSiteAssetSchema).where(eq(schema.customSiteAssetSchema.salonId, actor.salonId));
+    const changed = await editCanvaLayout(actor, input);
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, changed.artifactId));
+    const design = artifact!.source.canva!;
+    const original = checked.artifact.source.canva!;
+
+    expect(changed.head.revision.revision).toBe(checked.head.revision.revision + 1);
+    expect(design.pages[0]).toEqual(original.pages[0]);
+    expect(design.pages[1]).toEqual({ ...original.pages[1], presentation: input.presentation });
+    expect(design.areas).toEqual(original.areas);
+    expect(design.controls).toEqual(original.controls);
+    expect(design.manualVisibility).toEqual(original.manualVisibility);
+    expect(design.manualOrigin).toEqual(original.manualOrigin);
+    expect(design.visibleText).toBe(original.visibleText);
+    expect(design.ownerReviewed).toBe(false);
+    expect(changed.head.revision.document.business).toEqual(checked.head.revision.document.business);
+    expect(changed.head.revision.document.services).toEqual(checked.head.revision.document.services);
+    expect(changed.head.revision.document.hours).toEqual(checked.head.revision.document.hours);
+    expect(artifact!.source.css).toContain('#canva-panel-1{background:#e8daba;padding-bottom:16px}#luster-canva-page-1{max-width:none}');
+
+    const liveAfter = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(liveAfter.map(liveConfiguration)).toEqual(liveBefore.map(liveConfiguration));
+    expect((liveAfter[0]!.settings as any).bookingPage.draft.customFrontendId).toBe(changed.artifactId);
+    expect(await database.select().from(schema.customSiteAssetSchema).where(eq(schema.customSiteAssetSchema.salonId, actor.salonId))).toEqual(assetsBefore);
+    expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, actor.salonId))).toHaveLength(0);
+    expect(await database.select().from(schema.businessSetupPublicationSchema).where(eq(schema.businessSetupPublicationSchema.salonId, actor.salonId))).toHaveLength(0);
+    await expect(approveSetup(actor, oldReview.revision, oldReview.hash)).rejects.toMatchObject({ code: 'STALE' });
+  });
+
+  it('replays a lost layout response once and rejects stale changes or reuse for another layout', async () => {
+    const { actor, input } = await artwork();
+    const first = await editCanvaLayout(actor, input);
+    const second = await editCanvaLayout(actor, input);
+
+    expect(second.artifactId).toBe(first.artifactId);
+    expect(second.head.revision.revision).toBe(first.head.revision.revision);
+    expect(await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.salonId, actor.salonId))).toHaveLength(3);
+    await expect(editCanvaLayout(actor, { ...input, presentation: { ...input.presentation, background: '#111111' } })).rejects.toMatchObject({ code: 'INVALID' });
+
+    const newer = await editSetup(actor, { expectedRevision: first.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'business', values: { name: 'My later manual edit' } }] });
+
+    await expect(editCanvaLayout(actor, { ...input, operationId: randomUUID() })).rejects.toMatchObject({ code: 'STALE' });
+    expect((await openSetup(actor)).revision.revision).toBe(newer.revision.revision);
+    expect((await openSetup(actor)).revision.document.business.name).toBe('My later manual edit');
+  });
+
+  it('rejects a changed page identity, cross-salon actor, and a revoked owner without touching history', async () => {
+    const { actor, input } = await artwork();
+    const other = await fixture();
+
+    await expect(editCanvaLayout(actor, { ...input, pageAssetId: randomUUID() })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(editCanvaLayout(actor, { ...input, pageIndex: 2 })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(editCanvaLayout({ ...actor, salonId: other.salonId }, input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    await database.update(schema.adminSalonMembershipSchema).set({ role: 'technician' }).where(eq(schema.adminSalonMembershipSchema.adminId, actor.adminId));
+
+    await expect(editCanvaLayout(actor, input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.salonId, actor.salonId))).toHaveLength(2);
   });
 });

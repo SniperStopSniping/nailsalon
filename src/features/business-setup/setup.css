@@ -80,6 +80,9 @@
 .custom-design-studio details, .setup-preview > details { border-top: 1px solid var(--setup-line); padding-block: 18px; }
 .luster-setup summary { cursor: pointer; min-height: 44px; padding: 8px 0; font-size: 14px; font-weight: 600; }
 .studio-step > summary > span { display: block; margin: 2px 0 0 16px; color: var(--setup-muted); font-size: 12px; font-weight: 400; }
+.studio-image-layout { display: grid; gap: 14px; min-width: 0; margin: 12px 0 0; padding: 0; border: 0; }
+.studio-image-layout legend { margin-bottom: 12px; font-weight: 600; }
+.luster-setup .studio-image-layout input[type='color'] { height: 48px; padding: 4px; }
 .custom-design-upload { padding-block: 12px; scroll-margin-top: 20px; }
 .custom-design-upload h3 { font-size: 18px; margin-bottom: 8px; }
 .custom-design-upload > p, .studio-step form > p, .studio-hint { color: var(--setup-muted); font-size: 13px; }

@@ -356,6 +356,79 @@ it.each(['sharper', 'new_design'] as const)('retries a %s replacement with one u
   expect(writes[0]).toMatchObject({ action: 'replace_canva_page', input: { expectedRevision: 2, pageIndex: 0, ...(kind === 'new_design' ? { newDesignConfirmed: true } : { sameDesignConfirmed: true }) } });
 });
 
+it('retries a free layout edit with the same operation and replaces its success notice after restoring a design', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {} disconnect() {}
+  });
+  const source = compileCanvaDesign({ version: 1, pages: [{ assetId: 'a0000000-0000-4000-8000-000000000001', width: 279, height: 1280, alt: 'My saved design', presentation: { displayMode: 'poster', gapAfter: 0, background: 'transparent' } }], areas: [], visibleText: '', notes: [], dataFingerprint: 'a'.repeat(64), ownerReviewed: false });
+  const writes: any[] = [];
+  const onSaved = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      writes.push(JSON.parse(String(options.body)));
+      if (writes.length === 1) {
+        throw new TypeError('Connection interrupted');
+      }
+      return Response.json({ head: {} });
+    }
+    return Response.json({ head: { revision: { revision: 2, document: { website: { config: { customFrontendId: 'first' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [{ id: 'first', title: 'Current image', createdAt: '2026-10-19T12:00:00Z', assetIds: [] }, { id: 'previous', title: 'Earlier image', createdAt: '2026-10-19T11:00:00Z', assetIds: [] }], attempts: [], configured: false, rendererOrigin: null });
+  }));
+  render(<CustomDesignStudio salonSlug="test" revision={2} artifactId="first" disabled={false} aiEnabled={false} creditsEnabled onSaved={onSaved} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
+  fireEvent.click(await screen.findByText('Adjust image layout'));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Width on larger screens' }), { target: { value: 'contained' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save image layout' }));
+  await screen.findByRole('alert');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save image layout' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Save image layout' }));
+  const notice = 'Your image layout is saved as a draft. Your image, links and booking details are unchanged. Review it before publishing.';
+  await screen.findByText(notice);
+
+  expect(writes).toHaveLength(2);
+  expect(writes[0]).toEqual(writes[1]);
+  expect(writes[0]).toMatchObject({ action: 'edit_canva_layout', input: { expectedRevision: 2, pageIndex: 0, pageAssetId: source.canva!.pages[0]!.assetId, presentation: { displayMode: 'contained', gapAfter: 0, background: 'transparent' } } });
+  expect(writes[0]).not.toHaveProperty('acceptedCreditLimitMicroCad');
+
+  fireEvent.click(screen.getByText('Previous designs'));
+  fireEvent.click(within(screen.getByText('Earlier image').closest('li')!).getByRole('button', { name: 'Restore as draft' }));
+  await screen.findByText('This saved design is restored as a draft. Your business details and published website are unchanged.');
+
+  expect(screen.queryByText(notice)).not.toBeInTheDocument();
+  expect(writes[2]).toMatchObject({ action: 'restore', input: { artifactId: 'previous' } });
+});
+
+it('confirms a committed layout after a lost response by its saved operation instead of claiming failure or resubmitting', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {} disconnect() {}
+  });
+  let operationId: string | undefined;
+  let source = compileCanvaDesign({ version: 1, pages: [{ assetId: 'a0000000-0000-4000-8000-000000000001', width: 279, height: 1280, alt: 'My design', presentation: { displayMode: 'poster', gapAfter: 0, background: 'transparent' } }], areas: [], visibleText: '', notes: [], dataFingerprint: 'a'.repeat(64), ownerReviewed: false });
+  const writes: any[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      const body = JSON.parse(String(options.body));
+      writes.push(body);
+      operationId = body.input.operationId;
+      source = compileCanvaDesign({ ...source.canva!, pages: [{ ...source.canva!.pages[0]!, presentation: body.input.presentation }] });
+      throw new TypeError('Response lost after commit');
+    }
+    return Response.json({ head: { revision: { revision: operationId ? 3 : 2, operationId, document: { website: { config: { customFrontendId: operationId ? 'updated' : 'first' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: [], configured: false, rendererOrigin: null });
+  }));
+  const view = render(<div />);
+  const editor = (revision: number, artifactId: string) => <CustomDesignStudio salonSlug="test" revision={revision} artifactId={artifactId} disabled={false} aiEnabled={false} onSaved={async () => view.rerender(editor(3, 'updated'))} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />;
+  view.rerender(editor(2, 'first'));
+  fireEvent.click(await screen.findByText('Adjust image layout'));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Width on larger screens' }), { target: { value: 'contained' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save image layout' }));
+  await screen.findByText('Your image layout is saved as a draft. Your image, links and booking details are unchanged. Review it before publishing.');
+
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'Open full preview' })).toHaveAttribute('href', '/admin/business-setup/design-preview/test?revision=3');
+  expect(writes).toHaveLength(1);
+  expect(writes[0].action).toBe('edit_canva_layout');
+});
+
 it('clears a paid design prompt while loading and recovers the exact request after a lost response and refresh', async () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
   const requests: any[] = [];

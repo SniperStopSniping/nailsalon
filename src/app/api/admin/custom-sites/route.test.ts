@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), replaceCanva: vi.fn(), meter: vi.fn(), read: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), replaceCanva: vi.fn(), editLayout: vi.fn(), meter: vi.fn(), read: vi.fn() }));
 vi.mock('@/libs/DB', () => ({ db: { transaction: state.read } }));
 vi.mock('@/features/ai-credits/request-metering.server', () => ({ runWithAiCredits: state.meter }));
 vi.mock('@/features/business-setup/conversation.server', () => ({ runSetupConversation: state.business }));
@@ -12,6 +12,7 @@ vi.mock('@/features/custom-sites/artifacts.server', () => ({ saveCustomSource: s
 vi.mock('@/features/custom-sites/generate.server', () => ({ generateCustomSite: state.generate }));
 vi.mock('@/features/custom-sites/media-edit.server', async original => ({ ...await original<any>(), editCustomMedia: state.editMedia }));
 vi.mock('@/features/custom-sites/canva-replace.server', async original => ({ ...await original<any>(), replaceCanvaPage: state.replaceCanva }));
+vi.mock('@/features/custom-sites/canva-layout.server', async original => ({ ...await original<any>(), editCanvaLayout: state.editLayout }));
 vi.mock('@/features/custom-sites/assets.server', () => ({ uploadCustomAsset: state.upload }));
 vi.mock('@/features/business-setup/drafts.server', () => ({ editSetup: state.edit }));
 function request(body: unknown, origin = 'http://localhost:3197') {
@@ -157,4 +158,21 @@ it('uses bounded artwork preparation for Canva replacements without enabling AI 
   expect(state.upload).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, expect.any(File), 'reference', { artwork: true });
   expect(state.meter).not.toHaveBeenCalled();
   expect(state.generate).not.toHaveBeenCalled();
+});
+
+it('scopes appearance-only Canva controls to the owner and rejects arbitrary styling without AI or billing', async () => {
+  state.editLayout.mockResolvedValue({ head: {} });
+  const input = { expectedRevision: 7, operationId: crypto.randomUUID(), pageAssetId: crypto.randomUUID(), pageIndex: 1, presentation: { displayMode: 'contained', gapAfter: 16, background: '#f6e8ed' } };
+
+  expect((await POST(request({ action: 'edit_canva_layout', input: { ...input, salonId: 'another-business' } }))).status).toBe(400);
+  expect((await POST(request({ action: 'edit_canva_layout', input: { ...input, presentation: { ...input.presentation, background: 'url(https://evil.invalid/)' } } }))).status).toBe(400);
+  expect((await POST(request({ action: 'edit_canva_layout', input: { ...input, presentation: { ...input.presentation, css: 'body{display:none}' } } }))).status).toBe(400);
+  expect((await POST(request({ action: 'edit_canva_layout', input: { ...input, pageIndex: 10 } }))).status).toBe(400);
+  expect(state.editLayout).not.toHaveBeenCalled();
+
+  expect((await POST(request({ action: 'edit_canva_layout', input }))).status).toBe(200);
+  expect(state.editLayout).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, input);
+  expect(state.meter).not.toHaveBeenCalled();
+  expect(state.generate).not.toHaveBeenCalled();
+  expect(state.business).not.toHaveBeenCalled();
 });

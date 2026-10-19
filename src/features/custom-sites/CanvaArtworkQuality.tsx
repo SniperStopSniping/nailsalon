@@ -2,14 +2,16 @@
 
 import { useRef, useState } from 'react';
 
-import type { CanvaDesign } from './canva';
+import type { CanvaDesign, CanvaPagePresentation } from './canva';
 import { canvaImageQuality } from './canva-quality';
 import { CanvaImageQuality, CanvaUploadQuality } from './CanvaImageQuality';
+import { CanvaPageLayout } from './CanvaPageLayout';
 
-export function CanvaArtworkQuality({ pages, disabled, onReplace }: {
+export function CanvaArtworkQuality({ pages, disabled, onReplace, onSaveLayout }: {
   pages: CanvaDesign['pages'];
   disabled: boolean;
   onReplace: (pageIndex: number, file: File, kind: 'sharper' | 'new_design') => Promise<void>;
+  onSaveLayout?: (pageIndex: number, value: CanvaPagePresentation) => Promise<void>;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [selectedPage, setSelectedPage] = useState(0);
@@ -47,6 +49,7 @@ export function CanvaArtworkQuality({ pages, disabled, onReplace }: {
             <button type="button" disabled={disabled} onClick={() => choose(index, 'new_design')}>
               {pages.length > 1 ? `Replace page ${index + 1}` : 'Replace design image'}
             </button>
+            {onSaveLayout && <CanvaPageLayout value={page.presentation} pageIndex={index} multiple={pages.length > 1} disabled={disabled} onSave={onSaveLayout} />}
           </div>
         ))}
         <input
