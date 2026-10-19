@@ -460,6 +460,7 @@ test('all browser evidence runs exactly once across required independent groups'
       'Verify Booking Page business information in mobile browsers',
       'Verify Booking Page experience and flow in mobile browsers',
       'Verify Settings and Plan destinations in mobile browsers',
+      'Verify deletion recovery and keyboard review in desktop and mobile browsers',
       'Verify owner client profiles in mobile browsers',
       'Verify owner Calendar Clients and Services polish',
       'Verify SMS balances and top-up entry in desktop and mobile browsers',
@@ -476,6 +477,9 @@ test('all browser evidence runs exactly once across required independent groups'
   const evidence = job.steps.filter(step => step.name?.startsWith('Verify ') || step.name === 'Run storybook tests');
   assert.equal(evidence.length, Object.values(expected).flat().length);
   assert.equal(new Set(evidence.map(step => step.name)).size, evidence.length);
+  const deletion = evidence.find(step => step.name === 'Verify deletion recovery and keyboard review in desktop and mobile browsers');
+  assert.equal(deletion['timeout-minutes'], 5);
+  assert.equal(deletion.run, 'node node_modules/@playwright/test/cli.js test --config tests/browser/salonDeletion/playwright.config.ts --output=test-results/salon-deletion-review');
   for (const [suite, names] of Object.entries(expected)) {
     const selected = evidence.filter(step => step.if === `matrix.suite == '${suite}'`);
     assert.deepEqual(selected.map(step => step.name), names);
