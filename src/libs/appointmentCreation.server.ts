@@ -91,8 +91,10 @@ import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { CLIENT_BOOKING_BLOCKED_MESSAGE } from '@/libs/clientBookingRestriction';
 import {
+  BOOKING_TRANSACTION_RETRY_POLICY,
   type CanonicalSalonClientIdentity,
   ClientLifecycleStabilizationError,
+  isRetryableClientLifecycleError,
   type LifecycleSqlHandle,
   lockOperationalSalonClientContactWithHandle,
   lockSalonClientIdentityKeysWithHandle,
@@ -506,6 +508,13 @@ class BookingIdentityAppearedError extends Error {
   constructor() {
     super('BOOKING_IDENTITY_APPEARED');
     this.name = 'BookingIdentityAppearedError';
+  }
+}
+
+class BookingTransactionRetryExhaustedError extends Error {
+  constructor() {
+    super('BOOKING_TRANSACTION_RETRY_EXHAUSTED');
+    this.name = 'BookingTransactionRetryExhaustedError';
   }
 }
 
@@ -3987,6 +3996,8 @@ async function createAppointmentFromRequestCore(
       let expectedTerminalClientId = originalOperationalClient?.id
         ?? preliminaryCanonicalIdentity?.terminal.id
         ?? null;
+      const bookingTransactionRetry = !normalizedOriginalApptId
+        && (access.kind === 'anonymous_customer' || Boolean(directPublicBookingAttempt));
 
       for (let identityAttempt = 0; identityAttempt < 2; identityAttempt += 1) {
         try {
@@ -4118,9 +4129,12 @@ async function createAppointmentFromRequestCore(
             return access.kind === 'anonymous_customer' || normalizedBookingBasket !== null || catalogOutcome.status === 'ok'
               ? db.transaction(transaction, { isolationLevel: 'serializable' })
               : db.transaction(transaction);
-          });
+          }, {}, bookingTransactionRetry ? BOOKING_TRANSACTION_RETRY_POLICY : undefined);
         } catch (error) {
           if (!(error instanceof BookingIdentityAppearedError)) {
+            if (bookingTransactionRetry && isRetryableClientLifecycleError(error)) {
+              throw new BookingTransactionRetryExhaustedError();
+            }
             throw error;
           }
           const refreshedIdentity = await resolveCanonicalSalonClientIdentity({
@@ -5674,6 +5688,15 @@ async function createAppointmentFromRequestCore(
     bookingSucceeded = true;
     return Response.json(response, { status: 201 });
   } catch (error) {
+    if (error instanceof BookingTransactionRetryExhaustedError) {
+      return Response.json({
+        error: {
+          code: 'BOOKING_TEMPORARILY_UNAVAILABLE',
+          message: 'We could not complete your booking because of temporary database contention. Please retry this booking shortly.',
+          retryAfterSeconds: 1,
+        },
+      } satisfies ErrorResponse, { status: 503, headers: { 'Retry-After': '1' } });
+    }
     if (error instanceof ClientBookingBlockedError) {
       return Response.json({
         error: {

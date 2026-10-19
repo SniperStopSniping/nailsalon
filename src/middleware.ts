@@ -10,6 +10,7 @@ import { ADMIN_SESSION_COOKIE } from './libs/adminSessionCookie';
 import { apiPathNeedsClerkContext } from './libs/clerkApiContext';
 import { hasClerkSessionCookie } from './libs/clerkSessionCookie';
 import { getCanonicalAppOrigin } from './libs/publicUrl';
+import { hasExactRequestOrigin, shouldRequireApiRequestOrigin } from './libs/requestOriginGuard';
 import {
   ACTIVE_SALON_COOKIE,
   getSalonSlugFromHostname,
@@ -128,6 +129,22 @@ export default async function middleware(
     .map(value => value.trim())
     .filter(Boolean);
   const clerkOptions = authorizedParties.length > 0 ? { authorizedParties } : undefined;
+
+  // Check API aliases before any tenant-host rewrite or auth bypass. Encoded
+  // `/api` prefixes must receive the same origin policy as canonical paths.
+  if (shouldRequireApiRequestOrigin({
+    pathname: p,
+    method: request.method,
+    cookies: request.cookies.getAll(),
+  }) && !hasExactRequestOrigin(request)) {
+    return NextResponse.json(
+      { error: { code: 'INVALID_ORIGIN', message: 'Invalid request origin.' } },
+      {
+        status: 403,
+        headers: { 'Cache-Control': 'private, no-store, max-age=0' },
+      },
+    );
+  }
 
   // Public salon pages resolve owner drafts through getAdminSession(). Match
   // that consumer's legacy-first selection, and only ask Clerk to verify a

@@ -13,8 +13,8 @@ describe('timeZone helpers', () => {
     expect(isZonedTimeMatch(zonedTimeToUtc(valid), valid)).toBe(true);
   });
 
-  it('keeps the repeated fall-back hour as a valid, deterministic instant', () => {
-    const input = { date: '2026-11-01', time: '1:30', timeZone: 'America/Vancouver' };
+  it.each(['America/Toronto', 'America/New_York'])('keeps the repeated fall-back hour as a valid, deterministic instant in %s', (timeZone) => {
+    const input = { date: '2026-11-01', time: '1:30', timeZone };
 
     expect(isZonedTimeMatch(zonedTimeToUtc(input), input)).toBe(true);
     expect(getZonedDayBounds(input.date, input.timeZone).endOfDay.getTime() - getZonedDayBounds(input.date, input.timeZone).startOfDay.getTime() + 1).toBe(25 * 60 * 60 * 1000);

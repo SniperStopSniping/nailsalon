@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 
-import { appPath, authStatePaths, e2eConfig } from './support/config';
+import { appPath, authStatePaths, e2eConfig, e2eOrigin } from './support/config';
 
 const CLIENT_ID = 'network-risk-client';
 
@@ -121,6 +121,7 @@ async function impersonateConfiguredSalon(page: Page) {
   expect(salon?.id, 'The configured E2E salon must exist.').toBeTruthy();
 
   const impersonation = await page.request.post('/api/super-admin/impersonate', {
+    headers: { Origin: e2eOrigin },
     data: { salonId: salon.id },
   });
 
@@ -196,7 +197,7 @@ test.describe('network no-show protection owner mobile @network-no-show-protecti
       await expect(warning).toContainText('1 eligible no-show report from participating Luster salons within the past 12 months.');
       await expect(warning).toContainText('No-show protection: Warning only');
     } finally {
-      await page.request.delete('/api/super-admin/impersonate');
+      await page.request.delete('/api/super-admin/impersonate', { headers: { Origin: e2eOrigin } });
     }
   });
 
@@ -214,7 +215,7 @@ test.describe('network no-show protection owner mobile @network-no-show-protecti
         'No-show protection: Deposit after 2 eligible no-shows, when payments and booking settings allow',
       );
     } finally {
-      await page.request.delete('/api/super-admin/impersonate');
+      await page.request.delete('/api/super-admin/impersonate', { headers: { Origin: e2eOrigin } });
     }
   });
 
@@ -230,7 +231,7 @@ test.describe('network no-show protection owner mobile @network-no-show-protecti
       await expect(page.getByTestId('booking-risk-clear')).toHaveCount(0);
       await expect(page.getByTestId('booking-risk-warning')).toHaveCount(0);
     } finally {
-      await page.request.delete('/api/super-admin/impersonate');
+      await page.request.delete('/api/super-admin/impersonate', { headers: { Origin: e2eOrigin } });
     }
   });
 
@@ -258,7 +259,7 @@ test.describe('network no-show protection owner mobile @network-no-show-protecti
       await expect(protection).not.toContainText('Warn me only');
       await expect(protection).not.toContainText(/^Off$/);
     } finally {
-      await page.request.delete('/api/super-admin/impersonate');
+      await page.request.delete('/api/super-admin/impersonate', { headers: { Origin: e2eOrigin } });
     }
   });
 });

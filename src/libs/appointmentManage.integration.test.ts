@@ -19,6 +19,7 @@ import {
   getAppointmentManageDetail,
   runAppointmentManageMutation,
 } from './appointmentManage';
+import { zonedTimeToUtc } from './timeZone';
 
 vi.mock('server-only', () => ({}));
 
@@ -359,7 +360,7 @@ describe('real appointment management mutations', () => {
   it('moves an appointment using Vancouver hours while preserving booked price and service duration', async () => {
     await db.update(schema.salonSchema).set({ settings: { ...DEFAULT_SALON_SETTINGS, booking: { ...DEFAULT_SALON_SETTINGS.booking, timezone: 'America/Vancouver' } } }).where(eq(schema.salonSchema.id, SALON_ID));
     const before = await appointment();
-    const nextStart = new Date('2027-01-05T04:00:00Z'); // Monday 20:00 Vancouver; Toronto 23:00 is outside the saved hours.
+    const nextStart = zonedTimeToUtc({ date: '2027-01-04', time: '20:00', timeZone: 'America/Vancouver' });
     await mutate({ startTime: nextStart });
     const after = await appointment();
 
@@ -367,7 +368,9 @@ describe('real appointment management mutations', () => {
     expect(after.totalPrice).toBe(before.totalPrice);
     expect(after.totalDurationMinutes).toBe(before.totalDurationMinutes);
 
-    await expectManageError(mutate({ startTime: new Date('2027-01-04T15:00:00Z') }), 'APPOINTMENT_CONFLICT'); // Vancouver 07:00.
+    await expectManageError(mutate({
+      startTime: zonedTimeToUtc({ date: '2027-01-04', time: '07:00', timeZone: 'America/Vancouver' }),
+    }), 'APPOINTMENT_CONFLICT');
 
     expect((await appointment()).startTime).toEqual(nextStart);
   });

@@ -25,6 +25,7 @@ const {
   clerkInstance,
   clerkStatusHandlers,
   ownerAdminFeatureFlags,
+  localeMock,
 } = vi.hoisted(() => {
   const routerReplace = vi.fn();
   const routerPush = vi.fn();
@@ -49,7 +50,12 @@ const {
     handoffComponentSpy: vi.fn(),
     ownerTodayWorkspaceSpy: vi.fn(),
     swipeablePagesSpy: vi.fn(),
-    clerkAuth: { isLoaded: true, isSignedIn: false, sessionId: null as string | null },
+    clerkAuth: {
+      isLoaded: true,
+      isSignedIn: false as boolean | undefined,
+      sessionId: null as string | null | undefined,
+      getToken: null as null | ((options?: { skipCache?: boolean }) => Promise<string | null>),
+    },
     clerkGetToken: vi.fn(),
     clerkSignOut,
     clerkInstance: {
@@ -64,17 +70,18 @@ const {
     },
     clerkStatusHandlers,
     ownerAdminFeatureFlags: { onboardingV1IntegrationEnabled: true, aiBusinessSetupEnabled: false },
+    localeMock: { value: 'en' },
   };
 });
 
 vi.mock('@clerk/nextjs', () => ({
-  useAuth: () => ({ ...clerkAuth, getToken: clerkGetToken }),
+  useAuth: () => ({ ...clerkAuth, getToken: clerkAuth.getToken ?? clerkGetToken }),
   useClerk: () => clerkInstance,
 }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => routerMock,
-  useParams: () => ({ locale: 'en' }),
+  useParams: () => ({ locale: localeMock.value }),
   useSearchParams: () => ({
     get: searchParamGet,
     toString: () => {
@@ -255,9 +262,10 @@ vi.mock('@/components/ui/workspace-page-header', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+  localeMock.value = 'en';
   clerkInstance.status = 'loading';
   clerkStatusHandlers.clear();
-  Object.assign(clerkAuth, { isLoaded: true, isSignedIn: false, sessionId: null });
+  Object.assign(clerkAuth, { isLoaded: true, isSignedIn: false, sessionId: null, getToken: null });
   clerkGetToken.mockReset();
   ownerAdminFeatureFlags.onboardingV1IntegrationEnabled = true;
   ownerAdminFeatureFlags.aiBusinessSetupEnabled = false;
@@ -311,6 +319,9 @@ describe('AdminDashboardPage', () => {
 
     Object.assign(clerkAuth, { isLoaded: true, isSignedIn: true, sessionId: 'session_owner' });
     view.rerender(<AdminDashboardPage />);
+
+    expect(screen.getByTestId('admin-auth-loading')).toBeInTheDocument();
+
     await screen.findByTestId('owner-today-workspace');
 
     expect(clerkGetToken).toHaveBeenCalledWith({ skipCache: true });
@@ -1028,6 +1039,7 @@ describe('AdminDashboardPage', () => {
 
       if (url.startsWith('/api/admin/auth/me')) {
         return new Response(JSON.stringify({
+          activeSalonSlug: 'salon-b',
           user: {
             id: 'admin_1',
             phone: '+15555550100',
@@ -1076,6 +1088,7 @@ describe('AdminDashboardPage', () => {
 
       if (url.startsWith('/api/admin/auth/me')) {
         return new Response(JSON.stringify({
+          activeSalonSlug: 'salon-b',
           user: {
             id: 'admin_1',
             phone: '+15555550100',
@@ -1213,6 +1226,7 @@ describe('AdminDashboardPage', () => {
 
       if (url.startsWith('/api/admin/auth/me')) {
         return new Response(JSON.stringify({
+          activeSalonSlug: 'salon-b',
           user: {
             id: 'admin_1',
             phone: '+15555550100',
@@ -1570,7 +1584,7 @@ describe('AdminDashboardPage', () => {
 
     expect(notice).toHaveTextContent('Analytics isn’t included in your plan yet.');
     // The address bar must stop advertising an app that is not open.
-    expect(routerReplace).toHaveBeenCalledWith('/en/admin?salon=salon-b');
+    expect(routerReplace).toHaveBeenCalledWith('/admin?salon=salon-b');
     expect(screen.getByTestId('owner-more-workspace')).toBeInTheDocument();
     expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
       activeModal: null,
@@ -1581,7 +1595,8 @@ describe('AdminDashboardPage', () => {
     expect(screen.queryByTestId('blocked-app-notice')).not.toBeInTheDocument();
   });
 
-  it('opens the create form, not the calendar, from the New Appt quick action', async () => {
+  it.each(['en', 'fr'])('keeps calendar navigation canonical for %s and New Appt separate', async (locale) => {
+    localeMock.value = locale!;
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -1644,7 +1659,9 @@ describe('AdminDashboardPage', () => {
     // as pure state, which is what left it without a history entry.
     act(() => workspaceProps.onQuickAction?.('today-schedule'));
 
-    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=schedule');
+    const localePrefix = locale === 'en' ? '' : `/${locale}`;
+
+    expect(routerMock.push).toHaveBeenLastCalledWith(`${localePrefix}/admin?salon=salon-b&app=schedule`);
 
     searchParamGet.mockImplementation((key: string) => {
       if (key === 'salon') {
@@ -1665,20 +1682,25 @@ describe('AdminDashboardPage', () => {
   });
 
   describe('workspace URL contract', () => {
-    function mockOwnerSession(salonSlug = 'salon-b') {
+    function mockOwnerSession(salonSlug = 'salon-b', includeSecondSalon = false) {
       fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
         const url = String(input);
+        const otherSalonSlug = salonSlug === 'salon-a' ? 'salon-b' : 'salon-a';
+        const availableSalons = [
+          { id: salonSlug === 'salon-a' ? 'sal_a' : 'sal_b', slug: salonSlug, name: salonSlug === 'salon-a' ? 'Salon A' : 'Salon B', status: 'active', role: 'owner' },
+          ...(includeSecondSalon ? [{ id: otherSalonSlug === 'salon-a' ? 'sal_a' : 'sal_b', slug: otherSalonSlug, name: otherSalonSlug === 'salon-a' ? 'Salon A' : 'Salon B', status: 'active', role: 'owner' }] : []),
+        ];
 
         if (url.startsWith('/api/admin/auth/me')) {
           return new Response(JSON.stringify({
+            activeSalonSlug: salonSlug,
             user: {
               id: 'admin_1',
               name: 'Admin User',
               isSuperAdmin: false,
               impersonation: null,
-              salons: [
-                { id: 'sal_b', slug: salonSlug, name: 'Salon B', status: 'active', role: 'owner' },
-              ],
+              salons: [availableSalons[0]],
+              availableSalons,
             },
           }), { status: 200 });
         }
@@ -1698,6 +1720,324 @@ describe('AdminDashboardPage', () => {
       });
     }
 
+    function mockSelectedSalonScope(args: {
+      isSuperAdmin: boolean;
+      selectedSalon: { id: string; slug: string; name: string; status: string; role: string };
+      availableSalons: Array<{ id: string; slug: string; name: string; status: string; role: string }>;
+    }, revalidatedSelectedSalon: typeof args.selectedSalon) {
+      let authRequests = 0;
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith('/api/admin/auth/me')) {
+          authRequests += 1;
+          const selectedSalon = authRequests === 1 ? args.selectedSalon : revalidatedSelectedSalon;
+          return new Response(JSON.stringify({
+            activeSalonSlug: 'salon-a',
+            user: {
+              id: 'admin_1',
+              name: 'Admin User',
+              isSuperAdmin: args.isSuperAdmin,
+              impersonation: null,
+              salons: [selectedSalon],
+              availableSalons: args.availableSalons,
+            },
+          }), { status: 200 });
+        }
+        if (url === '/api/admin/auth/set-active-salon') {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        if (url === '/api/admin/fraud-signals') {
+          return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+        }
+        if (url === '/api/admin/settings/modules?salonSlug=salon-a') {
+          return new Response(JSON.stringify({
+            data: { modules: {}, entitledModules: {}, moduleReasons: {} },
+          }), { status: 200 });
+        }
+        throw new Error(`Unhandled fetch: ${url}`);
+      });
+    }
+
+    it('keeps the open calendar mounted while the same Clerk identity and salon scope revalidate', async () => {
+      Object.assign(clerkAuth, { isLoaded: false, isSignedIn: undefined, sessionId: undefined });
+      clerkGetToken.mockResolvedValue('current-session-token');
+      searchParamGet.mockImplementation((key: string) => key === 'salon' ? 'salon-b' : key === 'app' ? 'schedule' : null);
+      mockOwnerSession();
+      const initialFetch = fetchMock.getMockImplementation()!;
+      let finishRevalidation!: (response: Response) => void;
+      const revalidation = new Promise<Response>((resolve) => {
+        finishRevalidation = resolve;
+      });
+      let authRequests = 0;
+      fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith('/api/admin/auth/me') && ++authRequests > 1) {
+          return revalidation;
+        }
+        return initialFetch(input, init);
+      });
+
+      const view = render(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true }));
+
+      Object.assign(clerkAuth, { isLoaded: true, isSignedIn: false, sessionId: null });
+      view.rerender(<AdminDashboardPage />);
+      await waitFor(() => expect(authRequests).toBe(2));
+
+      expect(screen.queryByTestId('admin-auth-loading')).not.toBeInTheDocument();
+      expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true });
+
+      await act(async () => finishRevalidation(new Response(JSON.stringify({
+        activeSalonSlug: 'salon-b',
+        user: {
+          id: 'admin_1',
+          name: 'Admin User',
+          isSuperAdmin: false,
+          impersonation: null,
+          salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+        },
+      }), { status: 200 })));
+
+      expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true });
+    });
+
+    it.each([
+      ['a hidden selected-salon identity change', false, { id: 'sal_a_new', slug: 'salon-a', name: 'Salon A', status: 'active', role: 'owner' }],
+      ['a hidden selected-salon role change', false, { id: 'sal_a', slug: 'salon-a', name: 'Salon A', status: 'active', role: 'admin' }],
+      ['a direct super-admin selected-salon status change', true, { id: 'sal_a', slug: 'salon-a', name: 'Salon A', status: 'suspended', role: 'super_admin' }],
+    ])('fails closed when revalidation reports %s while available salon choices are unchanged', async (_change, isSuperAdmin, revalidatedSelectedSalon) => {
+      Object.assign(clerkAuth, { isLoaded: false, isSignedIn: true, sessionId: 'session_owner' });
+      clerkGetToken.mockResolvedValue('current-session-token');
+      searchParamGet.mockImplementation((key: string) => key === 'salon' ? 'salon-a' : key === 'app' ? 'schedule' : null);
+      const availableSalons = isSuperAdmin
+        ? []
+        : [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }];
+      const initialSelectedSalon = isSuperAdmin
+        ? { id: 'sal_a', slug: 'salon-a', name: 'Salon A', status: 'active', role: 'super_admin' }
+        : { id: 'sal_a', slug: 'salon-a', name: 'Salon A', status: 'active', role: 'owner' };
+      mockSelectedSalonScope({ isSuperAdmin, selectedSalon: initialSelectedSalon, availableSalons }, revalidatedSelectedSalon);
+
+      const view = render(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true }));
+
+      Object.assign(clerkAuth, { isLoaded: true });
+      view.rerender(<AdminDashboardPage />);
+
+      expect(await screen.findByText('We couldn’t connect to your account yet. Try again, or sign out and sign back in.')).toBeInTheDocument();
+      expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
+    });
+
+    it('keeps the open calendar mounted while a refreshed Clerk token function revalidates the same session', async () => {
+      Object.assign(clerkAuth, { isLoaded: true, isSignedIn: true, sessionId: 'session_owner' });
+      clerkAuth.getToken = vi.fn(async () => 'current-session-token');
+      searchParamGet.mockImplementation((key: string) => key === 'salon' ? 'salon-b' : key === 'app' ? 'schedule' : null);
+      mockOwnerSession();
+      const initialFetch = fetchMock.getMockImplementation()!;
+      let finishRevalidation!: (response: Response) => void;
+      const revalidation = new Promise<Response>((resolve) => {
+        finishRevalidation = resolve;
+      });
+      let authRequests = 0;
+      fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith('/api/admin/auth/me') && ++authRequests > 1) {
+          return revalidation;
+        }
+        return initialFetch(input, init);
+      });
+
+      const view = render(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true }));
+
+      clerkAuth.getToken = vi.fn(async () => 'current-session-token');
+      view.rerender(<AdminDashboardPage />);
+      await waitFor(() => expect(authRequests).toBe(2));
+
+      expect(screen.queryByTestId('admin-auth-loading')).not.toBeInTheDocument();
+      expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true });
+
+      await act(async () => finishRevalidation(new Response(JSON.stringify({
+        activeSalonSlug: 'salon-b',
+        user: {
+          id: 'admin_1',
+          name: 'Admin User',
+          isSuperAdmin: false,
+          impersonation: null,
+          salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+        },
+      }), { status: 200 })));
+
+      expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true });
+    });
+
+    it.each([
+      ['401', new Response('{}', { status: 401 })],
+      ['403', new Response('{}', { status: 403 })],
+      ['a changed user', new Response(JSON.stringify({ user: { id: 'admin_2', name: 'Other', isSuperAdmin: false, salons: [{ id: 'sal_b', slug: 'salon-b', role: 'owner' }] } }), { status: 200 })],
+      ['a changed active salon', new Response(JSON.stringify({ activeSalonSlug: 'salon-a', user: { id: 'admin_1', name: 'Admin User', isSuperAdmin: false, salons: [{ id: 'sal_b', slug: 'salon-b', role: 'owner' }] } }), { status: 200 })],
+      ['a changed salon-choice set', new Response(JSON.stringify({ activeSalonSlug: 'salon-b', user: { id: 'admin_1', name: 'Admin User', isSuperAdmin: false, salons: [{ id: 'sal_b', slug: 'salon-b', role: 'owner' }, { id: 'sal_c', slug: 'salon-c', role: 'owner' }] } }), { status: 200 })],
+    ])('fails closed when same-scope Clerk revalidation returns %s', async (_change, revalidationResponse) => {
+      Object.assign(clerkAuth, { isLoaded: false, isSignedIn: true, sessionId: 'session_owner' });
+      clerkGetToken.mockResolvedValue('current-session-token');
+      const includesMultipleSalons = _change === 'a changed active salon' || _change === 'a changed salon-choice set';
+      searchParamGet.mockImplementation((key: string) => key === 'salon' ? (includesMultipleSalons ? 'salon-a' : 'salon-b') : key === 'app' ? 'schedule' : null);
+      mockOwnerSession(includesMultipleSalons ? 'salon-a' : 'salon-b', includesMultipleSalons);
+      const initialFetch = fetchMock.getMockImplementation()!;
+      let authRequests = 0;
+      fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith('/api/admin/auth/me') && ++authRequests > 1) {
+          if (_change === 'a changed active salon') {
+            return new Response(JSON.stringify({
+              activeSalonSlug: null,
+              user: {
+                id: 'admin_1',
+                name: 'Admin User',
+                isSuperAdmin: false,
+                salons: [{ id: 'sal_a', slug: 'salon-a', role: 'owner' }],
+                availableSalons: [
+                  { id: 'sal_a', slug: 'salon-a', role: 'owner' },
+                  { id: 'sal_b', slug: 'salon-b', role: 'owner' },
+                ],
+              },
+            }), { status: 200 });
+          }
+          if (_change === 'a changed salon-choice set') {
+            return new Response(JSON.stringify({
+              activeSalonSlug: 'salon-a',
+              user: {
+                id: 'admin_1',
+                name: 'Admin User',
+                isSuperAdmin: false,
+                salons: [{ id: 'sal_a', slug: 'salon-a', role: 'owner' }],
+                availableSalons: [
+                  { id: 'sal_a', slug: 'salon-a', role: 'owner' },
+                  { id: 'sal_b', slug: 'salon-b', role: 'owner' },
+                  { id: 'sal_c', slug: 'salon-c', role: 'owner' },
+                ],
+              },
+            }), { status: 200 });
+          }
+          return revalidationResponse;
+        }
+        return initialFetch(input, init);
+      });
+
+      const view = render(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true }));
+      Object.assign(clerkAuth, { isLoaded: true });
+      view.rerender(<AdminDashboardPage />);
+
+      expect(await screen.findByText('We couldn’t connect to your account yet. Try again, or sign out and sign back in.')).toBeInTheDocument();
+      expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
+      expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true });
+    });
+
+    it('hides a verified workspace immediately when the Clerk session changes and ignores its stale response', async () => {
+      Object.assign(clerkAuth, { isLoaded: false, isSignedIn: false, sessionId: null });
+      clerkGetToken.mockResolvedValue('current-session-token');
+      searchParamGet.mockImplementation((key: string) => key === 'salon' ? 'salon-b' : key === 'app' ? 'schedule' : null);
+      mockOwnerSession();
+      const initialFetch = fetchMock.getMockImplementation()!;
+      let finishRevalidation!: (response: Response) => void;
+      let finishCurrentRevalidation!: (response: Response) => void;
+      const revalidation = new Promise<Response>((resolve) => {
+        finishRevalidation = resolve;
+      });
+      const currentRevalidation = new Promise<Response>((resolve) => {
+        finishCurrentRevalidation = resolve;
+      });
+      let authRequests = 0;
+      fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith('/api/admin/auth/me')) {
+          authRequests += 1;
+          if (authRequests === 2) {
+            return revalidation;
+          }
+          if (authRequests === 3) {
+            return currentRevalidation;
+          }
+        }
+        return initialFetch(input, init);
+      });
+
+      const view = render(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true }));
+      Object.assign(clerkAuth, { isLoaded: true });
+      view.rerender(<AdminDashboardPage />);
+      await waitFor(() => expect(authRequests).toBe(2));
+
+      expect(screen.queryByTestId('admin-auth-loading')).not.toBeInTheDocument();
+
+      Object.assign(clerkAuth, { isSignedIn: true, sessionId: 'different-session' });
+      view.rerender(<AdminDashboardPage />);
+
+      expect(screen.getByTestId('admin-auth-loading')).toBeInTheDocument();
+      expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
+
+      await act(async () => finishRevalidation(new Response(JSON.stringify({
+        activeSalonSlug: 'salon-b',
+        user: {
+          id: 'admin_1',
+          name: 'Admin User',
+          isSuperAdmin: false,
+          impersonation: null,
+          salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+        },
+      }), { status: 200 })));
+
+      expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
+      expect(authRequests).toBe(3);
+
+      await act(async () => finishCurrentRevalidation(new Response(JSON.stringify({
+        activeSalonSlug: 'salon-b',
+        user: {
+          id: 'admin_1',
+          name: 'Admin User',
+          isSuperAdmin: false,
+          impersonation: null,
+          salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+        },
+      }), { status: 200 })));
+      await screen.findByTestId('owner-today-workspace');
+    });
+
+    it('fails closed when same-scope Clerk revalidation times out', async () => {
+      Object.assign(clerkAuth, { isLoaded: false, isSignedIn: true, sessionId: 'session_owner' });
+      clerkGetToken.mockResolvedValue('current-session-token');
+      searchParamGet.mockImplementation((key: string) => key === 'salon' ? 'salon-b' : key === 'app' ? 'schedule' : null);
+      mockOwnerSession();
+      const initialFetch = fetchMock.getMockImplementation()!;
+      let finishRevalidation!: (response: Response) => void;
+      const revalidation = new Promise<Response>((resolve) => {
+        finishRevalidation = resolve;
+      });
+      let authRequests = 0;
+      fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).startsWith('/api/admin/auth/me') && ++authRequests > 1) {
+          return revalidation;
+        }
+        return initialFetch(input, init);
+      });
+
+      const view = render(<AdminDashboardPage />);
+      await waitFor(() => expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({ showScheduleCalendar: true }));
+      vi.useFakeTimers();
+      Object.assign(clerkAuth, { isLoaded: true });
+      view.rerender(<AdminDashboardPage />);
+      await act(async () => {});
+
+      expect(authRequests).toBe(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+      });
+
+      expect(screen.getByRole('alert')).toHaveTextContent('We can’t reach the sign-in service right now.');
+      expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
+
+      await act(async () => finishRevalidation(new Response('{}', { status: 200 })));
+
+      expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
+    });
+
     it.each(['close', 'browser Back'] as const)('returns the Today text shortcut to Today after %s', async (dismissal) => {
       mockOwnerSession();
       const view = render(<AdminDashboardPage />);
@@ -1706,7 +2046,7 @@ describe('AdminDashboardPage', () => {
       const today = ownerTodayWorkspaceSpy.mock.calls.at(-1)?.[0] as { onBuyTexts: () => void };
       act(() => today.onBuyTexts());
 
-      expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=plan-usage&view=topup&tab=today');
+      expect(routerMock.push).toHaveBeenLastCalledWith('/admin?salon=salon-b&app=plan-usage&view=topup&tab=today');
 
       const query = new URLSearchParams('salon=salon-b&app=plan-usage&view=topup&tab=today');
       searchParamGet.mockImplementation(key => query.get(key));
@@ -1723,7 +2063,7 @@ describe('AdminDashboardPage', () => {
         const host = adminModalHostSpy.mock.calls.at(-1)?.[0] as { onCloseModal: () => void };
         act(() => host.onCloseModal());
 
-        expect(routerReplace).toHaveBeenLastCalledWith('/en/admin?salon=salon-b');
+        expect(routerReplace).toHaveBeenLastCalledWith('/admin?salon=salon-b');
       }
       searchParamGet.mockImplementation(key => key === 'salon' ? 'salon-b' : null);
       view.rerender(<AdminDashboardPage />);
@@ -1817,7 +2157,7 @@ describe('AdminDashboardPage', () => {
       };
       act(() => hostProps.setShowScheduleCalendar(false));
 
-      expect(routerReplace).toHaveBeenLastCalledWith('/en/admin?salon=salon-b');
+      expect(routerReplace).toHaveBeenLastCalledWith('/admin?salon=salon-b');
     });
 
     it('keeps ?salon= on every app link even when the shell was entered without one', async () => {
@@ -1837,7 +2177,7 @@ describe('AdminDashboardPage', () => {
       // The post-sign-in landing is /admin with no ?salon=; the link an owner
       // copies still has to name the salon they are looking at
       // (AG-w2-more-tools-06).
-      expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=marketing');
+      expect(routerMock.push).toHaveBeenLastCalledWith('/admin?salon=salon-b&app=marketing');
 
       searchParamGet.mockImplementation((key: string) => {
         if (key === 'tab') {
@@ -1858,7 +2198,7 @@ describe('AdminDashboardPage', () => {
       };
       act(() => hostProps.onCloseModal());
 
-      expect(routerReplace).toHaveBeenLastCalledWith('/en/admin?salon=salon-b');
+      expect(routerReplace).toHaveBeenLastCalledWith('/admin?salon=salon-b');
     });
   });
 

@@ -48,6 +48,7 @@ import { SMS_CREDITS_CHANGED_EVENT } from '@/libs/smsCreditStatus';
 import type { AnalyticsResponse } from '@/types/admin';
 import type { RetentionStage } from '@/types/retention';
 import type { ModuleKey } from '@/types/salonPolicy';
+import { AppConfig } from '@/utils/AppConfig';
 import { cn } from '@/utils/Helpers';
 
 import { useOwnerAdminFeatureFlags } from './OwnerAdminFeatureFlags';
@@ -607,6 +608,26 @@ function AdminDashboardContent() {
 
   // Sync each selected salon/session without retriggering the auth request.
   const syncedSalonSessionRef = useRef<string | null>(null);
+  const authCheckInputsRef = useRef<{
+    authAttempt: number;
+    clerkLoaded: boolean;
+    getToken: typeof getToken;
+    isSignedIn: boolean;
+    locale: string;
+    requestedSalonSlug: string | null;
+    sessionId: string | null;
+  } | null>(null);
+  const verifiedAuthRef = useRef<{
+    activeSalonSlug: string | null;
+    authAttempt: number;
+    effectiveSalonSlug: string | null;
+    effectiveSalonFingerprint: string | null;
+    isSignedIn: boolean;
+    requestedSalonSlug: string | null;
+    salonChoicesFingerprint: string;
+    sessionId: string | null;
+    user: AdminUser;
+  } | null>(null);
 
   // Performance period controls (API-driven)
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('Weekly');
@@ -648,9 +669,43 @@ function AdminDashboardContent() {
     let cancelled = false;
     let serverAuthenticated = false;
     let settled = false;
-    setAuthLoading(true);
-    setAuthError(null);
-    setAdminUser(null);
+    const previousAuthInputs = authCheckInputsRef.current;
+    const verifiedAuth = verifiedAuthRef.current;
+    const sameAuthScope = Boolean(
+      previousAuthInputs
+      && previousAuthInputs.authAttempt === authAttempt
+      && previousAuthInputs.isSignedIn === Boolean(isSignedIn)
+      && previousAuthInputs.locale === locale
+      && previousAuthInputs.requestedSalonSlug === requestedSalonSlug
+      && previousAuthInputs.sessionId === (sessionId ?? null)
+      && verifiedAuth?.authAttempt === authAttempt
+      && verifiedAuth.isSignedIn === Boolean(isSignedIn)
+      && verifiedAuth.requestedSalonSlug === requestedSalonSlug
+      && verifiedAuth.sessionId === (sessionId ?? null),
+    );
+    const preserveVerifiedWorkspace = Boolean(
+      sameAuthScope
+      && previousAuthInputs
+      && (
+        (previousAuthInputs.clerkLoaded === false && clerkLoaded)
+        || (previousAuthInputs.clerkLoaded && clerkLoaded && previousAuthInputs.getToken !== getToken)
+      ),
+    );
+    authCheckInputsRef.current = {
+      authAttempt,
+      clerkLoaded,
+      getToken,
+      isSignedIn: Boolean(isSignedIn),
+      locale,
+      requestedSalonSlug,
+      sessionId: sessionId ?? null,
+    };
+    if (!preserveVerifiedWorkspace) {
+      verifiedAuthRef.current = null;
+      setAuthLoading(true);
+      setAuthError(null);
+      setAdminUser(null);
+    }
 
     // Never leave the owner on a bare spinner: the auth phase ends either when
     // it resolves, when Clerk reports it could not load, or on this bound.
@@ -664,6 +719,8 @@ function AdminDashboardContent() {
         return;
       }
       settleAuthPhase();
+      verifiedAuthRef.current = null;
+      setAdminUser(null);
       setAuthError(AUTH_UNREACHABLE_MESSAGE);
       setAuthLoading(false);
     };
@@ -693,14 +750,21 @@ function AdminDashboardContent() {
     }
 
     function handleAuthFailure() {
-      if (cancelled || !clerkLoaded) {
+      if (cancelled || settled) {
+        return;
+      }
+      verifiedAuthRef.current = null;
+      setAdminUser(null);
+      if (!clerkLoaded) {
         return;
       }
       if (isSignedIn) {
         // Redirecting an already signed-in owner back to sign-in can bounce
         // straight here again. Keep a bounded retry instead of a redirect loop.
         setAuthError('We couldn’t connect to your account yet. Try again, or sign out and sign back in.');
+        setAuthLoading(false);
       } else {
+        setAuthLoading(true);
         router.replace(`/${locale}/admin-login`);
       }
     }
@@ -714,7 +778,7 @@ function AdminDashboardContent() {
         // waits for Clerk readiness instead of redirecting a signing-in owner.
         if (clerkLoaded && isSignedIn) {
           const token = await getToken({ skipCache: true });
-          if (cancelled) {
+          if (cancelled || settled) {
             return;
           }
           if (!token) {
@@ -726,7 +790,7 @@ function AdminDashboardContent() {
           ? `/api/admin/auth/me?salonSlug=${encodeURIComponent(requestedSalonSlug)}`
           : '/api/admin/auth/me';
         let response = await fetch(adminMeUrl);
-        if (cancelled) {
+        if (cancelled || settled) {
           return;
         }
         // A `?salon=` deep link (an email alert, a shared appointment URL) asks
@@ -738,7 +802,7 @@ function AdminDashboardContent() {
         // is in fact valid, set the active salon from the URL and ask again.
         if (!response.ok && requestedSalonSlug && (response.status === 401 || response.status === 403)) {
           const unscoped = await fetch('/api/admin/auth/me');
-          if (cancelled) {
+          if (cancelled || settled) {
             return;
           }
           if (unscoped.ok) {
@@ -747,13 +811,13 @@ function AdminDashboardContent() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ salonSlug: requestedSalonSlug }),
             });
-            if (cancelled) {
+            if (cancelled || settled) {
               return;
             }
             if (syncResponse.ok) {
               syncedSalonSessionRef.current = `${sessionId ?? 'legacy'}:${requestedSalonSlug}`;
               response = await fetch(adminMeUrl);
-              if (cancelled) {
+              if (cancelled || settled) {
                 return;
               }
             }
@@ -773,10 +837,69 @@ function AdminDashboardContent() {
         }
         if (response.ok) {
           const data = await response.json();
-          if (cancelled) {
+          if (cancelled || settled) {
             return;
           }
           serverAuthenticated = true;
+          const effectiveSalonSlug = (
+            data.user.impersonation?.isActive
+              ? data.user.impersonation.salonSlug
+              : requestedSalonSlug
+                ?? data.user.availableSalons?.[0]?.slug
+                ?? (data.user.availableSalons ? null : data.user.salons[0]?.slug)
+                ?? null
+          )?.trim().toLowerCase() ?? null;
+          const activeSalonSlug = data.activeSalonSlug?.trim().toLowerCase() ?? null;
+          const salonChoices: AdminUser['salons'] = data.user.availableSalons ?? data.user.salons;
+          const authorizedSalons: AdminUser['salons'] = data.user.salons;
+          const effectiveSalon = effectiveSalonSlug
+            ? authorizedSalons.find(salon => salon.slug.trim().toLowerCase() === effectiveSalonSlug)
+            : null;
+          const effectiveSalonFingerprint = effectiveSalon
+            ? JSON.stringify({
+              id: effectiveSalon.id,
+              slug: effectiveSalon.slug.trim().toLowerCase(),
+              status: effectiveSalon.status ?? null,
+              role: effectiveSalon.role,
+            })
+            : null;
+          const salonChoicesFingerprint = JSON.stringify(salonChoices.map(salon => ({
+            id: salon.id,
+            slug: salon.slug.trim().toLowerCase(),
+            status: salon.status ?? null,
+            role: salon.role,
+          })));
+          if (
+            preserveVerifiedWorkspace
+            && verifiedAuth
+            && (
+              verifiedAuth.user.id !== data.user.id
+              || verifiedAuth.user.isSuperAdmin !== data.user.isSuperAdmin
+              || verifiedAuth.user.impersonation?.isActive !== data.user.impersonation?.isActive
+              || verifiedAuth.user.impersonation?.salonId !== data.user.impersonation?.salonId
+              || verifiedAuth.user.impersonation?.salonSlug !== data.user.impersonation?.salonSlug
+              || verifiedAuth.activeSalonSlug !== activeSalonSlug
+              || verifiedAuth.effectiveSalonSlug !== effectiveSalonSlug
+              || verifiedAuth.effectiveSalonFingerprint !== effectiveSalonFingerprint
+              || verifiedAuth.salonChoicesFingerprint !== salonChoicesFingerprint
+            )
+          ) {
+            verifiedAuthRef.current = null;
+            setAdminUser(null);
+            setAuthError('We couldn’t connect to your account yet. Try again, or sign out and sign back in.');
+            return;
+          }
+          verifiedAuthRef.current = {
+            activeSalonSlug,
+            authAttempt,
+            effectiveSalonFingerprint,
+            effectiveSalonSlug,
+            isSignedIn: Boolean(isSignedIn),
+            requestedSalonSlug,
+            salonChoicesFingerprint,
+            sessionId: sessionId ?? null,
+            user: data.user,
+          };
           setAdminUser(data.user);
 
           if (data.user.impersonation?.isActive) {
@@ -790,7 +913,6 @@ function AdminDashboardContent() {
           }
 
           // Keep the selector available when hidden salons need restoring.
-          const salonChoices = data.user.availableSalons ?? data.user.salons;
           if (
             !data.user.impersonation?.isActive
             && (salonChoices.length > 1 || (data.user.hiddenSalons?.length ?? 0) > 0)
@@ -1414,7 +1536,8 @@ function AdminDashboardContent() {
         qs.set('app', app);
       }
       const query = qs.toString();
-      return `/${locale}/admin${query ? `?${query}` : ''}`;
+      const localePrefix = locale === AppConfig.defaultLocale ? '' : `/${locale}`;
+      return `${localePrefix}/admin${query ? `?${query}` : ''}`;
     },
     [locale, requestedSalonSlug, activeDashboardSalonSlug, showSalonSelector],
   );

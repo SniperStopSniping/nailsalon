@@ -2,12 +2,13 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import { fingerprintBookingBasketReview, validatePublicBookingBasket, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import { buildDepositDisclosure } from '@/libs/depositPolicy';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
@@ -122,7 +123,14 @@ const SETTINGS = { bookingExperience: { policy: { enabled: false } }, booking: {
 const START = '2099-09-01T15:00:00.000Z';
 const ALL_WEEK = Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }]));
 const CLOSED_WEEK = { monday: null, tuesday: null, wednesday: null, thursday: null, friday: null, saturday: null, sunday: null };
-const contact = (lastDigit = '1') => ({ name: 'Synthetic Customer', email: `synthetic${lastDigit}@example.invalid`, phone: `416555010${lastDigit}` });
+const contact = (identity = '1') => {
+  const [areaCode, suffix] = identity.split('-');
+  return {
+    name: 'Synthetic Customer',
+    email: `synthetic${identity}@example.invalid`,
+    phone: suffix ? `${areaCode}55501${suffix}` : `41655501${identity.padStart(2, '0')}`,
+  };
+};
 let pool: pg.Pool;
 let database: ReturnType<typeof drizzle<typeof schema>>;
 let executed = 0;
@@ -133,9 +141,9 @@ const { readCustomerBookingStatus } = await import('./customerAssistant/bookingS
 const { runCustomerBookingRecoveryAction } = await import('./customerAssistant/recoveryAction.server');
 const { createAppointmentFromRequest } = await import('./appointmentCreation.server');
 
-function material(): CustomerBookingMaterial {
+function material(salonId = SALON, serviceId = SERVICE): CustomerBookingMaterial {
   return {
-    selection: { baseServiceId: SERVICE, selectedAddOns: [] },
+    selection: { baseServiceId: serviceId, selectedAddOns: [] },
     preference: { date: '2099-09-01', earliest: '10:00', latest: '17:00' },
     startTime: START,
     technicianSelection: 'any',
@@ -148,9 +156,9 @@ function material(): CustomerBookingMaterial {
       status: 'READY',
       fingerprint: 'a'.repeat(64),
       expiresAt: new Date(Date.now() + 300_000).toISOString(),
-      salon: { id: SALON, slug: SALON, name: 'Synthetic Creator Test Salon' },
+      salon: { id: salonId, slug: salonId, name: 'Synthetic Creator Test Salon' },
       location: null,
-      services: [{ id: SERVICE, name: 'Synthetic Creator Service', priceCents: 6500 }],
+      services: [{ id: serviceId, name: 'Synthetic Creator Service', priceCents: 6500 }],
       addOns: [],
       technician: { kind: 'any_artist' },
       date: '2099-09-01',
@@ -165,14 +173,25 @@ function material(): CustomerBookingMaterial {
     },
   };
 }
-async function prepare(person = contact(), value = material()) {
-  const operation = await prepareCustomerBookingOperation({ salonId: SALON, sessionId: randomUUID(), secret: SECRET, contact: person, material: value, expectedRevision: 0 });
-  return { operation, reference: customerBookingOperationReference(operation, SECRET), person };
+async function prepare(person = contact(), value = material(), salonId = value.review.salon.id) {
+  const operation = await prepareCustomerBookingOperation({ salonId, sessionId: randomUUID(), secret: SECRET, contact: person, material: value, expectedRevision: 0 });
+  return { operation, reference: customerBookingOperationReference(operation, SECRET), person, salonId, attemptId: randomUUID(), recoveryKey: randomUUID() };
 }
-async function create(prepared: Awaited<ReturnType<typeof prepare>>, executionGuard?: (tx: import('./customerAssistant/operationStore.server').CustomerBookingTransaction) => Promise<void>) {
+async function create(prepared: Awaited<ReturnType<typeof prepare>>, executionGuard?: (tx: import('./customerAssistant/operationStore.server').CustomerBookingTransaction) => Promise<void>, directAttempt = false, clientIp = '198.18.0.1') {
   const value = prepared.operation.material;
-  const request = new Request('https://app.luster.test/api/appointments', { method: 'POST', headers: { 'content-type': 'application/json', 'origin': 'https://app.luster.test' }, body: JSON.stringify({
-    salonSlug: SALON,
+  const request = new Request('https://app.luster.test/api/appointments', { method: 'POST', headers: {
+    'content-type': 'application/json',
+    'origin': 'https://app.luster.test',
+    'x-forwarded-for': clientIp,
+    ...(directAttempt
+      ? {
+          'Idempotency-Key': prepared.attemptId,
+          'X-Booking-Recovery-Key': prepared.recoveryKey,
+          'X-Booking-Attempt-Version': '2',
+        }
+      : {}),
+  }, body: JSON.stringify({
+    salonSlug: value.review.salon.slug,
     baseServiceId: value.selection.baseServiceId,
     selectedAddOns: value.selection.selectedAddOns,
     technicianId: value.technicianId ?? null,
@@ -187,7 +206,7 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>, executionGu
     expectedDepositFingerprint: value.expectedDepositFingerprint,
     catalogAcknowledgment: value.catalogAcknowledgment,
   }) });
-  return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET }, ...(executionGuard ? { executionGuard } : {}), ...(value.nextVisitOffer ? { nextVisitOffer: value.nextVisitOffer } : {}) });
+  return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: prepared.salonId, slug: value.review.salon.slug }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET }, ...(executionGuard ? { executionGuard } : {}), ...(value.nextVisitOffer ? { nextVisitOffer: value.nextVisitOffer } : {}) });
 }
 
 function createOrdinaryBrowserBooking(startTime = START, person = contact(), extra: Record<string, unknown> = {}) {
@@ -254,7 +273,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     if (!target) {
       throw new Error('Missing attested target');
     }
-    pool = new pg.Pool({ connectionString: target.connectionString, max: 10 });
+    pool = new pg.Pool({ connectionString: target.connectionString, max: 32 });
     const connection = await pool.connect();
     try {
       await attestDisposableDatabaseSession(connection, target, resolveDisposableDatabaseServerExpectation(target));
@@ -319,7 +338,7 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(56);
+    expect(executed).toBe(62);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
   });
@@ -468,9 +487,9 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     }
   });
 
-  it('rejects a skipped spring-forward wall time instead of booking another time', async () => {
-    await database.update(schema.salonSchema).set({ settings: { ...SETTINGS, booking: { ...SETTINGS.booking, timezone: 'America/Vancouver' } } }).where(eq(schema.salonSchema.id, SALON));
-    const response = await createOrdinaryBrowserBooking('2099-03-08T10:30:00.000Z', contact(), { appointmentDate: '2099-03-08', appointmentTime: '02:30' });
+  it('rejects a skipped spring-forward wall time instead of shifting it into another hour', async () => {
+    await database.update(schema.salonSchema).set({ settings: { ...SETTINGS, booking: { ...SETTINGS.booking, timezone: 'America/New_York' } } }).where(eq(schema.salonSchema.id, SALON));
+    const response = await createOrdinaryBrowserBooking('2027-03-14T06:30:00.000Z', contact(), { appointmentDate: '2027-03-14', appointmentTime: '02:30' });
 
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe('INVALID_START_TIME');
@@ -881,6 +900,70 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
   });
 
+  it('retries actual PostgreSQL 40001 and 40P01 rollbacks inside SERIALIZABLE and commits one booking', async () => {
+    const prepared = await prepare();
+    const retryableCodes: Array<'40001' | '40P01'> = ['40001', '40P01'];
+    let guardCalls = 0;
+    const response = await create(prepared, async (tx) => {
+      const code = retryableCodes.shift();
+      guardCalls += 1;
+      if (code) {
+        await tx.execute(sql.raw(`DO $$ BEGIN RAISE EXCEPTION 'synthetic retryable booking conflict' USING ERRCODE = '${code}'; END $$`));
+      }
+    }, true);
+
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+    expect(guardCalls).toBe(4);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(1);
+    expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeTruthy();
+    expect(await database.select().from(schema.publicBookingAttemptSchema).where(eq(schema.publicBookingAttemptSchema.attemptId, prepared.attemptId))).toEqual([expect.objectContaining({ salonId: SALON, state: 'succeeded' })]);
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
+    expect((await create(prepared, undefined, true)).status).toBe(200);
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns retryable 503 after eight PostgreSQL rollbacks and permits same-key recovery', async () => {
+    const prepared = await prepare();
+    let failedTransactions = 0;
+    const exhausted = await create(prepared, async (tx) => {
+      failedTransactions += 1;
+      await tx.execute(sql.raw('DO $$ BEGIN RAISE EXCEPTION \'synthetic booking serialization exhaustion\' USING ERRCODE = \'40001\'; END $$'));
+    }, true);
+    const exhaustedBody = await exhausted.json();
+
+    expect(exhausted.status, JSON.stringify(exhaustedBody)).toBe(503);
+    expect(exhausted.headers.get('retry-after')).toBe('1');
+    expect(exhaustedBody).toMatchObject({ error: { code: 'BOOKING_TEMPORARILY_UNAVAILABLE' } });
+    expect(failedTransactions).toBe(8);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(0);
+    expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeNull();
+    expect(await database.select().from(schema.publicBookingAttemptSchema).where(eq(schema.publicBookingAttemptSchema.attemptId, prepared.attemptId))).toEqual([expect.objectContaining({ salonId: SALON, state: 'in_flight', appointmentId: null })]);
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+
+    const retried = await create(prepared, undefined, true);
+
+    expect(retried.status, JSON.stringify(await retried.clone().json())).toBe(201);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeTruthy();
+    expect(await database.select().from(schema.publicBookingAttemptSchema).where(eq(schema.publicBookingAttemptSchema.attemptId, prepared.attemptId))).toEqual([expect.objectContaining({ salonId: SALON, state: 'succeeded' })]);
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry or relabel a post-commit email failure with SQLSTATE 40001', async () => {
+    const prepared = await prepare();
+    const error = Object.assign(new Error('synthetic post-commit serialization-shaped failure'), { code: '40001' });
+    sendTransactionalEmailDetailed.mockRejectedValueOnce(error);
+
+    const response = await create(prepared);
+
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeTruthy();
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
+  });
+
   it('permits only one of two different customers to claim the same slot', async () => {
     const prepared = await Promise.all([prepare(contact('1')), prepare(contact('2'))]);
     const responses = await Promise.all(prepared.map(item => create(item)));
@@ -889,6 +972,157 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     expect(results.map(result => result.status).sort()).toEqual([201, 409]);
     expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
   });
+
+  it.each([5, 10, 25])('completes five fresh rounds of %i simultaneous independent-salon bookings with stable quotes and idempotent effects', async (salonCount) => {
+    const customerIndexOffset = salonCount === 5 ? 0 : salonCount === 10 ? 25 : 75;
+    for (let round = 0; round < 5; round += 1) {
+      const roundStartedAt = performance.now();
+      const roundId = randomUUID().replaceAll('-', '').slice(0, 12);
+      const identities = Array.from({ length: salonCount }, (_, index) => {
+        const salonId = `scale-${salonCount}-${round}-${roundId}-${index}`;
+        return { salonId, serviceId: `${salonId}-service`, technicianId: `${salonId}-technician` };
+      });
+      await database.insert(schema.salonSchema).values(identities.map(({ salonId }) => ({
+        id: salonId,
+        slug: salonId,
+        name: 'Synthetic Independent Scale Salon',
+        ownerEmail: `${salonId}@example.invalid`,
+        isActive: true,
+        status: 'active',
+        publicationStatus: 'published',
+        settings: SETTINGS,
+      })));
+      await database.insert(schema.serviceSchema).values(identities.map(({ salonId, serviceId }) => ({
+        id: serviceId,
+        salonId,
+        name: 'Synthetic Scale Service',
+        category: 'manicure' as const,
+        price: 6500,
+        durationMinutes: 60,
+        isActive: true,
+      })));
+      await database.insert(schema.technicianSchema).values(identities.map(({ salonId, technicianId }) => ({
+        id: technicianId,
+        salonId,
+        name: 'Synthetic Scale Technician',
+        isActive: true,
+        weeklySchedule: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }])),
+      })));
+      await database.insert(schema.technicianServicesSchema).values(identities.map(({ serviceId, technicianId }) => ({
+        technicianId,
+        serviceId,
+        enabled: true,
+      })));
+      const seededServices = await database.select().from(schema.serviceSchema)
+        .where(inArray(schema.serviceSchema.id, identities.map(item => item.serviceId)));
+
+      expect(seededServices).toHaveLength(salonCount);
+
+      const prepared = await Promise.all(identities.map(({ salonId, serviceId, technicianId }, index) => {
+        const value = material(salonId, serviceId);
+        value.review.salon = { id: salonId, slug: salonId, name: 'Synthetic Independent Scale Salon' };
+        value.technicianSelection = 'specific';
+        value.technicianId = technicianId;
+        value.review.technician = { kind: 'specific', id: technicianId, name: 'Synthetic Scale Technician' };
+        return validatePublicBookingSelection({
+          salonId,
+          selection: value.selection,
+          technicianId,
+          readContext: { database, salonId, bookingConfig: resolveBookingConfigFromSettings(SETTINGS), now: new Date() },
+        }).then((current) => {
+          value.expectedTotalCents = current.quote.subtotalCents;
+          value.expectedBookingFinancialQuote.totalDueCents = current.quote.subtotalCents;
+          value.review.services = [{ id: serviceId, name: current.quote.baseService.name, priceCents: current.quote.baseService.priceCents }];
+          value.review.durationMinutes = current.quote.visibleDurationMinutes;
+          value.review.financial.subtotalCents = current.quote.subtotalCents;
+          value.review.financial.totalDueCents = current.quote.subtotalCents;
+          value.review.addOns = current.quote.addOns.map(addOn => ({ id: addOn.addOnId, name: addOn.name, quantity: addOn.quantity, priceCents: addOn.lineTotalCents }));
+          const customerIndex = customerIndexOffset + round * salonCount + index;
+          const areaCode = ['416', '647', '437'][Math.floor(customerIndex / 100)] ?? '416';
+          return prepare(contact(`${areaCode}-${String(customerIndex % 100).padStart(2, '0')}`), value, salonId);
+        });
+      }));
+      const directAttempts = identities.map((_, index) => index % 2 === round % 2);
+      const clientIps = identities.map((_, index) => {
+        const customerIndex = customerIndexOffset + round * salonCount + index;
+        return `198.18.${Math.floor(customerIndex / 254)}.${(customerIndex % 254) + 1}`;
+      });
+      const emailCallsBeforeFirstWave = sendTransactionalEmailDetailed.mock.calls.length;
+      const firstWaveStartedAt = performance.now();
+      const firstResponses = await Promise.all(prepared.map((item, index) => create(item, undefined, directAttempts[index], clientIps[index])));
+      const firstWaveMs = performance.now() - firstWaveStartedAt;
+      const firstResults = await Promise.all(firstResponses.map(async response => ({ status: response.status, body: await response.json() })));
+
+      expect(firstResults.every(result => result.status === 201 || (result.status === 503 && result.body?.error?.code === 'BOOKING_TEMPORARILY_UNAVAILABLE')), JSON.stringify(firstResults.map(result => ({ status: result.status, body: result.body }))))
+        .toBe(true);
+
+      const initial201s = firstResults.filter(result => result.status === 201).length;
+      const initial503s = firstResults.filter(result => result.status === 503).length;
+
+      expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(emailCallsBeforeFirstWave + initial201s * 2);
+
+      for (const index of firstResults.flatMap((result, resultIndex) => result.status === 503 ? [resultIndex] : [])) {
+        const salonId = identities[index]!.salonId;
+
+        expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, salonId))).toHaveLength(0);
+        expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, salonId))).toHaveLength(0);
+        expect((await readCustomerBookingOperation({ salonId, capability: prepared[index]!.reference.capability, secret: SECRET })).appointmentId).toBeNull();
+
+        if (directAttempts[index]) {
+          expect(await database.select().from(schema.publicBookingAttemptSchema).where(eq(schema.publicBookingAttemptSchema.attemptId, prepared[index]!.attemptId)))
+            .toEqual([expect.objectContaining({ state: 'in_flight', appointmentId: null })]);
+        }
+      }
+      let recoveryWaves = 0;
+      let recoveryAttempts = 0;
+      for (const index of firstResults.flatMap((result, resultIndex) => result.status === 503 ? [resultIndex] : [])) {
+        let recovered = firstResults[index]!;
+        for (let attempt = 0; attempt < 3 && recovered.status === 503; attempt += 1) {
+          recoveryAttempts += 1;
+          recoveryWaves = Math.max(recoveryWaves, attempt + 1);
+          const response = await create(prepared[index]!, undefined, directAttempts[index], clientIps[index]);
+          recovered = { status: response.status, body: await response.json() };
+
+          expect(recovered.status === 201 || (recovered.status === 503 && recovered.body?.error?.code === 'BOOKING_TEMPORARILY_UNAVAILABLE'), JSON.stringify(recovered.body)).toBe(true);
+        }
+        firstResults[index] = recovered;
+      }
+
+      expect(firstResults.map(result => result.status), JSON.stringify(firstResults.map(result => result.body)))
+        .toEqual(Array.from({ length: salonCount }, () => 201));
+      expect(firstResults.map(result => result.body?.data?.appointmentId).every(id => typeof id === 'string')).toBe(true);
+
+      const appointments = await database.select().from(schema.appointmentSchema).where(inArray(schema.appointmentSchema.salonId, identities.map(item => item.salonId)));
+
+      expect(appointments).toHaveLength(salonCount);
+      expect(appointments.every(row => row.totalPrice === 6500 && row.totalDurationMinutes === 60)).toBe(true);
+      expect(appointments.every(row => row.bookingTaxSnapshot?.invoiceTotalCents === 6500 && row.bookingTaxSnapshot?.currency === 'CAD')).toBe(true);
+
+      const attempts = await database.select().from(schema.publicBookingAttemptSchema).where(inArray(schema.publicBookingAttemptSchema.salonId, identities.map(item => item.salonId)));
+
+      expect(attempts).toHaveLength(directAttempts.filter(Boolean).length);
+      expect(attempts.every(row => row.state === 'succeeded' && Boolean(row.appointmentId))).toBe(true);
+
+      const salonClients = await database.select().from(schema.salonClientSchema).where(inArray(schema.salonClientSchema.salonId, identities.map(item => item.salonId)));
+
+      expect(salonClients).toHaveLength(salonCount);
+
+      const emailCallsAfterFirst = sendTransactionalEmailDetailed.mock.calls.length;
+
+      const replayResponses = await Promise.all(prepared.map((item, index) => create(item, undefined, directAttempts[index], clientIps[index])));
+      const replayResults = await Promise.all(replayResponses.map(async response => ({ status: response.status, body: await response.json() })));
+
+      expect(replayResults.map(result => result.status)).toEqual(Array.from({ length: salonCount }, () => 200));
+
+      const recoveredOperations = await Promise.all(prepared.map(item => readCustomerBookingOperation({ salonId: item.salonId, capability: item.reference.capability, secret: SECRET })));
+
+      expect(recoveredOperations.map(operation => operation.appointmentId).sort()).toEqual(firstResults.map(result => result.body.data.appointmentId).sort());
+      expect(await database.select().from(schema.appointmentSchema).where(inArray(schema.appointmentSchema.salonId, identities.map(item => item.salonId)))).toHaveLength(salonCount);
+      expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(emailCallsAfterFirst);
+
+      process.stdout.write(`SCALE_BOOKING salons=${salonCount} round=${round + 1} initial_201=${initial201s} initial_503=${initial503s} recovery_waves=${recoveryWaves} recovery_attempts=${recoveryAttempts} first_wave_ms=${firstWaveMs.toFixed(1)} total_ms=${(performance.now() - roundStartedAt).toFixed(1)}\n`);
+    }
+  }, 120_000);
 
   it.each(['default_on', 'explicit_off', 'explicit_on'] as const)('preserves canonical #245 preference %s through the actual authority', async (selection) => {
     const value = material();

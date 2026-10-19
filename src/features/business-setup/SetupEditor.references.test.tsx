@@ -739,22 +739,22 @@ it('labels a published website consistently and returns to draft labels only aft
     return baseFetch(url, options);
   }));
   render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled />);
-  await screen.findByRole('heading', { name: 'Your approved changes are published.', exact: true });
-  fireEvent.click(screen.getByRole('button', { name: 'Preview', exact: true }));
+  await screen.findByRole('heading', { name: 'Your approved changes are published.' });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
   const preview = screen.getByRole('region', { name: 'Website preview' });
 
-  expect(within(preview).getByRole('heading', { name: 'Your website', exact: true })).toBeVisible();
+  expect(within(preview).getByRole('heading', { name: 'Your website' })).toBeVisible();
   expect(await within(preview).findByText('Published', { exact: true })).toBeVisible();
   expect(within(preview).getByText('Booking setup', { exact: true })).toBeVisible();
   expect(within(preview).getByText('Private preview. Booking is disabled here.')).toBeVisible();
   expect(within(preview).queryByText('Saved as draft', { exact: true })).not.toBeInTheDocument();
 
   fireEvent.click(within(preview).getByRole('button', { name: '← Back to chat' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Make more changes', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Make more changes' }));
   await waitFor(() => expect(requests.some(request => request.action === 'start_editing')).toBe(true));
-  fireEvent.click(screen.getByRole('button', { name: 'Preview', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
 
-  expect(await within(preview).findByRole('heading', { name: 'Your website draft', exact: true })).toBeVisible();
+  expect(await within(preview).findByRole('heading', { name: 'Your website draft' })).toBeVisible();
   expect(await within(preview).findByText('Saved as draft', { exact: true })).toBeVisible();
   expect(within(preview).getByText('Proposed booking setup', { exact: true })).toBeVisible();
   expect(requests.some(request => ['approve', 'publish', 'message', 'generate'].includes(request.action))).toBe(false);

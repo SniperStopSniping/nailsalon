@@ -15,7 +15,7 @@ import {
   zonedTimeToUtc,
 } from '@/libs/timeZone';
 
-import { authStatePaths, e2eBaseUrl, e2eConfig } from './config';
+import { authStatePaths, e2eBaseUrl, e2eConfig, e2eOrigin } from './config';
 
 type AvailabilityResponse = {
   visibleSlots?: string[];
@@ -136,6 +136,7 @@ async function createAuthenticatedRequestContext(page: Page) {
   return playwrightRequest.newContext({
     baseURL: e2eBaseUrl,
     storageState,
+    extraHTTPHeaders: { Origin: e2eOrigin },
   });
 }
 
@@ -551,6 +552,7 @@ export async function cancelAppointmentViaApi(appointmentId: string) {
   const requestContext = await playwrightRequest.newContext({
     baseURL: e2eBaseUrl,
     storageState: authStatePaths.staff,
+    extraHTTPHeaders: { Origin: e2eOrigin },
   });
 
   try {

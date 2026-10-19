@@ -32,6 +32,7 @@ import {
   appPath,
   authStatePaths,
   e2eConfig,
+  e2eOrigin,
   usingExternalBaseUrl,
 } from './support/config';
 
@@ -2286,6 +2287,7 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
 
       try {
         const impersonation = await context.request.post('/api/super-admin/impersonate', {
+          headers: { Origin: e2eOrigin },
           data: { salonId: SYNTHETIC_SALON_ID },
         });
 
@@ -2799,7 +2801,9 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
         await expectNoHorizontalOverflow(page);
       } finally {
         if (impersonating) {
-          const stopImpersonation = await context.request.delete('/api/super-admin/impersonate');
+          const stopImpersonation = await context.request.delete('/api/super-admin/impersonate', {
+            headers: { Origin: e2eOrigin },
+          });
 
           expect(stopImpersonation.ok(), await stopImpersonation.text()).toBe(true);
         }
@@ -2931,6 +2935,7 @@ test('scriptless embedded and dialog previews remain visible across mobile and z
 
       try {
         const impersonation = await context.request.post('/api/super-admin/impersonate', {
+          headers: { Origin: e2eOrigin },
           data: { salonId: SYNTHETIC_SALON_ID },
         });
 
@@ -3017,7 +3022,9 @@ test('scriptless embedded and dialog previews remain visible across mobile and z
         await expectNoHorizontalOverflow(page);
       } finally {
         if (impersonating) {
-          const stopImpersonation = await context.request.delete('/api/super-admin/impersonate');
+          const stopImpersonation = await context.request.delete('/api/super-admin/impersonate', {
+            headers: { Origin: e2eOrigin },
+          });
 
           expect(stopImpersonation.ok(), await stopImpersonation.text()).toBe(true);
         }
@@ -4188,6 +4195,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
 
       try {
         const impersonation = await context.request.post('/api/super-admin/impersonate', {
+          headers: { Origin: e2eOrigin },
           data: { salonId: SYNTHETIC_SALON_ID },
         });
 
@@ -4622,7 +4630,9 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
       } finally {
         try {
           if (impersonating) {
-            const stopImpersonating = await context.request.delete('/api/super-admin/impersonate');
+            const stopImpersonating = await context.request.delete('/api/super-admin/impersonate', {
+              headers: { Origin: e2eOrigin },
+            });
 
             expect(stopImpersonating.ok(), await stopImpersonating.text()).toBe(true);
           }
