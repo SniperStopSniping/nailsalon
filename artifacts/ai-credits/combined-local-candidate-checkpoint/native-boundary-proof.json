@@ -1,0 +1,52 @@
+{
+  "passed": true,
+  "sourceSha": "f481debeaea9a1d6adf1352a061f723f4fdf5310",
+  "genuineStoredBrowserSession": true,
+  "browserSdkRefreshedSession": true,
+  "initialStoredCookieStatus": 401,
+  "readChecks": [
+    {
+      "kind": "own",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "kind": "own",
+      "path": "/api/admin/custom-sites",
+      "status": 200
+    },
+    {
+      "kind": "other",
+      "path": "/api/admin/business-setup",
+      "status": 403
+    },
+    {
+      "kind": "other",
+      "path": "/api/admin/custom-sites",
+      "status": 403
+    }
+  ],
+  "originChecks": [
+    {
+      "origin": "missing",
+      "status": 403,
+      "code": "INVALID_ORIGIN"
+    },
+    {
+      "origin": "null",
+      "status": 403,
+      "code": "INVALID_ORIGIN"
+    },
+    {
+      "origin": "https://attacker.invalid",
+      "status": 403,
+      "code": "INVALID_ORIGIN"
+    }
+  ],
+  "otherTenantDataReturned": false,
+  "workspaceHeadsUnchanged": true,
+  "invalidActionUsedToAvoidDomainMutationIfBoundaryFails": true,
+  "modelCalls": 0,
+  "productionChanged": false,
+  "hostedDeployment": false
+}

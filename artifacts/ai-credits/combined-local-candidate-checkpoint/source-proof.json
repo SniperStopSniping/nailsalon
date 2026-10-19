@@ -1,0 +1,40 @@
+{
+  "applicationSourceSha": "f481debeaea9a1d6adf1352a061f723f4fdf5310",
+  "sourceCompositionCommit": "2afb6c277e4fcbb452230a25ac74dccddf05bca8",
+  "originMainVerifiedByFetch": "8265697f041e1f6e3adc6462dabef8ba3523384c",
+  "aiCheckpoint": "10bf877e539f47cd8fb57b2ef12fb9b5779534d4",
+  "auditedSource": "e65fb5164af91311f54eb61bdf48dc357003fd12",
+  "localCandidateBranch": "codex/ai-release-integration-20261019",
+  "dependencyManifestBlob": "8c510528ccff7fa01b70bb29cb42dd6a32452ac2",
+  "dependencyLockBlob": "f9473055446d79e1ccce710cd0924b3a677c5844",
+  "installedVersions": {
+    "node": "24.19.0",
+    "next": "15.5.28",
+    "sentryNextjs": "10.76.2",
+    "postcss": "8.5.30",
+    "acorn": "8.18.0",
+    "parse5": "7.3.0",
+    "pdfLib": "1.17.1",
+    "pdfjs": "6.4.299",
+    "tldts": "6.1.52"
+  },
+  "dependencyRootProblems": 0,
+  "exactDependencyPairGateRetained": true,
+  "manualCanvaReview": {
+    "comparisonCommit": "d3f3b3986dcc8588905e78fdebfcac30dc822034",
+    "reusedCore": [
+      "ActionEditor.tsx",
+      "CustomDesignImageManager.tsx",
+      "HotspotEditor.tsx"
+    ],
+    "newerCandidateFeatures": [
+      "AI third choice plus manual full-website fallback",
+      "Size/background controls and export-size guidance"
+    ],
+    "olderBranchNotBlindlyMerged": true
+  },
+  "noHostedConfigurationWrites": true,
+  "noHostedMigration": true,
+  "noPushOrPrUpdate": true,
+  "noProductionBranchMergeOrDeployment": true
+}
