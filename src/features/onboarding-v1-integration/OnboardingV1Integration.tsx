@@ -1008,7 +1008,7 @@ function OnboardingIntegrationController({
         errorMessage: describeSnapshotValidationFailure(error)?.message
           ?? (error instanceof Error && error.message.trim()
             ? error.message
-            : 'Those photos still could not be saved. Your local copies are safe.'),
+            : 'Those images still could not be saved. Your local copies are safe.'),
         phase: 'media_failure',
       }));
     } finally {
@@ -1303,7 +1303,7 @@ function OnboardingIntegrationController({
               }}
             />
           )
-        : <IntegrationFailure message="Your photos could not be verified yet." onReturn={returnToReview} onRetry={retryCoreSave} />;
+        : <IntegrationFailure message="Your images could not be verified yet." onReturn={returnToReview} onRetry={retryCoreSave} />;
     case 'plans':
       return flow.savedSite
         ? (
@@ -1391,7 +1391,7 @@ function SavingScreen({ mediaCount, salonName, step }: {
   const message = step === 'core'
     ? 'Saving your site…'
     : step === 'media' && mediaCount > 0
-      ? `Uploading ${mediaCount} ${mediaCount === 1 ? 'photo' : 'photos'}…`
+      ? `Uploading ${mediaCount} ${mediaCount === 1 ? 'image' : 'images'}…`
       : `Finalizing ${salonName}…`;
   return (
     <OwnerSurface modifier="is-centred">
@@ -1402,7 +1402,7 @@ function SavingScreen({ mediaCount, salonName, step }: {
         <p>Your work remains safe on this device until Luster confirms every step.</p>
         <div className="onboarding-saving-steps" aria-hidden="true">
           <span className={step === 'core' ? 'is-current' : 'is-complete'}>Website</span>
-          <span className={step === 'media' ? 'is-current' : step === 'finalizing' ? 'is-complete' : ''}>Photos</span>
+          <span className={step === 'media' ? 'is-current' : step === 'finalizing' ? 'is-complete' : ''}>Images</span>
           <span className={step === 'finalizing' ? 'is-current' : ''}>Final details</span>
         </div>
       </section>
@@ -1460,10 +1460,10 @@ function MediaFailureScreen({
         <span className="onboarding-integration-state-icon is-attention" aria-hidden="true">
           <CloudUpload size={28} />
         </span>
-        <p className="onboarding-integration-eyebrow">Website saved</p>
-        <h1>Some photos still need attention</h1>
-        <p>Your website details are saved. These local photos have not been confirmed for other devices yet.</p>
-        <ul className="onboarding-media-failures" aria-label="Photos that still need attention">
+        <p className="onboarding-integration-eyebrow">Details saved · images pending</p>
+        <h1>Some images still need saving</h1>
+        <p>Your website details are saved as a private draft. These images are still only on this device. Retry before switching devices.</p>
+        <ul className="onboarding-media-failures" aria-label="Images that still need saving">
           {failures.map(failure => (
             <li key={`${failure.role}:${failure.assetId}`}>
               <strong>{failure.fileName}</strong>
@@ -1473,10 +1473,10 @@ function MediaFailureScreen({
         </ul>
         <div className="onboarding-integration-action-stack">
           <button className="onboarding-integration-primary" type="button" onClick={onRetry}>
-            Retry photos
+            Retry images
           </button>
           <button className="onboarding-integration-secondary" type="button" onClick={onContinue}>
-            Continue with my site saved
+            Continue with saved details
           </button>
         </div>
       </section>
@@ -1501,7 +1501,7 @@ function ConflictScreen({
     return (
       <OwnerSurface modifier="is-centred">
         <section className="onboarding-integration-state-card is-wide">
-          <p className="onboarding-integration-eyebrow">Choose a workspace</p>
+          <p className="onboarding-integration-eyebrow">Choose your business</p>
           <h1>Where should we save this site?</h1>
           <p>
             Signed in as
@@ -1644,7 +1644,7 @@ function SavedProgressConfirmation({
           {!mediaComplete
             ? (
                 <p className="onboarding-saved-media-note">
-                  Your website details are saved. The photos listed earlier remain only on this device until you retry them.
+                  Your website details are saved. The images listed earlier are still only on this device. Return to retry them before switching devices.
                 </p>
               )
             : null}
@@ -1749,7 +1749,7 @@ function PlanSelection({
     >
       <div className="luster-offer-saved-details">
         {!mediaComplete && (
-          <p role="status">Your website details are saved. The photos listed earlier remain only on this device until you retry them.</p>
+          <p role="status">Your website details are saved. The images listed earlier are still only on this device. Return to retry them before switching devices.</p>
         )}
         {!!savedSite.preservedDashboardEdits?.length && (
           <p role="status" data-testid="onboarding-preserved-edits">
