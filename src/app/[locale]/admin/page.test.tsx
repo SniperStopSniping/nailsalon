@@ -294,6 +294,7 @@ describe('AdminDashboardPage', () => {
       await screen.findByTestId('owner-today-workspace');
 
       expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me?salonSlug=salon-b');
+      expect(screen.queryByTestId('salon-access-fallback-notice')).not.toBeInTheDocument();
 
       const expectedSyncCount = activeSalonSlug === 'salon-b' ? 0 : 1;
 
@@ -301,6 +302,90 @@ describe('AdminDashboardPage', () => {
       expect(routerRefresh).toHaveBeenCalledTimes(expectedSyncCount);
     },
   );
+
+  it('keeps the cross-salon fallback notice visible while the owner workspace loads', async () => {
+    let requestedSalon: string | null = 'salon-b';
+    searchParamGet.mockImplementation(key => key === 'salon' ? requestedSalon : null);
+    routerReplace.mockImplementation((path: string) => {
+      if (path === '/en/admin') {
+        requestedSalon = null;
+      }
+    });
+    Object.assign(clerkAuth, { isSignedIn: true, sessionId: 'session_owner' });
+    clerkGetToken.mockResolvedValue('current-session-token');
+
+    let finishModules!: (response: Response) => void;
+    const modules = new Promise<Response>((resolve) => {
+      finishModules = resolve;
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/admin/auth/me?salonSlug=salon-b') {
+        return new Response(JSON.stringify({ error: 'You do not have access to this salon' }), { status: 403 });
+      }
+      if (url === '/api/admin/auth/me') {
+        return new Response(JSON.stringify({
+          activeSalonSlug: 'salon-a',
+          user: {
+            id: 'admin_1',
+            name: 'Owner',
+            isSuperAdmin: false,
+            impersonation: null,
+            salons: [{ id: 'sal_a', slug: 'salon-a', name: 'Salon A', status: 'active', role: 'owner' }],
+          },
+        }));
+      }
+      if (url === '/api/admin/auth/set-active-salon') {
+        return new Response(JSON.stringify({ error: 'You do not have access to this salon' }), { status: 403 });
+      }
+      if (url === '/api/admin/settings/modules?salonSlug=salon-a') {
+        return modules;
+      }
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }));
+      }
+      if (url.startsWith('/api/admin/appointments?salonSlug=salon-a')) {
+        return new Response(JSON.stringify({ data: { appointments: [], schedule: { technicians: [] } } }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    const view = render(<AdminDashboardPage />);
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith('/en/admin'));
+    view.rerender(<AdminDashboardPage />);
+    await screen.findByTestId('owner-today-workspace');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/settings/modules?salonSlug=salon-a'));
+
+    const notice = screen.getByTestId('salon-access-fallback-notice');
+
+    expect(notice).toHaveTextContent('That link points to a salon this account cannot open. Showing your own workspace instead.');
+
+    await act(async () => {
+      finishModules(new Response(JSON.stringify({
+        data: {
+          modules: { analyticsDashboard: true },
+          entitledModules: { analyticsDashboard: true },
+          moduleReasons: { analyticsDashboard: 'ENABLED' },
+        },
+      })));
+    });
+
+    expect(screen.getByTestId('salon-access-fallback-notice')).toHaveTextContent('That link points to a salon this account cannot open. Showing your own workspace instead.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss salon access notice' }));
+
+    expect(screen.queryByTestId('salon-access-fallback-notice')).not.toBeInTheDocument();
+
+    requestedSalon = 'salon-b';
+    view.rerender(<AdminDashboardPage />);
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByTestId('salon-access-fallback-notice')).toBeInTheDocument();
+
+    Object.assign(clerkAuth, { sessionId: 'replacement_session' });
+    view.rerender(<AdminDashboardPage />);
+    await waitFor(() => expect(screen.queryByTestId('salon-access-fallback-notice')).not.toBeInTheDocument());
+  });
 
   it('revalidates the account when Clerk becomes ready without re-saving the same salon cookie', async () => {
     clerkAuth.isLoaded = false;

@@ -374,6 +374,31 @@ function AdminDashboardContent() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authAttempt, setAuthAttempt] = useState(0);
   const [showSalonSelector, setShowSalonSelector] = useState(false);
+  const [salonAccessNotice, setSalonAccessNotice] = useState<string | null>(null);
+  const accessNoticeSessionRef = useRef({
+    sessionId: sessionId ?? null,
+    isSignedIn: Boolean(isSignedIn),
+  });
+
+  useEffect(() => {
+    const previousSession = accessNoticeSessionRef.current;
+    const currentSessionId = sessionId ?? null;
+    const currentIsSignedIn = Boolean(isSignedIn);
+    const sessionWasReplaced = Boolean(
+      previousSession.sessionId
+      && currentSessionId
+      && previousSession.sessionId !== currentSessionId,
+    );
+
+    if (sessionWasReplaced || (previousSession.isSignedIn && !currentIsSignedIn)) {
+      setSalonAccessNotice(null);
+    }
+
+    accessNoticeSessionRef.current = {
+      sessionId: currentSessionId ?? (currentIsSignedIn ? previousSession.sessionId : null),
+      isSignedIn: currentIsSignedIn,
+    };
+  }, [isSignedIn, sessionId]);
 
   // Dashboard data state
   const [data, setData] = useState<DashboardData>(getEmptyDashboardData);
@@ -826,7 +851,7 @@ function AdminDashboardContent() {
               // salon. Keep the owner in the workspace on the salon they can
               // reach and say why, instead of sending them to sign-in.
               response = unscoped;
-              setNonBlockingMessage(
+              setSalonAccessNotice(
                 'That link points to a salon this account cannot open. Showing your own workspace instead.',
               );
               // Drop the unreachable slug so every scoped request below resolves
@@ -2162,6 +2187,24 @@ function AdminDashboardContent() {
         {error && (
           <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 p-3">
             <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
+
+        {salonAccessNotice && (
+          <div
+            className="mx-4 mt-2 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"
+            data-testid="salon-access-fallback-notice"
+            role="status"
+          >
+            <p className="flex-1 text-sm text-amber-700">{salonAccessNotice}</p>
+            <button
+              type="button"
+              aria-label="Dismiss salon access notice"
+              className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-amber-900 underline underline-offset-2"
+              onClick={() => setSalonAccessNotice(null)}
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
