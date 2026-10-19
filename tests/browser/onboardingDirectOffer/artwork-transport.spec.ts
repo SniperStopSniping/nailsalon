@@ -3,7 +3,9 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import sharp from 'sharp';
 
-const root = path.resolve(__dirname, '../../..');
+const root = process.env.ONBOARDING_DIRECT_OFFER_REPOSITORY
+  ? path.resolve(process.env.ONBOARDING_DIRECT_OFFER_REPOSITORY)
+  : path.resolve(__dirname, '../../..');
 const documentStorageKey = 'luster:site-builder-v2-booking-integration-lab:document:v1';
 
 const artwork = async (name: string, width: number, height: number) => {
@@ -52,7 +54,21 @@ for (const [name, width, height, displayMode, displayLabel] of [
 
     await expect(dialog).toBeVisible();
 
-    await dialog.getByLabel('Choose images', { exact: true }).setInputFiles({ name: `${name}.png`, mimeType: 'image/png', buffer });
+    const uploadInput = dialog.getByLabel('Choose images', { exact: true });
+    const editorFailure = dialog.getByRole('alert');
+
+    await expect.poll(async () => {
+      if (await editorFailure.isVisible().catch(() => false)) {
+        return `editor-error: ${(await editorFailure.textContent())?.trim() ?? ''}`;
+      }
+
+      return await uploadInput.count() > 0 ? 'ready' : 'loading';
+    }, {
+      message: 'The deferred artwork editor should load before image upload.',
+      timeout: 15_000,
+    }).toBe('ready');
+
+    await uploadInput.setInputFiles({ name: `${name}.png`, mimeType: 'image/png', buffer });
     await dialog.getByRole('button', { name: 'Add clickable links', exact: true }).click();
     await page.getByRole('button', { name: 'Instagram', exact: true }).click();
     await page.getByRole('textbox', { name: 'Instagram username' }).fill('@manual.test.studio');
