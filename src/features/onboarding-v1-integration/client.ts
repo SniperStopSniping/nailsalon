@@ -233,3 +233,18 @@ export const saveOnboardingPlanIntent = async (
   }
   return body.data;
 };
+
+/** Prepare the saved manual design for exact review without calling AI. */
+export async function prepareOnboardingCanva(request: { siteId: string; expectedRevision: number }, options: { fetcher?: typeof fetch } = {}) {
+  let response: Response;
+  try {
+    response = await (options.fetcher ?? fetch)('/api/onboarding/v1/canva-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+  } catch {
+    throw new OnboardingIntegrationRequestError('We could not confirm your design is ready for review. Your saved setup is safe. Please try again.', { status: 0 });
+  }
+  const body = await readJson<DataEnvelope<{ salonSlug: string; revision: number }> & ErrorEnvelope>(response);
+  if (!response.ok || !body?.data || !normalizeSalonSlug(body.data.salonSlug) || !Number.isInteger(body.data.revision) || body.data.revision < 1) {
+    throw new OnboardingIntegrationRequestError(ownerMessage(body, 'We could not open your design for review. Your saved setup is safe. Please try again.'), { code: typeof body?.error?.code === 'string' ? body.error.code : undefined, status: response.status });
+  }
+  return body.data;
+}

@@ -117,6 +117,9 @@ export function validateCustomSource(raw: unknown, allowedImageIds: Set<string>,
       if (attr.name === 'data-luster-booking-policy' && attr.value === '' && ['section', 'article', 'aside', 'div'].includes(node.tagName ?? '')) {
         continue;
       }
+      if (attr.name === 'data-luster-canva-control' && ['a', 'button'].includes(node.tagName ?? '') && source.canva?.controls?.some(control => control.id === attr.value)) {
+        continue;
+      }
       if (attr.name === 'data-luster-canva-area' && ['a', 'button'].includes(node.tagName ?? '') && source.canva?.areas.some(area => area.id === attr.value)) {
         continue;
       }

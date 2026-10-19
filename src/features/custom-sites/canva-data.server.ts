@@ -40,7 +40,7 @@ export function canvaDraftBlockers(document: SetupDocument, source: CustomSiteSo
   ];
 }
 export function canvaTargetBlockers(source: CustomSiteSource, data: CustomSiteData) {
-  return (source.canva?.areas ?? []).flatMap(({ label, action }) => {
+  return [...source.canva?.areas ?? [], ...source.canva?.controls ?? []].flatMap(({ label, action }) => {
     if (action.type === 'service' && data.services.filter(service => canvaServiceKey(service) === action.serviceKey).length !== 1) {
       return [`Choose the current service for “${label}” in Preview.`];
     }

@@ -110,7 +110,7 @@ export function CanvaAreaEditor({ payload, endpoint, disabled, onSave, onReview,
     <details className="studio-step" open={open} onToggle={event => onOpenChange(event.currentTarget.open)}>
       <summary>Check Canva links & artwork</summary>
       <p>Your artwork stays unchanged. Select a highlighted area to change its link. Drag it, use the arrow keys, or enter its position below. Changes to printed text or photos are made in Canva, then uploaded again.</p>
-      {design.pages.map((page, index) => <AreaPage key={page.assetId} page={page} index={index} areas={design.areas} endpoint={endpoint} disabled={disabled} selected={selected} onSelect={setSelected} onChange={(id, geometry) => change(design.areas.map(item => item.id === id ? { ...item, geometry } : item))} />)}
+      {design.pages.map((page, index) => <AreaPage key={page.id ?? page.assetId} page={page} index={index} areas={design.areas} endpoint={endpoint} disabled={disabled} selected={selected} onSelect={setSelected} onChange={(id, geometry) => change(design.areas.map(item => item.id === id ? { ...item, geometry } : item))} />)}
       <fieldset disabled={disabled}>
         <legend>Links in your design</legend>
         <label>
@@ -155,6 +155,7 @@ export function CanvaAreaEditor({ payload, endpoint, disabled, onSave, onReview,
                 <option value="email">My email</option>
                 <option value="phone">Call my number</option>
                 <option value="website">Website link</option>
+                {area.action.type === 'manual_link' && <option value="manual_link">My saved design link</option>}
                 {Object.entries(payload.serviceKeys ?? {}).map(([key, id]) => (
                   <option key={key} value={`service:${key}`}>
                     Book
@@ -164,6 +165,12 @@ export function CanvaAreaEditor({ payload, endpoint, disabled, onSave, onReview,
                 {area.action.type === 'service' && !payload.serviceKeys?.[area.action.serviceKey] && <option value={`service:${area.action.serviceKey}`}>Service changed · choose again</option>}
               </select>
             </label>
+            {area.action.type === 'manual_link' && (
+              <label>
+                Saved link destination
+                <input value={area.action.href} maxLength={2048} onChange={event => update({ action: { type: 'manual_link', href: event.target.value } })} />
+              </label>
+            )}
             {area.action.type === 'website' && (
               <label>
                 HTTPS website address

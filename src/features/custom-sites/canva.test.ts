@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -241,4 +241,16 @@ describe('preserved Canva artwork', () => {
 
     expect(canvaTargetBlockers(compileCanvaDesign(input), data)[0]).toContain('instagram');
   });
+});
+
+it('keeps the historical Canva compiler HTML and CSS byte-identical across the manual renderer extension', () => {
+  const original: CanvaDesign = { version: 1, pages: [{ assetId: 'a0000000-0000-4000-8000-000000000001', width: 600, height: 1800, alt: 'Original artwork' }], areas: [{ id: 'booking', page: 0, label: 'Book now', geometry: { x: 10, y: 60, width: 80, height: 10 }, action: { type: 'book' } }], visibleText: '', notes: [], dataFingerprint: 'a'.repeat(64), ownerReviewed: true };
+  const cases = [original, { ...original, pages: [...original.pages, { ...original.pages[0]!, assetId: 'a0000000-0000-4000-8000-000000000002', width: 1200, height: 600 }] }];
+  // Captured and compared against the real 7fd5642b compiler before this change.
+  const expected = ['1e63af6643e03a0ce46af80523dc2435f257a4923fc1c84957fb1bb73e602c4e', '23a3c96548ec7a756d15c259c31b75c78873cd8b866ced64f68030efa33cbbd4'];
+
+  expect(cases.map((input) => {
+    const source = compileCanvaDesign(input);
+    return createHash('sha256').update(JSON.stringify([source.html, source.css])).digest('hex');
+  })).toEqual(expected);
 });

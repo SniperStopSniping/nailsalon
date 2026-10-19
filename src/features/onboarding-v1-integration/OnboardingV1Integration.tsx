@@ -63,6 +63,7 @@ import {
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
   OnboardingIntegrationRequestError,
+  prepareOnboardingCanva,
   saveOnboardingPlanIntent,
 } from './client';
 import { continuationTargetForSavedSite } from './continuation-target';
@@ -932,6 +933,10 @@ function OnboardingIntegrationController({
   }, [accountReady, authSettled, claim, isSignedIn, locale, setFlow]);
 
   const returnToReview = useCallback(() => {
+    if (flow.savedSite?.manualSetupLinked) {
+      window.location.assign(`/${locale}/admin/business-setup?salon=${encodeURIComponent(flow.savedSite.salonSlug)}&mode=manual`);
+      return;
+    }
     setConflict(null);
     const loaded = loadOnboardingState();
     if (snapshotFixScreen) {
@@ -948,7 +953,7 @@ function OnboardingIntegrationController({
     }
     setFlow(current => ({ ...current, errorCode: null, errorMessage: null, phase: 'onboarding' }));
     window.history.replaceState({}, '', getOnboardingIntegrationRoute(locale));
-  }, [locale, setFlow, snapshotFixScreen]);
+  }, [flow.savedSite, locale, setFlow, snapshotFixScreen]);
 
   const continueAfterEarlySave = useCallback(() => {
     const loaded = loadOnboardingState();
@@ -1068,6 +1073,15 @@ function OnboardingIntegrationController({
       });
       savedPlanIntent = result.intent;
       if (accountIdRef.current !== planAccountId) {
+        return;
+      }
+      if (flow.savedSite.requiresArtworkReview) {
+        const review = await prepareOnboardingCanva({ siteId: flow.savedSite.siteId, expectedRevision: flow.savedSite.revision });
+        if (accountIdRef.current !== planAccountId) {
+          return;
+        }
+        recordIntegrationEvent({ intent: LAB_INTENT_BY_PLAN_INTENT[result.intent], type: 'plan_selected' });
+        window.location.assign(`/${locale}/admin/business-setup?salon=${encodeURIComponent(review.salonSlug)}&mode=manual`);
         return;
       }
       // The final button explicitly authorizes publication. Both calls are
@@ -1754,9 +1768,9 @@ function PlanSelection({
       message={confirmation}
       onClaim={() => onChoose('founding_interest')}
       pending={pending}
-      claimLabel="Publish my website & open dashboard"
-      pendingLabel="Publishing your website…"
-      claimNote="This claims your free lifetime plan and makes your saved website public. You can keep editing from your dashboard."
+      claimLabel={savedSite.requiresArtworkReview ? 'Review & publish my Canva website' : 'Publish my website & open dashboard'}
+      pendingLabel={savedSite.requiresArtworkReview ? 'Preparing your Canva design…' : 'Publishing your website…'}
+      claimNote={savedSite.requiresArtworkReview ? 'Your free lifetime plan is saved first. Next, check your design and links, then approve the website before it goes live.' : 'This claims your free lifetime plan and makes your saved website public. You can keep editing from your dashboard.'}
     >
       <div className="luster-offer-saved-details">
         {!mediaComplete && (

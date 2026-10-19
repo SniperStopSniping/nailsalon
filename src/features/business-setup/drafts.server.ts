@@ -187,8 +187,8 @@ export async function loadSetupHead(tx: SetupTransaction, salonId: string) {
   }
   return { ...site, workspace, revision };
 }
-export async function openSetup(actor: SetupActor) {
-  return db.transaction(async (tx) => {
+export async function openSetup(actor: SetupActor, transaction?: SetupTransaction) {
+  const apply = async (tx: SetupTransaction) => {
     const salon = await lockSetupSalon(tx, actor);
     const [existing] = await tx.select().from(workspaces).where(eq(workspaces.salonId, salon.id));
     if (existing) {
@@ -209,7 +209,8 @@ export async function openSetup(actor: SetupActor) {
     await tx.insert(workspaces).values({ id, salonId: salon.id, headRevision: 1, baselineHash: snapshot.hash, baseline: snapshot.document });
     await tx.insert(revisions).values({ salonId: salon.id, workspaceId: id, revision: 1, operationId: randomUUID(), operationHash: setupHash(draft), document: draft, actorId: actor.adminId, origin: 'existing' });
     return loadSetupHead(tx, salon.id);
-  });
+  };
+  return transaction ? apply(transaction) : db.transaction(apply);
 }
 /** A return visit starts from today's canonical settings, never old answers. */
 export async function restartSetup(actor: SetupActor, expectedRevision: number) {

@@ -8,7 +8,7 @@ vi.mock('next/navigation', () => ({ notFound: () => {
 } }));
 vi.mock('@/features/ai-credits/config.server', () => ({ aiCreditsEnabled: () => false }));
 vi.mock('@/features/business-setup/access.server', () => ({ requireSetupOwner: async () => state.denied ? { response: new Response(null, { status: state.denied }) } : { salon: { id: 'synthetic-salon', slug: 'synthetic', publicationStatus: 'published' }, aiEnabled: false, clerkUserId: state.clerkUserId } }));
-vi.mock('@/features/business-setup/SetupEditor', () => ({ SetupEditor: () => <div>Saved editor</div> }));
+vi.mock('@/features/business-setup/SetupEditor', () => ({ SetupEditor: ({ manualMode }: { manualMode?: boolean }) => <div>{manualMode ? 'Saved manual editor' : 'Saved editor'}</div> }));
 vi.mock('@/features/business-setup/ClerkSetupSession', () => ({ ClerkSetupSession: ({ children, userId }: { children: ReactNode; userId: string }) => <section aria-label={`Clerk readiness for ${userId}`}>{children}</section> }));
 vi.mock('@/features/business-setup/RecoverSetupSession', () => ({ RecoverSetupSession: () => <div>Generic sign-in recovery</div> }));
 
@@ -48,4 +48,11 @@ it.each([403, 404])('keeps server authorization rejection for status %i', async 
   state.denied = status;
 
   await expect(page()).rejects.toThrow('NOT_FOUND');
+});
+
+it('opens the same owner-authorized editor in manual mode without requiring AI access', async () => {
+  const Page = (await import('./page')).default;
+  render(await Page({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({ salon: 'synthetic', mode: 'manual' }) }));
+
+  expect(screen.getByText('Saved manual editor')).toBeVisible();
 });

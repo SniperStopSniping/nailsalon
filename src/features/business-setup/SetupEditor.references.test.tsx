@@ -823,3 +823,32 @@ it('labels a published website consistently and returns to draft labels only aft
   expect(within(preview).getByText('Proposed booking setup', { exact: true })).toBeVisible();
   expect(requests.some(request => ['approve', 'publish', 'message', 'generate'].includes(request.action))).toBe(false);
 });
+
+it('opens manual Canva setup in Preview and keeps ordinary chat and generation out of the flow', async () => {
+  document.website.config.customFrontendId = 'saved-manual-artifact';
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled creditsEnabled manualMode />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true'));
+
+  expect(screen.getByText('Your Canva artwork stays as-is. Check its links, then review and approve your website. This manual editor does not use AI credits.')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();
+  expect(requests.filter(request => request.action === 'message' || request.action === 'generate')).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+
+  expect(await screen.findByRole('button', { name: 'Save business details' })).toBeVisible();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+it('keeps published manual setup visible and starts later edits from its current saved settings', async () => {
+  published = true;
+  document.website.config.customFrontendId = 'saved-manual-artifact';
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled={false} manualMode />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit my website' }));
+  await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({ action: 'start_editing', expectedRevision: 2 })));
+
+  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
+  expect(requests.filter(request => request.action === 'message' || request.action === 'generate')).toHaveLength(0);
+});

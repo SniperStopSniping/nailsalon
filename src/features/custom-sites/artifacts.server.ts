@@ -14,6 +14,7 @@ import { assertWebsiteAssetBudget, ownedAssets } from './assets.server';
 import { compileCanvaDesign } from './canva';
 import { canvaDataFingerprint, canvaPriceLabelsFingerprint, canvaTargetBlockers } from './canva-data.server';
 import type { CustomSiteSource } from './contracts';
+import { containsPrivateAddress } from './private-address';
 import { customSiteDataFromSetup } from './setup-data';
 import { validateCustomSource } from './validate.server';
 
@@ -27,8 +28,8 @@ export async function assertCustomArtifact(tx: SetupTransaction | typeof db, sal
   validateCustomSource(artifact.source, new Set(media.filter(a => a.role !== 'reference' && a.mimeType.startsWith('image/')).map(a => a.id)));
   return { artifact, media };
 }
-export async function storeCustomArtifact(actor: SetupActor, input: { source: CustomSiteSource; assetIds: string[]; operationId: string; expectedRevision: number }) {
-  return db.transaction(async (tx) => {
+export async function storeCustomArtifact(actor: SetupActor, input: { source: CustomSiteSource; assetIds: string[]; operationId: string; expectedRevision: number }, transaction?: SetupTransaction) {
+  const apply = async (tx: SetupTransaction) => {
     await lockSetupSalon(tx, actor);
     const media = await ownedAssets(tx, actor.salonId, input.assetIds);
     const source = validateCustomSource(input.source, new Set(media.filter(a => a.role !== 'reference' && a.mimeType.startsWith('image/')).map(a => a.id)));
@@ -44,23 +45,26 @@ export async function storeCustomArtifact(actor: SetupActor, input: { source: Cu
       throw new SetupError('STALE', 'Your saved design changed. Reload before saving this version.');
     }
     const business = head.revision.document.business;
+    if (business.exactAddress && business.locationDisplayMode !== 'full_address' && containsPrivateAddress(JSON.stringify({ bio: head.revision.document.website.content.bio, details: head.revision.document.website.content.websiteDetails }), business.exactAddress)) {
+      throw new SetupError('INVALID', 'Your public website details contain your private service address. Remove it or review address visibility first.');
+    }
     if (source.canva) {
       const trusted = validateCustomSource(compileCanvaDesign(source.canva, head.revision.document.website.content.websiteDetails), new Set(media.filter(a => a.role !== 'reference').map(a => a.id)));
       if (source.html !== trusted.html || source.css !== trusted.css || source.javascript !== '') {
         throw new SetupError('INVALID', 'Keep the Canva artwork intact. Use the clickable-area controls to change its links.');
       }
-      const normalize = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-      if (business.exactAddress && business.locationDisplayMode !== 'full_address' && normalize(source.canva.visibleText).includes(normalize(business.exactAddress))) {
+      if (business.exactAddress && business.locationDisplayMode !== 'full_address' && containsPrivateAddress(source.canva.visibleText, business.exactAddress)) {
         throw new SetupError('INVALID', 'Your Canva artwork contains your private address. Remove it in Canva and upload the updated export.');
       }
     }
-    if (business.exactAddress && business.locationDisplayMode !== 'full_address' && JSON.stringify(source).toLowerCase().includes(business.exactAddress.toLowerCase())) {
+    if (business.exactAddress && business.locationDisplayMode !== 'full_address' && containsPrivateAddress(JSON.stringify(source), business.exactAddress)) {
       throw new SetupError('INVALID', 'This design includes your private service address. Remove it or review your address visibility first.');
     }
     assertWebsiteAssetBudget(media);
     const [artifact] = await tx.insert(artifacts).values({ id: randomUUID(), salonId: actor.salonId, actorId: actor.adminId, source, sourceHash: setupHash(source), assetIds: input.assetIds, parentId: head.revision.document.website.config.customFrontendId ?? null, operationId: input.operationId }).returning();
     return artifact!;
-  });
+  };
+  return transaction ? apply(transaction) : db.transaction(apply);
 }
 export async function saveCustomSource(actor: SetupActor, input: { source: CustomSiteSource; assetIds: string[]; operationId: string; expectedRevision: number }, origin: 'owner' | 'assistant' = 'owner', artworkReview = false) {
   if (input.source.canva && !artworkReview) {

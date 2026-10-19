@@ -108,9 +108,45 @@
         node.removeAttribute('href');
       }
     });
-    root.querySelectorAll('[data-luster-canva-area]').forEach((node) => {
-      const area = source.canva?.areas.find(area => area.id === node.dataset.lusterCanvaArea);
-      node.hidden = true;
+    root.querySelectorAll('[data-luster-canva-area],[data-luster-canva-control]').forEach((node) => {
+      const area = node.dataset.lusterCanvaArea
+        ? source.canva?.areas.find(area => area.id === node.dataset.lusterCanvaArea)
+        : source.canva?.controls?.find(control => control.id === node.dataset.lusterCanvaControl);
+      if (node.dataset.lusterCanvaArea) {
+        node.hidden = true;
+      }
+      if (area?.action.type === 'manual_link') {
+        // Owner links have a server-normalized destination. Revalidate the
+        // scheme here; model/worker updates still cannot create navigation.
+        const href = area.action.href;
+        let safe = false;
+        if (typeof href === 'string' && href.length <= 2048 && ![...href].some(character => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127)) {
+          if (/^#[a-z][\w-]{0,70}$/i.test(href)) {
+            safe = Boolean(root.querySelector(href));
+          } else if (/^(?:tel|sms):\+?\d{7,15}$/.test(href)) {
+            safe = true;
+          } else if (href.startsWith('mailto:')) {
+            const [address, query, extra] = href.slice(7).split('?');
+            const params = new URLSearchParams(query);
+            const subject = params.get('subject');
+            safe = Boolean(emailHref(address)) && extra === undefined && (query === undefined || ([...params.keys()].every(key => key === 'subject') && params.getAll('subject').length === 1 && subject && subject.length <= 200 && ![...subject].some(character => character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127)));
+          } else {
+            try {
+              const url = new URL(href);
+              safe = url.protocol === 'https:' && !url.username && !url.password && (!url.port || url.port === '443') && url.hostname.includes('.') && !/^[\d.]+$|:|(?:^|\.)(?:localhost|local|internal|test)$/i.test(url.hostname) && !/^\/(?:admin|api)(?:\/|$)/i.test(url.pathname);
+            } catch { /* invalid links stay inert */ }
+          }
+        }
+        if (safe) {
+          node.href = href;
+          if (href.startsWith('https:')) {
+            node.target = '_blank';
+            node.rel = 'noopener noreferrer';
+          }
+        } else {
+          node.removeAttribute('href');
+        }
+      }
       if (area?.action.type === 'service') {
         const id = payload.serviceKeys?.[area.action.serviceKey];
         if (id && data.services.some(service => service.id === id)) {

@@ -55,6 +55,7 @@ const mocks = vi.hoisted(() => ({
   },
   savePlan: vi.fn(),
   publish: vi.fn(),
+  prepareArtwork: vi.fn(),
   status: vi.fn(),
   signIn: { authenticateWithRedirect: vi.fn(), create: vi.fn() },
   signUp: { create: vi.fn(), prepareEmailAddressVerification: vi.fn() },
@@ -108,6 +109,7 @@ vi.mock('./client', async (importOriginal) => {
   return {
     ...actual,
     claimOnboardingDraft: (...args: unknown[]) => mocks.claim(...args),
+    prepareOnboardingCanva: (...args: unknown[]) => mocks.prepareArtwork(...args),
     getOnboardingDraftClaimStatus: (...args: unknown[]) => mocks.status(...args),
     resolveOnboardingOrganization: vi.fn(),
     saveOnboardingPlanIntent: (...args: unknown[]) => mocks.savePlan(...args),
@@ -210,6 +212,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.claimMedia.mockReset();
     mocks.cleanupMedia.mockReset();
     mocks.savePlan.mockReset();
+    mocks.prepareArtwork.mockReset();
     mocks.publish.mockReset().mockResolvedValue({ publicationStatus: 'published' });
     mocks.status.mockReset().mockResolvedValue({ claim: null });
     mocks.signIn.create.mockReset();
@@ -1162,6 +1165,34 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(await screen.findByText('Your images have not finished saving. Select Edit my site and save them before publishing.')).toBeVisible();
     expect(mocks.savePlan).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('sends a saved Canva design to exact review rather than publishing it through the basic page path', async () => {
+    const user = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const canvaSite = { ...savedSite, requiresArtworkReview: true };
+    mocks.status.mockResolvedValue({ claim: canvaSite });
+    mocks.savePlan.mockResolvedValue({ intent: 'founding_interest', siteId: savedSite.siteId });
+    let reject!: (error: Error) => void;
+    mocks.prepareArtwork.mockImplementationOnce(() => new Promise((_, fail) => {
+      reject = fail;
+    }));
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite: canvaSite, savedSiteOwnerId: 'user-owner' });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await user.click(await screen.findByRole('button', { name: 'Review & publish my Canva website' }));
+
+    expect(await screen.findByRole('button', { name: 'Preparing your Canva design…' })).toBeDisabled();
+    expect(mocks.prepareArtwork).toHaveBeenCalledWith({ siteId: savedSite.siteId, expectedRevision: savedSite.revision });
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    await act(async () => {
+      reject(new Error('Check your design links before continuing.'));
+    });
+
+    expect(await screen.findByText('Your free lifetime plan is saved. Check your design links before continuing.')).toBeVisible();
+    expect(loadOnboardingIntegrationFlow().savedSite!.siteId).toBe(savedSite.siteId);
     expect(mocks.publish).not.toHaveBeenCalled();
   });
 });

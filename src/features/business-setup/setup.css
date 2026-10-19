@@ -305,6 +305,8 @@
   .setup-compose-area { padding-top: 8px; }
 }
 .setup-chat-first [hidden] { display: none !important; }
+.setup-chat-first[data-manual='true'] .setup-columns[data-tab=website] { grid-template-columns: minmax(0, 1fr); max-width: 1120px; }
+.setup-chat-first[data-manual='true'] .setup-columns[data-tab=website] .setup-preview { border-left: 0; }
 .studio-media-controls > summary { color: var(--setup-accent); }
 .setup-published-card { padding: 20px; border: 1px solid var(--setup-line); border-radius: 18px; margin: 20px 0; font-size: 13px; }
 .setup-published-card h2 { font-size: 18px; margin-bottom: 14px; }

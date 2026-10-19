@@ -1,5 +1,8 @@
 import { notFound, redirect } from 'next/navigation';
 
+import { CustomWebsiteFrame } from '@/features/custom-sites/CustomWebsiteFrame';
+import { linkedOnboardingCanvaDraft } from '@/features/custom-sites/manual-origin.server';
+import { customSiteRendererOrigin, setupCustomSitePayload } from '@/features/custom-sites/payload.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import {
   onboardingCompiledSiteDocumentSchema,
@@ -11,6 +14,7 @@ import {
   createSavedSitePreviewModel,
 } from '@/features/onboarding-v1-integration/saved-preview';
 import { getAdminSession } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
 
 import { SavedSitePreviewClient } from './SavedSitePreviewClient';
 
@@ -41,6 +45,22 @@ export default async function SavedWebsitePreviewPage(props: SavedWebsitePreview
   });
   if (!claimed) {
     notFound();
+  }
+  const linked = await linkedOnboardingCanvaDraft(db, { salonId: claimed.site.salonId, siteId: claimed.site.id, revisionId: claimed.revision.id });
+  if (linked) {
+    const payload = await setupCustomSitePayload(claimed.site.salonId, linked.document);
+    const rendererOrigin = customSiteRendererOrigin();
+    const owner = admin.salons.some(membership => membership.salonId === claimed.site.salonId && membership.role === 'owner');
+    return (
+      <main>
+        <p className="bg-[#fcf7f4] p-3 text-center">
+          Private saved preview · Booking is disabled.
+          {' '}
+          {owner && <a href={`/${locale}/admin/business-setup?salon=${encodeURIComponent(linked.salonSlug)}&mode=manual`}>Edit your website</a>}
+        </p>
+        {payload && rendererOrigin ? <CustomWebsiteFrame payload={payload} rendererOrigin={rendererOrigin} /> : <p>Your latest saved design is safe. Open your website editor to check the preview.</p>}
+      </main>
+    );
   }
   const [snapshot, document] = [
     onboardingPersistedSnapshotSchema.safeParse(claimed.revision.snapshot),

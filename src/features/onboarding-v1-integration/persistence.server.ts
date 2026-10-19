@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
+import { linkedOnboardingCanvaDraft } from '@/features/custom-sites/manual-origin.server';
 import { formatPhoneE164 } from '@/libs/adminAuth';
 import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
 import { getFoundingLifetimeAccess, grantFoundingLifetimeAccess } from '@/libs/billing/foundingLifetime.server';
@@ -68,6 +69,7 @@ import type {
   OnboardingPlanIntentRequest,
   OnboardingSiteSlugAvailability,
 } from './contracts';
+import { onboardingCompiledSiteDocumentSchema } from './contracts';
 import { fingerprintOnboardingPayload } from './payload-fingerprint';
 
 export type AuthenticatedOnboardingIdentity = {
@@ -1679,6 +1681,7 @@ async function claimSuccess(
     ))
     : [];
   const ownerCreated = new Set(ownerCreatedServiceIds);
+  const manualSetupLinked = await linkedOnboardingCanvaDraft(database, { salonId: site.salonId, siteId: site.id, revisionId: revision.id });
   return {
     claimId: claim.id,
     created,
@@ -1688,6 +1691,8 @@ async function claimSuccess(
       pending: media.filter(item => item.claimStatus === 'pending' || item.claimStatus === 'uploading').length,
       ready: media.filter(item => item.claimStatus === 'ready').length,
     },
+    ...(manualSetupLinked ? { manualSetupLinked: true } : {}),
+    ...(onboardingCompiledSiteDocumentSchema.safeParse(revision.document).success && revision.document.pages.some(page => page.visible && page.sections.some(section => section.visible && section.type === 'custom_design' && section.customDesignSettings?.images.length)) ? { requiresArtworkReview: true } : {}),
     ownerCreatedServiceIds,
     payloadFingerprint: fingerprintOnboardingPayload(revision.snapshot),
     revision: revision.revision,
@@ -1801,12 +1806,21 @@ async function claimOnboardingDraftUnlocked(
       }
       salonId = membership.id;
       salonSlug = membership.slug;
+      // Serialize with the shared editor's handoff/publication lock. An old
+      // browser must not replace that draft after it has moved into review.
+      await tx.execute(sql`select id from ${salonSchema} where ${salonSchema.id} = ${salonId} for update`);
       const [existingSite] = await tx.select().from(onboardingSiteSchema)
         .where(and(
           eq(onboardingSiteSchema.salonId, salonId),
           eq(onboardingSiteSchema.isCurrent, true),
         )).limit(1);
       currentSite = existingSite ?? null;
+      if (currentSite) {
+        const [currentRevision] = await tx.select({ id: onboardingSiteRevisionSchema.id }).from(onboardingSiteRevisionSchema).where(and(eq(onboardingSiteRevisionSchema.salonId, salonId), eq(onboardingSiteRevisionSchema.siteId, currentSite.id), eq(onboardingSiteRevisionSchema.revision, currentSite.currentRevision))).limit(1);
+        if (currentRevision && await linkedOnboardingCanvaDraft(tx, { salonId, siteId: currentSite.id, revisionId: currentRevision.id })) {
+          throw new OnboardingPersistenceError('WEBSITE_EDITOR_MOVED', 'Your design is ready in your website editor. Open it there to keep your latest changes.', 409);
+        }
+      }
       if (!target.existingSiteStrategy && (currentSite || membership.publicationStatus === 'published')) {
         return {
           kind: 'conflict' as const,

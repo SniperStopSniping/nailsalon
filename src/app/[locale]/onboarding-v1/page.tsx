@@ -1,11 +1,14 @@
 import { notFound, redirect } from 'next/navigation';
 
 import { businessSetupSelfServeEnabled } from '@/features/business-setup/access.server';
+import { linkedOnboardingCanvaDraft } from '@/features/custom-sites/manual-origin.server';
 import { getOnboardingAuthProviderAvailability } from '@/features/onboarding-v1-integration/auth-providers.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { OnboardingV1Integration } from '@/features/onboarding-v1-integration/OnboardingV1Integration';
+import { getClaimedOnboardingSite } from '@/features/onboarding-v1-integration/persistence.server';
 import { loadInitialOnboardingResumeDraft } from '@/features/onboarding-v1-integration/resume.server';
 import { getAdminSession } from '@/libs/adminAuth';
+import { db } from '@/libs/DB';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +52,11 @@ export default async function OnboardingV1Page(props: OnboardingV1PageProps) {
   const admin = await getAdminSession();
   if (!admin) {
     redirect(`/${locale}/owner-sign-in`);
+  }
+  const claimed = await getClaimedOnboardingSite({ adminId: admin.id, siteId, expectedRevision: verifiedRevision, ownerOnly: true });
+  const linked = claimed && await linkedOnboardingCanvaDraft(db, { salonId: claimed.site.salonId, siteId: claimed.site.id, revisionId: claimed.revision.id });
+  if (linked) {
+    redirect(`/${locale}/admin/business-setup?salon=${encodeURIComponent(linked.salonSlug)}&mode=manual`);
   }
   const initialResumeDraft = await loadInitialOnboardingResumeDraft({
     adminId: admin.id,

@@ -5,6 +5,7 @@ import {
   checkOnboardingSiteSlugAvailability,
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
+  prepareOnboardingCanva,
   resolveOnboardingOrganization,
   saveOnboardingPlanIntent,
 } from './client';
@@ -211,4 +212,11 @@ describe('onboarding integration client', () => {
         status: 503,
       }));
   });
+});
+
+it('retries an interrupted Canva preparation safely without exposing a raw browser error', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('Failed to fetch'));
+
+  await expect(prepareOnboardingCanva({ siteId: savedSite.siteId, expectedRevision: 4 }, { fetcher })).rejects.toMatchObject({ status: 0, message: 'We could not confirm your design is ready for review. Your saved setup is safe. Please try again.' });
+  expect(fetcher).toHaveBeenCalledOnce();
 });

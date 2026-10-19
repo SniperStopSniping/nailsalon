@@ -11,12 +11,13 @@ export const metadata = { robots: { index: false, follow: false } };
 export default async function BusinessSetupPage(props: {
   searchParams: Promise<{
     salon?: string;
+    mode?: string;
   }>;
   params: Promise<{
     locale: string;
   }>;
 }) {
-  const { salon } = await props.searchParams;
+  const { salon, mode } = await props.searchParams;
   const { locale } = await props.params;
   if (!salon) {
     notFound();
@@ -28,7 +29,7 @@ export default async function BusinessSetupPage(props: {
     }
     notFound();
   }
-  const editor = <SetupEditor key={access.salon.id} salonSlug={access.salon.slug} locale={locale} aiEnabled={access.aiEnabled} creditsEnabled={aiCreditsEnabled()} existingSalon={access.salon.publicationStatus === 'published'} />;
+  const editor = <SetupEditor key={access.salon.id} salonSlug={access.salon.slug} locale={locale} aiEnabled={access.aiEnabled} creditsEnabled={aiCreditsEnabled()} existingSalon={access.salon.publicationStatus === 'published'} manualMode={mode === 'manual'} />;
   // Legacy sessions deliberately bypass SDK readiness; their existing cookie
   // and server ownership checks remain authoritative, even without Clerk JS.
   return access.clerkUserId ? <ClerkSetupSession userId={access.clerkUserId} locale={locale}>{editor}</ClerkSetupSession> : editor;

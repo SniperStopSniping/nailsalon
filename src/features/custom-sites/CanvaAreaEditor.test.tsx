@@ -51,3 +51,20 @@ it('saves manual labels and keyboard movement without altering artwork', () => {
   expect(onSave.mock.calls[0]![0].javascript).toBe('');
   expect(screen.getByRole('button', { name: 'Artwork is correct' })).toBeDisabled();
 });
+
+it('keeps a manually saved contact link editable without changing its artwork or other targets', () => {
+  const input = payload();
+  input.source = compileCanvaDesign({ ...input.source.canva!, areas: [{ ...input.source.canva!.areas[0]!, label: 'My Instagram', action: { type: 'manual_link', href: 'https://www.instagram.com/my_studio/' } }] });
+  const onSave = vi.fn();
+  render(<CanvaAreaEditor payload={input} endpoint="/api/admin/custom-sites?salonSlug=test" disabled={false} onSave={onSave} onReview={vi.fn()} open onOpenChange={vi.fn()} />);
+
+  expect(screen.getByLabelText('Opens')).toHaveValue('manual_link');
+
+  fireEvent.change(screen.getByLabelText('Saved link destination'), { target: { value: 'https://www.instagram.com/updated_studio/' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save clickable areas' }));
+
+  expect(onSave).toHaveBeenCalledOnce();
+  expect(onSave.mock.calls[0]![0].canva.pages).toEqual(input.source.canva!.pages);
+  expect(onSave.mock.calls[0]![0].canva.areas[0].action).toEqual({ type: 'manual_link', href: 'https://www.instagram.com/updated_studio/' });
+  expect(onSave.mock.calls[0]![0].canva.ownerReviewed).toBe(false);
+});

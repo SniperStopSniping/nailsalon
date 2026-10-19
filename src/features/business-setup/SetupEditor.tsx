@@ -142,18 +142,19 @@ function bookingExtraReviewValue(path: string, value: unknown) {
   }
   return reviewValue(value);
 }
-export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon, aiEnabled, creditsEnabled = false }: {
+export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon, aiEnabled, creditsEnabled = false, manualMode = false }: {
   salonSlug: string;
   locale: string;
   existingSalon: boolean;
   aiEnabled: boolean;
   creditsEnabled?: boolean;
+  manualMode?: boolean;
 }) {
   const [head, setHead] = useState<Head | null>(null);
   const salonSlug = head?.salonSlug ?? initialSalonSlug;
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
-  const [tab, setTab] = useState<'chat' | 'website' | 'setup' | 'review'>('chat');
+  const [tab, setTab] = useState<'chat' | 'website' | 'setup' | 'review'>(manualMode ? 'website' : 'chat');
   const [acknowledgedImpactHash, setAcknowledgedImpactHash] = useState<string | null>(null);
   const [ownBusy, setBusy] = useState(false);
   const [studioBusy, setStudioBusy] = useState(false);
@@ -243,7 +244,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
       setReview(null);
       setSelectedDesignAssets([]);
       setAttachOpen(false);
-      setTab('chat');
+      setTab(manualMode ? 'website' : 'chat');
     }
     sessionStart.current = newSession;
     setHead(current => current && current.revision.revision > data.revision.revision ? current : data);
@@ -275,7 +276,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
     setUploadReviews(data.uploadReviews ?? []);
     setPublished(data.workspace.status === 'published');
     if (data.workspace.status === 'published') {
-      setTab('chat');
+      setTab(manualMode ? 'website' : 'chat');
       setReview(null);
     }
     return data;
@@ -344,7 +345,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
       setStudioBusy(false);
       setIncludeBusiness(!existingSalon);
       setPublished(false);
-      setTab('chat');
+      setTab(manualMode ? 'website' : 'chat');
       await refresh();
       restoreAttempt.current = null;
       setAttachOpen(upload);
@@ -460,7 +461,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
     }
   }
   return (
-    <main className="luster-setup setup-chat-first" data-view={tab}>
+    <main className="luster-setup setup-chat-first" data-view={tab} data-manual={manualMode ? 'true' : undefined}>
       <header className="setup-heading">
         <div className="setup-topbar">
           <a href={`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`} aria-label="Back to website settings">←</a>
@@ -469,8 +470,23 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
             <span className="setup-save-status" role="status">{busy ? 'Working…' : published ? 'Published' : head ? 'Saved as draft' : 'Opening your saved work…'}</span>
           </div>
           <nav className="setup-tools" aria-label="Website tools">
-            <button type="button" disabled={!head} aria-pressed={tab === 'website'} onClick={() => setTab(tab === 'website' ? 'chat' : 'website')}>Preview</button>
-            <button type="button" disabled={!head} aria-pressed={tab === 'setup'} onClick={() => setTab(tab === 'setup' ? 'chat' : 'setup')}>Details</button>
+            {manualMode && published && (
+              <button
+                type="button"
+                disabled={busy || !head}
+                onClick={() => void run(async () => {
+                  const result = await call<Head>({ action: 'start_editing', expectedRevision: head!.revision.revision });
+                  setHead(result);
+                  setPublished(false);
+                  setReview(null);
+                  setTab('website');
+                })}
+              >
+                Edit my website
+              </button>
+            )}
+            <button type="button" disabled={!head} aria-pressed={tab === 'website'} onClick={() => setTab(manualMode ? 'website' : tab === 'website' ? 'chat' : 'website')}>Preview</button>
+            <button type="button" disabled={!head} aria-pressed={tab === 'setup'} onClick={() => setTab(tab === 'setup' ? manualMode ? 'website' : 'chat' : 'setup')}>Details</button>
             {!published && head && head.revision.revision > 1 && (
               <button
                 type="button"
@@ -495,7 +511,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
         </div>
       )}
       <div className="setup-columns" data-tab={tab}>
-        <section className="setup-chat" aria-label="Conversation" hidden={tab === 'setup' || tab === 'review'}>
+        <section className="setup-chat" aria-label="Conversation" hidden={manualMode || tab === 'setup' || tab === 'review'}>
           <div className="setup-feed" ref={feed}>
             {messages.length === 0 && !pendingMessage && (
               <div className="setup-chat-welcome">
@@ -642,7 +658,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                     await call({ action: 'apply_upload', operationId: upload.id });
                     await refresh();
                     setReview(null);
-                    setTab('chat');
+                    setTab(manualMode ? 'website' : 'chat');
                   })}
                 >
                   Use these details
@@ -763,13 +779,15 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
           </div>
         </section>
         <section className="setup-preview" aria-label="Website preview" hidden={tab !== 'website'}>
-          <button type="button" className="setup-back-chat" onClick={() => setTab('chat')}>← Back to chat</button>
+          <button type="button" className="setup-back-chat" onClick={() => setTab(manualMode ? 'setup' : 'chat')}>{manualMode ? 'Edit business details' : '← Back to chat'}</button>
           <div className="setup-panel-heading">
             <div>
               {!customFrontendId && <span className="setup-eyebrow">YOUR VISION, TAKING SHAPE</span>}
               <h2>{published ? 'Your website' : customFrontendId ? 'Your website draft' : 'From inspiration to your website'}</h2>
               <p>Private preview. Booking is disabled here.</p>
-              {draft && (draft.hoursOrigin === 'suggested' || draft.services.some(service => !service.confirmed && hasUnverifiedAiValues(service, draft.serviceSources?.[service.id]))) && <p role="status">Some booking details still need your review. Change them in chat or Details, then review them before publishing.</p>}
+              {manualMode && <p>Your Canva artwork stays as-is. Check its links, then review and approve your website. This manual editor does not use AI credits.</p>}
+              {manualMode && aiEnabled && <a href={`/${locale}/admin/business-setup?salon=${encodeURIComponent(salonSlug)}`}>Want to redesign with AI?</a>}
+              {draft && (draft.hoursOrigin === 'suggested' || draft.services.some(service => !service.confirmed && hasUnverifiedAiValues(service, draft.serviceSources?.[service.id]))) && <p role="status">{manualMode ? 'Some booking details still need your review. Check them in Details before publishing.' : 'Some booking details still need your review. Change them in chat or Details, then review them before publishing.'}</p>}
             </div>
           </div>
           {head && (
@@ -783,7 +801,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
           )}
           {head && (
             <CustomDesignStudio
-              creditsEnabled={creditsEnabled}
+              creditsEnabled={!manualMode && creditsEnabled}
               key={draft?.sessionStartRevision ?? 1}
               salonSlug={salonSlug}
               revision={head.revision.revision}
@@ -791,7 +809,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               disabled={published || ownBusy}
               published={published}
               onBusyChange={setStudioBusy}
-              aiEnabled={aiEnabled}
+              aiEnabled={!manualMode && aiEnabled}
               compact
               previewVisible={tab === 'website'}
               onAssetsChange={setAssets}
@@ -799,7 +817,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               setSelected={setSelectedDesignAssets}
               missingDetails={missingDesignDetails(head.revision.document)}
               onContinueConversation={() => {
-                setTab('chat');
+                setTab(manualMode ? 'website' : 'chat');
                 window.requestAnimationFrame(() => document.getElementById('setup-message')?.focus());
               }}
               onSaved={async () => {
@@ -816,9 +834,9 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
           )}
         </section>
         <section className="setup-details" aria-label="Business setup" hidden={tab !== 'setup'}>
-          <button type="button" className="setup-back-chat" onClick={() => setTab('chat')}>← Back to chat</button>
+          <button type="button" className="setup-back-chat" onClick={() => setTab(manualMode ? 'setup' : 'chat')}>{manualMode ? 'Edit business details' : '← Back to chat'}</button>
           <h2>Your business setup</h2>
-          <p>Everything we’ve put together so far. Make a correction here or tell Luster in the conversation.</p>
+          <p>{manualMode ? 'Your saved business details and booking settings. Changes stay private until you review and publish them.' : 'Everything we’ve put together so far. Make a correction here or tell Luster in the conversation.'}</p>
           {draft && (
             <>
               <form
@@ -1028,16 +1046,18 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               {draft.website.config.customFrontendId
                 ? (
                     <>
-                      <p>{draft.designBrief?.mode === 'keep_design' ? 'Keep your artwork as uploaded. Edit its booking and contact links in chat, or upload an updated Canva export in Preview.' : 'Tell Luster how you want your design to change. You can keep refining the website you already have.'}</p>
+                      <p>{manualMode ? 'Keep your artwork as uploaded. Edit its clickable areas or replace its image in Preview.' : draft.designBrief?.mode === 'keep_design' ? 'Keep your artwork as uploaded. Edit its booking and contact links in chat, or upload an updated Canva export in Preview.' : 'Tell Luster how you want your design to change. You can keep refining the website you already have.'}</p>
                       <button
                         type="button"
                         disabled={published}
                         onClick={() => {
-                          setTab('chat');
-                          requestAnimationFrame(() => composer.current?.focus());
+                          setTab(manualMode ? 'website' : 'chat');
+                          if (!manualMode) {
+                            requestAnimationFrame(() => composer.current?.focus());
+                          }
                         }}
                       >
-                        {draft.designBrief?.mode === 'keep_design' ? 'Edit links in chat' : 'Change my design in chat'}
+                        {manualMode ? 'Edit design and links' : draft.designBrief?.mode === 'keep_design' ? 'Edit links in chat' : 'Change my design in chat'}
                       </button>
                     </>
                   )
@@ -1047,7 +1067,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
         </section>
         {review && tab === 'review' && (
           <section className="setup-review" aria-labelledby="setup-review-title">
-            <button type="button" className="setup-back-chat" onClick={() => setTab('chat')}>← Back to chat</button>
+            <button type="button" className="setup-back-chat" onClick={() => setTab(manualMode ? 'setup' : 'chat')}>{manualMode ? 'Edit business details' : '← Back to chat'}</button>
             <h2 id="setup-review-title">Review your changes</h2>
             {draft?.siteSlug && <p>{`Your booking website: /${locale}/${draft.siteSlug}/book`}</p>}
             {draft && (
@@ -1119,7 +1139,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                   return;
                 }
                 setPublished(true);
-                setTab('chat');
+                setTab(manualMode ? 'website' : 'chat');
                 setReview(null);
                 await refresh();
               })}
