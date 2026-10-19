@@ -310,7 +310,19 @@ export async function resetSetupDraft(actor: SetupActor, raw: unknown, restore =
       document.identityNamespace = randomUUID();
       // Read confirmed business values from live records, never the projected
       // draft or an earlier uploaded business. Unpublished answers disappear.
-      document.website = { config: resolveBookingPageConfig(null).draft, content: resolveBookingPageContent(null).draft };
+      const confirmedDetails = salon.publicationStatus === 'published'
+        ? snapshot.document.website.content.websiteDetails
+        : undefined;
+      document.website = {
+        config: resolveBookingPageConfig(null).draft,
+        content: {
+          ...resolveBookingPageContent(null).draft,
+          // Contacts, public directions and stated policies describe the
+          // business, not its visual design. Keep only their live approved
+          // values; the outgoing draft may contain unapproved replacements.
+          ...(confirmedDetails ? { websiteDetails: structuredClone(confirmedDetails) } : {}),
+        },
+      };
       if (salon.publicationStatus !== 'published') {
         document.business.locationDisplayMode = 'city_only';
       }

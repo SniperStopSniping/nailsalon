@@ -1963,6 +1963,34 @@ describe('reading own images directly in conversation', () => {
 });
 
 describe('full owner draft reset', () => {
+  it('clears unpublished contact, directions and policy copy when starting over', async () => {
+    const actor = await fixture();
+    const changed = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'website_details', values: { instagram: '@unfinished_studio', email: 'unfinished@example.test', phone: null, locationDirections: 'Unconfirmed directions', sections: [{ id: 'guests', title: 'Unconfirmed policy', text: 'This must not survive reset.' }] } }] });
+    const fresh = await resetSetupDraft(actor, { expectedRevision: changed.revision.revision, operationId: randomUUID() });
+
+    expect(fresh.revision.document.website.content.websiteDetails).toBeUndefined();
+    expect(fresh.revision.document.designBrief?.referenceIds).toEqual([]);
+  });
+
+  it('starts from approved public details instead of unapproved replacements in the outgoing draft', async () => {
+    const actor = await fixture();
+    const confirmedDetails = { instagram: '@published_studio', email: 'published@example.test', phone: '+1 416 555 0109', locationDirections: 'Dixie and Countryside', sections: [{ id: 'guests', title: 'Guests', text: 'Please come alone.' }] };
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'confirm_services', ids: ['draft_gel'] }, { type: 'website_details', values: confirmedDetails }] });
+    const review = await reviewSetup(actor);
+    const approval = await approveSetup(actor, review.revision, review.hash);
+    await publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() });
+    const reopened = await restartSetup(actor, review.revision);
+    const unpublished = await editSetup(actor, { expectedRevision: reopened.revision.revision, operationId: randomUUID(), operations: [{ type: 'website_details', values: { ...confirmedDetails, instagram: '@unpublished_change', locationDirections: 'Not approved', sections: [] } }] });
+    const fresh = await resetSetupDraft(actor, { expectedRevision: unpublished.revision.revision, operationId: randomUUID() });
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+
+    expect(fresh.revision.document.website.content.websiteDetails).toEqual(confirmedDetails);
+    expect(resolveBookingPageContent(salon!.settings).live.websiteDetails).toEqual(confirmedDetails);
+    expect(fresh.revision.document.website.config.customFrontendId).toBeUndefined();
+    expect(fresh.revision.document.designBrief?.referenceIds).toEqual([]);
+    expect((await resetSetupDraft(actor, { expectedRevision: fresh.revision.revision, operationId: randomUUID() }, true)).revision.document.website.content.websiteDetails?.instagram).toBe('@unpublished_change');
+  });
+
   it('clears unfinished business answers and design, keeps immutable drafts and restores them without model/live writes', async () => {
     const actor = await fixture();
     const old = await saveCustomSource(actor, { source: editorialSource, assetIds: [], expectedRevision: 2, operationId: randomUUID() });
@@ -2042,7 +2070,8 @@ describe('full owner draft reset', () => {
 
   it('keeps published business settings, service identities and the live website while starting a private new draft', async () => {
     const actor = await fixture();
-    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'confirm_services', ids: ['draft_gel'] }] });
+    const confirmedDetails = { instagram: '@published_studio', email: 'published@example.test', phone: '+1 416 555 0109', locationDirections: 'Main intersection: Dixie and Countryside', sections: [{ id: 'guests', title: 'Guests', text: 'Please come alone.' }] };
+    await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'confirm_services', ids: ['draft_gel'] }, { type: 'website_details', values: confirmedDetails }] });
     const review = await reviewSetup(actor);
     const approval = await approveSetup(actor, review.revision, review.hash);
     await publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() });
@@ -2053,6 +2082,9 @@ describe('full owner draft reset', () => {
     const [after] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
 
     expect(fresh.revision.document.business.name).toBe('Test Studio');
+    expect(fresh.revision.document.website.content.websiteDetails).toEqual(confirmedDetails);
+    expect(fresh.revision.document.website.config.customFrontendId).toBeUndefined();
+    expect(fresh.revision.document.designBrief?.referenceIds).toEqual([]);
     expect(fresh.revision.document.services.map(service => service.id)).toEqual(liveServices.map(service => service.id));
     expect(resolveBookingPageConfig(after!.settings).live).toEqual(resolveBookingPageConfig(before!.settings).live);
     expect(resolveBookingPageContent(after!.settings).live).toEqual(resolveBookingPageContent(before!.settings).live);
