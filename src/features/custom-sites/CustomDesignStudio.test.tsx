@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { compileCanvaDesign } from './canva';
@@ -10,6 +10,56 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   sessionStorage.clear();
+});
+
+it('distinguishes same-named designs by their request and date and restores the chosen saved design', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  const source = { title: 'My salon', html: '<h1>My salon</h1>', css: '', javascript: '', analysis: '', limitations: [] };
+  const history = [
+    { id: 'current', title: 'My salon', createdAt: '2026-10-19T04:15:00Z', assetIds: [] },
+    { id: 'overlap', title: 'My salon', createdAt: '2026-10-19T04:10:00Z', assetIds: [] },
+  ];
+  const posts: any[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      posts.push(JSON.parse(String(options.body)));
+    }
+    return Response.json({ head: { revision: { revision: 7, document: { website: { config: { customFrontendId: 'current' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history, attempts: [{ id: 'request-overlap', artifactId: 'overlap', message: 'Make the images larger and overlap them.', status: 'completed' }], configured: true, rendererOrigin: null });
+  }));
+  render(<CustomDesignStudio salonSlug="test" revision={7} artifactId="current" disabled={false} aiEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
+  fireEvent.click(await screen.findByText('Previous designs'));
+  const items = within(screen.getByRole('list', { name: 'Saved website designs' })).getAllByRole('listitem');
+
+  expect(within(items[0]!).getByText('Current design')).toBeVisible();
+  expect(within(items[0]!).getByRole('button', { name: 'Restore as draft' })).toBeDisabled();
+  expect(items[1]!.querySelector('time')).toHaveAttribute('datetime', '2026-10-19T04:10:00Z');
+  expect(within(items[1]!).getByText('Make the images larger and overlap them.')).toBeVisible();
+
+  fireEvent.click(within(items[1]!).getByRole('button', { name: 'Restore as draft' }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+
+  expect(posts[0]).toMatchObject({ action: 'restore', input: { expectedRevision: 7, artifactId: 'overlap', operationId: expect.any(String) } });
+});
+
+it.each([{ pending: true, revision: 7 }, { pending: false, revision: 8 }])('holds design restoration while generation or newer saved data is loading: %j', async ({ pending, revision }) => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  const source = { title: 'My salon', html: '<h1>My salon</h1>', css: '', javascript: '', analysis: '', limitations: [] };
+  const posts: unknown[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') {
+      posts.push(options.body);
+    }
+    return Response.json({ head: { revision: { revision: 7, document: { website: { config: { customFrontendId: 'current' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [{ id: 'old', title: 'Earlier look', createdAt: '2026-10-19T04:10:00Z', assetIds: [] }], attempts: pending ? [{ id: 'working', status: 'pending', createdAt: new Date().toISOString() }] : [], configured: true, rendererOrigin: null });
+  }));
+  render(<CustomDesignStudio salonSlug="test" revision={revision} artifactId="current" disabled={false} aiEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
+  fireEvent.click(await screen.findByText('Previous designs'));
+  const restore = screen.getByRole('button', { name: 'Restore as draft' });
+
+  expect(restore).toBeDisabled();
+
+  fireEvent.click(restore);
+
+  expect(posts).toEqual([]);
 });
 
 it('waits for the displayed preview and parent draft to agree before opening a full preview', async () => {

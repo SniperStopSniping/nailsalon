@@ -680,21 +680,31 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           )}
           <details>
             <summary>Previous designs</summary>
-            {state.history.map(item => (
-              <p key={item.id}>
-                {item.title}
-                {' '}
-                <button
-                  type="button"
-                  disabled={disabled || Boolean(busy) || item.id === artifactId}
-                  onClick={() => void action('Restoring this design as a new draft…', async () => {
-                    await post({ action: 'restore', input: { expectedRevision: revision, operationId: crypto.randomUUID(), artifactId: item.id } });
-                  })}
-                >
-                  Restore as draft
-                </button>
-              </p>
-            ))}
+            <p>Restore a design into your draft. Your business details and published website stay as they are.</p>
+            <ol className="studio-design-history" aria-label="Saved website designs">
+              {state.history.map((item) => {
+                const request = state.attempts.find(attempt => attempt.artifactId === item.id)?.message;
+                const saved = new Date(item.createdAt);
+                const savedAt = Number.isNaN(saved.getTime()) ? null : saved.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+                return (
+                  <li key={item.id}>
+                    <strong>{item.title}</strong>
+                    {item.id === artifactId && <span className="studio-current-design">Current design</span>}
+                    {savedAt && <time dateTime={item.createdAt}>{`Saved ${savedAt}`}</time>}
+                    {request && <p>{request.length > 180 ? `${request.slice(0, 180)}…` : request}</p>}
+                    <button
+                      type="button"
+                      disabled={sourceEditingDisabled || item.id === artifactId}
+                      onClick={() => void action('Restoring this design as a new draft…', async () => {
+                        await post({ action: 'restore', input: { expectedRevision: revision, operationId: crypto.randomUUID(), artifactId: item.id } });
+                      })}
+                    >
+                      Restore as draft
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
           </details>
         </>
       )}

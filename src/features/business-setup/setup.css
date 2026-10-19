@@ -199,6 +199,11 @@
 .studio-reference-card { padding: 14px; background: #fbf7f9; border-radius: 14px; }
 .studio-reference-card > img { max-width: 100%; height: 160px; object-fit: contain; margin: 12px auto; }
 .studio-reference-card label { display: flex !important; gap: 8px; align-items: flex-start; }
+.studio-design-history { list-style: none; padding: 0; display: grid; gap: 12px; }
+.studio-design-history li { border: 1px solid #e4d4dc; border-radius: 12px; padding: 16px; overflow-wrap: anywhere; }
+.studio-design-history time { display: block; font-size: 13px; color: #745d68; margin-top: 6px; }
+.studio-design-history p { margin: 10px 0; font-size: 14px; }
+.studio-current-design { display: inline-block; margin-left: 8px; font-size: 12px; font-weight: 600; color: #7a3c56; }
 @media (max-width: 640px) { .studio-photo-library { padding: 16px; } .studio-photo-grid { grid-template-columns: 1fr; } }
 
 /* One conversation is the default surface; tools open only when requested. */
