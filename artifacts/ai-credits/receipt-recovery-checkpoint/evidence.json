@@ -1,0 +1,69 @@
+{
+  "call": {
+    "status": "failed",
+    "validation": "interrupted_unknown_usage",
+    "cost_micro_usd": null,
+    "charged_micro_cad": 318622,
+    "reserved_micro_usd": 159311
+  },
+  "budget": {
+    "cap_micro_cad": 11384406,
+    "charged_micro_cad": "9188378",
+    "pending": "0"
+  },
+  "scope": "Normal authenticated owner credit read only; no direct database repair, new provider call or provider reservation release.",
+  "ownerRead": {
+    "status": "passed",
+    "beforeRevision": 7,
+    "afterRevision": 7,
+    "providerCalls": 0,
+    "appointmentsCreated": 0,
+    "existingAppointmentsPreserved": 2,
+    "interactionChecks": [
+      {
+        "draftUnchanged": true,
+        "sourceLabelsVerified": false
+      }
+    ]
+  },
+  "configuration": {
+    "clerk": {
+      "configured": true,
+      "developmentPrefix": true,
+      "requestSent": true,
+      "httpStatus": 401,
+      "accepted": false
+    },
+    "vercelProject": {
+      "id": "prj_G7i795a439CUZOr9W2gD2DT0E2AO",
+      "name": "isla-nail-studio",
+      "framework": "nextjs",
+      "nodeVersion": "24.x",
+      "rootDirectory": null,
+      "previewDeploymentsDisabled": true,
+      "productionBranch": "main",
+      "linkType": "github",
+      "topLevelKeys": [
+        "deploymentExpiration",
+        "gitForkProtection",
+        "gitLFS",
+        "productionDeploymentsFastLane",
+        "previewDeploymentsDisabled",
+        "gitComments",
+        "gitProviderOptions",
+        "hasDeployments",
+        "link",
+        "latestDeployments"
+      ]
+    },
+    "testAlias": {
+      "id": "dpl_99RBzGer8JKPMnCfQdSkZu7WkJy7",
+      "projectId": "prj_G7i795a439CUZOr9W2gD2DT0E2AO",
+      "target": null,
+      "readyState": "READY",
+      "gitSha": "938522270da150aa770fe106100011b4bd27271e",
+      "gitBranch": "codex/ai-business-setup",
+      "url": "isla-nail-studio-68jkrjkrk-sniperstopsnipings-projects.vercel.app"
+    }
+  }
+}

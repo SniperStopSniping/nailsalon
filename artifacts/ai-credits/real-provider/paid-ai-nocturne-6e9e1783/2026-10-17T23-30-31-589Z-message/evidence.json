@@ -1,0 +1,55 @@
+{
+  "step": "message",
+  "operationId": "35a18656-e418-455e-b0b1-83b32f91e7cb",
+  "status": "passed",
+  "startedAt": "2026-10-17T23:30:32.225Z",
+  "elapsedMs": 156594,
+  "beforeRevision": 2,
+  "afterRevision": 3,
+  "artifactId": "458f16fa-8711-48e5-b307-acef189aa06a",
+  "calls": [
+    {
+      "id": "d2d4caaf-19b5-40e7-af07-86e9834b0c95",
+      "operation_id": "35a18656-e418-455e-b0b1-83b32f91e7cb",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4271,
+      "output_tokens": 181,
+      "cost_micro_usd": 625,
+      "charged_micro_cad": 1250,
+      "credit_cost_micro_cad": "1750",
+      "elapsed_ms": 2840,
+      "validation": "passed"
+    },
+    {
+      "id": "7330b7cc-f192-41f4-97f1-bbc97194a295",
+      "operation_id": "49d3b5bf-90ce-4d01-9f08-3d2f127302f5",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 1706,
+      "output_tokens": 5587,
+      "cost_micro_usd": 60134,
+      "charged_micro_cad": 120268,
+      "credit_cost_micro_cad": "168376",
+      "elapsed_ms": 100212,
+      "validation": "passed"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "458f16fa-8711-48e5-b307-acef189aa06a",
+      "parent_id": null,
+      "source_hash": "67d90f142dd9e560486fdb79e86723b72ab5a53896ac6baa98a322536b5ab4d8"
+    }
+  ],
+  "appointments": [],
+  "contactChecks": [],
+  "browserErrors": [
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n",
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+  ],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

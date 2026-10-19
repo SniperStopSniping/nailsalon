@@ -1,0 +1,32 @@
+{
+  "passed": true,
+  "newBrowserContext": true,
+  "noRestoredCookies": true,
+  "actualPasswordSignIn": true,
+  "sameOwner": true,
+  "sameSalon": true,
+  "noLegacyAdminCookie": true,
+  "api": [
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup/entry",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/ai-credits",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/business-setup",
+      "status": 200
+    }
+  ],
+  "errors": []
+}

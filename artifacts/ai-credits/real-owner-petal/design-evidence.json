@@ -1,0 +1,166 @@
+{
+  "step": "design",
+  "operationId": "85bc6f04-5d67-4172-8361-70d71ae4b6e8",
+  "terminal": {
+    "id": "85bc6f04-5d67-4172-8361-70d71ae4b6e8",
+    "status": "completed",
+    "design_operation_id": "be1527ff-3246-46a4-9354-51174b31e12f"
+  },
+  "elapsedMs": 124605,
+  "beforeRevision": 3,
+  "afterRevision": 4,
+  "customFrontendId": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+  "requests": [
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    },
+    {
+      "status": 200
+    }
+  ],
+  "calls": [
+    {
+      "id": "06f138d3-70cb-4d8a-8012-9d9fc7eed262",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 3830,
+      "output_tokens": 459,
+      "cost_micro_usd": 709,
+      "charged_micro_cad": 1418,
+      "elapsed_ms": 4922,
+      "validation": "passed"
+    },
+    {
+      "id": "437e6aa4-1030-469d-9897-962ff0622efe",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 4200,
+      "output_tokens": 237,
+      "cost_micro_usd": 644,
+      "charged_micro_cad": 1288,
+      "elapsed_ms": 3506,
+      "validation": "passed"
+    },
+    {
+      "id": "d20caa70-a3a5-4139-b354-1fbce8afc9d7",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "input_tokens": 2246,
+      "output_tokens": 5261,
+      "cost_micro_usd": 58224,
+      "charged_micro_cad": 116448,
+      "elapsed_ms": 118997,
+      "validation": "passed"
+    }
+  ],
+  "wallets": [
+    {
+      "kind": "recovery",
+      "amount_micro_cad": "10000000"
+    },
+    {
+      "kind": "usage",
+      "amount_micro_cad": "-1986"
+    },
+    {
+      "kind": "usage",
+      "amount_micro_cad": "-164832"
+    }
+  ]
+}

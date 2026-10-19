@@ -9,6 +9,32 @@ import { getStarterPageDefinitions } from '../model/starters';
 import type { OriginStarter } from '../model/types';
 import { StarterChoiceGrid, StarterChooser } from './StarterChooser';
 
+it('offers AI as the third primary choice and retains full manual setup without changing starter identifiers', async () => {
+  const choose = vi.fn();
+  const ai = vi.fn();
+  render(<StarterChoiceGrid onChoose={choose} onBuildAi={ai} reducedMotion />);
+  const user = userEvent.setup();
+
+  expect(screen.queryByRole('button', { name: /Start with Full Website/u })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole('button', { name: /Start with AI/u }));
+
+  expect(ai).toHaveBeenCalledOnce();
+  expect(choose).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole('button', { name: 'Set up manually' }));
+
+  expect(choose).toHaveBeenLastCalledWith('multi_page');
+
+  await user.click(screen.getByRole('button', { name: /Use my Canva design/u }));
+
+  expect(choose).toHaveBeenLastCalledWith('your_design');
+
+  await user.click(screen.getByRole('button', { name: /Start with Quick Book/u }));
+
+  expect(choose).toHaveBeenLastCalledWith('quick_book');
+});
+
 /** The chooser describes the locked V1 documents, not an older hidden recipe. */
 const EXPECTED_STARTERS: ReadonlyArray<{
   cta: string;
@@ -28,7 +54,7 @@ const EXPECTED_STARTERS: ReadonlyArray<{
   },
   {
     cta: 'Start with Your Design',
-    description: 'Use your Canva design, AI artwork, or your own image.',
+    description: 'Upload your design and add booking and contact links yourself. No AI needed.',
     id: 'your_design',
     included: 'Your Design · Services & Booking · Visit & Contact',
     includesLabel: 'Includes',

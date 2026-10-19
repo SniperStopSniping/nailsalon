@@ -1,0 +1,143 @@
+{
+  "checkedAt": "2026-10-16T20:02:02.187Z",
+  "environment": "isolated-preview",
+  "applicationCommit": "47d3323baa28d57741b9198cf9f34d33da21b1d5",
+  "deployment": "dpl_6YiTzTiZCy2RsHZ7smcdThmUgrG4",
+  "productionChanges": false,
+  "workflow": "Actual hosted application, clicked and typed through CUA; no request/DB prefill or generated-source repair",
+  "input": "Owned synthetic Canva-style PNG fixture; artwork was not model-generated. Real OpenAI generated clickable overlays.",
+  "prompts": [
+    "Keep this design and make the links clickable.",
+    "Make the Gel manicure card book that service directly. Keep the rest the same."
+  ],
+  "realProvider": true,
+  "providerCalls": [
+    {
+      "operation_id": "301f7519-3221-4587-a47d-9cf81a71bd31",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 4635,
+      "output_tokens": 1213,
+      "cost_micro_usd": 1186,
+      "charged_micro_cad": 2372,
+      "elapsed_ms": 12918,
+      "retained_output_characters": 1696
+    },
+    {
+      "operation_id": "92b366b2-2419-48bb-a277-64f56ccfe882",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 1729,
+      "output_tokens": 595,
+      "cost_micro_usd": 514,
+      "charged_micro_cad": 1028,
+      "elapsed_ms": 7250,
+      "retained_output_characters": 1318
+    },
+    {
+      "operation_id": "ede9123a-e834-460c-be8f-28804aed6f6c",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 4830,
+      "output_tokens": 280,
+      "cost_micro_usd": 744,
+      "charged_micro_cad": 1488,
+      "elapsed_ms": 4295,
+      "retained_output_characters": 532
+    },
+    {
+      "operation_id": "501020d2-bbbf-499e-9306-10406b9f4156",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 1988,
+      "output_tokens": 559,
+      "cost_micro_usd": 528,
+      "charged_micro_cad": 1056,
+      "elapsed_ms": 6554,
+      "retained_output_characters": 1534
+    }
+  ],
+  "firstGeneratedRevision": 79,
+  "chatRevision": 80,
+  "manualLabelRevision": 81,
+  "approvedPublishedRevision": 82,
+  "sourceHash": "cc777cf6e6ba865465397995370fd108552fa8e3c71adc2fee1d245edf944f21",
+  "artworkSavedBytesPreserved": true,
+  "refreshDuringFollowUpRecovered": true,
+  "previewBookingDenied": true,
+  "instagramActualClickDestination": "https://www.instagram.com/canvalinkstudio/",
+  "instagramAccountExistenceClaimed": false,
+  "emailHref": "mailto:studio@example.invalid",
+  "phoneHref": "tel:+14165550100",
+  "emailSentOrPhoneCalled": false,
+  "publicMobile": {
+    "width": 390,
+    "horizontalOverflow": false,
+    "allFiveLinkHeightsPx": 47.6640625,
+    "physicalDevice": false
+  },
+  "bookingApiStatus": 201,
+  "canonicalServiceCount": 1,
+  "newAppointment": {
+    "id": "appt_3d145e56-2a0a-465c-a9b9-d536f9964300",
+    "total_price": 6500,
+    "total_duration_minutes": 60,
+    "technician_id": "e565efe1-8b12-4a8d-a37b-852036157a2f",
+    "start_time": "2026-10-19T13:00:00.000Z",
+    "end_time": "2026-10-19T14:00:00.000Z"
+  },
+  "existingAppointmentsPreserved": true,
+  "previousAppointmentCount": 2,
+  "fix": "Post-publication owner link selects public LIVE config explicitly, only for an already-published salon. Dedicated authenticated draft previews ignore this query. Default manual owner preview remains unchanged.",
+  "tests": {
+    "focusedFeatureTestsPassed": 238,
+    "postgresConcurrencySkipped": 7,
+    "routeAndAuthorizationTestsPassed": 47,
+    "typeScript": "passed",
+    "scopedEslint": "passed"
+  },
+  "estimatedUsd": 0.002972,
+  "conservativeCad": 0.005944,
+  "cumulativeAllowanceCad": 40.247952,
+  "capCad": 80,
+  "invoiceReconciled": false,
+  "testMaintenance": {
+    "testEnvironment": "preview",
+    "appointmentId": "appt_3d145e56-2a0a-465c-a9b9-d536f9964300",
+    "jobs": [
+      {
+        "id": "7aea797a-e9d4-41c7-97ae-3217262d0eb9",
+        "provider": "google_calendar",
+        "status": "failed"
+      },
+      {
+        "id": "735e7b49-26b0-485d-be62-f4fdb4cb3a63",
+        "provider": "email",
+        "status": "failed"
+      }
+    ],
+    "appointmentsUnchanged": true
+  },
+  "remainingIssues": [
+    "Published read-only studio preview still uses draft wording.",
+    "Publication review exposes internal IDs for some website text changes.",
+    "Preserved raster artwork cannot reflow text on mobile; update printed content in Canva and upload again."
+  ],
+  "prStatus": {
+    "draft": true,
+    "fullCiGreen": false,
+    "failedChecksAtSnapshot": [
+      "D5 deposits PostgreSQL concurrency (zero skips)",
+      "Application tests (20.x)",
+      "L1 PR5 approval lifecycle PostgreSQL races (zero skips)"
+    ]
+  }
+}

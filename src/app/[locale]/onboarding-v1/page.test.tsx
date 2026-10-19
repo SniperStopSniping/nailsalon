@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/features/business-setup/access.server', () => ({ businessSetupSelfServeEnabled: () => false }));
 vi.mock('@/features/onboarding-v1-integration/auth-providers.server', () => ({
   getOnboardingAuthProviderAvailability: mocks.authProviders,
 }));
@@ -71,6 +72,7 @@ describe('account-backed onboarding resume route', () => {
     expect(element.props).toEqual({
       authProviders: await mocks.authProviders(),
       locale: 'en',
+      aiBuilderEnabled: false,
     });
   });
 
@@ -90,6 +92,7 @@ describe('account-backed onboarding resume route', () => {
       authProviders: await mocks.authProviders(),
       initialResumeDraft,
       locale: 'en',
+      aiBuilderEnabled: false,
     });
   });
 

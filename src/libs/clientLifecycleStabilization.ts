@@ -2089,6 +2089,21 @@ export function isRetryableClientLifecycleError(error: unknown): boolean {
 type RetryDependencies = {
   sleep?: (milliseconds: number) => Promise<void>;
   random?: () => number;
+  now?: () => number;
+};
+
+export type ClientLifecycleTransactionRetryPolicy = {
+  maxAttempts: number;
+  retryAdmissionWindowMs: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+};
+
+export const BOOKING_TRANSACTION_RETRY_POLICY: ClientLifecycleTransactionRetryPolicy = {
+  maxAttempts: 8,
+  retryAdmissionWindowMs: 10_000,
+  baseDelayMs: 50,
+  maxDelayMs: 800,
 };
 
 function defaultSleep(milliseconds: number): Promise<void> {
@@ -2098,16 +2113,38 @@ function defaultSleep(milliseconds: number): Promise<void> {
 export async function withClientLifecycleTransactionRetry<T>(
   operation: (attempt: number) => Promise<T>,
   dependencies: RetryDependencies = {},
+  policy?: ClientLifecycleTransactionRetryPolicy,
 ): Promise<T> {
   const sleep = dependencies.sleep ?? defaultSleep;
   const random = dependencies.random ?? Math.random;
+  const now = dependencies.now ?? Date.now;
+  const maxAttempts = policy?.maxAttempts ?? 3;
+  const startedAt = now();
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       return await operation(attempt);
     } catch (error) {
-      if (attempt === 3 || !isRetryableClientLifecycleError(error)) {
+      if (attempt === maxAttempts || !isRetryableClientLifecycleError(error)) {
         throw error;
+      }
+      if (policy) {
+        const elapsed = now() - startedAt;
+        const remaining = policy.retryAdmissionWindowMs - elapsed;
+        if (remaining <= 0) {
+          throw error;
+        }
+        const cap = Math.min(policy.maxDelayMs, policy.baseDelayMs * (2 ** (attempt - 1)));
+        const jitter = Math.min(1, Math.max(0, random()));
+        const delay = Math.floor(jitter * cap);
+        if (delay >= remaining) {
+          throw error;
+        }
+        await sleep(delay);
+        if (now() - startedAt >= policy.retryAdmissionWindowMs) {
+          throw error;
+        }
+        continue;
       }
       const minimum = attempt === 1 ? 25 : 75;
       const spread = attempt === 1 ? 50 : 150;

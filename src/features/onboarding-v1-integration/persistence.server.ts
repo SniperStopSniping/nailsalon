@@ -26,7 +26,7 @@ import { type DatabaseSessionHandle, db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { enqueueOwnerSignupNotification } from '@/libs/ownerSignupNotification';
 import { seedStarterMenuForSalon } from '@/libs/starterMenu';
-import { isReservedSalonSlug, isValidSalonSlug, normalizeSalonSlug } from '@/libs/tenantSlug';
+import { isValidSalonSlug, normalizeSalonSlug, suggestSalonSlug } from '@/libs/tenantSlug';
 import {
   addOnSchema,
   adminSalonMembershipSchema,
@@ -512,20 +512,6 @@ async function syncQuickBookProfilePresentationDraft(input: {
   );
 }
 
-function baseSlug(businessName: string): string {
-  const candidate = businessName
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036F]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 38);
-  if (!candidate || isReservedSalonSlug(candidate) || !isValidSalonSlug(candidate)) {
-    return 'luster-studio';
-  }
-  return candidate;
-}
-
 async function salonSlugForSnapshot(
   database: QueryDatabase,
   snapshot: OnboardingPersistedSnapshot,
@@ -534,7 +520,7 @@ async function salonSlugForSnapshot(
   // after the owner has previewed it, including concurrent first-time claims.
   const availability = await getOnboardingSiteSlugAvailability(
     snapshot.profile.siteSlug
-    || (snapshot.profile.siteSlugCustomized ? '' : baseSlug(snapshot.profile.businessName)),
+    || (snapshot.profile.siteSlugCustomized ? '' : suggestSalonSlug(snapshot.profile.businessName)),
     database,
   );
   if (availability.reason === 'invalid') {
@@ -615,10 +601,10 @@ async function resolveIdentityAdmin(
   return owner;
 }
 
-async function ensureIdentityAdmin(
+export async function ensureOnboardingIdentityAdmin(
   database: QueryDatabase,
   identity: AuthenticatedOnboardingIdentity,
-  snapshot: OnboardingPersistedSnapshot,
+  fallbackName: string,
 ): Promise<IdentityAdmin> {
   const existing = await resolveIdentityAdmin(database, identity);
   if (existing) {
@@ -654,7 +640,7 @@ async function ensureIdentityAdmin(
       email: identity.email.trim().toLowerCase(),
       emailVerifiedAt: new Date(),
       id: crypto.randomUUID(),
-      name: identity.name?.trim() || ownerDisplayName(snapshot),
+      name: identity.name?.trim() || fallbackName,
       // `admin_user.phone_e164` is a legacy authentication identifier. Never
       // promote an owner-entered salon/contact number into that identity
       // boundary; only Clerk-verified account data may populate it.
@@ -1967,7 +1953,7 @@ async function claimOnboardingDraftUnlocked(
           salonSlug = renamed.slug;
         }
       }
-      admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
+      admin = await ensureOnboardingIdentityAdmin(tx as QueryDatabase, identity, ownerDisplayName(input.snapshot));
       if (!preserveExistingProductData) {
         technicianId = await syncExistingBusinessProfile({
           database: tx as QueryDatabase,
@@ -1978,7 +1964,7 @@ async function claimOnboardingDraftUnlocked(
         });
       }
     } else {
-      admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
+      admin = await ensureOnboardingIdentityAdmin(tx as QueryDatabase, identity, ownerDisplayName(input.snapshot));
       const created = await createBusiness(tx as QueryDatabase, admin, identity, input.snapshot);
       salonId = created.salonId;
       salonSlug = created.salonSlug;

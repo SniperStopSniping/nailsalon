@@ -1,0 +1,15 @@
+{
+  "deploymentUrl": "https://luster-ai-render-test-qg1jb6e7e-sniperstopsnipings-projects.vercel.app",
+  "sourceSha": "37459a5e27cafb04c6afd217689004f3f600d85f",
+  "status": 200,
+  "bodyBytes": 392938,
+  "trustedBytesExactMatch": true,
+  "cspExactMatch": true,
+  "scriptSha256": "i9J3VNg09K3odaH5iPxmQfiHQes3LpJ3wm+NbgbVIIM=",
+  "noCookies": true,
+  "networkDisabled": true,
+  "opaqueSandbox": true,
+  "parentOrigin": "https://luster-ai-builder-test.vercel.app",
+  "fontPackIncluded": true,
+  "testAliasChanged": false
+}

@@ -358,7 +358,6 @@ export function HotspotEditor({
       id,
       accessibleLabel: actionLabel(newAction).slice(0, 200),
       action: newAction,
-      appearance: 'button',
       geometry: { ...geometry },
       labelConfirmed: true,
       reviewStatus: 'approved',
@@ -386,7 +385,13 @@ export function HotspotEditor({
       return next;
     });
     if (action) {
-      updateArea(selectedArea.id, area => ({ ...area, action }));
+      updateArea(selectedArea.id, area => ({
+        ...area,
+        action,
+        accessibleLabel: area.accessibleLabel === actionLabel(area.action)
+          ? actionLabel(action).slice(0, 200)
+          : area.accessibleLabel,
+      }));
     }
   };
 
@@ -408,7 +413,7 @@ export function HotspotEditor({
 
   return (
     <Dialog
-      description="Make the text and icons in your artwork clickable. Your design stays visible inside each button."
+      description="Choose a link, then tap its text or icon in your artwork. The design stays exactly as uploaded."
       initialFocusSelector="[data-hotspot-add]:not(:disabled)"
       onClose={onCancel}
       open={open}
@@ -459,7 +464,7 @@ export function HotspotEditor({
                 <button className="primary-button" disabled={!newAction || asset.status !== 'ready'} type="button" onClick={() => setPlacingLink(true)}>
                   Place button on design
                 </button>
-                <button type="button" onClick={() => setAddingLink(false)}>Cancel</button>
+                <button type="button" onClick={() => setAddingLink(false)}>Back to links</button>
               </section>
             )
           : null}
@@ -471,6 +476,7 @@ export function HotspotEditor({
                 <button aria-pressed={zoomed} type="button" onClick={() => setZoomed(current => !current)}>{zoomed ? 'Fit design' : 'Zoom in'}</button>
                 {!placingLink ? <button aria-pressed={preciseControls} type="button" onClick={() => setPreciseControls(current => !current)}>More resize controls</button> : null}
                 {placingLink ? <button type="button" onClick={() => placeArea(50, 50)}>Place in centre</button> : null}
+                {placingLink ? <button type="button" onClick={() => setPlacingLink(false)}>Change link</button> : null}
               </div>
             )
           : null}
@@ -607,7 +613,7 @@ export function HotspotEditor({
                     onChange={event => updateArea(selectedArea.id, area => ({
                       ...area,
                       accessibleLabel: event.target.value,
-                      labelConfirmed: false,
+                      labelConfirmed: Boolean(event.target.value.trim()),
                     }))}
                   />
                 </label>

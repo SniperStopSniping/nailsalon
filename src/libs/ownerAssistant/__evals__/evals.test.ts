@@ -498,16 +498,20 @@ describe('what the loop decided, per case', () => {
     expect(result.clarify?.options.length).toBeGreaterThan(1);
   });
 
-  it('C21 refuses to diagnose a salon outside America/Toronto', async () => {
+  it('C21 measures availability in the Vancouver salon timezone', async () => {
     const evalCase = dialogueCases().find(candidate => candidate.id === 'C21')!;
     const record = await runDialogue(evalCase);
     const result = record.turns[0]?.toolCalls[0]?.result as {
       causes: Array<{ code: string }>;
       checked: { timezone: string };
+      bookableSlotCount: number;
+      customersCanBookNow: boolean;
     };
 
     expect(result.checked.timezone).toBe('America/Vancouver');
-    expect(result.causes.map(cause => cause.code)).toEqual(['timezone_unsupported']);
+    expect(result.causes).toEqual([]);
+    expect(result.bookableSlotCount).toBeGreaterThan(0);
+    expect(result.customersCanBookNow).toBe(true);
   });
 
   it('C18 gets the setup-readiness projection with registry link keys', async () => {

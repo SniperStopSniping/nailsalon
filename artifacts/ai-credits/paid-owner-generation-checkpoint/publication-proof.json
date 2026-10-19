@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "exactReviewedRevision": 18,
+  "receipts": [
+    {
+      "revision": 18,
+      "approved_revision": 18,
+      "media_finalized": true
+    }
+  ],
+  "requestExpectedRevision": 18,
+  "servicesAppointmentsStaffUnchanged": true,
+  "liveSourceEqualsApprovedDraft": true,
+  "refreshPublicationRecovered": true,
+  "newModelCalls": 0,
+  "productionChanged": false,
+  "hostedDeployment": false,
+  "browserErrors": []
+}

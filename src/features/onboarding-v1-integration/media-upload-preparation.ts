@@ -9,10 +9,10 @@ import {
   readExifOrientation,
   validateUploadCapacity,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/assets/image-processing';
-import { ONBOARDING_MEDIA_MAX_FILE_BYTES } from './media-limits';
+import { ONBOARDING_MEDIA_MAX_DECODED_PIXELS, ONBOARDING_MEDIA_MAX_FILE_BYTES } from './media-limits';
 
 /** Prepare only a transport copy; the original IndexedDB asset stays intact. */
-export const prepareOnboardingMediaUpload = async (blob: Blob, fileName: string): Promise<File> => {
+export const prepareOnboardingMediaUpload = async (blob: Blob, fileName: string, profile: 'photo' | 'artwork' = 'photo'): Promise<File> => {
   const file = new File([blob], fileName, { type: blob.type });
   validateUploadCapacity(file, { currentImageCount: 0, currentSectionBytes: 0 });
   if (await detectImageMimeType(file) !== file.type) {
@@ -33,10 +33,17 @@ export const prepareOnboardingMediaUpload = async (blob: Blob, fileName: string)
       || dimensions.width <= 0 || dimensions.height <= 0
       || dimensions.width > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX
       || dimensions.height > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX
-      || dimensions.width * dimensions.height > CUSTOM_DESIGN_MAX_DECODED_PIXELS) {
+      || dimensions.width * dimensions.height > (profile === 'artwork' ? ONBOARDING_MEDIA_MAX_DECODED_PIXELS : CUSTOM_DESIGN_MAX_DECODED_PIXELS)) {
       throw new ImageUploadError('dimensions_too_large', 'This photo has too many pixels to upload safely.');
     }
-    const settings = [
+    const artworkSettings = [
+      // Text and clickable areas belong to the original page geometry. Try a
+      // lossless PNG first, then bounded full-resolution WebP encodes; never
+      // turn a long Canva page into a photo thumbnail to meet the wire limit.
+      { maxEdgePx: Math.max(dimensions.width, dimensions.height), mimeType: 'image/png' as const, quality: 1 },
+      ...[1, 0.96, 0.9, 0.84].map(quality => ({ maxEdgePx: Math.max(dimensions.width, dimensions.height), quality })),
+    ];
+    const photoSettings = [
       { maxEdgePx: 2_560, quality: 0.9 },
       { maxEdgePx: 2_560, quality: 0.78 },
       { maxEdgePx: 2_048, quality: 0.82 },
@@ -46,13 +53,14 @@ export const prepareOnboardingMediaUpload = async (blob: Blob, fileName: string)
       { maxEdgePx: 896, quality: 0.7 },
       { maxEdgePx: 768, quality: 0.7 },
     ];
+    const settings: { maxEdgePx: number; mimeType?: 'image/png'; quality: number }[] = profile === 'artwork' ? artworkSettings : photoSettings;
     for (const options of settings) {
       const renderInput = { decoded, ...dimensions, orientation };
       let prepared = await generateImageThumbnail(renderInput, options);
       // Safari may return PNG when WebP encoding is unavailable. JPEG input
       // is opaque, so JPEG fallback preserves photo detail at the same size.
-      // PNG/WebP sources keep their alpha channel and instead downsize further.
-      if (file.type === 'image/jpeg' && prepared?.type === 'image/png') {
+      // Alpha-capable sources keep transparency. Artwork never downsizes.
+      if (file.type === 'image/jpeg' && options.mimeType !== 'image/png' && prepared?.type === 'image/png') {
         prepared = await generateImageThumbnail(renderInput, { ...options, mimeType: 'image/jpeg' });
       }
       if (prepared && prepared.size > 0 && prepared.size <= ONBOARDING_MEDIA_MAX_FILE_BYTES
@@ -62,7 +70,9 @@ export const prepareOnboardingMediaUpload = async (blob: Blob, fileName: string)
         return new File([prepared], name, { type: prepared.type });
       }
     }
-    throw new ImageUploadError('normalization_failed', 'This photo could not be made small enough to upload.');
+    throw new ImageUploadError('normalization_failed', profile === 'artwork'
+      ? 'This design is too large to save clearly. Export it as separate PNG pages and upload them in order. Your original design is still saved on this device.'
+      : 'This photo could not be made small enough to upload.');
   } finally {
     decoded.close?.();
   }

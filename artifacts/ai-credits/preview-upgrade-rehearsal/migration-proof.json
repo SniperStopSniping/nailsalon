@@ -1,0 +1,53 @@
+{
+  "passed": true,
+  "migrationSourceSha": "2e6c3002cc711c2b3142f29dcce91515b9e0e6d0",
+  "rehearsalScriptSha256": "d911194d5c9cb32e12a2cad2a5fa0808e0cf2ab572ff06a5c7c55c3f3be1c113",
+  "databaseKind": "Fresh local scratch database on the attested disposable CI PostgreSQL server",
+  "sourceDatabaseUnchanged": true,
+  "baselineMigration": "0106_setup_shared_previews_cap_80",
+  "baselineMigrationCount": 106,
+  "upgradedMigrationCount": 112,
+  "appliedMigrations": [
+    "0107_ai_credit_wallet",
+    "0108_ai_request_metering",
+    "0109_setup_staff_publication",
+    "0110_setup_add_on_publication",
+    "0111_other_service_categories",
+    "0112_ai_operator_expense_budget"
+  ],
+  "actualPreviewCommand": "scripts/development-database-command.ts migrate:preview",
+  "forcedMidMigrationFailureRolledBack": true,
+  "failedAttemptMigrationLedgerUnchanged": true,
+  "retryAfterFailureSucceeded": true,
+  "successfulCommandRerunNoOp": true,
+  "originalTableFingerprintsPreserved": [
+    "salon",
+    "service",
+    "technician",
+    "technician_services",
+    "client",
+    "appointment",
+    "appointment_services",
+    "custom_site_asset",
+    "custom_site_artifact",
+    "business_setup_workspace",
+    "business_setup_revision",
+    "business_setup_approval",
+    "setup_ai_budget"
+  ],
+  "originalTrialCallFieldsPreserved": true,
+  "oldPublicationIdentityPreserved": true,
+  "oldReceiptNewMaps": {
+    "staff": {},
+    "addOns": {}
+  },
+  "walletsCreatedEmpty": true,
+  "historicalAppointmentPriceCents": 6500,
+  "currentServicePriceCents": 7000,
+  "trialCapMicroCadUnchanged": 68615594,
+  "providerCalls": 0,
+  "providerCredentialsForwarded": false,
+  "hostedDatabaseAccessed": false,
+  "productionChanged": false,
+  "scratchDatabaseRemoved": true
+}

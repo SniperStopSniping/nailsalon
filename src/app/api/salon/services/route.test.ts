@@ -170,6 +170,18 @@ describe('salon services route', () => {
     }));
   });
 
+  it('creates a neutral service through the existing owner API and derives its matching public group', async () => {
+    const response = await POST(new Request('http://localhost/api/salon/services', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salonSlug: 'isla-nail-studio', name: 'Lash Services', price: 6500, durationMinutes: 75, category: 'other' }),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(requireAdminSalon).toHaveBeenCalledWith('isla-nail-studio');
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({ category: 'other', bookingCategory: 'other', price: 6500, durationMinutes: 75, templateKey: null }));
+  });
+
   it('rejects unknown template keys', async () => {
     const response = await POST(new Request('http://localhost/api/salon/services', {
       method: 'POST',

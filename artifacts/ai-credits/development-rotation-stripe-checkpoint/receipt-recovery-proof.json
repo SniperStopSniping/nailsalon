@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "reopenedActualStripeReturnUrl": true,
+  "paymentConfirmationVisible": true,
+  "refresh": true,
+  "duplicateCreditsAdded": 0,
+  "purchaseLedgerEntries": 1,
+  "balanceMicroCad": 64825241,
+  "credentialLeaks": 0,
+  "productionChanged": false,
+  "modelCalls": 0
+}

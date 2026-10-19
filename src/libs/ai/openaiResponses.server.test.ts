@@ -98,6 +98,24 @@ describe('request shape', () => {
     expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string).store).toBe(false);
   });
 
+  it('pins Standard pricing only when a caller requests it and requires the matching returned tier for usage', async () => {
+    const usage = { input_tokens: 100, output_tokens: 20 };
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'completed', output: [], service_tier: 'default', usage }));
+
+    expect((await provider().createResponse({ ...REQUEST, serviceTier: 'default' })).usage).toMatchObject({ inputTokens: 100, outputTokens: 20 });
+    expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string).service_tier).toBe('default');
+
+    for (const service_tier of [undefined, 'priority']) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'completed', output: [], service_tier, usage }));
+
+      expect((await provider().createResponse({ ...REQUEST, serviceTier: 'default' })).usage).toBeNull();
+    }
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'completed', output: [], usage }));
+    await provider().createResponse(REQUEST);
+
+    expect(JSON.parse((fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string).service_tier).toBeUndefined();
+  });
+
   it('sends a strict json_schema format in schema mode', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ status: 'completed', output: [] }));
 
@@ -184,7 +202,7 @@ describe('response parsing', () => {
   it('reports an incomplete response with its reason', async () => {
     fetchMock.mockResolvedValue(jsonResponse({
       status: 'incomplete',
-      output: [],
+      output: [{ type: 'message', status: 'incomplete', content: [{ type: 'output_text', text: '{\"title\":' }] }],
       incomplete_details: { reason: 'max_output_tokens' },
     }));
 
@@ -192,6 +210,8 @@ describe('response parsing', () => {
 
     expect(result.status).toBe('incomplete');
     expect(result.incompleteReason).toBe('max_output_tokens');
+    expect(result.items).toEqual([]);
+    expect(result.partialText).toBe('{\"title\":');
   });
 
   it('ignores unknown output item types rather than failing', async () => {
@@ -452,5 +472,30 @@ describe('disclosure discipline', () => {
     const error = await provider().createResponse(REQUEST).catch((thrown: unknown) => thrown) as Error;
 
     expect(`${error.message} ${error.stack ?? ''}`).not.toContain(API_KEY);
+  });
+});
+
+describe('exact multimodal input token preflight', () => {
+  it('counts the same input and schema without asking for generation or retaining content', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ object: 'response.input_tokens', input_tokens: 12345 }));
+
+    expect(await provider().countInputTokens!(REQUEST)).toBe(12345);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+
+    expect(url).toBe('https://provider.test/v1/responses/input_tokens');
+
+    const body = JSON.parse(init.body as string);
+
+    expect(body.input).toEqual(REQUEST.input);
+    expect(body.text.format.schema).toEqual(REQUEST.jsonSchema);
+    expect(body.max_output_tokens).toBeUndefined();
+    expect(body.store).toBeUndefined();
+  });
+
+  it.each([{ object: 'response.input_tokens', input_tokens: -1 }, { object: 'other', input_tokens: 100 }, { input_tokens: '100' }])('fails closed on invalid token counts', async (payload) => {
+    fetchMock.mockResolvedValue(jsonResponse(payload));
+
+    await expect(provider().countInputTokens!(REQUEST)).rejects.toMatchObject({ kind: 'provider_error' });
   });
 });

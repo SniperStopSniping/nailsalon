@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 
+import { businessSetupSelfServeEnabled } from '@/features/business-setup/access.server';
 import { getOnboardingAuthProviderAvailability } from '@/features/onboarding-v1-integration/auth-providers.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { OnboardingV1Integration } from '@/features/onboarding-v1-integration/OnboardingV1Integration';
@@ -31,8 +32,9 @@ export default async function OnboardingV1Page(props: OnboardingV1PageProps) {
   }
   const locale = params.locale === 'fr' ? 'fr' : 'en';
   const authProviders = await getOnboardingAuthProviderAvailability();
+  const aiBuilderEnabled = businessSetupSelfServeEnabled();
   if (firstQueryValue(searchParams.resume) !== 'review') {
-    return <OnboardingV1Integration authProviders={authProviders} locale={locale} />;
+    return <OnboardingV1Integration authProviders={authProviders} locale={locale} aiBuilderEnabled={aiBuilderEnabled} />;
   }
 
   const siteId = firstQueryValue(searchParams.site);
@@ -58,6 +60,7 @@ export default async function OnboardingV1Page(props: OnboardingV1PageProps) {
   }
   return (
     <OnboardingV1Integration
+      aiBuilderEnabled={aiBuilderEnabled}
       authProviders={authProviders}
       initialResumeDraft={initialResumeDraft}
       locale={locale}

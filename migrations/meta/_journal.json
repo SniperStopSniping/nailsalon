@@ -680,6 +680,111 @@
       "when": 1791382616696,
       "tag": "0097_founding_lifetime_core",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1792022400000,
+      "tag": "0098_business_setup_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792022400001,
+      "tag": "0099_custom_frontend_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792022400002,
+      "tag": "0100_setup_ai_trial_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1792022400003,
+      "tag": "0101_setup_timestamp_instants",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1792022400004,
+      "tag": "0102_custom_site_private_preview_images",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1792022400005,
+      "tag": "0103_custom_site_asset_storage_choice",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1792022400006,
+      "tag": "0104_setup_upload_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1792105694760,
+      "tag": "0105_setup_ai_trial_cap_50",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1792105694761,
+      "tag": "0106_setup_shared_previews_cap_80",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1792267728000,
+      "tag": "0107_ai_credit_wallet",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1792270500000,
+      "tag": "0108_ai_request_metering",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1792273000000,
+      "tag": "0109_setup_staff_publication",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1792284000000,
+      "tag": "0110_setup_add_on_publication",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1792287000000,
+      "tag": "0111_other_service_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1792303500000,
+      "tag": "0112_ai_operator_expense_budget",
+      "breakpoints": true
     }
   ]
 }

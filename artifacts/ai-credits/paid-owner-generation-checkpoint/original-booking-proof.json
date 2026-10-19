@@ -1,0 +1,89 @@
+{
+  "passed": true,
+  "browserName": "webkit",
+  "device": {
+    "width": 390,
+    "height": 844,
+    "devicePixelRatio": 3,
+    "maxTouchPoints": 0,
+    "configuredTouch": true
+  },
+  "revision": 18,
+  "artifactId": "18b8cff0-bcb3-4e95-aefd-53502f7821d0",
+  "bookingResponseStatus": 201,
+  "bookingSubmissionCount": 2,
+  "submissionCountExplanation": "One successful original booking submission and one deliberately invalid virtual-preview-ID probe.",
+  "serverProbes": [
+    {
+      "kind": "virtual-preview-service-rejected",
+      "status": 400,
+      "code": "INVALID_SELECTION"
+    }
+  ],
+  "checks": [
+    {
+      "originalBooking": true,
+      "preservedCanva": false,
+      "serviceId": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+      "serviceName": "BIAB",
+      "targetWidth": 86.078125,
+      "targetHeight": 35
+    },
+    {
+      "originalBooking": true,
+      "selectedStaff": "Synthetic AI Owner",
+      "staffEligibilityVerified": true
+    }
+  ],
+  "existingAppointmentsPreserved": 4,
+  "appointments": [
+    {
+      "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+      "total_price": 6500,
+      "total_duration_minutes": 60
+    },
+    {
+      "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+      "total_price": 7000,
+      "total_duration_minutes": 60
+    },
+    {
+      "id": "appt_08f9a454-223d-4f8c-b110-c59436b138be",
+      "total_price": 7500,
+      "total_duration_minutes": 60
+    },
+    {
+      "id": "appt_ca6ce4ea-c589-42fe-bd11-0139ff5ce53f",
+      "total_price": 8000,
+      "total_duration_minutes": 60
+    },
+    {
+      "id": "appt_860c0ac6-c721-45e3-94fe-03e5ce4c9cc9",
+      "total_price": 8000,
+      "total_duration_minutes": 60
+    }
+  ],
+  "livePrices": [
+    {
+      "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+      "name": "Gel Manicure",
+      "price": 4500,
+      "duration_minutes": 45
+    },
+    {
+      "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+      "name": "BIAB",
+      "price": 8000,
+      "duration_minutes": 60
+    }
+  ],
+  "modelCalls": 0,
+  "browserErrors": [],
+  "funding": "Stripe sandbox purchase entries verified in the Development ledger. Balance also includes historical synthetic recovery credit; funding is mixed.",
+  "fundingEvidence": {
+    "balance_micro_cad": "64604533",
+    "purchase_entries": 3,
+    "recovery_entries": 1
+  },
+  "source": "Original owner/public UI and canonical appointment API; no direct database appointment insertion."
+}

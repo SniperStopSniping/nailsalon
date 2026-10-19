@@ -1,0 +1,20 @@
+{
+  "testedAt": "2026-10-15T14:40:09.461Z",
+  "request": "Refine this same pink-and-black scrapbook website against my uploaded reference. Keep the grey outer canvas, stacked poster composition, torn edges, pink bubble lettering, tilted overlapping photos, original bear illustration and all existing sections. Do not replace it with a template or start over. On mobile make the white masthead about 20-25% shorter without shrinking its title too far, and reduce excessive gaps. Make the studio-hours card much easier to scan: show compact grouped days with the same hours using current Luster business hours, not hardcoded business values. The flower beside the about section currently has words colliding with it: remove text from inside the decorative flower and put the meaning in readable body text. Keep the photos large and the booking buttons easy to tap. Preserve all services, prices, durations, business details and booking rules unchanged. Use my selected reference for composition, but retain my own salon name, photos and truthful content.",
+  "selectedReferences": [
+    "8cef7f51-906f-454e-b439-74de0a694754",
+    "04d1e378-e971-432c-abc6-956f9bcd884e",
+    "db598ec9-49e1-4a6e-93c1-be5183608db6"
+  ],
+  "firstArtifact": "cd8f0fb5-0f73-426d-aaa7-7ea2c92efd50",
+  "artifactId": "f453c89a-9e0f-46bf-a6ce-dce1140f2605",
+  "revision": 11,
+  "startOver": false,
+  "refreshPreserved": true,
+  "businessUnchanged": true,
+  "servicesUnchanged": true,
+  "hoursUnchanged": true,
+  "bookingRulesUnchanged": true,
+  "manualSourceIntervention": false,
+  "seconds": 148.831
+}

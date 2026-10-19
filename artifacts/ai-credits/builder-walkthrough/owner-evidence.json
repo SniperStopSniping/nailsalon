@@ -1,0 +1,282 @@
+{
+  "scope": "Real owner workflow with a fictional sample business, genuine model-generated source, synthetic credits and original synthetic booking; no Stripe purchase or production deployment",
+  "privateEvidenceDirectory": "/tmp/luster-ai-walkthrough-owner-evidence-20261018",
+  "runs": [
+    {
+      "step": "message",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:53:02.280Z",
+      "beforeRevision": 1,
+      "afterRevision": 2,
+      "artifactId": null,
+      "operationId": "9d5ba797-19a1-4b34-9abf-da4fcec7167a",
+      "calls": [
+        {
+          "id": "3df31eaf-9a94-4bb9-b1bd-88d9999ed675",
+          "operation_id": "9d5ba797-19a1-4b34-9abf-da4fcec7167a",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 4799,
+          "output_tokens": 467,
+          "cost_micro_usd": 834,
+          "charged_micro_cad": 1668,
+          "credit_cost_micro_cad": "2336",
+          "elapsed_ms": 5552,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [],
+      "appointments": [],
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "step": "message",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:53:45.660Z",
+      "beforeRevision": 2,
+      "afterRevision": 3,
+      "artifactId": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+      "operationId": "acfc019e-c6c2-42e7-8440-1c5ef9ac3ee1",
+      "calls": [
+        {
+          "id": "fa2cfb98-628a-408a-8513-effb0700e357",
+          "operation_id": "acfc019e-c6c2-42e7-8440-1c5ef9ac3ee1",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5091,
+          "output_tokens": 310,
+          "cost_micro_usd": 792,
+          "charged_micro_cad": 1584,
+          "credit_cost_micro_cad": "2218",
+          "elapsed_ms": 3879,
+          "validation": "passed"
+        },
+        {
+          "id": "0adece94-43b2-4762-ab89-f194cc92c001",
+          "operation_id": "f6a4171b-64b5-49b7-9d2a-7fb31afa1673",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 1719,
+          "output_tokens": 5520,
+          "cost_micro_usd": 59496,
+          "charged_micro_cad": 118992,
+          "credit_cost_micro_cad": "166589",
+          "elapsed_ms": 108706,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "parent_id": null,
+          "source_hash": "155a9c83bec8908b08a0e00a5cfcafc7d177055c5a7523cf5ee393e4594cd4cb"
+        }
+      ],
+      "appointments": [],
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 1
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "step": "message",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:56:13.423Z",
+      "beforeRevision": 3,
+      "afterRevision": 4,
+      "artifactId": "b83b0d0f-0b63-4e41-9730-a073531132e3",
+      "operationId": "a0f66d1b-c3b1-499f-8d01-95122c71db6d",
+      "calls": [
+        {
+          "id": "d604a449-97c2-4537-ac69-7ad334a9bc94",
+          "operation_id": "a0f66d1b-c3b1-499f-8d01-95122c71db6d",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5192,
+          "output_tokens": 168,
+          "cost_micro_usd": 733,
+          "charged_micro_cad": 1466,
+          "credit_cost_micro_cad": "2053",
+          "elapsed_ms": 2711,
+          "validation": "passed"
+        },
+        {
+          "id": "574bba1b-1dc7-407e-9768-eda845ae34f4",
+          "operation_id": "72bc50a7-5f8c-4f5b-8178-87829fb65f41",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 6882,
+          "output_tokens": 5445,
+          "cost_micro_usd": 71654,
+          "charged_micro_cad": 143308,
+          "credit_cost_micro_cad": "200632",
+          "elapsed_ms": 69846,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "parent_id": null,
+          "source_hash": "155a9c83bec8908b08a0e00a5cfcafc7d177055c5a7523cf5ee393e4594cd4cb"
+        },
+        {
+          "id": "b83b0d0f-0b63-4e41-9730-a073531132e3",
+          "parent_id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "source_hash": "b77556e0deaec41a293afa67d5981db4272acc95e38408d04a431bf9fa57895d"
+        }
+      ],
+      "appointments": [],
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 1
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "step": "message",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:57:54.063Z",
+      "beforeRevision": 4,
+      "afterRevision": 5,
+      "artifactId": "b83b0d0f-0b63-4e41-9730-a073531132e3",
+      "operationId": "5e6857fc-0df2-44a7-a947-0812145d2ad2",
+      "calls": [
+        {
+          "id": "a917e044-136b-49d7-82ab-e4e7ef8a845c",
+          "operation_id": "5e6857fc-0df2-44a7-a947-0812145d2ad2",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5264,
+          "output_tokens": 203,
+          "cost_micro_usd": 760,
+          "charged_micro_cad": 1520,
+          "credit_cost_micro_cad": "2128",
+          "elapsed_ms": 4417,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "parent_id": null,
+          "source_hash": "155a9c83bec8908b08a0e00a5cfcafc7d177055c5a7523cf5ee393e4594cd4cb"
+        },
+        {
+          "id": "b83b0d0f-0b63-4e41-9730-a073531132e3",
+          "parent_id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "source_hash": "b77556e0deaec41a293afa67d5981db4272acc95e38408d04a431bf9fa57895d"
+        }
+      ],
+      "appointments": [],
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "browserName": "chromium",
+          "animatedElements": 1
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "step": "publish",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:58:23.845Z",
+      "beforeRevision": 5,
+      "afterRevision": 6,
+      "artifactId": "b83b0d0f-0b63-4e41-9730-a073531132e3",
+      "operationId": null,
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "parent_id": null,
+          "source_hash": "155a9c83bec8908b08a0e00a5cfcafc7d177055c5a7523cf5ee393e4594cd4cb"
+        },
+        {
+          "id": "b83b0d0f-0b63-4e41-9730-a073531132e3",
+          "parent_id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "source_hash": "b77556e0deaec41a293afa67d5981db4272acc95e38408d04a431bf9fa57895d"
+        }
+      ],
+      "appointments": [],
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "step": "book",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:59:00.572Z",
+      "beforeRevision": 6,
+      "afterRevision": 6,
+      "artifactId": "b83b0d0f-0b63-4e41-9730-a073531132e3",
+      "operationId": null,
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "parent_id": null,
+          "source_hash": "155a9c83bec8908b08a0e00a5cfcafc7d177055c5a7523cf5ee393e4594cd4cb"
+        },
+        {
+          "id": "b83b0d0f-0b63-4e41-9730-a073531132e3",
+          "parent_id": "01b0b3ce-7e3a-4c67-86ad-d40a2f2322cb",
+          "source_hash": "b77556e0deaec41a293afa67d5981db4272acc95e38408d04a431bf9fa57895d"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_13cd806e-e00b-4482-a5ad-20174ffea704",
+          "total_price": 7000,
+          "total_duration_minutes": 75
+        }
+      ],
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "8775e80f-3ae7-4f03-97d0-d85a27b1f9d5",
+          "serviceName": "BIAB",
+          "targetWidth": 102.21875,
+          "targetHeight": 44
+        }
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    }
+  ]
+}

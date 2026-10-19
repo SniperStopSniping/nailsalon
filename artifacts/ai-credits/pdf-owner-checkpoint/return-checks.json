@@ -1,0 +1,124 @@
+[
+  {
+    "step": "start-editing",
+    "browser": "chromium",
+    "revision": 7,
+    "calls": 0,
+    "status": "passed",
+    "interactionChecks": [],
+    "contactChecks": []
+  },
+  {
+    "step": "preview",
+    "browser": "webkit",
+    "revision": 7,
+    "calls": 0,
+    "status": "passed",
+    "interactionChecks": [
+      {
+        "device": "desktop",
+        "preservedCanvaPages": 2,
+        "areaCount": 4
+      },
+      {
+        "device": "desktop",
+        "referenceLandmark": "instagram",
+        "areaId": "instagram",
+        "matched": true
+      },
+      {
+        "device": "desktop",
+        "referenceLandmark": "email",
+        "areaId": "email",
+        "matched": true
+      },
+      {
+        "device": "desktop",
+        "referenceLandmark": "service",
+        "serviceName": "BIAB",
+        "areaId": "book-biab",
+        "matched": true
+      },
+      {
+        "device": "desktop",
+        "referenceLandmark": "service",
+        "serviceName": "Gel Manicure",
+        "areaId": "book-gel",
+        "matched": true
+      },
+      {
+        "device": "mobile",
+        "preservedCanvaPages": 2,
+        "areaCount": 4
+      },
+      {
+        "device": "mobile",
+        "referenceLandmark": "instagram",
+        "areaId": "instagram",
+        "matched": true
+      },
+      {
+        "device": "mobile",
+        "referenceLandmark": "email",
+        "areaId": "email",
+        "matched": true
+      },
+      {
+        "device": "mobile",
+        "referenceLandmark": "service",
+        "serviceName": "BIAB",
+        "areaId": "book-biab",
+        "matched": true
+      },
+      {
+        "device": "mobile",
+        "referenceLandmark": "service",
+        "serviceName": "Gel Manicure",
+        "areaId": "book-gel",
+        "matched": true
+      },
+      {
+        "browserName": "webkit",
+        "animatedElements": 0
+      },
+      {
+        "browserName": "webkit",
+        "reducedMotion": "passed"
+      }
+    ],
+    "contactChecks": [
+      {
+        "device": "desktop",
+        "kind": "instagram",
+        "href": "https://www.instagram.com/lumen.test.studio/",
+        "targetWidth": 192,
+        "targetHeight": 73.328125,
+        "tapAttemptVerified": false
+      },
+      {
+        "device": "desktop",
+        "kind": "email",
+        "href": "mailto:hello@example.invalid",
+        "targetWidth": 223.1875,
+        "targetHeight": 73.328125,
+        "tapAttemptVerified": false
+      },
+      {
+        "device": "mobile",
+        "kind": "instagram",
+        "href": "https://www.instagram.com/lumen.test.studio/",
+        "targetWidth": 124.796875,
+        "targetHeight": 47.65625,
+        "tapAttemptVerified": true
+      },
+      {
+        "device": "mobile",
+        "kind": "email",
+        "href": "mailto:hello@example.invalid",
+        "targetWidth": 145.078125,
+        "targetHeight": 47.65625,
+        "tapAttemptVerified": false
+      }
+    ]
+  }
+]

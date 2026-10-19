@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "migrationSourceSha": "2e6c3002cc711c2b3142f29dcce91515b9e0e6d0",
+  "rehearsalScriptSha256": "d911194d5c9cb32e12a2cad2a5fa0808e0cf2ab572ff06a5c7c55c3f3be1c113",
+  "actualPreviewMigrationCommandPassed": true,
+  "nativePostgresUpgrade": true,
+  "forcedFailureRollback": true,
+  "retryNoOp": true,
+  "refusalCasesPassed": 4,
+  "scopedEslintExitCode": 0,
+  "fullTypecheckExitCode": 0,
+  "diffCheckExitCode": 0,
+  "applicationSourceChanged": false,
+  "migrationSqlChanged": false,
+  "hostedAccess": false,
+  "newPaidCalls": 0,
+  "productionChanged": false
+}

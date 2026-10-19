@@ -208,7 +208,7 @@ type BrowserHistoryEntry = {
     | { kind: 'plan' }
     | {
       kind: 'preview';
-      source: 'starting_preview' | 'about' | 'about_design' | 'booking_layout' | 'site_style' | 'final_preview';
+      source: 'starting_preview' | 'your_design' | 'about' | 'about_design' | 'booking_layout' | 'site_style' | 'final_preview';
     };
   screen: OnboardingLabState['progress']['currentScreen'];
 };
@@ -1002,10 +1002,11 @@ describe('OnboardingApp handoff boundaries', () => {
 
     const firstRender = render(<RealLabHarness />);
     await user.click(screen.getByRole('button', { name: 'Add your design' }));
-    await screen.findByRole('button', { name: 'Save Canva design' });
+    await screen.findByRole('button', { name: 'Cancel' });
     const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
 
-    expect(within(dialog).getByRole('button', { name: 'Save Canva design' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Choose images')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Save Canva design' })).not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -1038,10 +1039,10 @@ describe('OnboardingApp handoff boundaries', () => {
     window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, exportSiteBuilderDocument(document));
     render(<RealLabHarness />);
     await user.click(screen.getByRole('button', { name: /Current starting point.*Your Design/u }));
-    await screen.findByRole('button', { name: 'Save Canva design' });
+    await screen.findByRole('button', { name: 'Cancel' });
     const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
 
-    expect(within(dialog).getByRole('button', { name: 'Save Canva design' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('Choose images')).toBeInTheDocument();
   });
 
   it('confirms a starter change, preserves profile data, and resumes the switched starter after reload', async () => {

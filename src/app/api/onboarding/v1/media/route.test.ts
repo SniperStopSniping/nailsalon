@@ -106,7 +106,7 @@ const uploadRequest = ({
   role = 'logo',
 }: {
   localItemId?: string;
-  role?: 'logo' | 'profile' | 'gallery' | 'cover';
+  role?: 'logo' | 'profile' | 'gallery' | 'cover' | 'custom_design';
 } = {}) => {
   const form = new FormData();
   form.set('altText', role === 'logo' ? 'Isla Nail Studio logo' : 'Daniela portrait');
@@ -198,11 +198,25 @@ afterAll(async () => {
 });
 
 describe('POST /api/onboarding/v1/media', () => {
+  it('saves declared Canva artwork at its native dimensions without changing photo handling', async () => {
+    await db.update(schema.onboardingSiteMediaSchema).set({ role: 'custom_design' }).where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+    const response = await POST(uploadRequest({ role: 'custom_design' }));
+
+    expect(response.status).toBe(200);
+    expect(storage.saveFile).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'custom_design',
+      imagePreparation: { artwork: true, maxOutputBytes: ONBOARDING_MEDIA_MAX_FILE_BYTES, preserveDimensions: true },
+      salonId: SALON_ID,
+    }));
+    expect(canonical.saveMedia).not.toHaveBeenCalled();
+  });
+
   it('claims only a declared role-owned item and records a server reference', async () => {
     const response = await POST(uploadRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(storage.saveFile.mock.calls[0]?.[0]).not.toHaveProperty('imagePreparation');
     expect(body.data.media).toMatchObject({
       height: 40,
       id: MEDIA_ID,

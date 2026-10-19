@@ -1,0 +1,80 @@
+{
+  "passed": true,
+  "mode": "intake",
+  "message": "My business is Cobalt Nail Club in Toronto. I work alone from home. My service address is 123 Synthetic Lane, Toronto; keep the full address private and show only Toronto. I'm open Tuesday through Saturday, 10am to 6pm, closed Sunday and Monday. I offer BIAB and gel manicures, but I haven't set prices or appointment lengths. Please suggest starting prices in Canadian dollars and appointment lengths for me to review. Use Toronto time, two hours minimum notice and a 10 minute cleanup buffer. Let's get the business details ready first.",
+  "operationId": "0bf1333d-a35a-46c3-8b85-97fe19b972d5",
+  "beforeRevision": 1,
+  "afterRevision": 2,
+  "artifactId": null,
+  "elapsedMs": 8089,
+  "calls": [
+    {
+      "id": "10cd6181-4d68-4391-89f1-7b81b517032e",
+      "operation_id": "0bf1333d-a35a-46c3-8b85-97fe19b972d5",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4981,
+      "output_tokens": 575,
+      "cost_micro_usd": 911,
+      "credit_cost_micro_cad": "2551",
+      "charged_micro_cad": 1822,
+      "elapsed_ms": 6778,
+      "validation": "passed"
+    }
+  ],
+  "priorWallet": {
+    "balance": "10000000",
+    "purchases": 1,
+    "recovery": 0
+  },
+  "nextWallet": {
+    "balance": "9997449",
+    "purchases": 1,
+    "recovery": 0
+  },
+  "reservation": {
+    "status": "settled",
+    "settled_micro_cad": "2551",
+    "reserved_micro_cad": "2000000",
+    "resolution": "completed"
+  },
+  "businessFirst": true,
+  "recoveredSavedIntakeWithoutNewModelCall": true,
+  "storedIntakeSourceSha": "c3253898b719219643080abdb713a06a031194d4",
+  "currentApplicationSourceSha": "739e839cee92335742baff9c8c16d431a1e6fbc5",
+  "legacyAnnotationsPreserved": true,
+  "liveUnchanged": true,
+  "privateUntilApproval": true,
+  "refresh": true,
+  "noSeededCredit": true,
+  "manualSourceRepair": false,
+  "browserErrors": [],
+  "services": [
+    {
+      "id": "draft_biab",
+      "name": "BIAB",
+      "priceCents": 6500,
+      "durationMinutes": 75,
+      "confirmed": false,
+      "sources": {
+        "name": "owner",
+        "priceCents": "suggested",
+        "durationMinutes": "suggested"
+      }
+    },
+    {
+      "id": "draft_gel_manicure",
+      "name": "Gel manicure",
+      "priceCents": 5000,
+      "durationMinutes": 60,
+      "confirmed": false,
+      "sources": {
+        "name": "conversation",
+        "priceCents": "conversation",
+        "durationMinutes": "conversation"
+      }
+    }
+  ]
+}

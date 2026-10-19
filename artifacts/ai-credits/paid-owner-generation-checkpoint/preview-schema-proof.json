@@ -1,0 +1,32 @@
+{
+  "checkedAt": "2026-10-18T23:05:30.218Z",
+  "readOnly": true,
+  "environmentMarker": "preview",
+  "exactDedicatedHostVerified": true,
+  "serverCertificateVerified": true,
+  "missingSchema": {
+    "ai_credit_account": "table absent",
+    "ai_credit_purchase": "table absent",
+    "ai_credit_reservation": "table absent",
+    "ai_credit_ledger": "table absent",
+    "setup_ai_call": [
+      "credit_reservation_id",
+      "credit_reserved_micro_cad",
+      "credit_cost_micro_cad"
+    ],
+    "business_setup_publication": [
+      "staff_ids",
+      "add_on_ids"
+    ]
+  },
+  "counts": {
+    "salon": 16,
+    "client": 0,
+    "appointment": 17
+  },
+  "budgetCapMicroCad": 68615594,
+  "migrationsApplied": false,
+  "additionalVercelSecretsDecrypted": false,
+  "readyForCurrentAiCreditCode": false,
+  "notes": "Aggregate counts only. Do not infer synthetic identity or customer provenance from counts. No records selected or changed."
+}

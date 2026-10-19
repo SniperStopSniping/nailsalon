@@ -1,6 +1,6 @@
 'use client';
 
-import { SignIn, useClerk } from '@clerk/nextjs';
+import { SignIn, SignUp, useClerk } from '@clerk/nextjs';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { resolveOnboardingOrganization } from '@/features/onboarding-v1-integration/client';
@@ -38,11 +38,13 @@ const derivePendingSessionTask = (candidate: unknown): PendingSessionTask | null
 };
 
 const RESOLUTION_FAILED_MESSAGE
-  = 'We couldn’t finish opening your workspace. Try again.';
+  = 'We couldn’t finish signing you in. Try again.';
 
 export type OwnerSignInCardProps = {
   dashboardUrl: string;
   createSalonUrl?: string;
+  mode?: 'sign-in' | 'sign-up';
+  signInUrl?: string;
 };
 
 /**
@@ -59,36 +61,104 @@ export type OwnerSignInCardProps = {
  * `POST /api/onboarding/v1/organization`, then `setActive` — and continues to
  * the workspace, so the owner sees a status message instead of a form.
  */
-export function OwnerSignInCard({ dashboardUrl, createSalonUrl }: OwnerSignInCardProps) {
+export function OwnerSignInCard({ dashboardUrl, createSalonUrl, mode = 'sign-in', signInUrl }: OwnerSignInCardProps) {
   const clerk = useClerk();
   const [pendingTask, setPendingTask] = useState<PendingSessionTask | null>(null);
   const [phase, setPhase] = useState<'failed' | 'resolving'>('resolving');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-  const resolvingRef = useRef(false);
+  const mountedRef = useRef(false);
+  const pendingTaskRef = useRef<PendingSessionTask | null>(null);
+  const attemptedTaskKeysRef = useRef(new Set<string>());
+  const inFlightTaskKeysRef = useRef(new Set<string>());
 
   useEffect(() => {
-    setPendingTask(derivePendingSessionTask(clerk.session));
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const initialTask = derivePendingSessionTask(clerk.session);
+    pendingTaskRef.current = initialTask;
+    setPendingTask(initialTask);
     return clerk.addListener(({ session: nextSession }) => {
-      setPendingTask(derivePendingSessionTask(nextSession));
+      const nextTask = derivePendingSessionTask(nextSession);
+      pendingTaskRef.current = nextTask;
+      setPendingTask(nextTask);
     });
   }, [clerk]);
 
   const needsOrganization = pendingTask?.taskKey === 'choose-organization';
-  const pendingSessionId = pendingTask?.sessionId;
 
   useEffect(() => {
-    if (!needsOrganization || !pendingSessionId || resolvingRef.current) {
+    if (!needsOrganization || !pendingTask) {
       return;
     }
-    resolvingRef.current = true;
+    const selectedTask = pendingTask;
+    const taskKey = `${selectedTask.sessionId}\u0000${selectedTask.taskKey}`;
+    if (attemptedTaskKeysRef.current.has(taskKey) || inFlightTaskKeysRef.current.has(taskKey)) {
+      return;
+    }
+    attemptedTaskKeysRef.current.add(taskKey);
+    inFlightTaskKeysRef.current.add(taskKey);
     setPhase('resolving');
     setErrorMessage(null);
     void (async () => {
+      const isSelectedTask = () => {
+        const current = pendingTaskRef.current;
+        return mountedRef.current
+          && current?.sessionId === selectedTask.sessionId
+          && current.taskKey === selectedTask.taskKey;
+      };
+      const isCurrentTask = () => {
+        const rawTask = derivePendingSessionTask(clerk.session);
+        return isSelectedTask()
+          && rawTask?.sessionId === selectedTask.sessionId
+          && rawTask.taskKey === selectedTask.taskKey;
+      };
+      const showFailure = () => {
+        if (isSelectedTask()) {
+          setErrorMessage(RESOLUTION_FAILED_MESSAGE);
+          setPhase('failed');
+        }
+      };
       try {
-        // The salon name is not readable yet: a pending session is signed out
-        // for every other API, so the endpoint's own fallback name is used.
-        const resolution = await resolveOnboardingOrganization('');
+        const session = clerk.session as {
+          getToken?: (options: { skipCache: true }) => Promise<string | null>;
+          id?: string;
+        } | null;
+        if (!isSelectedTask()) {
+          return;
+        }
+        if (session?.id !== selectedTask.sessionId) {
+          showFailure();
+          return;
+        }
+        if (typeof session.getToken !== 'function') {
+          throw new TypeError(RESOLUTION_FAILED_MESSAGE);
+        }
+        let sessionToken: string | null;
+        try {
+          sessionToken = await session.getToken({ skipCache: true });
+        } catch {
+          throw new TypeError(RESOLUTION_FAILED_MESSAGE);
+        }
+        if (!isCurrentTask()) {
+          showFailure();
+          return;
+        }
+        if (!sessionToken) {
+          throw new Error(RESOLUTION_FAILED_MESSAGE);
+        }
+        // The salon name is not readable yet: use the endpoint's fallback.
+        // This genuine pending-session token is scoped to organization setup.
+        const resolution = await resolveOnboardingOrganization('', { sessionToken });
+        if (!isCurrentTask()) {
+          showFailure();
+          return;
+        }
         const [organization] = resolution.organizations;
         if (!organization) {
           throw new Error(RESOLUTION_FAILED_MESSAGE);
@@ -96,38 +166,44 @@ export function OwnerSignInCard({ dashboardUrl, createSalonUrl }: OwnerSignInCar
         await clerk.setActive({
           organization: organization.id,
           redirectUrl: dashboardUrl,
-          session: pendingSessionId,
+          session: selectedTask.sessionId,
         });
-      } catch (error) {
-        resolvingRef.current = false;
-        setErrorMessage(error instanceof Error && error.message.trim()
-          ? error.message
-          : RESOLUTION_FAILED_MESSAGE);
-        setPhase('failed');
+      } catch {
+        showFailure();
+      } finally {
+        inFlightTaskKeysRef.current.delete(taskKey);
       }
     })();
-  }, [clerk, dashboardUrl, needsOrganization, pendingSessionId, retryCount]);
+  }, [clerk, dashboardUrl, needsOrganization, pendingTask, retryCount]);
 
   const retry = useCallback(() => {
+    const task = pendingTaskRef.current;
+    if (task) {
+      attemptedTaskKeysRef.current.delete(`${task.sessionId}\u0000${task.taskKey}`);
+    }
     setPhase('resolving');
     setErrorMessage(null);
     setRetryCount(count => count + 1);
   }, []);
 
-  const signInCard = (
-    <SignIn
-      appearance={{
-        ...lusterOwnerSignInAppearance,
-        elements: {
-          ...lusterOwnerSignInAppearance.elements,
-          ...(createSalonUrl ? { footerAction__signIn: 'luster-auth-create' } : {}),
-        },
-      }}
-      signUpUrl={createSalonUrl}
-      fallbackRedirectUrl={dashboardUrl}
-      routing="hash"
-    />
-  );
+  const signInCard = mode === 'sign-up'
+    ? (
+        <SignUp appearance={lusterOwnerSignInAppearance} signInUrl={signInUrl} forceRedirectUrl={dashboardUrl} routing="hash" />
+      )
+    : (
+        <SignIn
+          appearance={{
+            ...lusterOwnerSignInAppearance,
+            elements: {
+              ...lusterOwnerSignInAppearance.elements,
+              ...(createSalonUrl ? { footerAction__signIn: 'luster-auth-create' } : {}),
+            },
+          }}
+          signUpUrl={createSalonUrl}
+          fallbackRedirectUrl={dashboardUrl}
+          routing="hash"
+        />
+      );
 
   if (!needsOrganization) {
     return signInCard;

@@ -104,6 +104,7 @@ const LOCATION_DISPLAY_MODE_OPTIONS: Array<{ id: LocationDisplayMode; label: str
 // =============================================================================
 
 type BookingPageApiResponse = {
+  setupRevision?: number | null;
   config: BookingPageConfig;
   content: BookingPageContent;
   /**
@@ -245,6 +246,7 @@ async function fetchBookingPageState(salonSlug: string, includeInformation = fal
 async function patchBookingPage(
   salonSlug: string,
   body: {
+    expectedSetupRevision?: number;
     config?: Record<string, unknown>;
     content?: Record<string, unknown>;
     builderOperation?: BookingPageBuilderOperation;
@@ -388,6 +390,7 @@ function BookingPageOwnerSurfaceContent() {
     };
   }, [salonSlug]);
 
+  const setupRevisionRef = useRef<number | undefined>(undefined);
   const [config, setConfig] = useState<BookingPageConfig | null>(null);
   const [content, setContent] = useState<BookingPageContent | null>(null);
   const [savedDetails, setSavedDetails] = useState<Record<string, string[]> | undefined>();
@@ -587,6 +590,7 @@ function BookingPageOwnerSurfaceContent() {
       }
     }
 
+    setupRevisionRef.current = state.setupRevision ?? undefined;
     setConfig(state.config);
     setContent(state.content);
     if (state.presentationPreview) {
@@ -735,7 +739,7 @@ function BookingPageOwnerSurfaceContent() {
     setTruthfulSaveStatus('saving');
     await trackOrdinaryWrite(Object.keys(patch).map(field => `config:${field}`), async () => {
       const response = await requestBookingPageState(
-        () => patchBookingPage(salonSlug, { config: patch }),
+        () => patchBookingPage(salonSlug, { config: patch, expectedSetupRevision: setupRevisionRef.current }),
       );
       adoptBookingPageState(response.state, response.identity);
     });
@@ -755,7 +759,7 @@ function BookingPageOwnerSurfaceContent() {
     }
     await trackOrdinaryWrite(Object.keys(patch).map(field => `content:${field}`), async () => {
       const response = await requestBookingPageState(
-        () => patchBookingPage(salonSlug, { content: patch }),
+        () => patchBookingPage(salonSlug, { content: patch, expectedSetupRevision: setupRevisionRef.current }),
         savedEditGenerations,
       );
       adoptBookingPageState(response.state, response.identity);
@@ -783,6 +787,9 @@ function BookingPageOwnerSurfaceContent() {
     const body = new FormData();
     body.append('file', file);
     body.append('baselineHeroImageUrl', content?.draft.heroImageUrl ?? '');
+    if (setupRevisionRef.current !== undefined) {
+      body.append('expectedSetupRevision', String(setupRevisionRef.current));
+    }
     try {
       const response = await fetch(`/api/admin/booking-page/cover?salonSlug=${encodeURIComponent(salonSlug)}`, {
         method: 'POST',
@@ -919,7 +926,7 @@ function BookingPageOwnerSurfaceContent() {
         return;
       }
       const response = await requestBookingPageState(
-        () => patchBookingPage(salonSlug, { builderOperation: operation }),
+        () => patchBookingPage(salonSlug, { builderOperation: operation, expectedSetupRevision: setupRevisionRef.current }),
       );
       const adoption = adoptBookingPageState(response.state, response.identity, {
         preservePreviewAdmission: operation.type === 'move_section',
@@ -1034,6 +1041,10 @@ function BookingPageOwnerSurfaceContent() {
     try {
       if (!await settleOrdinaryWrites()) {
         setActionMessage('Publish paused because a draft field could not be saved. Retry the field, then publish again.');
+        return;
+      }
+      if (setupRevisionRef.current !== undefined) {
+        router.push(`/admin/business-setup?salon=${encodeURIComponent(salonSlug)}`);
         return;
       }
       const response = await requestBookingPageState(
@@ -1236,10 +1247,10 @@ function BookingPageOwnerSurfaceContent() {
   // Public booking URLs may live on a custom host where the Owner's session is
   // unavailable, and must never be treated as a privileged DRAFT capability.
   const previewPath = salonSlug
-    ? getI18nPath(`/admin/booking-page/preview/${encodeURIComponent(salonSlug)}`, locale)
+    ? getI18nPath(setupRevisionRef.current !== undefined ? `/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${setupRevisionRef.current}` : `/admin/booking-page/preview/${encodeURIComponent(salonSlug)}`, locale)
     : null;
   const previewFrameSrc = previewPath
-    ? `${previewPath}?builderPreview=${previewRevision}`
+    ? setupRevisionRef.current !== undefined ? previewPath : `${previewPath}?builderPreview=${previewRevision}`
     : null;
   // The address the salon publish locks for good. Shown in the confirmation so
   // the owner reads the exact string before it becomes permanent.

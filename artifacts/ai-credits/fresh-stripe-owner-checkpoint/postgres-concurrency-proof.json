@@ -1,0 +1,128 @@
+{
+  "numTotalTestSuites": 3,
+  "numPassedTestSuites": 3,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 8,
+  "numPassedTests": 8,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1792367238043,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [
+            "metered owner requests on attested PostgreSQL"
+          ],
+          "fullName": "metered owner requests on attested PostgreSQL serializes different prepaid salons against the shared production expense cap without borrowing trial funds",
+          "status": "passed",
+          "title": "serializes different prepaid salons against the shared production expense cap without borrowing trial funds",
+          "duration": 185.89975000000004,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "metered owner requests on attested PostgreSQL"
+          ],
+          "fullName": "metered owner requests on attested PostgreSQL does not refund or rerun a duplicate request while its original provider call is active",
+          "status": "passed",
+          "title": "does not refund or rerun a duplicate request while its original provider call is active",
+          "duration": 116.94900000000007,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "metered owner requests on attested PostgreSQL"
+          ],
+          "fullName": "metered owner requests on attested PostgreSQL keeps simultaneous salons and their asynchronous provider contexts separate",
+          "status": "passed",
+          "title": "keeps simultaneous salons and their asynchronous provider contexts separate",
+          "duration": 92.95345799999996,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "metered owner requests on attested PostgreSQL"
+          ],
+          "fullName": "metered owner requests on attested PostgreSQL recovers a saved draft after PostgreSQL rejects its settlement, charging only once",
+          "status": "passed",
+          "title": "recovers a saved draft after PostgreSQL rejects its settlement, charging only once",
+          "duration": 78.75529099999994,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "AI wallet on attested disposable PostgreSQL"
+          ],
+          "fullName": "AI wallet on attested disposable PostgreSQL admits only one simultaneous hold when two requests compete for the remaining balance",
+          "status": "passed",
+          "title": "admits only one simultaneous hold when two requests compete for the remaining balance",
+          "duration": 13.876500000000306,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "AI wallet on attested disposable PostgreSQL"
+          ],
+          "fullName": "AI wallet on attested disposable PostgreSQL grants, reserves and settles once when duplicate requests arrive concurrently",
+          "status": "passed",
+          "title": "grants, reserves and settles once when duplicate requests arrive concurrently",
+          "duration": 40.318083000000115,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "AI wallet on attested disposable PostgreSQL"
+          ],
+          "fullName": "AI wallet on attested disposable PostgreSQL serializes a refund against admission and preserves an already admitted request",
+          "status": "passed",
+          "title": "serializes a refund against admission and preserves an already admitted request",
+          "duration": 13.05475000000024,
+          "failureMessages": [],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "AI wallet on attested disposable PostgreSQL"
+          ],
+          "fullName": "AI wallet on attested disposable PostgreSQL rolls back fulfillment after a failed ledger write and safely retries",
+          "status": "passed",
+          "title": "rolls back fulfillment after a failed ledger write and safely retries",
+          "duration": 15.34441599999991,
+          "failureMessages": [],
+          "meta": {}
+        }
+      ],
+      "startTime": 1792367240161,
+      "endTime": 1792367240718.3445,
+      "status": "passed",
+      "message": "",
+      "name": "/Users/me/.codex/worktrees/ai-business-setup/nail-salon-copy2 copy 2/src/features/ai-credits/wallet.concurrency.integration.test.ts"
+    }
+  ]
+}

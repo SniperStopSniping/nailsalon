@@ -58,6 +58,7 @@ describe('SetupPreviewOverlay shared preview targeting', () => {
 
   it.each([
     ['starting_preview', 'top'],
+    ['your_design', 'top'],
     ['about', 'about'],
     ['about_design', 'about'],
     ['site_style', 'top'],

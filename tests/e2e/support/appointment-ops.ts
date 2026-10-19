@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, type Page, request as playwrightRequest } from '@playwright/test';
 
-import { appPath, appPathPattern, authStatePaths, e2eBaseUrl, e2eConfig } from './config';
+import { appPath, appPathPattern, authStatePaths, e2eBaseUrl, e2eConfig, e2eOrigin } from './config';
 
 type SuperAdminOrganization = {
   id: string;
@@ -55,10 +55,12 @@ export async function createImpersonatedAdminRequestContext() {
   const context = await playwrightRequest.newContext({
     baseURL: e2eBaseUrl,
     storageState: authStatePaths.superAdmin,
+    extraHTTPHeaders: { Origin: e2eOrigin },
   });
 
   const targetSalon = await fetchTargetSalon(context);
   const response = await context.post('/api/super-admin/impersonate', {
+    headers: { Origin: e2eOrigin },
     data: { salonId: targetSalon.id },
   });
   const body = await response.json().catch(() => null);
@@ -130,6 +132,7 @@ export async function impersonateSalonAsSuperAdmin(page: Page) {
   expect(targetSalon?.id, `Missing target salon id for ${e2eConfig.salonSlug}`).toBeTruthy();
 
   const response = await page.request.post('/api/super-admin/impersonate', {
+    headers: { Origin: e2eOrigin },
     data: { salonId: targetSalon!.id },
   });
   const body = await response.json().catch(() => null);
