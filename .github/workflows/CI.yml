@@ -1725,6 +1725,40 @@ jobs:
       - name: Run focused lifecycle regressions
         run: npm run test:client-lifecycle:regression
 
+      - name: Verify client deletion races on real PostgreSQL with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism --reporter=json \
+            --outputFile="$RUNNER_TEMP/client-deletion-postgres.json" \
+            src/libs/clientDeletion.integration.test.ts
+          node - "$RUNNER_TEMP/client-deletion-postgres.json" <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+          const assertions = report.testResults?.flatMap(file => file.assertionResults ?? []) ?? [];
+          const requiredNativeCases = [
+            'serializes concurrent archive attempts to one mutation and one audit',
+            'lets booking win before archive and rejects without cancellation or partial mutation',
+            'lets archive win before the production booking identity gate and inserts no appointment',
+          ];
+          const passedNames = new Set(assertions.filter(test => test.status === 'passed').map(test => test.title));
+          if (
+            report.success !== true
+            || report.numTotalTests !== 11
+            || report.numPassedTests !== 11
+            || report.numFailedTests !== 0
+            || report.numPendingTests !== 0
+            || report.numTodoTests !== 0
+            || report.testResults?.length !== 1
+            || assertions.length !== 11
+            || requiredNativeCases.some(name => !passedNames.has(name))
+          ) {
+            process.stderr.write('Client deletion PostgreSQL run did not execute all 3 native cases plus 8 portable cases successfully.\n');
+            process.exit(1);
+          }
+          console.log('CLIENT_DELETION_POSTGRES_TESTS_EXECUTED=3 CLIENT_DELETION_POSTGRES_TESTS_SKIPPED=0 PORTABLE_TESTS_EXECUTED=8');
+          NODE
+
       - name: Reset the disposable database for the command gate
         env:
           DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
@@ -2205,6 +2239,101 @@ jobs:
             artifacts/customer-assistant/receptionist-backend-*.png
           if-no-files-found: ignore
           retention-days: 3
+
+      - name: Verify portfolio upload slot races on real PostgreSQL with zero skips
+        shell: bash
+        env:
+          PORTFOLIO_LIMIT_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism --reporter=json \
+            --outputFile="$RUNNER_TEMP/portfolio-media-postgres.json" \
+            src/libs/portfolioMedia.concurrency.integration.test.ts
+          node - "$RUNNER_TEMP/portfolio-media-postgres.json" <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+          const assertions = report.testResults?.flatMap(file => file.assertionResults ?? []) ?? [];
+          if (
+            report.success !== true
+            || report.numTotalTests !== 4
+            || report.numPassedTests !== 4
+            || report.numFailedTests !== 0
+            || report.numPendingTests !== 0
+            || report.numTodoTests !== 0
+            || report.testResults?.length !== 1
+            || assertions.length !== 4
+            || assertions.some(test => test.status !== 'passed')
+          ) {
+            process.stderr.write('Portfolio media PostgreSQL run did not execute all 4 cases successfully.\n');
+            process.exit(1);
+          }
+          console.log('PORTFOLIO_MEDIA_POSTGRES_TESTS_EXECUTED=4 PORTFOLIO_MEDIA_POSTGRES_TESTS_SKIPPED=0');
+          NODE
+
+      - name: Verify scope-clean outbox mutants on real PostgreSQL with zero skips
+        shell: bash
+        env:
+          D5_CONCURRENCY_REQUIRED: 'true'
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism --reporter=json \
+            --outputFile="$RUNNER_TEMP/outbox-scope-clean-postgres.json" \
+            src/libs/integrationOutbox.scopeCleanMutants.postgres.integration.test.ts
+          node - "$RUNNER_TEMP/outbox-scope-clean-postgres.json" <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+          const assertions = report.testResults?.flatMap(file => file.assertionResults ?? []) ?? [];
+          if (
+            report.success !== true
+            || report.numTotalTests !== 2
+            || report.numPassedTests !== 2
+            || report.numFailedTests !== 0
+            || report.numPendingTests !== 0
+            || report.numTodoTests !== 0
+            || report.testResults?.length !== 1
+            || assertions.length !== 2
+            || assertions.some(test => test.status !== 'passed')
+          ) {
+            process.stderr.write('Outbox scope-clean PostgreSQL run did not execute both cases successfully.\n');
+            process.exit(1);
+          }
+          console.log('OUTBOX_SCOPE_CLEAN_POSTGRES_TESTS_EXECUTED=2 OUTBOX_SCOPE_CLEAN_POSTGRES_TESTS_SKIPPED=0');
+          NODE
+
+      # Next Visit deliberately drops and recreates both schemas, so it is the
+      # final database-mutating suite in this disposable service job.
+      - name: Verify Next Visit offer races on real PostgreSQL with zero skips
+        shell: bash
+        env:
+          NEXT_VISIT_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+        run: |
+          set -euo pipefail
+          export NEXT_VISIT_TEST_DATABASE_URL="$CONCURRENCY_TEST_DATABASE_URL"
+          npx vitest run --no-file-parallelism --reporter=json \
+            --outputFile="$RUNNER_TEMP/next-visit-offer-postgres.json" \
+            src/libs/nextVisitOffer.concurrency.integration.test.ts
+          node - "$RUNNER_TEMP/next-visit-offer-postgres.json" <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+          const assertions = report.testResults?.flatMap(file => file.assertionResults ?? []) ?? [];
+          if (
+            report.success !== true
+            || report.numTotalTests !== 4
+            || report.numPassedTests !== 4
+            || report.numFailedTests !== 0
+            || report.numPendingTests !== 0
+            || report.numTodoTests !== 0
+            || report.testResults?.length !== 1
+            || assertions.length !== 4
+            || assertions.some(test => test.status !== 'passed')
+          ) {
+            process.stderr.write('Next Visit offer PostgreSQL run did not execute all 4 cases successfully.\n');
+            process.exit(1);
+          }
+          console.log('NEXT_VISIT_POSTGRES_TESTS_EXECUTED=4 NEXT_VISIT_POSTGRES_TESTS_SKIPPED=0');
+          NODE
 
   communications-dispatch-postgres:
     needs: secret-scan
