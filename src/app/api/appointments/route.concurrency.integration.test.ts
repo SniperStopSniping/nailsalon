@@ -5075,15 +5075,19 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
     const sameStaffReplay = await POST(request(TECH_ID));
 
-    expect(sameStaffReplay.status).toBe(201);
-
     const replayBody = await sameStaffReplay.json() as {
-      data: { appointmentId: string; technician: { id: string } | null };
+      data?: { appointmentId: string; technician: { id: string } | null };
+      error?: { code?: string };
       meta?: { cached?: boolean };
     };
 
-    expect(replayBody.data.appointmentId).toBe(firstBody.data.appointmentId);
-    expect(replayBody.data.technician?.id).toBe(firstBody.data.technician?.id);
+    expect(
+      sameStaffReplay.status,
+      `same-staff replay returned ${replayBody.error?.code ?? 'no structured error code'}`,
+    ).toBe(201);
+
+    expect(replayBody.data?.appointmentId).toBe(firstBody.data.appointmentId);
+    expect(replayBody.data?.technician?.id).toBe(firstBody.data.technician?.id);
     expect(replayBody.meta?.cached).toBe(true);
 
     const changedStaffReplay = await POST(request(SECOND_TECH_ID));
