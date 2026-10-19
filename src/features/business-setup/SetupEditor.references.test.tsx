@@ -455,6 +455,59 @@ it.each([
   expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
 });
 
+it('shows distinct website changes and exact owner contact and policy wording before approval', async () => {
+  const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (url, options) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'review') {
+      return { ok: true, json: async () => ({ data: { revision, hash: 'exact-hash', changes: [
+        { path: 'website.config.quickBookProfile.showEmail', before: false, after: true },
+        { path: 'website.config.quickBookProfile.showHours', before: false, after: true },
+        { path: 'website.content.bio', before: null, after: 'Follow @paper_nails.' },
+        { path: 'website.content.websiteDetails', before: null, after: { instagram: '@paper_nails', email: 'book_me@example.test', phone: null, locationDirections: 'Dixie_and_Countryside', sections: [{ id: 'arrival_notes', title: 'Arrival_notes', text: 'DM @paper_nails.\nKeep this paragraph.' }] } },
+      ], blockers: [] } }) } as Response;
+    }
+    return originalFetch(url, options);
+  });
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+  const review = await screen.findByRole('region', { name: 'Review your changes' });
+
+  expect(within(review).getByRole('heading', { name: 'Show your public email' })).toBeVisible();
+  expect(within(review).getByRole('heading', { name: 'Show opening hours' })).toBeVisible();
+  expect(review).toHaveTextContent('Follow @paper_nails.');
+  expect(review).toHaveTextContent('book_me@example.test');
+  expect(review).toHaveTextContent('Dixie_and_Countryside');
+  expect(review).toHaveTextContent('Arrival_notes DM @paper_nails. Keep this paragraph.');
+  expect(review).not.toHaveTextContent('locationDirections:');
+  expect(within(review).queryByRole('heading', { name: 'Website appearance or content' })).not.toBeInTheDocument();
+  expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
+});
+
+it('takes a Canva review blocker straight to Preview without approval or an AI request', async () => {
+  const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+  vi.mocked(fetch).mockImplementation(async (url, options) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'review') {
+      return { ok: true, json: async () => ({ data: { revision, hash: 'exact-hash', changes: [], blockers: ['Review your Canva artwork in Preview. Check its prices, hours, contact details and address before sharing or publishing.'] } }) } as Response;
+    }
+    return originalFetch(url, options);
+  });
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled manualMode />);
+  await screen.findByText('Saved as draft');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Details' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+  await screen.findByRole('heading', { name: 'Before you publish' });
+
+  expect(screen.getByRole('button', { name: 'Approve and publish' })).toBeDisabled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Review your design' }));
+
+  expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
+  expect(requests.some(request => ['message', 'generate', 'approve', 'publish'].includes(request.action))).toBe(false);
+});
+
 it('does not upload a file or grant rights before permission is checked', async () => {
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled />);
   await screen.findByText('Saved as draft');

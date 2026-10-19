@@ -24,6 +24,7 @@ import { BookingSetupSummary } from './BookingSetupSummary';
 import { ChatAttachments } from './ChatAttachments';
 import type { SetupDocument, SetupOperation, SetupReview, SetupService } from './contracts';
 import { missingDesignDetails, WEEKDAYS } from './contracts';
+import { websiteReviewLabel, websiteReviewValue } from './review-copy';
 import { updateSetupServicePricing } from './service-pricing';
 import { StartOverDesign } from './StartOverDesign';
 import { TEAM_BOOKING_IMPACT, teamReviewValue } from './team-summary';
@@ -119,7 +120,7 @@ function reviewValue(value: unknown): string {
   if (typeof value === 'object') {
     return Object.entries(value).map(([key, item]) => `${key}: ${reviewValue(item)}`).join(', ');
   }
-  return String(value).replaceAll('_', ' ');
+  return String(value);
 }
 function designReviewValue(value: unknown): string {
   if (value === 'keep_design') {
@@ -139,6 +140,10 @@ function designReviewValue(value: unknown): string {
   return value === 'match' ? 'Match my design closely' : value === 'inspiration' ? 'Use it as inspiration' : reviewValue(value);
 }
 function bookingExtraReviewValue(path: string, value: unknown) {
+  const websiteValue = websiteReviewValue(path, value);
+  if (websiteValue !== undefined) {
+    return websiteValue;
+  }
   if (path === 'deposit.activationEffect.noShowProtection') {
     return value === 'warn_only' ? 'Warn only' : value === 'deposit_1' ? 'Deposit after one no-show' : 'Deposit after two no-shows';
   }
@@ -1135,13 +1140,13 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
             {!review.appointmentImpact && review.changes.some(change => change.path === 'staff') && <p role="note">{TEAM_BOOKING_IMPACT}</p>}
             {review.changes.map(change => (
               <div key={change.path}>
-                <h3>{LABELS[change.path] ?? (change.path.startsWith('hours.') ? `Opening hours · ${change.path.split('.')[1]}` : change.path.startsWith('website.') ? 'Website appearance or content' : 'Booking setting')}</h3>
-                <p>
+                <h3>{LABELS[change.path] ?? websiteReviewLabel(change.path) ?? (change.path.startsWith('hours.') ? `Opening hours · ${change.path.split('.')[1]}` : 'Booking setting')}</h3>
+                <p className="setup-review-value">
                   <strong>Before:</strong>
                   {' '}
                   {change.path === 'addOns' ? addOnReviewValue(change.before, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.before, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : bookingExtraReviewValue(change.path, change.before)}
                 </p>
-                <p>
+                <p className="setup-review-value">
                   <strong>After:</strong>
                   {' '}
                   {change.path === 'addOns' ? addOnReviewValue(change.after, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.after, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : bookingExtraReviewValue(change.path, change.after)}
@@ -1152,6 +1157,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               <div role="status">
                 <h3>Before you publish</h3>
                 <ul>{review.blockers.map(item => <li key={item}>{item}</li>)}</ul>
+                {review.blockers.some(item => item.includes('Canva')) && <button type="button" disabled={busy} onClick={() => setTab('website')}>Review your design</button>}
                 <button type="button" disabled={busy} onClick={() => setTab('setup')}>Review prices and setup</button>
               </div>
             )}
