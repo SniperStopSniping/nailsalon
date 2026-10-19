@@ -242,6 +242,25 @@ test('deployment engine and CI build cover Node 24 while retaining compatibility
   assert.deepEqual(jobs.build.strategy.matrix['node-version'], ['20.x', 22.6, '24.x']);
 });
 
+test('every PostgreSQL CI job runs on the package Node 24 engine', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(manifest.engines.node, '24.x');
+
+  const postgresJobs = Object.entries(jobs).filter(([, job]) => Object.hasOwn(job.services ?? {}, 'postgres'));
+  assert.equal(postgresJobs.length, 11);
+  for (const [id, job] of postgresJobs) {
+    const setupNode = job.steps.find(step => step.uses === 'actions/setup-node@v4');
+    assert.ok(setupNode, `${id} must set up Node.js`);
+
+    const configuredVersion = setupNode.with['node-version'];
+    if (configuredVersion === '${{ matrix.node-version }}') {
+      assert.deepEqual(job.strategy?.matrix?.['node-version'], ['24.x'], `${id} matrix must use Node 24 only`);
+    } else {
+      assert.equal(configuredVersion, manifest.engines.node, `${id} must use the package Node engine`);
+    }
+  }
+});
+
 test('the required Node 24 job exercises the installed patched SMS and image dependencies', () => {
   const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched runtime dependencies and SMS transport with zero skips');
   assert.match(step.run, /set -euo pipefail/);
