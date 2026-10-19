@@ -1,0 +1,19 @@
+{
+  "artifactId": "d731ed4a-03af-4424-b01d-0fa3869294df",
+  "sourceRevision": 15,
+  "runtimeSourceSha": "4b75aa47c553ea8709bfe9bb99f7793fcd04e3c0",
+  "firstResultRetainedInDatabase": true,
+  "manualSourceRepair": false,
+  "desktop": {
+    "viewport": 1440,
+    "documentScrollWidth": 1491,
+    "offendingDecoration": ".oversized-word"
+  },
+  "mobile": {
+    "viewport": 390,
+    "documentScrollWidth": 390,
+    "offscreenControls": []
+  },
+  "followUpThroughOwnerChat": true,
+  "knownResetIssue": "The reset removed published website.content.websiteDetails, so the model was not supplied the contacts. No claim that absent contacts were a generation omission."
+}

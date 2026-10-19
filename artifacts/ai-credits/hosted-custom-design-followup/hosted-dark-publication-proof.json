@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "hosted": true,
+  "sourceSha": "609d6329a24084ad46e7640514cff2b2deb5687e",
+  "revision": 22,
+  "artifactId": "19c19f29-64b6-4201-b0cc-590efb1ba433",
+  "exactRevisionApproved": true,
+  "receipts": [
+    {
+      "revision": 22,
+      "approved_revision": 22,
+      "media_finalized": true
+    }
+  ],
+  "canonicalServicesUnchanged": true,
+  "existingAppointmentUnchanged": true,
+  "newModelCalls": 0,
+  "productionTouched": false
+}

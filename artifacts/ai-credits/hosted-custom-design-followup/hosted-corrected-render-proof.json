@@ -1,0 +1,188 @@
+{
+  "passed": true,
+  "hosted": true,
+  "sourceSha": "609d6329a24084ad46e7640514cff2b2deb5687e",
+  "revision": 21,
+  "artifactId": "3e53ca96-24b4-4616-b7ff-028e7ad77cf9",
+  "manualSourceRepair": false,
+  "harnessCorrection": "Preview booking controls give a disabled-booking notice rather than using HTML disabled attributes",
+  "previewAppointmentPosts": 0,
+  "devices": [
+    {
+      "device": "desktop",
+      "layout": {
+        "width": 1440,
+        "content": 1440,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "booking": [
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        }
+      ],
+      "services": "THE NAIL EDIT\n↗\nBIAB\n$75.00\n75 min\nBook now\n↗\nTHE NAIL EDIT\n↗\nGel manicure\n$50.00\n60 min\nBook now\n↗"
+    },
+    {
+      "device": "tablet",
+      "layout": {
+        "width": 768,
+        "content": 768,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "booking": [
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        }
+      ],
+      "services": "THE NAIL EDIT\n↗\nBIAB\n$75.00\n75 min\nBook now\n↗\nTHE NAIL EDIT\n↗\nGel manicure\n$50.00\n60 min\nBook now\n↗"
+    },
+    {
+      "device": "mobile",
+      "layout": {
+        "width": 390,
+        "content": 390,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "booking": [
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        }
+      ],
+      "services": "THE NAIL EDIT\n↗\nBIAB\n$75.00\n75 min\nBook now\n↗\nTHE NAIL EDIT\n↗\nGel manicure\n$50.00\n60 min\nBook now\n↗"
+    },
+    {
+      "device": "narrow-mobile",
+      "layout": {
+        "width": 320,
+        "content": 320,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "booking": [
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        }
+      ],
+      "services": "THE NAIL EDIT\n↗\nBIAB\n$75.00\n75 min\nBook now\n↗\nTHE NAIL EDIT\n↗\nGel manicure\n$50.00\n60 min\nBook now\n↗"
+    }
+  ]
+}
