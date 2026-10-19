@@ -1,0 +1,160 @@
+{
+  "scope": "Hosted native About editing in preserved Canva mode. This is not a new free-form frontend generation or reference-fidelity trial.",
+  "sourceCommits": {
+    "foundation": "64d8ff533ed4b986ead8d2d367fc917110c63b61",
+    "capabilityCorrection": "6c038a93d4feb11d34bc871c62cf9419cbfdb23b"
+  },
+  "preview": {
+    "url": "https://luster-ai-builder-test.vercel.app",
+    "deployment": "dpl_DXmESLsL2QEL383VsoWi9BtHYWay",
+    "target": "preview",
+    "rendererSource": "0e65facb9d4d222f5cd97044852f28014f9220c0"
+  },
+  "ownerPrompts": [
+    "Add an About section with my portrait photo. Say: “A calm space for thoughtfully finished nails.” Keep the rest as it is.",
+    "Change the About heading to Meet the studio. Keep the wording, photos, artwork and everything else the same."
+  ],
+  "realProviderCalls": [
+    {
+      "id": "247c1d61-b3fe-46f2-9e3c-c0c1cc77c0ef",
+      "operation_id": "e75516c0-3a66-4877-8efc-ba6570f540f4",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "input_tokens": 7545,
+      "output_tokens": 128,
+      "elapsed_ms": 3092,
+      "cost_micro_usd": 1008,
+      "charged_micro_cad": 2016,
+      "credit_cost_micro_cad": "2823",
+      "status": "completed",
+      "validation": "passed"
+    },
+    {
+      "id": "0cc745b2-cad7-49e4-b52e-dd10711ceb56",
+      "operation_id": "04737c64-c898-41b3-ae85-95fc7604d32c",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "input_tokens": 7701,
+      "output_tokens": 68,
+      "elapsed_ms": 3172,
+      "cost_micro_usd": 997,
+      "charged_micro_cad": 1994,
+      "credit_cost_micro_cad": "2792",
+      "status": "completed",
+      "validation": "passed"
+    },
+    {
+      "id": "7cd394f9-7e79-4519-9682-218a23b2080e",
+      "operation_id": "934768b4-1135-4abe-8445-043a35cc618f",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "input_tokens": 7854,
+      "output_tokens": 102,
+      "elapsed_ms": 2256,
+      "cost_micro_usd": 1033,
+      "charged_micro_cad": 2066,
+      "credit_cost_micro_cad": "2893",
+      "status": "completed",
+      "validation": "passed"
+    }
+  ],
+  "results": [
+    "First request saved107: new About text and correct saved portrait in one call.",
+    "First heading request falsely claimed fixed artwork prevented the edit. No draft/source change; failed attempt retained.",
+    "Manual wording saved108; loaded in a second authenticated browser and after mobile refresh.",
+    "After the application capability correction, the identical heading request saved109 in one call without a repair call. Manual wording, photos, Gallery, page artwork and links stayed unchanged.",
+    "History restored107 as110, bringing back the original About wording. History then restored the original Cobalt frontend as111.",
+    "The revised design was restored as112 to verify decoded mobile photos, then the original frontend was restored again as113."
+  ],
+  "manualWording": "A calm, welcoming space for thoughtfully finished nails.",
+  "revisionArtifacts": {
+    "first107": "96e79f7d-4d37-470a-b7a9-9a346fcd604c",
+    "manual108": "6d292aad-3776-4238-8f7a-59de9fb7dcf0",
+    "revised109and112": "e3ae8dff-b91a-4359-b1ec-9caa46e35b97",
+    "original111and113": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d"
+  },
+  "photoEvidence": {
+    "kind": "Previously uploaded, explicitly labelled synthetic geometry fixtures; no real salon photos or generated visual-fidelity claim.",
+    "portrait": {
+      "natural": [
+        480,
+        960
+      ],
+      "mobile": [
+        319,
+        638
+      ],
+      "decoded": true
+    },
+    "wideGallery": {
+      "natural": [
+        1200,
+        480
+      ],
+      "mobile": [
+        319,
+        127.59375
+      ],
+      "decoded": true
+    },
+    "mobileHorizontalOverflow": false
+  },
+  "cost": {
+    "recordedEstimateMicroUsd": 3038,
+    "trialChargedMicroCad": 6076,
+    "ownerCreditCostMicroCad": 8508,
+    "note": "Measured token receipts, app-estimated standard API cost and conservative trial CAD conversion; not a provider invoice. Includes the failed request.",
+    "operatorUsedMicroCad": 36035924,
+    "operatorHardCapMicroCad": 68615594,
+    "userAuthorizedCeilingCad": 80,
+    "budgetsResetOrRaised": false
+  },
+  "validation": {
+    "foundation64d": [
+      "110 Canva/native-content/PGlite tests",
+      "86 owner UI/frame/reference tests",
+      "7 runtime tests",
+      "162 shared-draft PGlite integration tests"
+    ],
+    "correction6c": [
+      "74 domain/context/PGlite tests",
+      "74 owner UI/reference tests",
+      "12 frame tests",
+      "Scoped TypeScript, changed ESLint, commitlint, whitespace and tracked-tree secret scan"
+    ],
+    "mockVersusReal": "Automated tests use deterministic provider doubles. Three calls above used configured OpenAI gpt-6-luna through the actual owner chat.",
+    "automatedRepair": "Bounded false-capability repair is covered by deterministic integration tests; the successful hosted retry needed no repair."
+  },
+  "preservation": {
+    "publishedRevision": 98,
+    "publicArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+    "syntheticAppointments": 12,
+    "newAppointmentsThisTrial": 0,
+    "existingAppointmentsChanged": false,
+    "businessServicesStaffHoursPoliciesChanged": false,
+    "otherBusinessesChanged": false,
+    "newAssetsCreated": false,
+    "smsOperatorDisabled": true,
+    "purchases": false,
+    "productionChanged": false,
+    "migrationsApplied": false,
+    "smsOrEmailAccepted": false
+  },
+  "remaining": [
+    "Controlled Chrome resumed current wording but its first-load frame remained about:blank until the timeout; this is not fixed or explained by the About correction.",
+    "Full CI/release qualification remains incomplete; Production stays blocked.",
+    "Physical phone/browser qualification and broader essential builder release checks remain outstanding.",
+    "The photo chooser still presents some older Canva page exports among saved photos; distinguish these to reduce accidental artwork reuse."
+  ],
+  "screenshots": [
+    "owner-input.png",
+    "first-ai-result.png",
+    "failed-heading-edit.png",
+    "manual-controls.png",
+    "successful-heading-edit.png",
+    "desktop.png",
+    "mobile.png",
+    "earlier-design-restored.png",
+    "chrome-frame-stall.png"
+  ]
+}
