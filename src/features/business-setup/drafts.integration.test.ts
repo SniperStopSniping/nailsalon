@@ -961,6 +961,51 @@ describe('metered owner generation and automatic repair', () => {
     }
   });
 
+  it('repairs a copied saved agreement in owner chat and adds connected policy presentation in website scope', async () => {
+    const actor = await fixture();
+    const policy = { enabled: true, title: 'Appointment agreement', text: 'Please arrive on time.', showOnServicePage: false, showBeforeConfirmation: true, showAfterConfirmation: false, showInConfirmationEmail: true, acknowledgment: { required: true, text: 'I agree.' } };
+    const initial = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: policy }] });
+    const saved = await saveCustomSource(actor, { expectedRevision: initial.revision.revision, operationId: randomUUID(), assetIds: [], source: editorialSource });
+    const connected = { ...editorialSource, html: `${editorialSource.html}<section data-luster-booking-policy><h2 data-luster-field="booking.policyTitle"></h2><p data-luster-field="booking.policyText"></p></section>` };
+    const copied = { reply: 'Added your agreement.', operationsJson: JSON.stringify([{ type: 'website_details', values: { sections: [{ id: 'agreement', title: policy.title, text: policy.text }] } }]), designRequest: null };
+    const correct = { reply: 'Your saved agreement will appear on the website after review.', operationsJson: JSON.stringify([{ type: 'booking_policy_visibility', showOnServicePage: true }]), designRequest: null };
+    const createResponse = vi.fn().mockResolvedValueOnce(response(copied)).mockResolvedValueOnce(response(correct)).mockResolvedValueOnce(response(connected));
+    const input = { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Show my saved booking agreement on the website.' };
+    const result = await runSetupConversation(actor, input, { createResponse });
+
+    expect(result.head.revision.document.bookingPolicy).toMatchObject({ ...policy, showOnServicePage: true });
+    expect(result.head.revision.document.website.content.websiteDetails?.sections ?? []).toEqual([]);
+    expect(result.head.revision.document.services).toEqual(saved.head.revision.document.services);
+    expect(result.head.revision.document.booking).toEqual(saved.head.revision.document.booking);
+    expect(result.head.revision.document.website.config.customFrontendId).not.toBe(saved.artifact.id);
+    expect(createResponse).toHaveBeenCalledTimes(3);
+
+    const intakeCalls = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.operationId, input.operationId)).orderBy(asc(schema.setupAiCallSchema.ordinal));
+
+    expect(intakeCalls.map(call => call.validation)).toEqual(['conversation_policy_copy_repaired', 'passed']);
+    expect(intakeCalls[0]!.rawOutput).toBe(JSON.stringify(copied));
+    expect(createResponse.mock.calls[1]![0].input.at(-1).content).toContain('Never maintain a separate copy');
+
+    await runSetupConversation(actor, input, { createResponse });
+
+    expect(createResponse).toHaveBeenCalledTimes(3);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
+  it('stops after one failed policy action repair without applying the copied text or any live setting', async () => {
+    const actor = await fixture();
+    const policy = { enabled: true, title: 'Appointment agreement', text: 'Please arrive on time.', showOnServicePage: false, showBeforeConfirmation: true, showAfterConfirmation: false, showInConfirmationEmail: true };
+    const initial = await editSetup(actor, { expectedRevision: 2, operationId: randomUUID(), operations: [{ type: 'booking_policy', values: policy }] });
+    const copied = { reply: 'Added it.', operationsJson: JSON.stringify([{ type: 'website_details', values: { sections: [{ id: 'agreement', title: policy.title, text: policy.text }] } }]), designRequest: null };
+    const createResponse = vi.fn().mockResolvedValue(response(copied));
+
+    await expect(runSetupConversation(actor, { expectedRevision: initial.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Show my saved booking agreement on the website.' }, { createResponse })).rejects.toMatchObject({ code: 'NOT_READY', message: 'I could not safely connect your saved agreement. Your current draft is unchanged. Please try again.' });
+
+    expect(createResponse).toHaveBeenCalledTimes(2);
+    expect((await openSetup(actor)).revision.document).toEqual(initial.revision.document);
+    expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).toHaveLength(0);
+  });
+
   it('starts with no previous source, preserves business setup and keeps the earlier design restorable', async () => {
     const actor = await fixture();
     const original = await saveCustomSource(actor, { source: editorialSource, assetIds: [], expectedRevision: 2, operationId: randomUUID() });

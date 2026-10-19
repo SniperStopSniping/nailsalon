@@ -25,4 +25,10 @@ describe('complete public website details', () => {
     expect(() => assertWebsiteDetailsCoverage(`<template>${complete}</template>`, details)).toThrow('missing');
     expect(() => assertWebsiteDetailsCoverage(`<div hidden>${complete}</div>`, details)).toThrow('missing');
   });
+
+  it('rejects obsolete section bindings instead of leaving an empty or stale policy card', () => {
+    expect(() => assertWebsiteDetailsCoverage('<p data-luster-field="details.section_old_policy"></p>', EMPTY_WEBSITE_DETAILS)).toThrow('obsolete website section');
+    expect(() => assertWebsiteDetailsCoverage('<h2 data-luster-field="details.title_removed"></h2>')).toThrow('obsolete website section');
+    expect(() => assertWebsiteDetailsCoverage(complete, details)).not.toThrow();
+  });
 });

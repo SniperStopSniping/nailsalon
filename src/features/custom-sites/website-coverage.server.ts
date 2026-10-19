@@ -38,6 +38,13 @@ export function assertWebsiteDetailsCoverage(html: string, details?: WebsiteDeta
       throw new SetupError('INVALID', `Use the saved ${kind} details and contact bindings instead of copied contact text.`);
     }
   }
+  const knownSections = new Set((details?.sections ?? []).map(section => section.id));
+  for (const field of fields) {
+    const section = /^details\.(?:title|section)_(.+)$/u.exec(field)?.[1];
+    if (section && !knownSections.has(section)) {
+      throw new SetupError('INVALID', 'Remove the obsolete website section bindings; that section is no longer in the saved website details.');
+    }
+  }
   if (!details) {
     return;
   }

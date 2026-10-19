@@ -14,7 +14,7 @@ import { BOOKING_CATEGORIES, SERVICE_CATEGORIES } from '@/models/serviceCatalogT
 
 import { changesProtectedAddOnChoices, type SetupAddOn, setupAddOnSchema } from './add-ons';
 import { type SetupDeposit, setupDepositSchema, setupDepositUpdateSchema, type SetupReminders, setupRemindersSchema, setupRemindersUpdateSchema } from './booking-extras';
-import { resolveSetupPolicy } from './booking-policy';
+import { resolveSetupPolicy, setupPolicyInput } from './booking-policy';
 import { updateSetupServicePricing } from './service-pricing';
 import { type SetupValueContext, type SetupValueSources, suggestedValueSources, updatedValueSources } from './value-sources';
 
@@ -85,6 +85,7 @@ export const setupOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('add_on'), values: setupAddOnSchema }).strict(),
   z.object({ type: z.literal('confirm_add_ons'), ids: z.array(id).min(1).max(200) }).strict(),
   z.object({ type: z.literal('booking_policy'), values: bookingPolicyUpdateSchema.shape.policy }).strict(),
+  z.object({ type: z.literal('booking_policy_visibility'), showOnServicePage: z.boolean() }).strict(),
   z.object({ type: z.literal('staff'), values: setupStaffSchema }).strict(),
   z.object({ type: z.literal('preview_defaults'), seed: z.string().uuid() }).strict(),
   z.object({ type: z.literal('confirm_hours') }).strict(),
@@ -250,6 +251,16 @@ export function applySetupOperations(document: SetupDocument, operations: SetupO
           throw new SetupError('INVALID', 'A selected add-on no longer exists.');
         }
         next.addOns = next.addOns?.map(addOn => op.ids.includes(addOn.id) ? { ...addOn, confirmed: true } : addOn);
+        break;
+      case 'booking_policy_visibility':
+        if (origin === 'upload') {
+          throw new SetupError('FORBIDDEN', 'Discuss booking requirements before changing the appointment agreement.');
+        }
+        if (!next.bookingPolicy?.enabled || !next.bookingPolicy.text) {
+          throw new SetupError('INVALID', 'Save your booking agreement before choosing where it appears.');
+        }
+        next.bookingPolicy = resolveSetupPolicy({ ...setupPolicyInput(next.bookingPolicy), showOnServicePage: op.showOnServicePage }, next.bookingPolicy);
+        next.bookingPolicyEdited = true;
         break;
       case 'booking_policy':
         if (origin === 'upload') {
