@@ -1,0 +1,163 @@
+{
+  "passed": true,
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "revision": 58,
+  "devices": [
+    {
+      "device": "desktop",
+      "width": 1440,
+      "contentWidth": 1440,
+      "parentReadable": false,
+      "offscreenControls": [],
+      "prices": [
+        "$65.00",
+        "$50.00",
+        "$35.00"
+      ],
+      "minutes": [
+        "75",
+        "60",
+        "45"
+      ],
+      "contacts": [
+        {
+          "type": "instagram",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "canonicalPolicyMatches": true
+    },
+    {
+      "device": "tablet",
+      "width": 768,
+      "contentWidth": 768,
+      "parentReadable": false,
+      "offscreenControls": [],
+      "prices": [
+        "$65.00",
+        "$50.00",
+        "$35.00"
+      ],
+      "minutes": [
+        "75",
+        "60",
+        "45"
+      ],
+      "contacts": [
+        {
+          "type": "instagram",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "canonicalPolicyMatches": true
+    },
+    {
+      "device": "mobile",
+      "width": 390,
+      "contentWidth": 390,
+      "parentReadable": false,
+      "offscreenControls": [],
+      "prices": [
+        "$65.00",
+        "$50.00",
+        "$35.00"
+      ],
+      "minutes": [
+        "75",
+        "60",
+        "45"
+      ],
+      "contacts": [
+        {
+          "type": "instagram",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "canonicalPolicyMatches": true,
+      "accessibility": {
+        "violations": [],
+        "incomplete": [
+          {
+            "id": "color-contrast",
+            "nodes": [
+              [
+                "p[data-edit=\"details-kicker\"]"
+              ],
+              [
+                "a[data-luster-link=\"instagram\"] > .contact-symbol[aria-hidden=\"true\"]"
+              ],
+              [
+                ".details-signoff > span[aria-hidden=\"true\"]:nth-child(1)"
+              ],
+              [
+                ".details-signoff > span[aria-hidden=\"true\"]:nth-child(3)"
+              ],
+              [
+                ".pill-button > span[aria-hidden=\"true\"]"
+              ]
+            ]
+          }
+        ],
+        "passedRules": 28
+      }
+    },
+    {
+      "device": "narrow-mobile",
+      "width": 320,
+      "contentWidth": 320,
+      "parentReadable": false,
+      "offscreenControls": [],
+      "prices": [
+        "$65.00",
+        "$50.00",
+        "$35.00"
+      ],
+      "minutes": [
+        "75",
+        "60",
+        "45"
+      ],
+      "contacts": [
+        {
+          "type": "instagram",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "canonicalPolicyMatches": true
+    }
+  ],
+  "previewAppointmentPosts": 0,
+  "manualSourceRepair": false
+}

@@ -1,0 +1,56 @@
+{
+  "passed": true,
+  "hosted": true,
+  "engine": "WebKit",
+  "device": "iPhone13 emulation",
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "historicalAppointmentsPreserved": 5,
+  "newAppointmentsCreated": 1,
+  "aiCallsForBooking": 0,
+  "customerSignedOut": true,
+  "realOriginalBooking": true,
+  "mockedAppointment": false,
+  "bookingPostStatus": 201,
+  "appointment": {
+    "id": "appt_31f34de2-c989-4f87-945c-1e9a3e7cb3f7",
+    "salon_id": "ai_setup_c58c6f3a375d43d0c69bf4a71f6be97b",
+    "technician_id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+    "status": "confirmed",
+    "start_time": "2026-10-20T20:45:00.000Z",
+    "end_time": "2026-10-20T21:30:00.000Z",
+    "total_price": 3500,
+    "total_duration_minutes": 45
+  },
+  "service": {
+    "id": "22fa1c6c-e5c7-4cd7-a39f-be5ce17d606e",
+    "name": "Express natural-nail manicure",
+    "price": 3500,
+    "duration_minutes": 45
+  },
+  "items": [
+    {
+      "service_id": "22fa1c6c-e5c7-4cd7-a39f-be5ce17d606e",
+      "price_at_booking": 3500,
+      "duration_at_booking": 45
+    }
+  ],
+  "eligibleStaff": [
+    {
+      "id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "name": "AI Test Owner"
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/appointments/availability",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/appointments",
+      "status": 201
+    }
+  ],
+  "productionTouched": false
+}

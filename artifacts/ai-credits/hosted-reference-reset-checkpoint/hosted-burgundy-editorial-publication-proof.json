@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "sourceSha": "d0e7519b3a89f1b9256616e317e9e04383222de9",
+  "name": "burgundy-editorial",
+  "actualOwnerUi": true,
+  "revision": 64,
+  "artifactId": "d666f16e-0450-47ba-b9ea-9332240b60c9",
+  "exactRevisionApproved": true,
+  "receipts": [
+    {
+      "revision": 64,
+      "approved_revision": 64,
+      "media_finalized": true
+    }
+  ],
+  "publishReplayStatus": 200,
+  "newerLiveRevisionPreservedAfterOldRetry": false,
+  "allCanonicalServicesPricesDurationsAndSettingsUnchanged": true,
+  "historicalAppointmentsPreserved": 6,
+  "newAiCalls": 0,
+  "productionTouched": false
+}
