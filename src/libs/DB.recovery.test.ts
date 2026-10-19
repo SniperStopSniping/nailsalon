@@ -174,7 +174,10 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     expect(db).toBeDefined();
 
     await expect(db.execute(sql`SELECT 1`)).rejects.toMatchObject({
-      code: 'DATABASE_UNAVAILABLE',
+      cause: {
+        name: 'RuntimeDatabaseGuardError',
+        code: 'DATABASE_UNAVAILABLE',
+      },
     });
     // Exactly one Pool, constructed once at module load, and it is NEVER
     // disposed — it stays live so the next connection this SAME pool opens
@@ -192,7 +195,10 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     const { db } = await import('./DB');
 
     await expect(db.execute(sql`SELECT 1`)).rejects.toMatchObject({
-      code: 'DATABASE_UNAVAILABLE',
+      cause: {
+        name: 'RuntimeDatabaseGuardError',
+        code: 'DATABASE_UNAVAILABLE',
+      },
     });
     expect(harness.poolInstances).toHaveLength(1);
 
@@ -268,7 +274,12 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     const outcomes = await Promise.all(attempts);
 
     for (const outcome of outcomes) {
-      expect(outcome).toMatchObject({ code: 'DATABASE_UNAVAILABLE' });
+      expect(outcome).toMatchObject({
+        cause: {
+          name: 'RuntimeDatabaseGuardError',
+          code: 'DATABASE_UNAVAILABLE',
+        },
+      });
     }
 
     expect(markerRespondSpy).not.toHaveBeenCalled();
@@ -284,7 +295,10 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     const { db } = await import('./DB');
 
     await expect(db.execute(sql`SELECT 1`)).rejects.toMatchObject({
-      code: 'DATABASE_ATTESTATION_REJECTED',
+      cause: {
+        name: 'RuntimeDatabaseGuardError',
+        code: 'DATABASE_ATTESTATION_REJECTED',
+      },
     });
 
     // Advance past several cooldown windows. The connection string never
@@ -294,7 +308,10 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
       await vi.advanceTimersByTimeAsync(6000);
 
       await expect(db.execute(sql`SELECT 1`)).rejects.toMatchObject({
-        code: 'DATABASE_ATTESTATION_REJECTED',
+        cause: {
+          name: 'RuntimeDatabaseGuardError',
+          code: 'DATABASE_ATTESTATION_REJECTED',
+        },
       });
     }
 
