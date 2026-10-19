@@ -9,6 +9,7 @@ import { CustomerAssistantLauncher } from '@/components/customerAssistant/Custom
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { CustomWebsiteFrame } from '@/features/custom-sites/CustomWebsiteFrame';
+import { customSiteArtworkPolicy, customSiteDataFromLive } from '@/features/custom-sites/live-data.server';
 import { customSitePayload, customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
 import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
@@ -450,14 +451,7 @@ export async function renderBookServicePage({
   // nativeBooking preserves all canonical availability, add-on and payment rules.
   const rendererOrigin = customSiteRendererOrigin();
   if (activeBookingPageSide.customFrontendId && rendererOrigin && searchParams.nativeBooking !== '1' && !ownerPreviewState.isPreviewing) {
-    const payload = await customSitePayload(salon.id, activeBookingPageSide.customFrontendId, {
-      business: { name: salon.name, city: salon.city ?? '', address: activeBookingPageContentSide.locationDisplayMode === 'full_address' ? salon.address : null, bio: activeBookingPageContentSide.bio ?? '', hours: salon.businessHours ?? {} },
-      services: bookingServices.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, priceLabel: s.priceDisplayText || new Intl.NumberFormat('en-CA', { style: 'currency', currency: bookingConfig.currency }).format(s.priceCents / 100), durationMinutes: s.durationMinutes })),
-      details: activeBookingPageContentSide.websiteDetails,
-      bookingRules: { timezone: bookingConfig.timezone, minimumNoticeMinutes: bookingConfig.minimumNoticeMinutes, bufferMinutes: bookingConfig.bufferMinutes, confirmationMode: bookingConfig.confirmationMode, policy: bookingExperience.policy },
-      currency: bookingConfig.currency,
-      preview: false,
-    });
+    const payload = await customSitePayload(salon.id, activeBookingPageSide.customFrontendId, customSiteDataFromLive({ salon, content: activeBookingPageContentSide, services: bookingServices, booking: bookingConfig }), { artworkPolicy: customSiteArtworkPolicy(salon.settings) });
     const base = `/${params?.locale ?? 'en'}/${encodeURIComponent(salon.slug)}`;
     // Refresh the isolated document when either immutable source or canonical
     // service/business data changes during a client navigation.

@@ -38,10 +38,14 @@ export function customSiteRendererOrigin() {
     return null;
   }
 }
-export async function customSitePayload(salonId: string, artifactId: string, data: CustomSiteData): Promise<CustomSitePayload> {
+export async function customSitePayload(salonId: string, artifactId: string, data: CustomSiteData, comparison?: { artworkPolicy: SetupDocument['bookingPolicy'] }): Promise<CustomSitePayload> {
   data = { ...data, bookingPolicy: publicCustomSiteBookingPolicy(data.bookingRules?.policy) };
+  // Review fingerprints bind the server's complete policy contract. The
+  // customer projection intentionally omits dormant acknowledgment settings;
+  // compare those privately without adding them to the public frame payload.
+  const facts = comparison ? { ...data, bookingRules: { ...data.bookingRules, policy: comparison.artworkPolicy } } : data;
   const { artifact, media } = await assertCustomArtifact(db, salonId, artifactId);
-  if (artifact.source.canva && !data.preview && (!artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, data))) {
+  if (artifact.source.canva && !data.preview && (!artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, facts))) {
     // Never serialize stale raster text/bytes, including an address the owner
     // subsequently hid. The public page falls back to original live booking.
     return { source: { title: 'Booking', html: '<main></main>', css: '', javascript: '', analysis: '', limitations: [] }, data, images: {}, artworkUnavailable: true };
@@ -64,7 +68,7 @@ export async function customSitePayload(salonId: string, artifactId: string, dat
       }
     }
   }
-  return { source: data.preview ? artifact.source : publicCustomSiteSource(artifact.source), data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: !canvaFactsMatch(artifact.source, data, true), canvaReviewRequired: !artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, data, true) } : {}) };
+  return { source: data.preview ? artifact.source : publicCustomSiteSource(artifact.source), data: { ...data, business: { ...data.business, hoursLabel } }, images, ...(artifact.source.canva ? { serviceKeys, canvaFactsChanged: !canvaFactsMatch(artifact.source, facts, true), canvaReviewRequired: !artifact.source.canva.ownerReviewed || !canvaFactsMatch(artifact.source, facts, true) } : {}) };
 }
 
 /** OCR and model critique are private editing evidence, not public site data. */

@@ -847,6 +847,9 @@ it('keeps published manual setup visible and starts later edits from its current
   published = true;
   document.website.config.customFrontendId = 'saved-manual-artifact';
   render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled={false} manualMode />);
+
+  expect(await screen.findByRole('link', { name: 'Open your booking website ↗' })).toHaveAttribute('href', '/en/test/book/service?publishedWebsite=1');
+
   fireEvent.click(await screen.findByRole('button', { name: 'Edit my website' }));
   await waitFor(() => expect(requests).toContainEqual(expect.objectContaining({ action: 'start_editing', expectedRevision: 2 })));
 

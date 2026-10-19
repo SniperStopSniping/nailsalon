@@ -784,6 +784,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
             <div>
               {!customFrontendId && <span className="setup-eyebrow">YOUR VISION, TAKING SHAPE</span>}
               <h2>{published ? 'Your website' : customFrontendId ? 'Your website draft' : 'From inspiration to your website'}</h2>
+              {manualMode && published && <p><a href={`/${locale}/${encodeURIComponent(salonSlug)}/book/service?publishedWebsite=1`} target="_blank" rel="noreferrer">Open your booking website ↗</a></p>}
               <p>Private preview. Booking is disabled here.</p>
               {manualMode && <p>Your Canva artwork stays as-is. Check its links, then review and approve your website. This manual editor does not use AI credits.</p>}
               {manualMode && aiEnabled && <a href={`/${locale}/admin/business-setup?salon=${encodeURIComponent(salonSlug)}`}>Want to redesign with AI?</a>}

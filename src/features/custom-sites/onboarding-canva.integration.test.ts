@@ -15,7 +15,9 @@ import { compileOnboardingToSiteDocument } from '@/features/onboarding-v1-integr
 import { readOnboardingMediaFile, saveOnboardingMediaFile } from '@/features/onboarding-v1-integration/media-storage.server';
 import { claimOnboardingDraft } from '@/features/onboarding-v1-integration/persistence.server';
 import { createPersistableOnboardingDraft } from '@/features/onboarding-v1-integration/snapshot';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import type { DatabaseSessionHandle } from '@/libs/DB';
 import sharp from '@/libs/safeSharp.server';
 import * as schema from '@/models/Schema';
@@ -25,9 +27,10 @@ import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-i
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import { reviewCanvaArtwork } from './artifacts.server';
 import { uploadOnboardingArtwork } from './assets.server';
+import { customSiteArtworkPolicy, customSiteDataFromLive } from './live-data.server';
 import { linkedOnboardingCanvaDraft } from './manual-origin.server';
 import { importOnboardingCanva } from './onboarding-canva.server';
-import { setupCustomSitePayload } from './payload.server';
+import { customSitePayload, setupCustomSitePayload } from './payload.server';
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/Cloudinary', () => ({ cloudinary: {}, isCloudinaryConfigured: () => false }));
@@ -69,7 +72,7 @@ async function fixture(legacy = false) {
   const site = { ...actor, siteId: randomUUID(), revisionId: randomUUID(), revision: 1 };
   const serviceId = randomUUID();
   await database.insert(schema.adminUserSchema).values({ id: actor.adminId });
-  await database.insert(schema.salonSchema).values({ id: actor.salonId, slug: actor.salonId, name: 'Canva Studio', city: 'Toronto', businessHours: { ...CLOSED_HOURS, monday: { open: '09:00', close: '17:00' } }, settings: { booking: { timezone: 'America/Toronto', currency: 'CAD' } }, publicationStatus: 'draft', onlineBookingEnabled: false });
+  await database.insert(schema.salonSchema).values({ id: actor.salonId, slug: actor.salonId, name: 'Canva Studio', city: 'Toronto', businessHours: { ...CLOSED_HOURS, monday: { open: '09:00', close: '17:00' } }, settings: { booking: { timezone: 'America/Toronto', currency: 'CAD' }, bookingExperience: { policy: { enabled: false, title: null, text: null, showOnServicePage: false, showBeforeConfirmation: false, showAfterConfirmation: false, showInConfirmationEmail: false, acknowledgment: { required: false, text: null } } } }, publicationStatus: 'draft', onlineBookingEnabled: false });
   await database.insert(schema.adminSalonMembershipSchema).values({ ...actor, role: 'owner' });
   await database.insert(schema.technicianSchema).values({ id: randomUUID(), salonId: actor.salonId, name: 'Owner', isActive: true });
   await database.insert(schema.serviceSchema).values({ id: serviceId, salonId: actor.salonId, name: 'Gel', price: 6500, durationMinutes: 60, category: 'manicure', isActive: true });
@@ -181,6 +184,27 @@ it('requires owner artwork review and exact setup approval before original publi
   expect(salon!.publicationStatus).toBe('published');
   expect(resolveBookingPageConfig(salon!.settings).live.customFrontendId).toBeTruthy();
   expect((await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId))).map(service => service.id)).toEqual([serviceId]);
+
+  const services = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, actor.salonId));
+  const live = customSiteDataFromLive({ salon: salon!, content: resolveBookingPageContent(salon!.settings).live, booking: resolveBookingConfigFromSettings(salon!.settings), services: services.map(service => ({ ...service, priceCents: service.price })) });
+  const comparison = { artworkPolicy: customSiteArtworkPolicy(salon!.settings) };
+  const artifactId = resolveBookingPageConfig(salon!.settings).live.customFrontendId!;
+  const publicPayload = await customSitePayload(actor.salonId, artifactId, live, comparison);
+
+  expect(publicPayload.artworkUnavailable).not.toBe(true);
+  expect(publicPayload.source.canva?.ownerReviewed).toBe(true);
+  expect(publicPayload.data.preview).toBe(false);
+  expect(publicPayload.images).toHaveProperty((await records(actor.salonId)).assets[0]!.id);
+  expect(publicPayload.data.services[0]).toMatchObject({ id: serviceId, priceCents: 6500, durationMinutes: 60 });
+  expect(publicPayload.data.bookingRules!.policy).not.toHaveProperty('acknowledgment');
+  expect(publicPayload.data.bookingRules!.policy).not.toHaveProperty('version');
+  expect(publicPayload.canvaReviewRequired).toBe(false);
+
+  // A real visual fact still invalidates the reviewed artwork. Do not relax
+  // the stale-price/address guard to compensate for projection differences.
+  const changedPrice = { ...live, services: live.services.map(service => ({ ...service, priceCents: 7000 })) };
+
+  expect((await customSitePayload(actor.salonId, artifactId, changedPrice, comparison)).artworkUnavailable).toBe(true);
 });
 
 it('rejects another salon, a revoked owner and an outdated onboarding revision', async () => {
