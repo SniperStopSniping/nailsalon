@@ -1,9 +1,9 @@
 import 'server-only';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import { SetupError } from '@/features/business-setup/contracts';
-import type { SetupActor } from '@/features/business-setup/drafts.server';
+import type { SetupActor, SetupTransaction } from '@/features/business-setup/drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon } from '@/features/business-setup/drafts.server';
 import { db } from '@/libs/DB';
 import { businessSetupRevisionSchema as revisions, onboardingSiteMediaSchema as media } from '@/models/Schema';
@@ -11,22 +11,25 @@ import { businessSetupRevisionSchema as revisions, onboardingSiteMediaSchema as 
 import { assertCustomArtifact, storeCustomArtifact } from './artifacts.server';
 import type { CanvaDesign } from './canva';
 import { compileCanvaDesign } from './canva';
+import type { CanvaNativeContent } from './canva-native-content';
 import type { NativePhotoChoice } from './canva-native-edits';
 import { canvaNativeEditSchema } from './canva-native-edits';
 
 /** Called only after owner authorization and artifact assertion; no storage URLs escape. */
 export async function canvaNativePhotoChoices(salonId: string, design: CanvaDesign | undefined): Promise<NativePhotoChoice[]> {
-  if (!design?.manualOrigin || !design.nativeContent?.length) {
+  if (!design?.manualOrigin) {
     return [];
   }
-  const rows = await db.select().from(media).where(and(eq(media.salonId, salonId), eq(media.siteId, design.manualOrigin.siteId), eq(media.revisionId, design.manualOrigin.revisionId), eq(media.claimStatus, 'ready'), eq(media.mimeType, 'image/webp'), inArray(media.role, ['gallery', 'profile']))).limit(61);
+  // Include replacement history, without increasing the per-site display limit
+  // or the existing asset library's storage budget.
+  const rows = await db.select().from(media).where(and(eq(media.salonId, salonId), eq(media.siteId, design.manualOrigin.siteId), eq(media.revisionId, design.manualOrigin.revisionId), eq(media.claimStatus, 'ready'), eq(media.mimeType, 'image/webp'), inArray(media.role, ['gallery', 'profile']))).orderBy(desc(media.createdAt), media.id).limit(200);
   return rows.flatMap(row => row.storageKey && row.width && row.height && (row.role === 'gallery' || row.role === 'profile') ? [{ mediaId: row.id, role: row.role, width: row.width, height: row.height, alt: (row.altText?.trim() || row.fileName || 'Salon photo').slice(0, 500), name: row.fileName }] : []);
 }
 
 /** Appearance-only changes use the same owner draft and approval boundary. */
-export async function editCanvaNativeContent(actor: SetupActor, raw: unknown) {
+export async function editCanvaNativeContent(actor: SetupActor, raw: unknown, transaction?: SetupTransaction) {
   const input = canvaNativeEditSchema.parse(raw);
-  return db.transaction(async (tx) => {
+  const apply = async (tx: SetupTransaction) => {
     await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, actor.salonId);
     const [base] = await tx.select().from(revisions).where(and(eq(revisions.salonId, actor.salonId), eq(revisions.workspaceId, head.workspace.id), eq(revisions.revision, input.expectedRevision)));
@@ -36,10 +39,11 @@ export async function editCanvaNativeContent(actor: SetupActor, raw: unknown) {
     const { artifact } = await assertCustomArtifact(tx, actor.salonId, base.document.website.config.customFrontendId);
     const design = artifact.source.canva;
     const original = design?.nativeContent?.find(block => block.id === input.blockId);
-    if (!design || !original || original.type === 'reviews') {
+    const addedGallery: CanvaNativeContent[number] | undefined = !original && design?.manualOrigin && input.change.type === 'use' && input.change.createGallery && input.blockId === 'native-photo-gallery' ? { type: 'gallery', id: input.blockId, title: 'Gallery', beforePage: design.pages.length, layout: 'grid', images: [] } : undefined;
+    if (!design || !(original || addedGallery) || original?.type === 'reviews') {
       throw new SetupError('INVALID', 'That photo section changed. Reload your saved design.');
     }
-    const block = structuredClone(original);
+    const block = structuredClone((original || addedGallery)!);
     const change = input.change;
     const images = block.type === 'about' ? block.image ? [block.image] : [] : block.images;
     if (change.type === 'layout') {
@@ -94,10 +98,11 @@ export async function editCanvaNativeContent(actor: SetupActor, raw: unknown) {
         [images[index], images[destination]] = [images[destination]!, images[index]!];
       }
     }
-    const nativeContent = design.nativeContent!.map(item => item.id === block.id ? block : item);
+    const nativeContent = original ? design.nativeContent!.map(item => item.id === block.id ? block : item) : [...(design.nativeContent ?? []), block];
     const source = compileCanvaDesign({ ...design, nativeContent, ownerReviewed: false }, base.document.website.content.websiteDetails);
     const saved = await storeCustomArtifact(actor, { ...input, source, assetIds: artifact.assetIds }, tx);
     const next = await editSetup(actor, { expectedRevision: input.expectedRevision, operationId: input.operationId, operations: [{ type: 'custom_frontend', artifactId: saved.id }] }, 'owner', tx);
     return { head: next, artifactId: saved.id };
-  });
+  };
+  return transaction ? apply(transaction) : db.transaction(apply);
 }

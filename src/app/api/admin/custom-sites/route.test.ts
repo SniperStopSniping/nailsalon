@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, POST } from './route';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), generate: vi.fn(), upload: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), editNative: vi.fn(), replaceCanva: vi.fn(), editLayout: vi.fn(), meter: vi.fn(), read: vi.fn() }));
+const state = vi.hoisted(() => ({ access: vi.fn(), save: vi.fn(), restore: vi.fn(), generate: vi.fn(), upload: vi.fn(), uploadNative: vi.fn(), edit: vi.fn(), business: vi.fn(), editMedia: vi.fn(), editNative: vi.fn(), replaceCanva: vi.fn(), editLayout: vi.fn(), meter: vi.fn(), read: vi.fn() }));
 vi.mock('@/libs/DB', () => ({ db: { transaction: state.read } }));
 vi.mock('@/features/ai-credits/request-metering.server', () => ({ runWithAiCredits: state.meter }));
 vi.mock('@/features/business-setup/conversation.server', () => ({ runSetupConversation: state.business }));
@@ -14,6 +14,8 @@ vi.mock('@/features/custom-sites/media-edit.server', async original => ({ ...awa
 vi.mock('@/features/custom-sites/canva-replace.server', async original => ({ ...await original<any>(), replaceCanvaPage: state.replaceCanva }));
 vi.mock('@/features/custom-sites/canva-layout.server', async original => ({ ...await original<any>(), editCanvaLayout: state.editLayout }));
 vi.mock('@/features/custom-sites/canva-native-edit.server', () => ({ editCanvaNativeContent: state.editNative, canvaNativePhotoChoices: vi.fn().mockResolvedValue([]) }));
+vi.mock('@/features/custom-sites/canva-native-upload.server', () => ({ uploadCanvaNativePhoto: state.uploadNative }));
+vi.mock('@/features/custom-sites/restore.server', async original => ({ ...await original<any>(), restoreCustomSource: state.restore }));
 vi.mock('@/features/custom-sites/assets.server', () => ({ uploadCustomAsset: state.upload }));
 vi.mock('@/features/business-setup/drafts.server', () => ({ editSetup: state.edit }));
 function request(body: unknown, origin = 'http://localhost:3197') {
@@ -25,6 +27,7 @@ beforeEach(() => {
   state.meter.mockImplementation(async (_actor, _kind, _input, _limit, work) => work());
   state.access.mockResolvedValue({ actor: { salonId: 'authorized-salon', adminId: 'real-owner' }, aiEnabled: false });
   state.edit.mockResolvedValue({ revision: 2 });
+  state.restore.mockResolvedValue({ head: { revision: 2 } });
 });
 
 it('binds custom generation to the authorized owner and exact public credit cap', async () => {
@@ -82,7 +85,7 @@ describe('custom website owner boundary', () => {
     const input = { expectedRevision: 1, operationId: crypto.randomUUID(), artifactId: crypto.randomUUID() };
 
     expect((await POST(request({ action: 'restore', input }))).status).toBe(200);
-    expect(state.edit.mock.calls[0]?.[0]).toEqual({ salonId: 'authorized-salon', adminId: 'real-owner' });
+    expect(state.restore).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, input);
   });
 
   it('bounds streamed bodies without trusting Content-Length', async () => {
@@ -191,4 +194,33 @@ it('scopes native photo controls to the authenticated owner without exposing pub
   expect(state.editNative).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, input);
   expect(state.meter).not.toHaveBeenCalled();
   expect(state.generate).not.toHaveBeenCalled();
+});
+
+it('authorizes and validates native photo uploads without identity promotion, AI or billing', async () => {
+  state.uploadNative.mockResolvedValue({ artifactId: crypto.randomUUID(), head: {} });
+  const operationId = crypto.randomUUID();
+  function upload({ rights = 'true', role = 'photo', revision = '7', origin = 'http://localhost:3197' } = {}) {
+    const body = new FormData();
+    body.set('file', new File(['fixture'], 'photo.png', { type: 'image/png' }));
+    body.set('purpose', 'native_photo');
+    body.set('role', role);
+    body.set('rightsConfirmed', rights);
+    body.set('expectedRevision', revision);
+    body.set('operationId', operationId);
+    body.set('blockId', 'my-gallery');
+    body.set('alt', 'My salon interior');
+    return new Request('http://localhost:3197/api/admin/custom-sites?salonSlug=ignored-browser-slug', { method: 'POST', headers: { origin }, body });
+  }
+
+  expect((await POST(upload({ origin: 'https://attacker.invalid' }))).status).toBe(403);
+  expect((await POST(upload({ rights: 'false' }))).status).toBe(400);
+  expect((await POST(upload({ role: 'reference' }))).status).toBe(400);
+  expect((await POST(upload({ revision: 'not-a-revision' }))).status).toBe(400);
+  expect(state.uploadNative).not.toHaveBeenCalled();
+
+  expect((await POST(upload())).status).toBe(200);
+  expect(state.uploadNative).toHaveBeenCalledWith({ salonId: 'authorized-salon', adminId: 'real-owner' }, { expectedRevision: 7, operationId, blockId: 'my-gallery', alt: 'My salon interior' }, expect.any(File));
+  expect(state.upload).not.toHaveBeenCalled();
+  expect(state.generate).not.toHaveBeenCalled();
+  expect(state.meter).not.toHaveBeenCalled();
 });

@@ -31,12 +31,14 @@ import { reviewCanvaArtwork, saveCustomSource } from './artifacts.server';
 import { uploadOnboardingArtwork } from './assets.server';
 import { compileCanvaDesign } from './canva';
 import { canvaNativePhotoChoices, editCanvaNativeContent } from './canva-native-edit.server';
+import { uploadCanvaNativePhoto } from './canva-native-upload.server';
 import { customSiteArtworkPolicy, customSiteDataFromLive } from './live-data.server';
 import { linkedOnboardingCanvaDraft } from './manual-origin.server';
 import { readAuthorizedCanvaNativeMedia } from './native-media-access.server';
 import * as nativeRenderer from './native-renderer.server';
 import { importOnboardingCanva } from './onboarding-canva.server';
 import { customSitePayload, setupCustomSitePayload } from './payload.server';
+import { restoreCustomSource } from './restore.server';
 import { revokeCustomPreview, shareCustomPreview, sharedCustomPreview } from './share.server';
 
 vi.mock('server-only', () => ({}));
@@ -456,6 +458,198 @@ it('rejects cross-salon, wrong-role and stale native edits and rolls back an art
   await database.update(schema.adminSalonMembershipSchema).set({ role: 'staff' }).where(eq(schema.adminSalonMembershipSchema.salonId, first.actor.salonId));
 
   await expect(editCanvaNativeContent(first.actor, { ...base, change: { type: 'layout', layout: 'carousel' } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+});
+
+it('uploads a new private gallery photo, replays without duplicates and publishes only the approved version', async () => {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const { actor, input } = await fixture(false, 'ready');
+  const imported = await importOnboardingCanva(actor, input);
+  const original = (await records(actor.salonId)).artifacts[0]!.source.canva!;
+  const gallery = original.nativeContent!.find(block => block.type === 'gallery')!;
+  const [before] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+  const bytes = await sharp({ create: { width: 1200, height: 300, channels: 3, background: '#52704c' } }).png().toBuffer();
+  const file = new File([new Uint8Array(bytes)], 'My wide salon photo.png', { type: 'image/png' });
+  const request = { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), blockId: gallery.id, alt: 'My wide salon interior' };
+  const uploaded = await uploadCanvaNativePhoto(actor, request, file);
+  const replay = await uploadCanvaNativePhoto(actor, request, file);
+
+  expect(replay.artifactId).toBe(uploaded.artifactId);
+  expect((await records(actor.salonId)).artifacts).toHaveLength(2);
+  expect((await records(actor.salonId)).assets).toHaveLength(2);
+
+  const source = (await records(actor.salonId)).artifacts.find(row => row.id === uploaded.artifactId)!.source;
+  const updatedGallery = source.canva!.nativeContent!.find(block => block.type === 'gallery')!;
+  const photo = updatedGallery.type === 'gallery' ? updatedGallery.images.at(-1)! : null;
+
+  expect(photo).toMatchObject({ width: 1200, height: 300, alt: request.alt });
+  expect(source.canva!.pages).toEqual(original.pages);
+  expect(source.canva!.areas).toEqual(original.areas);
+  expect(uploaded.head.revision.document.business).toEqual(imported.head.revision.document.business);
+  expect(uploaded.head.revision.document.services).toEqual(imported.head.revision.document.services);
+
+  const [after] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, actor.salonId));
+  const { settings: _beforeSettings, updatedAt: _beforeUpdated, ...beforeIdentity } = before!;
+  const { settings: _afterSettings, updatedAt: _afterUpdated, ...afterIdentity } = after!;
+
+  expect(afterIdentity).toEqual(beforeIdentity);
+  expect(resolveBookingConfigFromSettings(after!.settings)).toEqual(resolveBookingConfigFromSettings(before!.settings));
+  expect(resolveBookingPageConfig(after!.settings).live).toEqual(resolveBookingPageConfig(before!.settings).live);
+  expect(await readAuthorizedCanvaNativeMedia({ artifactId: uploaded.artifactId, mediaId: photo!.mediaId })).toBeNull();
+
+  const privatePhoto = await readAuthorizedCanvaNativeMedia({ artifactId: uploaded.artifactId, mediaId: photo!.mediaId }, actor.adminId);
+
+  expect(await sharp(privatePhoto!).metadata()).toMatchObject({ format: 'webp', width: 1200, height: 300 });
+  expect((await database.select().from(schema.onboardingSiteMediaSchema).where(eq(schema.onboardingSiteMediaSchema.salonId, actor.salonId))).filter(row => row.metadata.customSiteUpload)).toHaveLength(1);
+
+  await reviewCanvaArtwork(actor, { expectedRevision: uploaded.head.revision.revision, operationId: randomUUID() });
+  const review = await reviewSetup(actor);
+  const approval = await approveSetup(actor, review.revision, review.hash);
+  vi.spyOn(nativeRenderer, 'assertNativePhotoRendererReady').mockResolvedValue(undefined);
+  const published = await publishSetup(actor, { revision: review.revision, approvalId: approval.id, operationId: randomUUID() });
+  const approved = (await records(actor.salonId)).artifacts.find(row => row.source.canva?.ownerReviewed)!;
+
+  expect(published.receipt.mediaFinalized).toBe(true);
+  expect(await readAuthorizedCanvaNativeMedia({ artifactId: approved.id, mediaId: photo!.mediaId })).toEqual(privatePhoto);
+  expect(await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId))).toHaveLength(0);
+});
+
+it('replaces an About photo privately without updating canonical identity, and rejects disabled/staff/foreign requests', async () => {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const test = await fixture(false, 'ready');
+  const other = await fixture(false, 'ready');
+  const otherImported = await importOnboardingCanva(other.actor, other.input);
+  const imported = await importOnboardingCanva(test.actor, test.input);
+  const about = (await records(test.actor.salonId)).artifacts[0]!.source.canva!.nativeContent!.find(block => block.type === 'about')!;
+  if (about.type !== 'about') {
+    throw new Error('Missing About fixture');
+  }
+  const bytes = await sharp({ create: { width: 500, height: 750, channels: 3, background: '#ab9288' } }).png().toBuffer();
+  const file = new File([new Uint8Array(bytes)], 'New portrait.png', { type: 'image/png' });
+  const request = { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), blockId: about.id, replaceId: about.image!.mediaId, alt: 'My new portrait' };
+
+  await expect(uploadCanvaNativePhoto(other.actor, { ...request, expectedRevision: otherImported.head.revision.revision }, file)).rejects.toMatchObject({ code: 'INVALID' });
+  await expect(uploadCanvaNativePhoto(test.actor, { ...request, blockId: 'not-my-section' }, file)).rejects.toMatchObject({ code: 'INVALID' });
+  await expect(uploadCanvaNativePhoto(test.actor, request, new File(['pdf'], 'photo.pdf', { type: 'application/pdf' }))).rejects.toMatchObject({ code: 'INVALID' });
+
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'false');
+
+  await expect(uploadCanvaNativePhoto(test.actor, request, file)).rejects.toMatchObject({ code: 'NOT_READY' });
+
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const before = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId));
+  const technicians = await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.salonId, test.actor.salonId));
+  const changed = await uploadCanvaNativePhoto(test.actor, request, file);
+  const source = (await records(test.actor.salonId)).artifacts.find(row => row.id === changed.artifactId)!.source;
+  const photo = source.canva!.nativeContent!.find(block => block.type === 'about');
+
+  expect(photo?.type === 'about' && photo.image).toMatchObject({ width: 500, height: 750, role: 'profile', alt: request.alt });
+  expect(photo?.type === 'about' && photo.image!.mediaId).not.toBe(about.image!.mediaId);
+  expect((await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, test.actor.salonId)))[0]!.logoUrl).toBe(before[0]!.logoUrl);
+  expect(changed.head.revision.document.website.content).toEqual(imported.head.revision.document.website.content);
+  expect(await database.select().from(schema.technicianSchema).where(eq(schema.technicianSchema.salonId, test.actor.salonId))).toEqual(technicians);
+
+  await database.update(schema.adminSalonMembershipSchema).set({ role: 'staff' }).where(eq(schema.adminSalonMembershipSchema.salonId, test.actor.salonId));
+
+  await expect(uploadCanvaNativePhoto(test.actor, { ...request, operationId: randomUUID(), expectedRevision: changed.head.revision.revision }, file)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+});
+
+it('adds a first gallery to an existing Canva draft without repeating business setup', async () => {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const test = await fixture();
+  const imported = await importOnboardingCanva(test.actor, test.input);
+  const original = (await records(test.actor.salonId)).artifacts[0]!.source.canva!;
+  const bytes = await sharp({ create: { width: 700, height: 500, channels: 3, background: '#cdad87' } }).png().toBuffer();
+  const file = new File([new Uint8Array(bytes)], 'First salon photo.png', { type: 'image/png' });
+  const request = { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My first salon photo' };
+
+  await expect(uploadCanvaNativePhoto(test.actor, { ...request, blockId: 'arbitrary-new-section' }, file)).rejects.toMatchObject({ code: 'INVALID' });
+
+  const uploaded = await uploadCanvaNativePhoto(test.actor, request, file);
+  const replay = await uploadCanvaNativePhoto(test.actor, request, file);
+  const source = (await records(test.actor.salonId)).artifacts.find(row => row.id === uploaded.artifactId)!.source;
+  const gallery = source.canva!.nativeContent!.find(block => block.type === 'gallery');
+
+  expect(replay.artifactId).toBe(uploaded.artifactId);
+  expect(gallery).toMatchObject({ id: 'native-photo-gallery', type: 'gallery', beforePage: original.pages.length, images: [{ width: 700, height: 500, alt: request.alt }] });
+  expect(source.canva!.pages).toEqual(original.pages);
+  expect(source.canva!.areas).toEqual(original.areas);
+  expect(uploaded.head.revision.document.services).toEqual(imported.head.revision.document.services);
+  expect(uploaded.head.revision.document.business).toEqual(imported.head.revision.document.business);
+});
+
+it('restores design-associated About wording after it was removed while retaining newer prices and contacts', async () => {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const test = await fixture(false, 'ready');
+  const imported = await importOnboardingCanva(test.actor, test.input);
+  const artifactId = imported.artifactId;
+  const previousCopy = imported.head.revision.document.website.content.websiteDetails!.sections;
+  const { origin: _origin, confirmed: _confirmed, ...service } = imported.head.revision.document.services[0]!;
+  const changed = await editSetup(test.actor, { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), operations: [
+    { type: 'website_details', values: { instagram: '@new_studio', sections: [{ id: 'owner_note', title: 'Current note', text: 'Keep this separate owner note.' }] } },
+    { type: 'service', values: { ...service, priceCents: 7000 } },
+  ] });
+  const request = { expectedRevision: changed.revision.revision, operationId: randomUUID(), artifactId };
+  const restored = await restoreCustomSource(test.actor, request);
+  const replay = await restoreCustomSource(test.actor, request);
+  const details = restored.head.revision.document.website.content.websiteDetails!;
+
+  expect(replay.head.revision.revision).toBe(restored.head.revision.revision);
+  expect(restored.head.revision.document.website.config.customFrontendId).toBe(artifactId);
+  expect(details.sections).toEqual([{ id: 'owner_note', title: 'Current note', text: 'Keep this separate owner note.' }, ...previousCopy]);
+  expect(details.instagram).toBe('@new_studio');
+  expect(restored.head.revision.document.services).toEqual(changed.revision.document.services);
+  expect(restored.head.revision.document.business).toEqual(changed.revision.document.business);
+
+  const newer = await editSetup(test.actor, { expectedRevision: restored.head.revision.revision, operationId: randomUUID(), operations: [{ type: 'service', values: { ...service, priceCents: 7500 } }] });
+  await restoreCustomSource(test.actor, request);
+
+  expect((await openSetup(test.actor)).revision.revision).toBe(newer.revision.revision);
+  expect((await openSetup(test.actor)).revision.document.services[0]!.priceCents).toBe(7500);
+  await expect(restoreCustomSource(test.actor, { ...request, operationId: randomUUID() })).rejects.toMatchObject({ code: 'STALE' });
+
+  const [live] = await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, test.serviceId));
+
+  expect(live!.price).toBe(6500);
+});
+
+it('rejects foreign design restoration and old About wording that would disclose a now-private address', async () => {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const test = await fixture(false, 'ready', 'Visit me at 123 Test Street.');
+  const other = await fixture();
+  const imported = await importOnboardingCanva(test.actor, test.input);
+  const foreign = await importOnboardingCanva(other.actor, other.input);
+  const changed = await editSetup(test.actor, { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), operations: [
+    { type: 'business', values: { exactAddress: '123 Test Street', locationDisplayMode: 'city_only' } },
+    { type: 'website_details', values: { sections: [] } },
+  ] });
+  const request = { expectedRevision: changed.revision.revision, operationId: randomUUID(), artifactId: imported.artifactId };
+  const count = (await records(test.actor.salonId)).revisions.length;
+
+  await expect(restoreCustomSource(test.actor, { ...request, artifactId: foreign.artifactId })).rejects.toMatchObject({ code: 'INVALID' });
+  await expect(restoreCustomSource(test.actor, request)).rejects.toMatchObject({ code: 'NOT_READY' });
+  expect((await records(test.actor.salonId)).revisions).toHaveLength(count);
+
+  await database.update(schema.adminSalonMembershipSchema).set({ role: 'staff' }).where(eq(schema.adminSalonMembershipSchema.salonId, test.actor.salonId));
+
+  await expect(restoreCustomSource(test.actor, request)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+});
+
+it('retains reusable private bytes but rolls back photo aliases and source after an interrupted stale upload', async () => {
+  vi.stubEnv('CUSTOM_SITE_NATIVE_PHOTOS_ENABLED', 'true');
+  const test = await fixture(false, 'ready');
+  const imported = await importOnboardingCanva(test.actor, test.input);
+  const gallery = (await records(test.actor.salonId)).artifacts[0]!.source.canva!.nativeContent!.find(block => block.type === 'gallery')!;
+  const bytes = await sharp({ create: { width: 300, height: 200, channels: 3, background: '#736885' } }).png().toBuffer();
+  const file = new File([new Uint8Array(bytes)], 'Interrupted photo.png', { type: 'image/png' });
+  vi.spyOn(file, 'arrayBuffer').mockImplementationOnce(async () => {
+    await database.update(schema.serviceSchema).set({ price: 6600 }).where(eq(schema.serviceSchema.id, test.serviceId));
+    return Uint8Array.from(bytes).buffer;
+  });
+
+  await expect(uploadCanvaNativePhoto(test.actor, { expectedRevision: imported.head.revision.revision, operationId: randomUUID(), blockId: gallery.id, alt: 'My interrupted upload' }, file)).rejects.toMatchObject({ code: 'STALE' });
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(1);
+  expect((await records(test.actor.salonId)).assets).toHaveLength(2);
+  expect((await database.select().from(schema.onboardingSiteMediaSchema).where(eq(schema.onboardingSiteMediaSchema.salonId, test.actor.salonId))).filter(row => row.metadata.customSiteUpload)).toHaveLength(0);
 });
 
 it('gates new photo enrollment while retaining original saves and unmodified manual paths', async () => {

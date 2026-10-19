@@ -391,7 +391,7 @@ it('retries a free layout edit with the same operation and replaces its success 
 
   fireEvent.click(screen.getByText('Previous designs'));
   fireEvent.click(within(screen.getByText('Earlier image').closest('li')!).getByRole('button', { name: 'Restore as draft' }));
-  await screen.findByText('This saved design is restored as a draft. Your business details and published website are unchanged.');
+  await screen.findByText('This saved design is restored as a draft. Review its wording and photos before publishing.');
 
   expect(screen.queryByText(notice)).not.toBeInTheDocument();
   expect(writes[2]).toMatchObject({ action: 'restore', input: { artifactId: 'previous' } });
@@ -486,7 +486,7 @@ it('does not label an older displayed design as the current published version', 
   expect(screen.queryByRole('link', { name: 'Open full preview' })).not.toBeInTheDocument();
 });
 
-it('applies a native photo edit through the owner studio and recovers an exact committed response without resubmitting', async () => {
+it.each(['edit', 'upload'] as const)('applies a native photo %s through the owner studio and recovers an exact committed response without resubmitting', async (mode) => {
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
   vi.stubGlobal('ResizeObserver', class {
     observe() {} disconnect() {}
@@ -502,14 +502,14 @@ it('applies a native photo edit through the owner studio and recovers an exact c
       return new Response(new Uint8Array([1, 2, 3]), { headers: { 'Content-Type': 'image/webp' } });
     }
     if (options?.method === 'POST') {
-      const body = JSON.parse(String(options.body));
+      const body = options.body instanceof FormData ? { action: 'upload-native', input: Object.fromEntries(options.body.entries()) } : JSON.parse(String(options.body));
       writes.push(body);
       operationId = body.input.operationId;
-      source = compileCanvaDesign({ ...source.canva!, nativeContent: [{ ...source.canva!.nativeContent![0]!, type: 'gallery', title: 'Gallery', layout: 'grid', images: [] }] });
+      source = compileCanvaDesign({ ...source.canva!, nativeContent: [{ ...source.canva!.nativeContent![0]!, type: 'gallery', title: 'Gallery', layout: 'grid', images: mode === 'upload' ? [{ mediaId, role: 'gallery', width: 600, height: 400, alt: 'My new salon photo' }] : [] }] });
       throw new TypeError('Response lost after commit');
     }
     const artifactId = operationId ? updated : first;
-    return Response.json({ head: { revision: { revision: operationId ? 3 : 2, operationId, document: { website: { config: { customFrontendId: artifactId } } } } }, payload: { source, nativeMedia: { artifactId, mediaIds: operationId ? [] : [mediaId] }, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, nativePhotos: [{ mediaId, role: 'gallery', width: 600, height: 400, alt: 'My salon photograph', name: 'salon.webp' }], assets: [], history: [], attempts: [], configured: false, rendererOrigin: null });
+    return Response.json({ head: { revision: { revision: operationId ? 3 : 2, operationId, document: { website: { config: { customFrontendId: artifactId } } } } }, payload: { source, nativeMedia: { artifactId, mediaIds: operationId && mode === 'edit' ? [] : [mediaId] }, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, nativePhotos: [{ mediaId, role: 'gallery', width: 600, height: 400, alt: 'My salon photograph', name: 'salon.webp' }], nativePhotoUploadsEnabled: true, assets: [], history: [], attempts: [], configured: false, rendererOrigin: null });
   }));
   const view = render(<div />);
   const editor = (revision: number, artifactId: string) => <CustomDesignStudio salonSlug="test" revision={revision} artifactId={artifactId} disabled={false} aiEnabled={false} onSaved={async () => view.rerender(editor(3, updated))} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />;
@@ -518,13 +518,28 @@ it('applies a native photo edit through the owner studio and recovers an exact c
   const details = summary.closest('details')!;
   details.open = true;
   fireEvent(details, new Event('toggle'));
-  fireEvent.click(await screen.findByRole('button', { name: 'Remove from draft' }));
-  await screen.findByText('Your photo changes are saved. Check the preview before publishing.');
+  if (mode === 'upload') {
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'I own or have permission to use this photo.' }));
+    fireEvent.change(screen.getByLabelText('New photo description (optional)'), { target: { value: 'My new salon photo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload replacement photo' }));
+    fireEvent.change(screen.getByLabelText('Choose new About or Gallery photo'), { target: { files: [new File(['fixture'], 'New photo.png', { type: 'image/png' })] } });
+    await screen.findByText('Your photo is saved in the draft. Check the preview before publishing.');
+  } else {
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from draft' }));
+    await screen.findByText('Your photo changes are saved. Check the preview before publishing.');
+  }
 
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   expect(writes).toHaveLength(1);
-  expect(writes[0]).toMatchObject({ action: 'edit_native_photos', input: { expectedRevision: 2, blockId: 'gallery', change: { type: 'remove', mediaId } } });
+  expect(writes[0]).toMatchObject(mode === 'upload'
+    ? { action: 'upload-native', input: { purpose: 'native_photo', role: 'photo', rightsConfirmed: 'true', expectedRevision: '2', blockId: 'gallery', replaceId: mediaId, alt: 'My new salon photo', file: expect.any(File) } }
+    : { action: 'edit_native_photos', input: { expectedRevision: 2, blockId: 'gallery', change: { type: 'remove', mediaId } } });
   expect(writes[0]).not.toHaveProperty('acceptedCreditLimitMicroCad');
   expect(await screen.findByRole('link', { name: 'Open full preview' })).toHaveAttribute('href', '/admin/business-setup/design-preview/test?revision=3');
-  expect(screen.getByText('No photos in this section.')).toBeInTheDocument();
+
+  if (mode === 'edit') {
+    expect(screen.getByText('No photos in this section.')).toBeInTheDocument();
+  } else {
+    expect(await screen.findByRole('textbox', { name: 'Photo description' })).toHaveValue('My new salon photo');
+  }
 });

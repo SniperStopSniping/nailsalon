@@ -128,3 +128,44 @@ it('retries a failed photo and cancels its loader when the editor closes', async
 
   expect(state.dispose).toHaveBeenCalledTimes(2);
 });
+
+it('requires upload rights and sends a new replacement photo to the chosen section without changing artwork', async () => {
+  const { payload, choices, wide } = fixture();
+  const onUpload = vi.fn().mockResolvedValue(undefined);
+  const onSave = vi.fn();
+  render(<CanvaNativePhotoEditor payload={payload} choices={choices} disabled={false} onSave={onSave} uploadsEnabled onUpload={onUpload} />);
+  openEditor();
+  fireEvent.change(await screen.findByLabelText('Choose a section'), { target: { value: 'gallery' } });
+  const input = screen.getByLabelText('Choose new About or Gallery photo');
+  const file = new File(['fixture'], 'New photo.png', { type: 'image/png' });
+
+  expect(screen.getByRole('button', { name: 'Upload a photo' })).toBeDisabled();
+
+  fireEvent.change(input, { target: { files: [file] } });
+
+  expect(onUpload).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('checkbox', { name: 'I own or have permission to use this photo.' }));
+  fireEvent.change(screen.getByLabelText('New photo description (optional)'), { target: { value: 'My new nail-art photo' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Upload replacement photo' }));
+  fireEvent.change(input, { target: { files: [file] } });
+
+  expect(onUpload).toHaveBeenCalledWith('gallery', file, 'My new nail-art photo', wide.mediaId, undefined);
+  expect(onSave).not.toHaveBeenCalled();
+  expect(payload.source.canva!.pages[0]!.alt).toBe('Owner artwork');
+});
+
+it('offers a first photo gallery without making the owner return to onboarding', async () => {
+  const { payload } = fixture();
+  payload.source.canva!.nativeContent = [];
+  const onUpload = vi.fn().mockResolvedValue(undefined);
+  render(<CanvaNativePhotoEditor payload={payload} choices={[]} disabled={false} onSave={vi.fn()} uploadsEnabled onUpload={onUpload} />);
+  openEditor();
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'I own or have permission to use this photo.' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Upload a photo' }));
+  const file = new File(['fixture'], 'Salon-photo.png', { type: 'image/png' });
+  fireEvent.change(screen.getByLabelText('Choose new About or Gallery photo'), { target: { files: [file] } });
+
+  expect(onUpload).toHaveBeenCalledWith('native-photo-gallery', file, 'Salon photo', undefined, true);
+  expect(screen.queryByLabelText('Gallery layout')).not.toBeInTheDocument();
+});

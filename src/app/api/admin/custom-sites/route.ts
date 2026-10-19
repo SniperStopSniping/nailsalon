@@ -13,13 +13,16 @@ import { reviewCanvaArtwork, saveCustomSource } from '@/features/custom-sites/ar
 import { assetDataUrl, ownedAssets, uploadCustomAsset } from '@/features/custom-sites/assets.server';
 import { canvaLayoutSchema, editCanvaLayout } from '@/features/custom-sites/canva-layout.server';
 import { canvaNativePhotoChoices, editCanvaNativeContent } from '@/features/custom-sites/canva-native-edit.server';
-import { canvaNativeEditSchema } from '@/features/custom-sites/canva-native-edits';
+import { canvaNativeEditSchema, canvaNativeUploadSchema } from '@/features/custom-sites/canva-native-edits';
+import { uploadCanvaNativePhoto } from '@/features/custom-sites/canva-native-upload.server';
 import { canvaReplaceSchema, replaceCanvaPage } from '@/features/custom-sites/canva-replace.server';
 import { customSiteGenerateSchema, customSiteSourceSchema, designBriefSchema } from '@/features/custom-sites/contracts';
 import { generateCustomSite, resumeCustomSite } from '@/features/custom-sites/generate.server';
 import { editCustomMedia, mediaEditSchema } from '@/features/custom-sites/media-edit.server';
+import { canvaNativePhotosEnabled } from '@/features/custom-sites/native-renderer.server';
 import { customSiteRendererOrigin, setupCustomSitePayload } from '@/features/custom-sites/payload.server';
 import { isExplicitServicePriceEdit } from '@/features/custom-sites/price-edit';
+import { restoreCustomSource, restoreCustomSourceSchema } from '@/features/custom-sites/restore.server';
 import { previewShareInput, revokeCustomPreview, shareCustomPreview } from '@/features/custom-sites/share.server';
 import { db } from '@/libs/DB';
 import { customSiteArtifactSchema as artifacts, customSiteAssetSchema as assets, customSiteGenerationSchema as jobs, setupAiCallSchema as calls } from '@/models/Schema';
@@ -41,7 +44,7 @@ const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('generate'), input: customSiteGenerateSchema, acceptedCreditLimitMicroCad: z.literal(AI_REQUEST_CREDIT_LIMIT).optional() }).strict(),
   z.object({ action: z.literal('resume'), operationId: z.string().uuid() }).strict(),
   z.object({ action: z.literal('save'), input: z.object({ ...edit, source: customSiteSourceSchema, assetIds: z.array(z.string().uuid()).max(12) }).strict() }).strict(),
-  z.object({ action: z.literal('restore'), input: z.object({ ...edit, artifactId: z.string().uuid() }).strict() }).strict(),
+  z.object({ action: z.literal('restore'), input: restoreCustomSourceSchema }).strict(),
 ]);
 function errorResponse(error: unknown, operation: 'load' | 'save' = 'save') {
   if (error instanceof AiCreditError) {
@@ -90,7 +93,7 @@ export async function GET(request: Request) {
     const recoverable = new Set((await db.select({ operationId: calls.operationId }).from(calls).where(and(eq(calls.salonId, access.actor.salonId), eq(calls.status, 'completed')))).map(call => call.operationId));
     const payload = await setupCustomSitePayload(access.actor.salonId, document);
     const nativePhotos = await canvaNativePhotoChoices(access.actor.salonId, payload?.source.canva);
-    return Response.json({ head, payload, nativePhotos, preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
+    return Response.json({ head, payload, nativePhotos, nativePhotoUploadsEnabled: canvaNativePhotosEnabled() && Boolean(payload?.source.canva?.manualOrigin), preferences: document.designBrief ?? null, configured: setupAiConfigured(), rendererOrigin: customSiteRendererOrigin(), history: history.map(item => ({ id: item.id, title: item.source.title, createdAt: item.createdAt, assetIds: item.assetIds })), assets: media, attempts: attempts.map(attempt => ({ ...attempt, recoverable: Boolean(attempt.artifactId) || recoverable.has(attempt.id) })) }, { headers });
   } catch (e) {
     return errorResponse(e, 'load');
   }
@@ -134,8 +137,15 @@ export async function POST(request: Request) {
       if (!(file instanceof File) || form.get('rightsConfirmed') !== 'true') {
         throw new SetupError('INVALID', 'Confirm you have permission to use these files.');
       }
-      const purpose = z.literal('canva_artwork').optional().parse(form.get('purpose') ?? undefined);
-      if (purpose && form.get('role') !== 'reference') {
+      const purpose = z.enum(['canva_artwork', 'native_photo']).optional().parse(form.get('purpose') ?? undefined);
+      if (purpose === 'native_photo') {
+        if (form.get('role') !== 'photo') {
+          throw new SetupError('INVALID', 'Choose a photo for your About or Gallery section.');
+        }
+        const input = canvaNativeUploadSchema.parse({ expectedRevision: Number(form.get('expectedRevision')), operationId: form.get('operationId'), blockId: form.get('blockId'), alt: form.get('alt'), ...(form.has('replaceId') ? { replaceId: form.get('replaceId') } : {}), ...(form.has('createGallery') ? { createGallery: form.get('createGallery') === 'true' } : {}) });
+        return Response.json(await uploadCanvaNativePhoto(access.actor, input, file), { headers });
+      }
+      if (purpose === 'canva_artwork' && form.get('role') !== 'reference') {
         throw new SetupError('INVALID', 'Choose a Canva design image for this upload.');
       }
       const asset = purpose
@@ -184,7 +194,7 @@ export async function POST(request: Request) {
     if (parsed.action === 'resume') {
       return Response.json(await resumeCustomSite(access.actor, parsed.operationId), { headers });
     }
-    return Response.json({ head: await editSetup(access.actor, { expectedRevision: parsed.input.expectedRevision, operationId: parsed.input.operationId, operations: [{ type: 'custom_frontend', artifactId: parsed.input.artifactId }] }) }, { headers });
+    return Response.json(await restoreCustomSource(access.actor, parsed.input), { headers });
   } catch (e) {
     return errorResponse(e);
   }

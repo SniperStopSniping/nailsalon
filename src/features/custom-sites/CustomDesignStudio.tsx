@@ -29,6 +29,7 @@ type State = {
   configured: boolean;
   assets: { id: string; name: string; role: string; mimeType: string }[];
   nativePhotos?: NativePhotoChoice[];
+  nativePhotoUploadsEnabled?: boolean;
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
   attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
@@ -65,6 +66,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
   const replacementOperation = useRef<{ file: File; page: string; revision: number; id: string } | null>(null);
   const layoutOperation = useRef<{ key: string; id: string } | null>(null);
   const nativeOperation = useRef<{ key: string; id: string } | null>(null);
+  const nativeUploadOperation = useRef<{ file: File; target: string; revision: number; id: string } | null>(null);
   useEffect(() => {
     if (entryMode === 'upload') {
       setShowUpload(true);
@@ -356,6 +358,47 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       setReply('Your photo changes are saved. Check the preview before publishing.');
     });
   }
+  async function uploadNativePhoto(blockId: string, file: File, alt: string, replaceId?: string, createGallery?: boolean) {
+    await action('Preparing your photo…', async () => {
+      const target = JSON.stringify({ blockId, replaceId, alt, createGallery });
+      const previous = nativeUploadOperation.current;
+      const operation = previous?.file === file && previous.target === target && previous.revision === revision ? previous : { file, target, revision, id: crypto.randomUUID() };
+      nativeUploadOperation.current = operation;
+      const form = new FormData();
+      form.set('file', await prepareWebsiteImage(file));
+      form.set('purpose', 'native_photo');
+      form.set('role', 'photo');
+      form.set('rightsConfirmed', 'true');
+      form.set('expectedRevision', String(revision));
+      form.set('operationId', operation.id);
+      form.set('blockId', blockId);
+      form.set('alt', alt);
+      if (replaceId) {
+        form.set('replaceId', replaceId);
+      }
+      if (createGallery) {
+        form.set('createGallery', 'true');
+      }
+      setBusy('Saving your photo…');
+      try {
+        const response = await fetch(endpoint, { method: 'POST', body: form });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error ?? 'Your photo could not be saved. Your earlier design is safe.');
+        }
+      } catch (error) {
+        const recovered = await fetch(endpoint, { cache: 'no-store' }).then(async (response) => {
+          const data: State = await response.json();
+          return response.ok && data.head?.revision.operationId === operation.id;
+        }).catch(() => false);
+        if (!recovered) {
+          throw error;
+        }
+      }
+      nativeUploadOperation.current = null;
+      setReply('Your photo is saved in the draft. Check the preview before publishing.');
+    });
+  }
   const current = state?.history.find(item => item.id === artifactId);
   const previewIsCurrent = state?.head.revision.revision === revision && state?.head.revision.document.website.config.customFrontendId === artifactId;
   const sourceEditingDisabled = disabled || Boolean(busy || pending) || !previewIsCurrent;
@@ -453,7 +496,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
         </div>
       )}
       {state?.payload?.source.canva && (
-        <CanvaNativePhotoEditor payload={state.payload} choices={state.nativePhotos ?? []} disabled={disabled || Boolean(busy || pending) || state.head.revision.revision !== revision} onSave={saveNativePhoto} />
+        <CanvaNativePhotoEditor payload={state.payload} choices={state.nativePhotos ?? []} disabled={disabled || Boolean(busy || pending) || state.head.revision.revision !== revision} onSave={saveNativePhoto} uploadsEnabled={state.nativePhotoUploadsEnabled} onUpload={uploadNativePhoto} />
       )}
       {state?.payload?.source.canva && (
         <CanvaAreaEditor
@@ -768,7 +811,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
                       disabled={sourceEditingDisabled || item.id === artifactId}
                       onClick={() => void action('Restoring this design as a new draft…', async () => {
                         await post({ action: 'restore', input: { expectedRevision: revision, operationId: crypto.randomUUID(), artifactId: item.id } });
-                        setReply('This saved design is restored as a draft. Your business details and published website are unchanged.');
+                        setReply('This saved design is restored as a draft. Review its wording and photos before publishing.');
                       })}
                     >
                       Restore as draft
