@@ -1,28 +1,37 @@
 import 'server-only';
 
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, notExists, or, sql } from 'drizzle-orm';
 
 import type { SetupOperation } from '@/features/business-setup/contracts';
 import { applySetupOperations, SetupError } from '@/features/business-setup/contracts';
 import type { SetupActor, SetupTransaction } from '@/features/business-setup/drafts.server';
 import { editSetup, loadSetupHead, lockSetupSalon } from '@/features/business-setup/drafts.server';
 import { db } from '@/libs/DB';
-import { businessSetupRevisionSchema as revisions, customSiteAssetSchema as assets, onboardingSiteMediaSchema as media } from '@/models/Schema';
+import { businessSetupRevisionSchema as revisions, customSiteArtifactSchema as artifacts, customSiteAssetSchema as assets, onboardingSiteMediaSchema as media } from '@/models/Schema';
 
 import { assertCustomArtifact, storeCustomArtifact } from './artifacts.server';
 import type { CanvaDesign } from './canva';
 import { compileCanvaDesign } from './canva';
 import { applyCanvaNativeContentChanges } from './canva-native-changes';
+import { canvaNativeImages } from './canva-native-content';
 import type { CanvaNativePhotoChange, NativePhotoChoice } from './canva-native-edits';
 import { canvaNativeEditSchema } from './canva-native-edits';
 import { canvaNativeAssetMetadata } from './native-media.server';
 import { canvaNativePhotosEnabled } from './native-renderer.server';
 
-async function libraryChoices(tx: SetupTransaction | typeof db, salonId: string, artworkIds: Set<string>, ids?: string[]): Promise<NativePhotoChoice[]> {
+async function libraryChoices(tx: SetupTransaction | typeof db, salonId: string, design: CanvaDesign, ids?: string[]): Promise<NativePhotoChoice[]> {
   if (ids && !ids.length) {
     return [];
   }
-  const rows = await tx.select().from(assets).where(and(eq(assets.salonId, salonId), eq(assets.role, 'photo'), eq(assets.mimeType, 'image/webp'), ids ? inArray(assets.id, ids) : undefined)).orderBy(desc(assets.createdAt), assets.id).limit(24);
+  const artworkIds = new Set(design.pages.map(page => page.assetId));
+  const placedPhotoIds = canvaNativeImages(design.nativeContent).filter(image => image.storageKind === 'asset').map(image => image.mediaId);
+  // Older Canva exports remain immutable, restorable artwork. Their photo
+  // storage role does not make them salon photography. Filter by actual saved
+  // page usage, never a filename, and apply the filter before the choice limit.
+  // An already placed native photo remains editable even if it was also used
+  // as artwork in another saved design.
+  const isArtwork = tx.select({ id: artifacts.id }).from(artifacts).where(and(eq(artifacts.salonId, salonId), sql`coalesce(${artifacts.source}->'canva'->'pages', '[]'::jsonb) @> jsonb_build_array(jsonb_build_object('assetId', ${assets.id}))`));
+  const rows = await tx.select().from(assets).where(and(eq(assets.salonId, salonId), eq(assets.role, 'photo'), eq(assets.mimeType, 'image/webp'), ids ? inArray(assets.id, ids) : undefined, or(placedPhotoIds.length ? inArray(assets.id, placedPhotoIds) : undefined, notExists(isArtwork)))).orderBy(desc(assets.createdAt), assets.id).limit(24);
   const choices: NativePhotoChoice[] = [];
   for (const asset of rows) {
     // The current Canva page is artwork, not a default replacement portrait
@@ -54,7 +63,7 @@ export async function canvaNativePhotoChoices(salonId: string, design: CanvaDesi
     return [];
   }
   if (!design.manualOrigin) {
-    return libraryChoices(db, salonId, new Set(design.pages.map(page => page.assetId)));
+    return libraryChoices(db, salonId, design);
   }
   // Include replacement history, without increasing the per-site display limit
   // or the existing asset library's storage budget.
@@ -79,7 +88,7 @@ export async function prepareCanvaNativePhotoChanges(actor: SetupActor, input: {
   // Recheck exact origin/role/ready metadata at save time, after any model call.
   // Uploads use this same transaction so an uncommitted new alias is visible.
   const rows = useIds.length && design.manualOrigin ? await tx.select().from(media).where(and(eq(media.salonId, actor.salonId), eq(media.siteId, design.manualOrigin.siteId), eq(media.revisionId, design.manualOrigin.revisionId), eq(media.claimStatus, 'ready'), eq(media.mimeType, 'image/webp'), inArray(media.id, useIds), inArray(media.role, ['gallery', 'profile']))) : [];
-  const choices: NativePhotoChoice[] = design.manualOrigin ? rows.flatMap(row => row.storageKey && row.width && row.height && (row.role === 'gallery' || row.role === 'profile') ? [{ mediaId: row.id, role: row.role, width: row.width, height: row.height, alt: row.altText || row.fileName, name: row.fileName }] : []) : await libraryChoices(tx, actor.salonId, new Set(design.pages.map(page => page.assetId)), useIds);
+  const choices: NativePhotoChoice[] = design.manualOrigin ? rows.flatMap(row => row.storageKey && row.width && row.height && (row.role === 'gallery' || row.role === 'profile') ? [{ mediaId: row.id, role: row.role, width: row.width, height: row.height, alt: row.altText || row.fileName, name: row.fileName }] : []) : await libraryChoices(tx, actor.salonId, design, useIds);
   const proposed = applySetupOperations(base.document, input.priorOperations ?? [], 'assistant', input.ownerMessage ? { ownerMessage: input.ownerMessage } : undefined);
   const changed = applyCanvaNativeContentChanges(design, proposed.website.content.websiteDetails, input.changes, choices, canvaNativePhotosEnabled());
   const source = compileCanvaDesign(changed.design, changed.details);

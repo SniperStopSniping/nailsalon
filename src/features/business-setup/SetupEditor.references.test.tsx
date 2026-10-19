@@ -849,8 +849,26 @@ it('labels a published website consistently and returns to draft labels only aft
 
 it('opens manual Canva setup in Preview and keeps ordinary chat and generation out of the flow', async () => {
   document.website.config.customFrontendId = 'saved-manual-artifact';
+  const baseFetch = globalThis.fetch;
+  let finishOpening!: () => void;
+  const opening = new Promise<void>((resolve) => {
+    finishOpening = resolve;
+  });
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (typeof options?.body === 'string' && JSON.parse(options.body).action === 'open') {
+      await opening;
+    }
+    return baseFetch(url, options);
+  }));
   render(<SetupEditor salonSlug="test" locale="en" existingSalon={false} aiEnabled creditsEnabled manualMode />);
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true'));
+
+  expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('button', { name: 'Details' })).toBeDisabled();
+
+  await act(async () => finishOpening());
+  // Preview is initially selected before the saved data arrives. An enabled
+  // Details button, rather than the initial tab value, proves it is usable.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Details' })).toBeEnabled());
 
   expect(screen.getByText('Your Canva artwork stays as-is. Check its links, then review and approve your website. This manual editor does not use AI credits.')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument();

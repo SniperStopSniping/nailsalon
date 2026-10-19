@@ -141,6 +141,15 @@ export function canvaNativePhotoChangeSummary(changes: CanvaNativePhotoChange[])
     ['use', 'Changed', 'saved photo'],
   ] as const).flatMap(([type, verb, noun]) => {
     const amount = count(type);
+    if (amount && type === 'create_about') {
+      return ['Added your About section.'];
+    }
+    if (amount && type === 'about_text') {
+      return ['Updated your About text.'];
+    }
+    if (amount && type === 'layout') {
+      return ['Changed your Gallery layout.'];
+    }
     return amount ? [`${verb} ${amount} ${noun}${amount === 1 ? '' : 's'}.`] : [];
   });
   return `${summaries.join(' ')} Saved in your draft.`;

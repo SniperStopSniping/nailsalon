@@ -805,7 +805,7 @@ it('edits native Gallery photos through one conversation call and the shared dra
   expect(saved.source.canva!.manualOrigin).toEqual(test.artifact.source.canva!.manualOrigin);
   expect(saved.source.canva!.ownerReviewed).toBe(false);
   expect(saved.assetIds).toEqual(test.artifact.assetIds);
-  expect(result.reply).toBe('Updated 1 photo description. Moved 1 photo. Changed 1 gallery layout. Saved in your draft.');
+  expect(result.reply).toBe('Updated 1 photo description. Moved 1 photo. Changed your Gallery layout. Saved in your draft.');
   expect(await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.salonId, test.actor.salonId))).toHaveLength(0);
   expect(await database.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.salonId, test.actor.salonId))).toEqual(services);
 
@@ -1342,7 +1342,7 @@ it('creates About text and an owned photo through chat, then edits the same text
   expect(source.html).toContain('details.section_policy');
   expect(details.sections.map(section => section.id)).toEqual(['policy', 'canva-about']);
   expect(details.instagram).toBe('my_studio');
-  expect(result.reply).toContain('Added 1 About section. Changed 1 saved photo. Saved in your draft.');
+  expect(result.reply).toContain('Added your About section. Changed 1 saved photo. Saved in your draft.');
   expect((await runSetupConversation(test.actor, input, provider)).head.revision.revision).toBe(result.head.revision.revision);
   expect(provider.createResponse).toHaveBeenCalledTimes(1);
 
@@ -1460,4 +1460,55 @@ it('repairs a false refusal to edit a separate About heading without regeneratin
   expect(payload.source.canva!.pages).toEqual(test.artifact.source.canva!.pages);
   expect(payload.source.canva!.nativeContent!.find(block => block.type === 'about')).toMatchObject({ title: 'Meet the studio', image: test.about.image });
   expect(await database.select().from(schema.customSiteGenerationSchema).where(eq(schema.customSiteGenerationSchema.salonId, test.actor.salonId))).toHaveLength(0);
+});
+
+it('keeps archived Canva pages out of photo choices and rejects invented reuse without relying on filenames', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const oldPage = await uploadCustomAsset(test.actor, await nativeUploadFile(1200, 480, 'Old design export.png'), 'photo');
+  const realPhoto = await uploadCustomAsset(test.actor, await nativeUploadFile(480, 960, 'Canva design - actual salon photo.png'), 'photo');
+  const historicalSource = compileCanvaDesign({ ...test.source.canva!, pages: [{ assetId: oldPage.id, width: 1200, height: 480, alt: 'Archived Canva page' }] }, test.saved.head.revision.document.website.content.websiteDetails);
+  const historical = await saveCustomSource(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), source: historicalSource, assetIds: [...test.saved.artifact.assetIds, oldPage.id] });
+  const restored = await restoreCustomSource(test.actor, { expectedRevision: historical.head.revision.revision, operationId: randomUUID(), artifactId: test.saved.artifact.id });
+  const choices = await canvaNativePhotoChoices(test.actor.salonId, test.source.canva);
+  const baseline = (await records(test.actor.salonId)).artifacts.length;
+  const change: CanvaNativePhotoChange = { blockId: 'native-photo-gallery', change: { type: 'use', mediaId: oldPage.id, alt: 'Do not mistake a page for a photo', createGallery: true } };
+
+  expect(choices.some(choice => choice.mediaId === oldPage.id)).toBe(false);
+  expect(choices.some(choice => choice.mediaId === test.source.canva!.pages[0]!.assetId)).toBe(false);
+  expect(choices).toContainEqual(expect.objectContaining({ mediaId: realPhoto.id, role: 'profile' }));
+  expect(choices).toContainEqual(expect.objectContaining({ mediaId: realPhoto.id, role: 'gallery' }));
+  await expect(editCanvaNativeContent(test.actor, { expectedRevision: restored.head.revision.revision, operationId: randomUUID(), ...change })).rejects.toMatchObject({ code: 'INVALID' });
+
+  const provider = nativeChatProvider([change]);
+
+  await expect(runSetupConversation(test.actor, { expectedRevision: restored.head.revision.revision, operationId: randomUUID(), scope: 'website', message: 'Add my saved salon photo to the Gallery.' }, provider)).rejects.toMatchObject({ code: 'NOT_READY' });
+
+  expect(provider.createResponse).toHaveBeenCalledTimes(2);
+  expect(nativeChatContext(provider.createResponse.mock.calls[0]![0]).nativePhotos.availablePhotos.some((photo: { mediaId: string }) => photo.mediaId === oldPage.id)).toBe(false);
+  expect((await records(test.actor.salonId)).artifacts).toHaveLength(baseline);
+  expect((await openSetup(test.actor)).revision.revision).toBe(restored.head.revision.revision);
+});
+
+it('preserves explicit native photo placement when the same owned photo was used on a historical page', async () => {
+  const test = await aiCanvaPhotoFixture();
+  const uploaded = await uploadCanvaNativePhoto(test.actor, { expectedRevision: test.saved.head.revision.revision, operationId: randomUUID(), blockId: 'native-photo-gallery', createGallery: true, alt: 'My saved work photo' }, await nativeUploadFile());
+  const source = (await setupCustomSitePayload(test.actor.salonId, uploaded.head.revision.document))!.source;
+  const photo = source.canva!.nativeContent!.find(block => block.type === 'gallery')!;
+  if (photo.type !== 'gallery') {
+    throw new Error('Missing Gallery fixture');
+  }
+  const image = photo.images[0]!;
+  const historicalSource = compileCanvaDesign({ ...source.canva!, pages: [{ assetId: image.mediaId, width: image.width, height: image.height, alt: 'The same photo on a saved page' }] }, uploaded.head.revision.document.website.content.websiteDetails);
+  const historical = await saveCustomSource(test.actor, { expectedRevision: uploaded.head.revision.revision, operationId: randomUUID(), source: historicalSource, assetIds: [...test.saved.artifact.assetIds, image.mediaId] });
+  const restored = await restoreCustomSource(test.actor, { expectedRevision: historical.head.revision.revision, operationId: randomUUID(), artifactId: uploaded.artifactId });
+  const choices = await canvaNativePhotoChoices(test.actor.salonId, source.canva);
+
+  expect(choices).toContainEqual(expect.objectContaining({ mediaId: image.mediaId, role: 'gallery' }));
+
+  const changed = await editCanvaNativeContent(test.actor, { expectedRevision: restored.head.revision.revision, operationId: randomUUID(), blockId: photo.id, change: { type: 'use', mediaId: image.mediaId, replaceId: image.mediaId, alt: 'An updated description of my photo' } });
+  const payload = (await setupCustomSitePayload(test.actor.salonId, changed.head.revision.document))!;
+
+  expect(payload.source.canva!.pages).toEqual(test.source.canva!.pages);
+  expect(payload.source.canva!.nativeContent).toMatchObject([{ type: 'gallery', images: [{ mediaId: image.mediaId, alt: 'An updated description of my photo' }] }]);
+  expect(changed.head.revision.document.services).toEqual(test.saved.head.revision.document.services);
 });
