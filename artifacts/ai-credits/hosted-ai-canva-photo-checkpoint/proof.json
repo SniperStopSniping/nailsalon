@@ -1,0 +1,140 @@
+{
+  "source": "8ad197118e2120a30fffee856c22015c72dbda86",
+  "environment": "isolated_preview",
+  "deploymentId": "dpl_H3CXn5EixdzWkCi2urMJ7uZX9B2u",
+  "target": null,
+  "alias": "luster-ai-builder-test.vercel.app",
+  "calls": [
+    {
+      "id": "a1dabc91-1808-4303-a7d4-3f013f8075b9",
+      "operation_id": "31a76e10-bca6-4b92-bc6b-1ef33448e881",
+      "ordinal": 0,
+      "status": "completed",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "input_tokens": 6844,
+      "output_tokens": 398,
+      "cost_micro_usd": 21089,
+      "charged_micro_cad": 42178,
+      "elapsed_ms": 12774,
+      "validation": "passed"
+    },
+    {
+      "id": "36034542-b911-48c1-89bf-9d6a08f4082b",
+      "operation_id": "545bb25a-1195-4680-8d6a-9ddc45cb429b",
+      "ordinal": 0,
+      "status": "completed",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "input_tokens": 1704,
+      "output_tokens": 1825,
+      "cost_micro_usd": 22509,
+      "charged_micro_cad": 45018,
+      "elapsed_ms": 42581,
+      "validation": "passed"
+    },
+    {
+      "id": "1ac53638-6607-4419-978b-e19fce8f31f9",
+      "operation_id": "5faf72ea-444c-437d-9406-f41107f8b3e3",
+      "ordinal": 0,
+      "status": "completed",
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "input_tokens": 7616,
+      "output_tokens": 222,
+      "cost_micro_usd": 21259,
+      "charged_micro_cad": 42518,
+      "elapsed_ms": 6108,
+      "validation": "passed"
+    },
+    {
+      "id": "43eed26a-f5f4-4c09-9f89-8c7f569894e0",
+      "operation_id": "72596b77-3829-4482-b831-51605b7e10e7",
+      "ordinal": 0,
+      "status": "completed",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "input_tokens": 7078,
+      "output_tokens": 89,
+      "cost_micro_usd": 930,
+      "charged_micro_cad": 1860,
+      "elapsed_ms": 5410,
+      "validation": "passed"
+    },
+    {
+      "id": "256975f9-01dd-4d27-b92b-55a1aed38ce3",
+      "operation_id": "c81b4006-98b5-4a2d-9898-16ac44e2dba1",
+      "ordinal": 0,
+      "status": "completed",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "input_tokens": 7154,
+      "output_tokens": 183,
+      "cost_micro_usd": 173,
+      "charged_micro_cad": 346,
+      "elapsed_ms": 9555,
+      "validation": "passed"
+    }
+  ],
+  "estimatedUsd": 0.06596,
+  "conservativeTrialCad": 0.13192,
+  "operatorUsedCad": 36.02793,
+  "operatorCapCad": 68.615594,
+  "first": {
+    "revision": 83,
+    "artifactId": "0a6c7cf3-abb9-4b71-a281-fb9438198a50",
+    "sourceHash": "1bf9843e1eca099a271b9121d1f3cbd11d250c3a6083eff87e60058d853209d3"
+  },
+  "final": {
+    "revision": 88,
+    "artifactId": "7942a076-724f-45c0-b3a6-356f49affa01",
+    "sourceHash": "1daecc43a4b218009454779054523ce22fe7e0e83980e179c1d31b91e2918453"
+  },
+  "repairCalls": 0,
+  "fullWebsiteGenerations": 1,
+  "artworkAndAreasUnchanged": true,
+  "draftBusinessServicesStaffPolicyUnchanged": true,
+  "integrity": {
+    "environment": "isolated_preview",
+    "protectedOtherBusinesses": true,
+    "allExistingAppointmentsServicesStaffUnchanged": true,
+    "earlierDraftRestored": true,
+    "restoredHead": 89,
+    "restoredArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+    "publicState": {
+      "revision": 77,
+      "media_finalized": true,
+      "approved_artifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+      "live_artifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d"
+    },
+    "productionChanged": false
+  },
+  "mobile": {
+    "viewport": 390,
+    "outerScrollWidth": 390,
+    "artwork": {
+      "naturalWidth": 279,
+      "naturalHeight": 1280,
+      "renderedWidth": 390,
+      "renderedHeight": 1789.2421875
+    },
+    "photos": [
+      {
+        "naturalWidth": 1200,
+        "naturalHeight": 480,
+        "renderedWidth": 358,
+        "renderedHeight": 143.1953125
+      },
+      {
+        "naturalWidth": 480,
+        "naturalHeight": 960,
+        "renderedWidth": 358,
+        "renderedHeight": 716
+      }
+    ],
+    "galleryTouchScrollingQualified": false
+  },
+  "newBookingCreated": false,
+  "newPublicationPerformed": false,
+  "productionChanged": false
+}
