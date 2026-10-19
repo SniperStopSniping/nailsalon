@@ -29,6 +29,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { CUSTOM_DESIGN_MAX_IMAGES } from '../model/constants';
 import type { CustomDesignImageItem } from '../model/types';
 import { CustomDesignUploadPrompt } from './CustomDesignSectionCard';
+import { DesignExportHelp } from './DesignExportHelp';
 import { getCustomDesignImageAccessibilityStatus } from './owner-identity';
 import type {
   CustomDesignOwnerAssetMap,
@@ -282,20 +283,25 @@ export function CustomDesignImageManager({
 
   return (
     <section className="custom-design-owner-settings-group">
-      <div className="custom-design-owner-section-heading">
-        <div>
-          <h3>Images</h3>
-          <p>
-            {images.length}
-            {' '}
-            of
-            {' '}
-            {CUSTOM_DESIGN_MAX_IMAGES}
-            {' '}
-            pages
-          </p>
-        </div>
-      </div>
+      {images.length > 0
+        ? (
+            <div className="custom-design-owner-section-heading">
+              <div>
+                <h3>Images</h3>
+                <p>
+                  {images.length}
+                  {' '}
+                  of
+                  {' '}
+                  {CUSTOM_DESIGN_MAX_IMAGES}
+                  {' '}
+                  pages
+                </p>
+              </div>
+            </div>
+          )
+        : null}
+      <DesignExportHelp images={images} />
       {images.length === 0
         ? (
             <CustomDesignUploadPrompt

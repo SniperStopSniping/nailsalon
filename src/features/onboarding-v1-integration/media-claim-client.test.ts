@@ -286,6 +286,63 @@ describe('onboarding media claim client', () => {
     expect(result.verifiedRevision).toBe(5);
   });
 
+  it('uses full-resolution artwork preparation when claiming a large Canva page', async () => {
+    const state = createDefaultOnboardingState();
+    const document = initializeStarter('quick_book');
+    document.pages[0]!.sections.push({
+      id: 'custom-tall',
+      label: 'My Canva design',
+      order: document.pages[0]!.sections.length,
+      sectionType: 'custom_design',
+      visible: true,
+      settings: { ...createDefaultCustomDesignSettings(), images: [{
+        id: 'tall',
+        assetId: 'tall-asset',
+        altText: 'My design',
+        aspectRatio: 0.15,
+        decorative: false,
+        fileName: 'tall.png',
+        fileSize: 8_000_000,
+        height: 8000,
+        width: 1200,
+        interactiveAreas: [],
+        mimeType: 'image/png',
+      }] },
+    });
+    const bytes = new Uint8Array(8_000_000);
+    bytes.set(new Uint8Array(await pngBlob.arrayBuffer()));
+    const original = new Blob([bytes], { type: 'image/png' });
+    const close = vi.fn();
+    const canvas = { getContext: () => ({ drawImage: vi.fn(), scale: vi.fn() }), height: 0, width: 0, toBlob: (callback: BlobCallback) => callback(new Blob([new Uint8Array(1_000_000)], { type: 'image/webp' })) };
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ close, height: 8000, width: 1200 })));
+    vi.stubGlobal('document', { createElement: () => canvas });
+    const assetRepository = repository();
+    assetRepository.getOriginal = vi.fn(async () => original);
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).endsWith('/verify')) {
+        return Response.json({ data: { revision: 4 } });
+      }
+      const form = init?.body as FormData;
+
+      expect(form.get('role')).toBe('custom_design');
+      expect(form.get('localItemId')).toBe('tall');
+      expect(canvas).toMatchObject({ width: 1200, height: 8000 });
+      expect((form.get('file') as File).size).toBeLessThanOrEqual(ONBOARDING_MEDIA_MAX_FILE_BYTES);
+
+      return Response.json({ data: { media: { height: 8000, width: 1200, id: 'saved-tall', url: '/media/saved-tall' } } });
+    });
+    try {
+      const result = await claimOnboardingMedia({ document, state, draftId: 'draft-safe', fetcher, idempotencyKey: 'claim-safe', repository: assetRepository, siteId: 'site-safe', siteRevision: 3 });
+
+      expect(result.failures).toEqual([]);
+      expect(result.uploaded[0]).toMatchObject({ role: 'custom_design', serverMediaId: 'saved-tall', width: 1200, height: 8000 });
+      expect(original.size).toBe(8_000_000);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not reupload unchanged account-backed Custom Design media across active and restorable sections', async () => {
     const state = createDefaultOnboardingState();
     let nextId = 0;

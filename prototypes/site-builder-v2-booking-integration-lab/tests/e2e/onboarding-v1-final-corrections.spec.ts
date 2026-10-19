@@ -482,7 +482,7 @@ async function addCanva(page: Page): Promise<void> {
   await expect(selected.locator('img')).toBeVisible();
   await expect(selected.getByText(/\d+ × \d+px · Ready to add/u)).toBeVisible();
 
-  await dialog.getByRole('radio', { name: 'Contained' }).check();
+  await dialog.getByRole('radio', { name: 'Wide & centred' }).check();
   await dialog.getByRole('radio', { name: 'After Booking' }).check();
   await dialog.getByRole('button', { name: 'Add Canva design' }).click();
 

@@ -853,6 +853,51 @@ describe('public-booking appointment SMS preference', () => {
 });
 
 describe('D4.5 — the idempotency contract is unchanged', () => {
+  it('binds founding-salon artist selection to the committed appointment and exact retry', async () => {
+    const requestedId = 'tech_ce_requested';
+    await db.update(schema.salonSchema).set({ freeSoloEnabled: true }).where(eq(schema.salonSchema.id, SALON_ID));
+    await db.insert(schema.technicianSchema).values({
+      id: requestedId,
+      salonId: SALON_ID,
+      name: 'Morgan Test Artist',
+      weeklySchedule: FULL_WEEK,
+    });
+    await db.insert(schema.technicianServicesSchema).values({ technicianId: requestedId, serviceId: SERVICE_ID, enabled: true });
+    const phone = freshPhone();
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+    const startTime = at(futureDate(92), '10:00').toISOString();
+    const key = 'founding-specific-artist-replay';
+
+    const first = await postBooking({ startTime, technicianId: requestedId }, key);
+
+    expect(first.status).toBe(201);
+
+    const receipt = await first.json();
+
+    expect(receipt.data.technician).toMatchObject({ id: requestedId, name: 'Morgan Test Artist' });
+    expect(receipt.data.appointment.technicianId).toBe(requestedId);
+
+    const [stored] = await db.select().from(schema.appointmentSchema);
+
+    expect(stored?.technicianId).toBe(requestedId);
+
+    const effectCount = effects.enqueueGoogleCalendarAppointmentMutation.mock.calls.length;
+
+    const replay = await postBooking({ startTime, technicianId: requestedId }, key);
+
+    expect(replay.status).toBe(201);
+    expect((await replay.json()).data).toEqual(receipt.data);
+    expect(effects.enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledTimes(effectCount);
+
+    const changed = await postBooking({ startTime, technicianId: TECH_ID }, key);
+
+    expect(changed.status).toBe(409);
+    await expect(changed.json()).resolves.toMatchObject({ error: { code: 'IDEMPOTENCY_KEY_REUSE' } });
+    expect(await db.select().from(schema.appointmentSchema)).toHaveLength(1);
+
+    await db.update(schema.salonSchema).set({ freeSoloEnabled: false }).where(eq(schema.salonSchema.id, SALON_ID));
+  });
+
   it('a replay returns the cached 201 and does not re-fire the effects', async () => {
     const phone = freshPhone();
     await seedRewardFixture(phone);

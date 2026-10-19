@@ -4,6 +4,7 @@ import { after } from 'next/server';
 import { z } from 'zod';
 
 import { requireAdminSalon, requireRealSalonOwner } from '@/libs/adminAuth';
+import { hasExactRequestOrigin } from '@/libs/requestOriginGuard';
 import { getVoiceRuntimeConfig } from '@/libs/voiceReceptionist/config.server';
 import { coordinateVoiceCall } from '@/libs/voiceReceptionist/coordinator.server';
 import { buildVoiceSession, liveSessionPath, voiceLiveRequest, VoiceProviderError } from '@/libs/voiceReceptionist/live.server';
@@ -15,11 +16,6 @@ export const maxDuration = 800;
 
 const payloadSchema = z.object({ sdp: z.string().min(1).max(60_000) }).strict();
 const endSchema = z.object({ callId: z.string().uuid() }).strict();
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  return !!origin && origin === new URL(request.url).origin;
-}
 
 async function owner(request: Request) {
   const slug = new URL(request.url).searchParams.get('salonSlug');
@@ -35,7 +31,7 @@ async function owner(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!sameOrigin(request)) {
+  if (!hasExactRequestOrigin(request)) {
     return Response.json({ error: { message: 'Invalid request origin.' } }, { status: 403 });
   }
   const config = getVoiceRuntimeConfig('browser');
@@ -90,7 +86,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!sameOrigin(request)) {
+  if (!hasExactRequestOrigin(request)) {
     return new Response(null, { status: 403 });
   }
   const config = getVoiceRuntimeConfig('browser');

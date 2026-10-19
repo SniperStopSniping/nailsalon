@@ -44,15 +44,68 @@ function expectImageError(
 
 describe('serviceImageClient', () => {
   const createImageBitmapMock = vi.fn();
+  let imageElementRevokeObjectURLMock: ReturnType<typeof vi.fn>;
+  let originalCreateObjectURLDescriptor: PropertyDescriptor | undefined;
+  let originalRevokeObjectURLDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     createImageBitmapMock.mockReset();
     vi.stubGlobal('createImageBitmap', createImageBitmapMock);
+
+    // jsdom creates blob URLs but does not load image data, so the production
+    // HTMLImageElement path otherwise waits until each test's timeout. Model a
+    // deterministic decode failure for tests exercising the ImageBitmap
+    // fallback; the dedicated HTML decoder tests below install their own
+    // success and failure implementations.
+    originalCreateObjectURLDescriptor = Object.getOwnPropertyDescriptor(
+      URL,
+      'createObjectURL',
+    );
+    originalRevokeObjectURLDescriptor = Object.getOwnPropertyDescriptor(
+      URL,
+      'revokeObjectURL',
+    );
+    imageElementRevokeObjectURLMock = vi.fn();
+    vi.stubGlobal(
+      'Image',
+      class FailedFixtureImage {
+        naturalHeight = 0;
+        naturalWidth = 0;
+        onerror: (() => void) | null = null;
+        onload: (() => void) | null = null;
+
+        get src() {
+          return '';
+        }
+
+        set src(_value: string) {
+          queueMicrotask(() => this.onerror?.());
+        }
+      },
+    );
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:jsdom-image-failure'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: imageElementRevokeObjectURLMock,
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    if (originalCreateObjectURLDescriptor) {
+      Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURLDescriptor);
+    } else {
+      Reflect.deleteProperty(URL, 'createObjectURL');
+    }
+    if (originalRevokeObjectURLDescriptor) {
+      Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURLDescriptor);
+    } else {
+      Reflect.deleteProperty(URL, 'revokeObjectURL');
+    }
   });
 
   it.each([
@@ -69,6 +122,9 @@ describe('serviceImageClient', () => {
     expect(createImageBitmapMock).toHaveBeenCalledWith(file, {
       imageOrientation: 'from-image',
     });
+    expect(imageElementRevokeObjectURLMock).toHaveBeenCalledWith(
+      'blob:jsdom-image-failure',
+    );
     expect(bitmap.close).toHaveBeenCalledOnce();
   });
 

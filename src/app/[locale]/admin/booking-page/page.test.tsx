@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -21,6 +22,8 @@ const { pushMock, replaceMock, searchParamsMock } = vi.hoisted(() => ({
   replaceMock: vi.fn(),
   searchParamsMock: { value: new URLSearchParams('salon=salon-a') },
 }));
+
+type FetchMock = Mock<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>;
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock, replace: replaceMock }),
@@ -151,7 +154,7 @@ function installPreviewDocument(frame: HTMLElement, previewDocument: Document) {
 describe('BookingPageOwnerSurface', () => {
   let config: ReturnType<typeof baseConfig>;
   let content: ReturnType<typeof baseContent>;
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let fetchMock: FetchMock;
   // Phase A (draft/publish split): defaults to 'published' so every
   // pre-existing test in this file (written before the salon-publish
   // affordance existed) keeps rendering exactly as before — the banner only

@@ -479,27 +479,20 @@ afterAll(async () => {
   await client.close();
 });
 
-describe('step 0 — the Toronto-only refusal', () => {
-  it('refuses a salon the policy engine cannot reason about, and says nothing else', async () => {
+describe('salon timezone support', () => {
+  it('measures Vancouver availability through the original booking engine', async () => {
     const result = await diagnose('salon_diag_vancouver', { date: 'friday' });
 
-    expect(result.causes).toEqual([{ code: 'timezone_unsupported', link: null }]);
     expect(result.checked.timezone).toBe('America/Vancouver');
-    // The day is still named honestly: resolving it never needed the engine.
     expect(result.resolvedDateKey).toBe(D_FRI);
-    // NOT zero: the slot loop never ran, so there is no measurement to report.
-    // A zero here would read as "nothing is bookable", which is a claim this
-    // refusal is precisely unable to make.
-    expect(result.bookableSlotCount).toBeNull();
-    expect(result.firstBookable).toBeNull();
-    // Publication was never read either, so the page's state is unknown rather
-    // than fine. Reporting 'ok' here would assert something nobody measured.
-    expect(result.publicRouteState).toBe('not_checked');
-    expect(result.customersCanBookNow).toBe(false);
-    expect(result.customersCanBookNow).toBe(false);
+    expect(result.bookableSlotCount).toBeGreaterThan(0);
+    expect(result.firstBookable).toBe('9:00');
+    expect(result.publicRouteState).toBe('ok');
+    expect(result.customersCanBookNow).toBe(true);
+    expect(result.causes).not.toContainEqual(expect.objectContaining({ code: 'timezone_unsupported' }));
   });
 
-  it('still refuses an unusable date argument on an unsupported timezone', async () => {
+  it('still refuses an unusable date argument in another timezone', async () => {
     await expect(diagnoseDayAvailability(
       'salon_diag_vancouver',
       { date: 'someday', serviceName: null, technicianName: null },

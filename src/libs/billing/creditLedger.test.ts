@@ -64,9 +64,43 @@ describe('migration 0069 replay + constraints', () => {
     await seedSalon('s_constraints');
     await grantLot('s_constraints', 'purchased', 10, null, 'k_constraints_grant');
 
-    await expect(
-      db.execute(sql`UPDATE sms_credit_ledger SET amount = 99 WHERE idempotency_key = 'k_constraints_grant'`),
-    ).rejects.toThrow(/append-only/);
+    const rejection = await db.execute(sql`
+      UPDATE sms_credit_ledger SET amount = 99 WHERE idempotency_key = 'k_constraints_grant'
+    `).then(
+      () => undefined,
+      error => error,
+    );
+
+    const [lot] = await db.execute(sql`
+      SELECT amount FROM sms_credit_ledger WHERE idempotency_key = 'k_constraints_grant'
+    `).then(result => result.rows as Array<{ amount: number }>);
+
+    expect(lot?.amount).toBe(10);
+    expect(rejection).toBeDefined();
+
+    let cause: unknown = rejection;
+    let appendOnlyTriggerError: { code?: unknown; message?: unknown } | undefined;
+
+    for (let depth = 0; depth < 6 && cause && typeof cause === 'object'; depth += 1) {
+      const current = cause as {
+        cause?: unknown;
+        code?: unknown;
+        message?: unknown;
+      };
+
+      if (
+        current.code === '55000'
+        && typeof current.message === 'string'
+        && current.message.includes('sms_credit_ledger is append-only')
+      ) {
+        appendOnlyTriggerError = current;
+        break;
+      }
+
+      cause = current.cause;
+    }
+
+    expect(appendOnlyTriggerError).toBeDefined();
   });
 
   it('rejects malformed rows: sign-vs-type, zero amounts, orphan negatives, bad buckets', async () => {

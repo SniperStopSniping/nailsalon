@@ -10,6 +10,7 @@ import { ADMIN_SESSION_COOKIE } from './libs/adminSessionCookie';
 import { apiPathNeedsClerkContext } from './libs/clerkApiContext';
 import { hasClerkSessionCookie } from './libs/clerkSessionCookie';
 import { getCanonicalAppOrigin } from './libs/publicUrl';
+import { hasExactRequestOrigin, shouldRequireApiRequestOrigin } from './libs/requestOriginGuard';
 import {
   ACTIVE_SALON_COOKIE,
   getSalonSlugFromHostname,
@@ -34,6 +35,10 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 const isPublicClerkRoute = createRouteMatcher([
+  '/ai-website(.*)',
+  '/:locale/ai-website(.*)',
+  '/ai-website-test(.*)',
+  '/:locale/ai-website-test(.*)',
   '/join(.*)',
   '/:locale/join(.*)',
 ]);
@@ -89,6 +94,11 @@ export default async function middleware(
     request.nextUrl.searchParams.get('salonSlug'),
   );
   const finalizeResponse = (response: NextResponse) => {
+    if (/^\/(?:[a-z]{2}\/)?website-preview\//u.test(request.nextUrl.pathname)) {
+      response.headers.set('Referrer-Policy', 'no-referrer');
+      response.headers.set('Cache-Control', 'private, no-store');
+      response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    }
     if (requestedSalonSlug) {
       const proto = request.headers.get('x-forwarded-proto');
       const secure = proto
@@ -119,6 +129,22 @@ export default async function middleware(
     .map(value => value.trim())
     .filter(Boolean);
   const clerkOptions = authorizedParties.length > 0 ? { authorizedParties } : undefined;
+
+  // Check API aliases before any tenant-host rewrite or auth bypass. Encoded
+  // `/api` prefixes must receive the same origin policy as canonical paths.
+  if (shouldRequireApiRequestOrigin({
+    pathname: p,
+    method: request.method,
+    cookies: request.cookies.getAll(),
+  }) && !hasExactRequestOrigin(request)) {
+    return NextResponse.json(
+      { error: { code: 'INVALID_ORIGIN', message: 'Invalid request origin.' } },
+      {
+        status: 403,
+        headers: { 'Cache-Control': 'private, no-store, max-age=0' },
+      },
+    );
+  }
 
   // Public salon pages resolve owner drafts through getAdminSession(). Match
   // that consumer's legacy-first selection, and only ask Clerk to verify a
@@ -151,6 +177,8 @@ export default async function middleware(
       || firstPublicSegment === 'super-admin'
       || firstPublicSegment === 'onboarding'
       || firstPublicSegment === 'onboarding-v1'
+      || firstPublicSegment === 'ai-website-test'
+      || firstPublicSegment === 'ai-website'
       || firstPublicSegment === 'owner-sign-in'
       || firstPublicSegment === 'owner-sign-up'
       || firstPublicSegment === 'owner'
@@ -281,6 +309,14 @@ export default async function middleware(
   // Invitation pages are public, but their server component calls Clerk auth()
   // to continue already-signed-in owners into onboarding.
   if (isPublicClerkRoute(request)) {
+    const segments = request.nextUrl.pathname.split('/').filter(Boolean);
+    const isAiIntroduction = (segments.length === 1 && segments[0] === 'ai-website')
+      || (segments.length === 2 && AllLocales.includes(segments[0]!) && segments[1] === 'ai-website');
+    if (isAiIntroduction && !request.nextUrl.searchParams.get('account') && !hasClerkSessionCookie(request.cookies.getAll())) {
+      // The public recording needs no identity or provider request. Account
+      // forms and existing sessions still establish validated Clerk context.
+      return finalizeResponse(intlMiddleware(request));
+    }
     const response = await clerkMiddleware(async (_auth, req) => intlMiddleware(req), clerkOptions)(
       request,
       event,

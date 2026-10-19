@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   enabled: vi.fn(() => true),
   getAdmin: vi.fn(),
   loadResume: vi.fn(),
+  linked: vi.fn(),
+  getClaimed: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error('NOT_FOUND');
   }),
@@ -20,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/features/business-setup/access.server', () => ({ businessSetupSelfServeEnabled: () => false }));
 vi.mock('@/features/onboarding-v1-integration/auth-providers.server', () => ({
   getOnboardingAuthProviderAvailability: mocks.authProviders,
 }));
@@ -36,6 +39,9 @@ vi.mock('@/features/onboarding-v1-integration/OnboardingV1Integration', () => ({
 vi.mock('@/features/onboarding-v1-integration/resume.server', () => ({
   loadInitialOnboardingResumeDraft: mocks.loadResume,
 }));
+vi.mock('@/libs/DB', () => ({ db: {} }));
+vi.mock('@/features/custom-sites/manual-origin.server', () => ({ linkedOnboardingCanvaDraft: mocks.linked }));
+vi.mock('@/features/onboarding-v1-integration/persistence.server', () => ({ getClaimedOnboardingSite: mocks.getClaimed }));
 vi.mock('@/libs/adminAuth', () => ({
   getAdminSession: mocks.getAdmin,
 }));
@@ -54,6 +60,8 @@ const initialResumeDraft = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getClaimed.mockResolvedValue(null);
+  mocks.linked.mockResolvedValue(null);
   mocks.enabled.mockReturnValue(true);
   mocks.getAdmin.mockResolvedValue({ id: 'admin-owner' });
   mocks.loadResume.mockResolvedValue(initialResumeDraft);
@@ -71,6 +79,7 @@ describe('account-backed onboarding resume route', () => {
     expect(element.props).toEqual({
       authProviders: await mocks.authProviders(),
       locale: 'en',
+      aiBuilderEnabled: false,
     });
   });
 
@@ -90,6 +99,7 @@ describe('account-backed onboarding resume route', () => {
       authProviders: await mocks.authProviders(),
       initialResumeDraft,
       locale: 'en',
+      aiBuilderEnabled: false,
     });
   });
 
@@ -128,4 +138,14 @@ describe('account-backed onboarding resume route', () => {
     expect(mocks.getAdmin).not.toHaveBeenCalled();
     expect(mocks.loadResume).not.toHaveBeenCalled();
   });
+});
+
+it('opens the current shared manual editor after a committed handoff, including after first publication', async () => {
+  mocks.getClaimed.mockResolvedValue({ site: { id: siteId, salonId: 'salon-1' }, revision: { id: 'server-revision-id' } });
+  mocks.linked.mockResolvedValue({ salonSlug: 'saved-salon', revision: 12 });
+
+  await expect(OnboardingV1Page({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({ resume: 'review', revision: '4', site: siteId }) })).rejects.toThrow('REDIRECT');
+  expect(mocks.getClaimed).toHaveBeenCalledWith({ adminId: 'admin-owner', siteId, expectedRevision: 4, ownerOnly: true });
+  expect(mocks.redirect).toHaveBeenCalledWith('/en/admin/business-setup?salon=saved-salon&mode=manual');
+  expect(mocks.loadResume).not.toHaveBeenCalled();
 });

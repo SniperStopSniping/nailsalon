@@ -13,6 +13,8 @@
  */
 import { expect, type Page, test } from '@playwright/test';
 
+import { e2eOrigin } from './support/config';
+
 const VIEWPORTS = [
   { width: 320, height: 700, label: '320x700' },
   { width: 375, height: 667, label: '375x667' },
@@ -120,7 +122,10 @@ async function recordAddOnWrites(page: Page): Promise<string[]> {
 
 async function openServices(page: Page): Promise<boolean> {
   // Dev-only role override (404s in production, where this spec skips).
-  await page.request.post('/api/dev/role', { data: { role: 'admin' } }).catch(() => null);
+  await page.request.post('/api/dev/role', {
+    headers: { Origin: e2eOrigin },
+    data: { role: 'admin' },
+  }).catch(() => null);
   await page.goto('/admin?salonSlug=nail-salon-no5', { waitUntil: 'domcontentloaded' });
 
   // The workspace runs a client-side session check that lands on the root

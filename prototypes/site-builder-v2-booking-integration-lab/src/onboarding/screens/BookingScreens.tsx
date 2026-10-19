@@ -1100,6 +1100,7 @@ export function BookingPreferencesScreen({
 }
 
 type StartingPointScreenProps = {
+  onBuildAi?: () => void;
   businessName: string;
   canGoBack?: boolean;
   canvaIntentNoted?: boolean;
@@ -1129,6 +1130,7 @@ export function StartingPointScreen({
   onBack,
   onCanvaIntent,
   onChooseStarter,
+  onBuildAi,
   ownerName,
   reducedMotion = false,
   selectedStarter,
@@ -1183,6 +1185,7 @@ export function StartingPointScreen({
           data-committing-starter={committingStarter ?? undefined}
         >
           <StarterChoiceGrid
+            onBuildAi={onBuildAi}
             businessName={businessName.trim() || 'Your business'}
             committingStarter={committingStarter}
             logoUrl={logoUrl}
@@ -1211,7 +1214,7 @@ export function StartingPointScreen({
             )
           : null}
         <p className="onboarding-lab-note">{STARTER_ENTRY_COPY.autosaveNote}</p>
-        <p className="onboarding-starter-entry__reassurance">{STARTER_ENTRY_COPY.reassurance}</p>
+        <p className="onboarding-starter-entry__reassurance">{onBuildAi ? 'You’re in control of when your website goes live.' : STARTER_ENTRY_COPY.reassurance}</p>
       </section>
       {canGoBack
         ? (

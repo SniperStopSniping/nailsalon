@@ -63,6 +63,7 @@ import {
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
   OnboardingIntegrationRequestError,
+  prepareOnboardingCanva,
   saveOnboardingPlanIntent,
 } from './client';
 import { continuationTargetForSavedSite } from './continuation-target';
@@ -216,10 +217,12 @@ const usePersistentFlow = () => {
 
 export function OnboardingV1Integration({
   authProviders = FALLBACK_AUTH_PROVIDER_AVAILABILITY,
+  aiBuilderEnabled = false,
   initialResumeDraft,
   locale,
 }: {
   authProviders?: OnboardingAuthProviderAvailability;
+  aiBuilderEnabled?: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
 }) {
@@ -252,6 +255,7 @@ export function OnboardingV1Integration({
   return mounted
     ? (
         <OnboardingV1Runtime
+          aiBuilderEnabled={aiBuilderEnabled}
           key={setupGeneration}
           authProviders={authProviders}
           initialResumeDraft={resuming ? initialResumeDraft : undefined}
@@ -269,11 +273,13 @@ export function OnboardingV1Integration({
 
 function OnboardingV1Runtime({
   authProviders,
+  aiBuilderEnabled,
   initialResumeDraft,
   locale,
   onSwitchSetup,
 }: {
   authProviders: OnboardingAuthProviderAvailability;
+  aiBuilderEnabled: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
   onSwitchSetup: () => void;
@@ -322,6 +328,7 @@ function OnboardingV1Runtime({
     >
       <FeedbackProvider testMode={false}>
         <OnboardingIntegrationController
+          aiBuilderEnabled={aiBuilderEnabled}
           authProviders={authProviders}
           existingCustomMediaByLogicalId={existingCustomMediaByLogicalId}
           initialResumeDraft={initialResumeDraft}
@@ -336,6 +343,7 @@ function OnboardingV1Runtime({
 
 function OnboardingIntegrationController({
   authProviders,
+  aiBuilderEnabled,
   existingCustomMediaByLogicalId,
   initialResumeDraft,
   lab,
@@ -344,6 +352,7 @@ function OnboardingIntegrationController({
 }: {
   authProviders: OnboardingAuthProviderAvailability;
   existingCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId;
+  aiBuilderEnabled: boolean;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   lab: ReturnType<typeof useLabDocument>;
   locale: string;
@@ -924,6 +933,10 @@ function OnboardingIntegrationController({
   }, [accountReady, authSettled, claim, isSignedIn, locale, setFlow]);
 
   const returnToReview = useCallback(() => {
+    if (flow.savedSite?.manualSetupLinked) {
+      window.location.assign(`/${locale}/admin/business-setup?salon=${encodeURIComponent(flow.savedSite.salonSlug)}&mode=manual`);
+      return;
+    }
     setConflict(null);
     const loaded = loadOnboardingState();
     if (snapshotFixScreen) {
@@ -940,7 +953,7 @@ function OnboardingIntegrationController({
     }
     setFlow(current => ({ ...current, errorCode: null, errorMessage: null, phase: 'onboarding' }));
     window.history.replaceState({}, '', getOnboardingIntegrationRoute(locale));
-  }, [locale, setFlow, snapshotFixScreen]);
+  }, [flow.savedSite, locale, setFlow, snapshotFixScreen]);
 
   const continueAfterEarlySave = useCallback(() => {
     const loaded = loadOnboardingState();
@@ -1000,7 +1013,7 @@ function OnboardingIntegrationController({
         errorMessage: describeSnapshotValidationFailure(error)?.message
           ?? (error instanceof Error && error.message.trim()
             ? error.message
-            : 'Those photos still could not be saved. Your local copies are safe.'),
+            : 'Those images still could not be saved. Your local copies are safe.'),
         phase: 'media_failure',
       }));
     } finally {
@@ -1040,6 +1053,10 @@ function OnboardingIntegrationController({
     if (planInFlightRef.current || !flow.savedSite || !savedSiteVerified || !planAccountId) {
       return;
     }
+    if (!flow.mediaComplete && (flow.mediaFailures.length > 0 || flow.savedSite.media.failed > 0 || flow.savedSite.media.pending > 0)) {
+      setPlanConfirmation('Your images have not finished saving. Select Edit my site and save them before publishing.');
+      return;
+    }
     planInFlightRef.current = true;
     setPlanPending(true);
     setPlanConfirmation(null);
@@ -1047,13 +1064,24 @@ function OnboardingIntegrationController({
       ? flow.planIdempotencyKey
       : renewPlanIdempotencyKey();
     setFlow(current => ({ ...current, planIdempotencyKey, selectedPlan: intent }));
+    let savedPlanIntent: OnboardingPlanIntent | null = null;
     try {
       const result = await saveOnboardingPlanIntent({
         idempotencyKey: planIdempotencyKey,
         intent,
         siteId: flow.savedSite.siteId,
       });
+      savedPlanIntent = result.intent;
       if (accountIdRef.current !== planAccountId) {
+        return;
+      }
+      if (flow.savedSite.requiresArtworkReview) {
+        const review = await prepareOnboardingCanva({ siteId: flow.savedSite.siteId, expectedRevision: flow.savedSite.revision });
+        if (accountIdRef.current !== planAccountId) {
+          return;
+        }
+        recordIntegrationEvent({ intent: LAB_INTENT_BY_PLAN_INTENT[result.intent], type: 'plan_selected' });
+        window.location.assign(`/${locale}/admin/business-setup?salon=${encodeURIComponent(review.salonSlug)}&mode=manual`);
         return;
       }
       // The final button explicitly authorizes publication. Both calls are
@@ -1095,14 +1123,19 @@ function OnboardingIntegrationController({
       if (error instanceof OnboardingIntegrationRequestError && error.code === 'FOUNDING_OFFER_CLOSED') {
         setPlanOfferClosed(true);
       }
-      setPlanConfirmation(error instanceof Error
+      const message = error instanceof Error
         ? error.message
-        : 'Your plan choice could not be saved. Nothing was charged.');
+        : savedPlanIntent
+          ? 'We could not confirm that your website is live. Your saved setup is safe. Please try again.'
+          : 'Your plan choice could not be saved. Nothing was charged.';
+      setPlanConfirmation(savedPlanIntent
+        ? `Your ${savedPlanIntent === 'founding_interest' ? 'free lifetime plan' : 'plan choice'} is saved. ${message}`
+        : message);
     } finally {
       setPlanPending(false);
       planInFlightRef.current = false;
     }
-  }, [flow.planIdempotencyKey, flow.savedSite, flow.selectedPlan, locale, savedSiteVerified, setFlow]);
+  }, [flow.mediaComplete, flow.mediaFailures.length, flow.planIdempotencyKey, flow.savedSite, flow.selectedPlan, locale, savedSiteVerified, setFlow]);
 
   const currentPayload = resolvePayload();
 
@@ -1295,7 +1328,7 @@ function OnboardingIntegrationController({
               }}
             />
           )
-        : <IntegrationFailure message="Your photos could not be verified yet." onReturn={returnToReview} onRetry={retryCoreSave} />;
+        : <IntegrationFailure message="Your images could not be verified yet." onReturn={returnToReview} onRetry={retryCoreSave} />;
     case 'plans':
       return flow.savedSite
         ? (
@@ -1345,6 +1378,7 @@ function OnboardingIntegrationController({
         <OnboardingApp
           forceReview={forceReview}
           integration={{
+            onBuildAi: aiBuilderEnabled ? () => window.location.assign(`/${locale}/ai-website`) : undefined,
             checkSiteSlugAvailability,
             renderSetupRecovery: (saveBeforeSwitch, onMenuAction) => <DeviceSetupRecovery previous beforeSwitch={saveBeforeSwitch} onMenuAction={onMenuAction} onSwitch={onSwitchSetup} />,
             hasSavedSite: savedSiteVerified,
@@ -1382,7 +1416,7 @@ function SavingScreen({ mediaCount, salonName, step }: {
   const message = step === 'core'
     ? 'Saving your site…'
     : step === 'media' && mediaCount > 0
-      ? `Uploading ${mediaCount} ${mediaCount === 1 ? 'photo' : 'photos'}…`
+      ? `Uploading ${mediaCount} ${mediaCount === 1 ? 'image' : 'images'}…`
       : `Finalizing ${salonName}…`;
   return (
     <OwnerSurface modifier="is-centred">
@@ -1393,7 +1427,7 @@ function SavingScreen({ mediaCount, salonName, step }: {
         <p>Your work remains safe on this device until Luster confirms every step.</p>
         <div className="onboarding-saving-steps" aria-hidden="true">
           <span className={step === 'core' ? 'is-current' : 'is-complete'}>Website</span>
-          <span className={step === 'media' ? 'is-current' : step === 'finalizing' ? 'is-complete' : ''}>Photos</span>
+          <span className={step === 'media' ? 'is-current' : step === 'finalizing' ? 'is-complete' : ''}>Images</span>
           <span className={step === 'finalizing' ? 'is-current' : ''}>Final details</span>
         </div>
       </section>
@@ -1451,10 +1485,10 @@ function MediaFailureScreen({
         <span className="onboarding-integration-state-icon is-attention" aria-hidden="true">
           <CloudUpload size={28} />
         </span>
-        <p className="onboarding-integration-eyebrow">Website saved</p>
-        <h1>Some photos still need attention</h1>
-        <p>Your website details are saved. These local photos have not been confirmed for other devices yet.</p>
-        <ul className="onboarding-media-failures" aria-label="Photos that still need attention">
+        <p className="onboarding-integration-eyebrow">Details saved · images pending</p>
+        <h1>Some images still need saving</h1>
+        <p>Your website details are saved as a private draft. These images are still only on this device. Retry before switching devices.</p>
+        <ul className="onboarding-media-failures" aria-label="Images that still need saving">
           {failures.map(failure => (
             <li key={`${failure.role}:${failure.assetId}`}>
               <strong>{failure.fileName}</strong>
@@ -1464,10 +1498,10 @@ function MediaFailureScreen({
         </ul>
         <div className="onboarding-integration-action-stack">
           <button className="onboarding-integration-primary" type="button" onClick={onRetry}>
-            Retry photos
+            Retry images
           </button>
           <button className="onboarding-integration-secondary" type="button" onClick={onContinue}>
-            Continue with my site saved
+            Continue with saved details
           </button>
         </div>
       </section>
@@ -1492,7 +1526,7 @@ function ConflictScreen({
     return (
       <OwnerSurface modifier="is-centred">
         <section className="onboarding-integration-state-card is-wide">
-          <p className="onboarding-integration-eyebrow">Choose a workspace</p>
+          <p className="onboarding-integration-eyebrow">Choose your business</p>
           <h1>Where should we save this site?</h1>
           <p>
             Signed in as
@@ -1635,7 +1669,7 @@ function SavedProgressConfirmation({
           {!mediaComplete
             ? (
                 <p className="onboarding-saved-media-note">
-                  Your website details are saved. The photos listed earlier remain only on this device until you retry them.
+                  Your website details are saved. The images listed earlier are still only on this device. Return to retry them before switching devices.
                 </p>
               )
             : null}
@@ -1734,13 +1768,13 @@ function PlanSelection({
       message={confirmation}
       onClaim={() => onChoose('founding_interest')}
       pending={pending}
-      claimLabel="Publish my website & open dashboard"
-      pendingLabel="Publishing your website…"
-      claimNote="This claims your free lifetime plan and makes your saved website public. You can keep editing from your dashboard."
+      claimLabel={savedSite.requiresArtworkReview ? 'Review & publish my Canva website' : 'Publish my website & open dashboard'}
+      pendingLabel={savedSite.requiresArtworkReview ? 'Preparing your Canva design…' : 'Publishing your website…'}
+      claimNote={savedSite.requiresArtworkReview ? 'Your free lifetime plan is saved first. Next, check your design and links, then approve the website before it goes live.' : 'This claims your free lifetime plan and makes your saved website public. You can keep editing from your dashboard.'}
     >
       <div className="luster-offer-saved-details">
         {!mediaComplete && (
-          <p role="status">Your website details are saved. The photos listed earlier remain only on this device until you retry them.</p>
+          <p role="status">Your website details are saved. The images listed earlier are still only on this device. Return to retry them before switching devices.</p>
         )}
         {!!savedSite.preservedDashboardEdits?.length && (
           <p role="status" data-testid="onboarding-preserved-edits">

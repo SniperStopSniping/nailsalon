@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { initializeStarter } from '../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
@@ -8,10 +8,12 @@ import { PremiumAccountGate } from './AccountGate';
 
 const mocks = vi.hoisted(() => ({
   clerk: {
-    addListener: vi.fn(() => () => undefined),
+    addListener: vi.fn((_listener: (state: { session: unknown }) => void) => () => undefined),
     session: null as unknown,
     setActive: vi.fn(),
+    signOut: vi.fn(),
   },
+  getToken: vi.fn(),
   resolveOrganization: vi.fn(),
   setActiveSignIn: vi.fn(),
   setActiveSignUp: vi.fn(),
@@ -114,6 +116,7 @@ const renderGate = (overrides: {
 describe('PremiumAccountGate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getToken.mockReset().mockResolvedValue('synthetic-session-token');
     window.history.replaceState({}, '', '/en/onboarding-v1?account=1');
     mocks.clerk.session = null;
     mocks.userState.user = null;
@@ -361,6 +364,7 @@ describe('PremiumAccountGate', () => {
     mocks.clerk.session = {
       currentTask: { key: 'choose-organization' },
       id: 'sess_pending',
+      getToken: mocks.getToken,
       status: 'pending',
     };
     mocks.resolveOrganization.mockResolvedValue({
@@ -376,8 +380,45 @@ describe('PremiumAccountGate', () => {
       });
     });
 
-    expect(mocks.resolveOrganization).toHaveBeenCalledWith('Isla Nail Studio');
+    expect(mocks.getToken).toHaveBeenCalledWith({ skipCache: true });
+    expect(mocks.resolveOrganization).toHaveBeenCalledWith('Isla Nail Studio', { sessionToken: 'synthetic-session-token' });
     expect(screen.queryByText(/organization/iu)).not.toBeInTheDocument();
+  });
+
+  it('does not dispatch organization setup when the pending token is unavailable', async () => {
+    mocks.clerk.session = { id: 'sess_pending', currentTask: { key: 'choose-organization' }, status: 'pending', getToken: mocks.getToken };
+    mocks.getToken.mockResolvedValueOnce(null);
+    renderGate();
+
+    expect(await screen.findByRole('button', { name: 'Sign in again' })).toBeVisible();
+    expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch a token after its pending session is replaced', async () => {
+    let finishToken!: (token: string) => void;
+    mocks.clerk.session = { id: 'sess_old', currentTask: { key: 'choose-organization' }, status: 'pending', getToken: mocks.getToken };
+    mocks.getToken.mockImplementationOnce(() => new Promise((resolve) => {
+      finishToken = resolve;
+    }));
+    renderGate();
+    await waitFor(() => expect(mocks.getToken).toHaveBeenCalledTimes(1));
+    mocks.clerk.session = { id: 'sess_other', currentTask: { key: 'choose-organization' }, status: 'pending', getToken: mocks.getToken };
+    await act(async () => {
+      finishToken('stale-session-token');
+    });
+
+    expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+    expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+  });
+
+  it('keeps token transport failure bounded and allows an explicit retry', async () => {
+    mocks.clerk.session = { id: 'sess_pending', currentTask: { key: 'choose-organization' }, status: 'pending', getToken: mocks.getToken };
+    mocks.getToken.mockRejectedValueOnce(new Error('network interrupted'));
+    renderGate();
+
+    expect(await screen.findByRole('button', { name: 'Retry business setup' })).toBeVisible();
+    expect(mocks.getToken).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveOrganization).not.toHaveBeenCalled();
   });
 
   it('offers a business choice when the account already has several', async () => {
@@ -385,6 +426,7 @@ describe('PremiumAccountGate', () => {
     mocks.clerk.session = {
       currentTask: { key: 'choose-organization' },
       id: 'sess_pending',
+      getToken: mocks.getToken,
       status: 'pending',
     };
     mocks.resolveOrganization.mockResolvedValue({
@@ -409,6 +451,314 @@ describe('PremiumAccountGate', () => {
         session: 'sess_pending',
       });
     });
+  });
+
+  it('does not activate a stale business choice after the pending session changes', async () => {
+    const refreshes: Array<(state: { session: unknown }) => void> = [];
+    mocks.clerk.addListener.mockImplementation((listener) => {
+      refreshes.push((state) => {
+        mocks.clerk.session = state.session;
+        (listener as (state: { session: unknown }) => void)(state);
+      });
+      return () => undefined;
+    });
+    mocks.clerk.session = { currentTask: { key: 'choose-organization' }, id: 'sess_old', getToken: mocks.getToken, status: 'pending' };
+    mocks.resolveOrganization.mockResolvedValueOnce({
+      created: false,
+      organizations: [{ id: 'org_a', name: 'Old Studio A' }, { id: 'org_b', name: 'Old Studio B' }],
+    }).mockImplementationOnce(() => new Promise(() => undefined));
+    renderGate();
+    const oldChoice = await screen.findByRole('button', { name: 'Old Studio B' });
+    act(() => {
+      refreshes[0]!({ session: { currentTask: { key: 'choose-organization' }, id: 'sess_new', getToken: mocks.getToken, status: 'pending' } });
+      fireEvent.click(oldChoice);
+    });
+
+    expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+  });
+
+  it('does not repeat a failed setup request when Clerk refreshes the same pending task', async () => {
+    const refreshes: Array<(state: { session: unknown }) => void> = [];
+    mocks.clerk.addListener.mockImplementation((listener) => {
+      refreshes.push((state) => {
+        mocks.clerk.session = state.session;
+        (listener as (state: { session: unknown }) => void)(state);
+      });
+      return () => undefined;
+    });
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_pending',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    mocks.resolveOrganization.mockRejectedValue(new Error('temporary network failure'));
+    renderGate();
+
+    expect(await screen.findByRole('button', { name: 'Retry business setup' })).toBeVisible();
+
+    await act(async () => {
+      refreshes[0]?.({ session: { currentTask: { key: 'choose-organization' }, id: 'sess_pending', getToken: mocks.getToken, status: 'pending' } });
+    });
+
+    expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows one explicit retry after a transient setup failure', async () => {
+    const user = userEvent.setup();
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_pending',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    mocks.resolveOrganization
+      .mockRejectedValueOnce(new Error('temporary network failure'))
+      .mockResolvedValueOnce({ created: true, organizations: [{ id: 'org_1', name: 'Isla Nail Studio' }] });
+    renderGate();
+
+    await user.click(await screen.findByRole('button', { name: 'Retry business setup' }));
+
+    await waitFor(() => {
+      expect(mocks.clerk.setActive).toHaveBeenCalledWith({
+        organization: 'org_1',
+        session: 'sess_pending',
+      });
+    });
+
+    expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows support guidance for unavailable organization setup without offering retry or claiming', async () => {
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_pending',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    const unavailable = Object.assign(new Error('safe server message'), {
+      code: 'ORGANIZATION_SETUP_UNAVAILABLE',
+      status: 503,
+    });
+    mocks.resolveOrganization.mockRejectedValue(unavailable);
+    renderGate();
+
+    expect(await screen.findByText(
+      'We couldn’t finish setting up your business right now. Your work is still safe on this device. Please contact Luster support.',
+    )).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Create your account|Continue with/u })).not.toBeInTheDocument();
+    expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+    expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a session-scoped sign-in-again action when organization activation fails', async () => {
+    const user = userEvent.setup();
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_pending',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    mocks.resolveOrganization.mockResolvedValue({
+      created: true,
+      organizations: [{ id: 'org_1', name: 'Isla Nail Studio' }],
+    });
+    mocks.clerk.setActive.mockRejectedValueOnce(new Error('session expired'));
+    renderGate();
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Business setup needs attention' })).toBeVisible();
+    expect(screen.getByText('We couldn’t activate your business. Sign in again to continue.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Sign in again' }));
+
+    await waitFor(() => {
+      expect(mocks.clerk.signOut).toHaveBeenCalledWith({ sessionId: 'sess_pending', redirectUrl: '/en/onboarding-v1?claim=1' });
+    });
+
+    expect(screen.getByRole('button', { name: 'Continue with email' })).toBeVisible();
+  });
+
+  it('ignores setup completion after the pending session changes', async () => {
+    const refreshes: Array<(state: { session: unknown }) => void> = [];
+    mocks.clerk.addListener.mockImplementation((listener) => {
+      refreshes.push((state) => {
+        mocks.clerk.session = state.session;
+        (listener as (state: { session: unknown }) => void)(state);
+      });
+      return () => undefined;
+    });
+    let finishFirst!: (value: { created: boolean; organizations: { id: string; name: string }[] }) => void;
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_old',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    mocks.resolveOrganization.mockImplementationOnce(() => new Promise((resolve) => {
+      finishFirst = resolve;
+    }));
+    const view = renderGate();
+
+    await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      refreshes[0]?.({ session: { currentTask: { key: 'choose-organization' }, id: 'sess_new', getToken: mocks.getToken, status: 'pending' } });
+    });
+    await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      finishFirst({ created: true, organizations: [{ id: 'org_old', name: 'Old Business' }] });
+    });
+
+    expect(mocks.clerk.setActive).not.toHaveBeenCalledWith({ organization: 'org_old', session: 'sess_old' });
+    expect(view.container).not.toHaveTextContent('Old Business');
+  });
+
+  it('ignores setup completion after the account gate unmounts', async () => {
+    let finishResolution!: (value: { created: boolean; organizations: { id: string; name: string }[] }) => void;
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_pending',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    mocks.resolveOrganization.mockImplementationOnce(() => new Promise((resolve) => {
+      finishResolution = resolve;
+    }));
+    const view = renderGate();
+
+    await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1));
+    view.unmount();
+    await act(async () => {
+      finishResolution({ created: true, organizations: [{ id: 'org_1', name: 'Isla Nail Studio' }] });
+    });
+
+    expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+  });
+
+  it('returns to sign-in after a pending session ends and retries automatically for a new pending session', async () => {
+    const refreshes: Array<(state: { session: unknown }) => void> = [];
+    mocks.clerk.addListener.mockImplementation((listener) => {
+      refreshes.push((state) => {
+        mocks.clerk.session = state.session;
+        (listener as (state: { session: unknown }) => void)(state);
+      });
+      return () => undefined;
+    });
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_ended',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    mocks.resolveOrganization
+      .mockRejectedValueOnce(new Error('temporary network failure'))
+      .mockResolvedValueOnce({ created: true, organizations: [{ id: 'org_new', name: 'Isla Nail Studio' }] });
+    renderGate();
+
+    expect(await screen.findByRole('button', { name: 'Retry business setup' })).toBeVisible();
+
+    await act(async () => {
+      refreshes[0]?.({ session: null });
+    });
+
+    expect(await screen.findByRole('button', { name: 'Continue with email' })).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('Your sign-in session ended. Sign in again to continue.');
+
+    await act(async () => {
+      refreshes[0]?.({ session: {
+        currentTask: { key: 'choose-organization' },
+        id: 'sess_new',
+        getToken: mocks.getToken,
+        status: 'pending',
+      } });
+    });
+
+    await waitFor(() => {
+      expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2);
+      expect(mocks.clerk.setActive).toHaveBeenCalledWith({ organization: 'org_new', session: 'sess_new' });
+    });
+  });
+
+  it('does not expose sign-in recovery when a pending session becomes active', async () => {
+    const refreshes: Array<(state: { session: unknown }) => void> = [];
+    mocks.clerk.addListener.mockImplementation((listener) => {
+      refreshes.push((state) => {
+        mocks.clerk.session = state.session;
+        (listener as (state: { session: unknown }) => void)(state);
+      });
+      return () => undefined;
+    });
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_pending',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    mocks.resolveOrganization.mockReturnValue(new Promise(() => undefined));
+    renderGate();
+
+    await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      refreshes[0]?.({ session: { id: 'sess_pending', status: 'active' } });
+    });
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Setting up your account…' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Continue with email' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Your sign-in session ended. Sign in again to continue.')).not.toBeInTheDocument();
+  });
+
+  it('keeps a transient setup retry to one in-flight request after rapid duplicate clicks', async () => {
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_pending',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    let finishRetry!: (value: { created: boolean; organizations: { id: string; name: string }[] }) => void;
+    mocks.resolveOrganization
+      .mockRejectedValueOnce(new Error('temporary network failure'))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        finishRetry = resolve;
+      }));
+    renderGate();
+
+    const retryButton = await screen.findByRole('button', { name: 'Retry business setup' });
+    await act(async () => {
+      retryButton.click();
+      retryButton.click();
+    });
+
+    await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Setting up your account…' })).toBeVisible();
+
+    await act(async () => {
+      finishRetry({ created: false, organizations: [] });
+    });
+  });
+
+  it('offers session-scoped sign-in recovery for an expired setup request without retry', async () => {
+    const user = userEvent.setup();
+    mocks.clerk.session = {
+      currentTask: { key: 'choose-organization' },
+      id: 'sess_pending',
+      getToken: mocks.getToken,
+      status: 'pending',
+    };
+    const unauthenticated = Object.assign(new Error('unauthorized'), {
+      code: 'UNAUTHENTICATED',
+      status: 401,
+    });
+    mocks.resolveOrganization.mockRejectedValue(unauthenticated);
+    renderGate();
+
+    expect(await screen.findByText('We couldn’t activate your business. Sign in again to continue.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Sign in again' }));
+
+    expect(mocks.clerk.signOut).toHaveBeenCalledWith({ sessionId: 'sess_pending', redirectUrl: '/en/onboarding-v1?claim=1' });
   });
 
   it('verifies a signed-in owner’s email in place before any claim', async () => {

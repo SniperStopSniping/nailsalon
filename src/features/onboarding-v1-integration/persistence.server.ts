@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
+import { linkedOnboardingCanvaDraft } from '@/features/custom-sites/manual-origin.server';
 import { formatPhoneE164 } from '@/libs/adminAuth';
 import type { FoundingLifetimeAccess } from '@/libs/billing/foundingLifetime';
 import { getFoundingLifetimeAccess, grantFoundingLifetimeAccess } from '@/libs/billing/foundingLifetime.server';
@@ -26,7 +27,7 @@ import { type DatabaseSessionHandle, db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { enqueueOwnerSignupNotification } from '@/libs/ownerSignupNotification';
 import { seedStarterMenuForSalon } from '@/libs/starterMenu';
-import { isReservedSalonSlug, isValidSalonSlug, normalizeSalonSlug } from '@/libs/tenantSlug';
+import { isValidSalonSlug, normalizeSalonSlug, suggestSalonSlug } from '@/libs/tenantSlug';
 import {
   addOnSchema,
   adminSalonMembershipSchema,
@@ -68,6 +69,7 @@ import type {
   OnboardingPlanIntentRequest,
   OnboardingSiteSlugAvailability,
 } from './contracts';
+import { onboardingCompiledSiteDocumentSchema } from './contracts';
 import { fingerprintOnboardingPayload } from './payload-fingerprint';
 
 export type AuthenticatedOnboardingIdentity = {
@@ -512,20 +514,6 @@ async function syncQuickBookProfilePresentationDraft(input: {
   );
 }
 
-function baseSlug(businessName: string): string {
-  const candidate = businessName
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036F]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 38);
-  if (!candidate || isReservedSalonSlug(candidate) || !isValidSalonSlug(candidate)) {
-    return 'luster-studio';
-  }
-  return candidate;
-}
-
 async function salonSlugForSnapshot(
   database: QueryDatabase,
   snapshot: OnboardingPersistedSnapshot,
@@ -534,7 +522,7 @@ async function salonSlugForSnapshot(
   // after the owner has previewed it, including concurrent first-time claims.
   const availability = await getOnboardingSiteSlugAvailability(
     snapshot.profile.siteSlug
-    || (snapshot.profile.siteSlugCustomized ? '' : baseSlug(snapshot.profile.businessName)),
+    || (snapshot.profile.siteSlugCustomized ? '' : suggestSalonSlug(snapshot.profile.businessName)),
     database,
   );
   if (availability.reason === 'invalid') {
@@ -615,10 +603,10 @@ async function resolveIdentityAdmin(
   return owner;
 }
 
-async function ensureIdentityAdmin(
+export async function ensureOnboardingIdentityAdmin(
   database: QueryDatabase,
   identity: AuthenticatedOnboardingIdentity,
-  snapshot: OnboardingPersistedSnapshot,
+  fallbackName: string,
 ): Promise<IdentityAdmin> {
   const existing = await resolveIdentityAdmin(database, identity);
   if (existing) {
@@ -654,7 +642,7 @@ async function ensureIdentityAdmin(
       email: identity.email.trim().toLowerCase(),
       emailVerifiedAt: new Date(),
       id: crypto.randomUUID(),
-      name: identity.name?.trim() || ownerDisplayName(snapshot),
+      name: identity.name?.trim() || fallbackName,
       // `admin_user.phone_e164` is a legacy authentication identifier. Never
       // promote an owner-entered salon/contact number into that identity
       // boundary; only Clerk-verified account data may populate it.
@@ -1693,6 +1681,7 @@ async function claimSuccess(
     ))
     : [];
   const ownerCreated = new Set(ownerCreatedServiceIds);
+  const manualSetupLinked = await linkedOnboardingCanvaDraft(database, { salonId: site.salonId, siteId: site.id, revisionId: revision.id });
   return {
     claimId: claim.id,
     created,
@@ -1702,6 +1691,8 @@ async function claimSuccess(
       pending: media.filter(item => item.claimStatus === 'pending' || item.claimStatus === 'uploading').length,
       ready: media.filter(item => item.claimStatus === 'ready').length,
     },
+    ...(manualSetupLinked ? { manualSetupLinked: true } : {}),
+    ...(onboardingCompiledSiteDocumentSchema.safeParse(revision.document).success && revision.document.pages.some(page => page.visible && page.sections.some(section => section.visible && section.type === 'custom_design' && section.customDesignSettings?.images.length)) ? { requiresArtworkReview: true } : {}),
     ownerCreatedServiceIds,
     payloadFingerprint: fingerprintOnboardingPayload(revision.snapshot),
     revision: revision.revision,
@@ -1815,12 +1806,21 @@ async function claimOnboardingDraftUnlocked(
       }
       salonId = membership.id;
       salonSlug = membership.slug;
+      // Serialize with the shared editor's handoff/publication lock. An old
+      // browser must not replace that draft after it has moved into review.
+      await tx.execute(sql`select id from ${salonSchema} where ${salonSchema.id} = ${salonId} for update`);
       const [existingSite] = await tx.select().from(onboardingSiteSchema)
         .where(and(
           eq(onboardingSiteSchema.salonId, salonId),
           eq(onboardingSiteSchema.isCurrent, true),
         )).limit(1);
       currentSite = existingSite ?? null;
+      if (currentSite) {
+        const [currentRevision] = await tx.select({ id: onboardingSiteRevisionSchema.id }).from(onboardingSiteRevisionSchema).where(and(eq(onboardingSiteRevisionSchema.salonId, salonId), eq(onboardingSiteRevisionSchema.siteId, currentSite.id), eq(onboardingSiteRevisionSchema.revision, currentSite.currentRevision))).limit(1);
+        if (currentRevision && await linkedOnboardingCanvaDraft(tx, { salonId, siteId: currentSite.id, revisionId: currentRevision.id })) {
+          throw new OnboardingPersistenceError('WEBSITE_EDITOR_MOVED', 'Your design is ready in your website editor. Open it there to keep your latest changes.', 409);
+        }
+      }
       if (!target.existingSiteStrategy && (currentSite || membership.publicationStatus === 'published')) {
         return {
           kind: 'conflict' as const,
@@ -1967,7 +1967,7 @@ async function claimOnboardingDraftUnlocked(
           salonSlug = renamed.slug;
         }
       }
-      admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
+      admin = await ensureOnboardingIdentityAdmin(tx as QueryDatabase, identity, ownerDisplayName(input.snapshot));
       if (!preserveExistingProductData) {
         technicianId = await syncExistingBusinessProfile({
           database: tx as QueryDatabase,
@@ -1978,7 +1978,7 @@ async function claimOnboardingDraftUnlocked(
         });
       }
     } else {
-      admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
+      admin = await ensureOnboardingIdentityAdmin(tx as QueryDatabase, identity, ownerDisplayName(input.snapshot));
       const created = await createBusiness(tx as QueryDatabase, admin, identity, input.snapshot);
       salonId = created.salonId;
       salonSlug = created.salonSlug;

@@ -156,6 +156,9 @@ function buildBody(request: ModelProviderRequest): Record<string, unknown> {
     reasoning: { effort: request.reasoningEffort ?? 'low' },
     max_output_tokens: request.maxOutputTokens,
   };
+  if (request.serviceTier) {
+    body.service_tier = request.serviceTier;
+  }
 
   // Stateless use with reasoning: ask for encrypted reasoning content so the
   // reasoning items can be echoed back with the tool outputs (the API's
@@ -185,6 +188,26 @@ export function createOpenAiResponsesProvider(options: {
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
 
   return {
+    async countInputTokens(request: ModelProviderRequest): Promise<number> {
+      const full = buildBody(request);
+      const body = { model: full.model, input: full.input, tools: full.tools, tool_choice: full.tool_choice, reasoning: full.reasoning, text: full.text };
+      try {
+        const response = await fetch(`${baseUrl}/v1/responses/input_tokens`, { method: 'POST', headers: { 'Authorization': `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000) });
+        if (!response.ok) {
+          throw new ModelProviderError('provider_error', response.status);
+        }
+        const parsed = z.object({ object: z.literal('response.input_tokens'), input_tokens: countSchema }).safeParse(await response.json());
+        if (!parsed.success) {
+          throw new ModelProviderError('provider_error', response.status);
+        }
+        return parsed.data.input_tokens;
+      } catch (e) {
+        if (e instanceof ModelProviderError) {
+          throw e;
+        }
+        throw new ModelProviderError('provider_error');
+      }
+    },
     async createResponse(request: ModelProviderRequest, signal?: AbortSignal): Promise<ModelProviderResponse> {
       const controller = new AbortController();
       const abortOuter = () => controller.abort();
@@ -234,7 +257,12 @@ export function createOpenAiResponsesProvider(options: {
         signal?.removeEventListener('abort', abortOuter);
       }
 
-      const usage = parseUsage(payload);
+      // Metered callers freeze Standard rates. An unconfirmed/different tier
+      // cannot be charged as though it used those rates; retain unknown usage
+      // so the application releases the customer hold and bounds retries.
+      const tierConfirmed = !request.serviceTier
+        || (payload !== null && typeof payload === 'object' && 'service_tier' in payload && payload.service_tier === request.serviceTier);
+      const usage = tierConfirmed ? parseUsage(payload) : null;
       const parsed = responseSchema.safeParse(payload);
       if (!parsed.success) {
         throw new ModelProviderError('provider_error', response.status, usage);
@@ -247,6 +275,17 @@ export function createOpenAiResponsesProvider(options: {
           : parsed.data.status === 'completed' ? 'completed' : 'failed';
       return {
         items: status === 'completed' ? parseItems(parsed.data.output, usage) : [],
+        ...(status === 'incomplete'
+          ? { partialText: parsed.data.output.flatMap((item) => {
+              const partial = z.object({ type: z.literal('message'), content: z.array(z.unknown()) }).safeParse(item);
+              return partial.success
+                ? partial.data.content.flatMap((part) => {
+                  const text = outputTextPartSchema.safeParse(part);
+                  return text.success ? [text.data.text] : [];
+                })
+                : [];
+            }).join('').slice(0, 200000) }
+          : {}),
         usage,
         // Anything other than completed/incomplete (failed, cancelled, queued)
         // is a provider-side failure, not a malformed answer.

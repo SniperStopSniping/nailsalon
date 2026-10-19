@@ -10,6 +10,7 @@ const PORT = process.env.PORT || '3000';
 const EXTERNAL_BASE_URL = process.env.E2E_BASE_URL?.trim();
 
 export const e2eBaseUrl = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
+export const e2eOrigin = new URL(e2eBaseUrl).origin;
 
 assertAllowedE2ETarget(
   e2eBaseUrl,

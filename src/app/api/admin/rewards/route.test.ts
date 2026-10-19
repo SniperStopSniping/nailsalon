@@ -1,8 +1,10 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { rewardSchema } from '@/models/Schema';
+
 const { requireAdminSalon, db } = vi.hoisted(() => {
-  const offset = vi.fn(async () => []);
+  const offset = vi.fn(async (): Promise<Array<typeof rewardSchema.$inferSelect>> => []);
   const limit = vi.fn(() => ({ offset }));
   const orderBy = vi.fn(() => ({ limit }));
   const where = vi.fn(() => ({ orderBy }));
