@@ -329,6 +329,19 @@ jobs:
               # Combined candidate: Drizzle ORM 0.45.4 + next-intl 4.14.9,
               # retaining PR461 Node24, Sentry 10 and AI dependency graph.
               415d1c90eb42ea7230692a3f241d6febe7e872d6:c7bb0015690ce967afed8f1776d28ced92d5f116) ;;
+              # Compatible development-only transitive security patches for
+              # cipher-base, elliptic, pbkdf2, sha.js and Handlebars.
+              415d1c90eb42ea7230692a3f241d6febe7e872d6:f0c9aa4940a835250395d2098565f07802bb950e) ;;
+              # Vitest4 toolchain migration: project-based Node/jsdom config,
+              # matching coverage/expect packages and Vite6; the compatible
+              # shared magic-string/source-map transitive pins move with it.
+              2c85781c86ede9f53b02c36bd36751a0bae4e5e4:960fa1603f11ff1a10084331ff43b95d8ea68a9e) ;;
+              # Separately reviewed Storybook and npm tar security pairs.
+              cf9ee4410133e7254924abfee7a7a70e0592a25b:c7279e61b579800514e86c260774a902c25b26b4) ;;
+              fcf749d8a0e3a531756b221ed60848df2b540355:1a0d21a18e49f9d77dcecde059cdbf20a788a621) ;;
+              # Local combined tooling graph: D security patches, Vitest4,
+              # Storybook local Webpack5.111.1 and npm10.9.9/tar7.5.22.
+              68378a97e8f7292264e15565a299b4b5c04e47b3:5467895180e9024f1227adf9b47b9c42ce7c4d4c) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
