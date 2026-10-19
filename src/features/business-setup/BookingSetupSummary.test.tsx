@@ -51,3 +51,15 @@ it('does not invent example times when the original engine finds none', () => {
 
   expect(screen.getByText('No example times are available with this setup.')).toBeInTheDocument();
 });
+
+it.each([true, false])('keeps published booking labels separate from draft proposals while examples remain simulated: %s', (published) => {
+  const bookingPolicy = resolveSetupPolicy({ enabled: true, title: 'Visit agreement', text: 'Please come alone.', showOnServicePage: false, showBeforeConfirmation: true, showAfterConfirmation: false, showInConfirmationEmail: true, acknowledgment: { required: true, text: 'I agree.' } });
+  render(<BookingSetupSummary published={published} document={{ ...document, services: document.services.map(service => ({ ...service, confirmed: published })), bookingPolicy }} examples={{ serviceName: 'Gel', technicianNames: ['Alex'], days: [{ date: '2026-10-23', times: ['11:00'] }] }} />);
+
+  expect(screen.getByText(published ? 'Booking setup' : 'Proposed booking setup', { exact: true })).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: published ? 'Booking agreement' : 'Proposed booking agreement' })).toBeInTheDocument();
+  expect(screen.getByText(published ? 'Customers must accept this agreement when booking.' : 'Customers must accept this agreement during booking after you publish.', { exact: true })).toBeInTheDocument();
+  expect(screen.getByText(/Simulated times for Gel.*Existing appointments, time off and external calendars are excluded/)).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByText(document.business.exactAddress)).not.toBeInTheDocument();
+});

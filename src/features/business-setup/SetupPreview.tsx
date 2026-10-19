@@ -18,7 +18,8 @@ import { setupPreviewBooking } from './preview-data.server';
 import { setupServicePriceLabel } from './service-pricing';
 import { TeamBookingSummary } from './TeamBookingSummary';
 /** Read-only adapter into production components. No canonical rows are written. */
-export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
+export async function SetupPreview({ salon: liveSalon, document, snapshot, published = false }: {
+  published?: boolean;
   salon: Salon;
   document: SetupDocument;
   snapshot: Awaited<ReturnType<typeof readSetupSnapshot>>;
@@ -75,11 +76,11 @@ export async function SetupPreview({ salon: liveSalon, document, snapshot }: {
     : undefined;
   return (
     <>
-      <div className="bg-amber-50 p-3 text-center text-sm text-amber-950">Private draft preview. Booking is disabled here. Availability examples are simulated.</div>
-      <TeamBookingSummary document={document} />
-      <BookingExtrasSummary document={document} />
-      <AddOnBookingSummary document={document} />
-      <BookingSetupSummary document={document} examples={{ serviceName: bookingPreview.service?.name ?? null, technicianNames: bookingPreview.technicians.map(person => person.name), days: bookingPreview.examples }} />
+      <div className="bg-amber-50 p-3 text-center text-sm text-amber-950">{published ? 'Private website preview. Booking is disabled here. Availability examples are simulated.' : 'Private draft preview. Booking is disabled here. Availability examples are simulated.'}</div>
+      <TeamBookingSummary published={published} document={document} />
+      <BookingExtrasSummary published={published} document={document} />
+      <AddOnBookingSummary published={published} document={document} />
+      <BookingSetupSummary published={published} document={document} examples={{ serviceName: bookingPreview.service?.name ?? null, technicianNames: bookingPreview.technicians.map(person => person.name), days: bookingPreview.examples }} />
       {services.length < document.services.length && <p className="p-3 text-sm">Services with missing prices or times will appear here after you complete them.</p>}
       <PublicSalonPageShell appearance={await getPageAppearance(salon.id, 'book-service')} pageName="book-service" salon={salon} bookingPage={config} ownerPreview={{ isPreviewing: true, actorType: 'owner' }} isPreviewingDraftConfig salonContentInput={{ services, locations: [rawLocation], technicians: bookingPreview.technicians, addOns: [], lusterFeaturingEnabled: false, content }}>
         <BookServiceClient services={services} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[location]} technicians={[]} currency={document.booking.currency} lusterFeaturingEnabled={false} showNewClientPromo={false} isEmbeddedBuilderPreview quickBookProfile={profile} />

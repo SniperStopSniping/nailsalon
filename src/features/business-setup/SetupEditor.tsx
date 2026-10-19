@@ -577,8 +577,8 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               <button type="button" className="setup-design-card" onClick={() => setTab('website')}>
                 <span aria-hidden="true">▧</span>
                 <span>
-                  <strong>Your website draft</strong>
-                  <small>Open preview · keep refining in chat</small>
+                  <strong>{published ? 'Your website' : 'Your website draft'}</strong>
+                  <small>{published ? 'Open private preview' : 'Open preview · keep refining in chat'}</small>
                 </span>
                 <span aria-hidden="true">↗</span>
               </button>
@@ -762,17 +762,17 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
           <div className="setup-panel-heading">
             <div>
               <span className="setup-eyebrow">YOUR VISION, TAKING SHAPE</span>
-              <h2>{customFrontendId ? 'Your website draft' : 'From inspiration to your website'}</h2>
+              <h2>{published ? 'Your website' : customFrontendId ? 'Your website draft' : 'From inspiration to your website'}</h2>
               <p>Private preview. Booking is disabled here.</p>
               {draft && (draft.hoursOrigin === 'suggested' || draft.services.some(service => !service.confirmed && hasUnverifiedAiValues(service, draft.serviceSources?.[service.id]))) && <p role="status">Some booking details still need your review. Change them in chat or Details, then review them before publishing.</p>}
             </div>
           </div>
           {head && (
             <>
-              <TeamBookingSummary document={head.revision.document} />
-              <AddOnBookingSummary document={head.revision.document} />
-              <BookingExtrasSummary document={head.revision.document} />
-              {head.revision.document.website.config.customFrontendId && <BookingSetupSummary document={head.revision.document} />}
+              <TeamBookingSummary published={published} document={head.revision.document} />
+              <AddOnBookingSummary published={published} document={head.revision.document} />
+              <BookingExtrasSummary published={published} document={head.revision.document} />
+              {head.revision.document.website.config.customFrontendId && <BookingSetupSummary published={published} document={head.revision.document} />}
             </>
           )}
           {head && (
@@ -783,6 +783,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
               revision={head.revision.revision}
               artifactId={head.revision.document.website.config.customFrontendId}
               disabled={published || ownBusy}
+              published={published}
               onBusyChange={setStudioBusy}
               aiEnabled={aiEnabled}
               compact
@@ -803,7 +804,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
           {head && !customFrontendId && missing.length === 0 && (
             <details>
               <summary>Preview your current booking details</summary>
-              <iframe title="Your website draft" sandbox="" src={`/${locale}/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${head.revision.revision}`} />
+              <iframe title={published ? 'Your website preview' : 'Your website draft'} sandbox="" src={`/${locale}/admin/business-setup/preview/${encodeURIComponent(salonSlug)}?revision=${head.revision.revision}`} />
             </details>
           )}
         </section>

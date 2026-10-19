@@ -726,3 +726,36 @@ it('shows the paid request limit before sending and includes it with the same sa
   expect(requests.find(request => request.action === 'message')).toMatchObject({ acceptedCreditLimitMicroCad: 2_000_000, message: { expectedRevision: 2, message: 'Make the heading larger.' } });
   expect(screen.getByRole('textbox', { name: /Message Luster/ })).toHaveValue('');
 });
+
+it('labels a published website consistently and returns to draft labels only after starting an edit', async () => {
+  published = true;
+  document.services[0].confirmed = true;
+  document.website.config.customFrontendId = 'saved-design';
+  const baseFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.startsWith('/api/admin/custom-sites') && !options?.method) {
+      return { ok: true, json: async () => ({ head: head(), assets: [], preferences: null, history: [], attempts: [], configured: true, rendererOrigin: null, payload: { source: { title: 'Owner design', html: '<h1>Studio</h1>', css: '', javascript: '', analysis: '', limitations: [] }, data: { preview: true, services: [], business: { name: 'Studio' } }, images: {} } }) };
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled />);
+  await screen.findByRole('heading', { name: 'Your approved changes are published.', exact: true });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview', exact: true }));
+  const preview = screen.getByRole('region', { name: 'Website preview' });
+
+  expect(within(preview).getByRole('heading', { name: 'Your website', exact: true })).toBeVisible();
+  expect(await within(preview).findByText('Published', { exact: true })).toBeVisible();
+  expect(within(preview).getByText('Booking setup', { exact: true })).toBeVisible();
+  expect(within(preview).getByText('Private preview. Booking is disabled here.')).toBeVisible();
+  expect(within(preview).queryByText('Saved as draft', { exact: true })).not.toBeInTheDocument();
+
+  fireEvent.click(within(preview).getByRole('button', { name: '← Back to chat' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Make more changes', exact: true }));
+  await waitFor(() => expect(requests.some(request => request.action === 'start_editing')).toBe(true));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview', exact: true }));
+
+  expect(await within(preview).findByRole('heading', { name: 'Your website draft', exact: true })).toBeVisible();
+  expect(await within(preview).findByText('Saved as draft', { exact: true })).toBeVisible();
+  expect(within(preview).getByText('Proposed booking setup', { exact: true })).toBeVisible();
+  expect(requests.some(request => ['approve', 'publish', 'message', 'generate'].includes(request.action))).toBe(false);
+});

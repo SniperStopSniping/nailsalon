@@ -51,7 +51,7 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
           break;
         case 'interaction-stopped': setStatus('An animation stopped safely. The website and booking buttons still work.');
           break;
-        case 'preview-booking': setStatus('This is your private preview. Customers can book after you approve and publish.');
+        case 'preview-booking': setStatus('Booking is disabled in this private preview.');
           break;
         case 'book': {
           if (payload.data.preview || !bookingPath || !bookingPath.startsWith('/') || bookingPath.startsWith('//')) {
@@ -91,11 +91,11 @@ export function CustomWebsiteFrame({ payload, rendererOrigin, bookingPath, manag
             <p role="status">
               <strong>Your booking details changed.</strong>
               {' '}
-              This Canva image may still show earlier prices, hours or contact details. Update the artwork and check its links before publishing.
+              This Canva image may still show earlier prices, hours or contact details. Update the artwork and check its links.
             </p>
           )}
           <details>
-            <summary>Current draft booking details</summary>
+            <summary>Booking details in this preview</summary>
             <p>{payload.data.business.hoursLabel}</p>
             <ul>{payload.data.services.map(service => <li key={service.id}>{`${service.name} · ${service.priceLabel} · ${service.durationMinutes} min`}</li>)}</ul>
           </details>

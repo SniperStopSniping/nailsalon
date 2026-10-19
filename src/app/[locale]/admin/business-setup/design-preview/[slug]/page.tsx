@@ -45,14 +45,15 @@ export default async function CustomBusinessSetupPreviewPage(props: {
     return (
       <main>
         <p style={{ padding: 12, textAlign: 'center', background: '#fcf7f4' }}>
-          Private draft preview · Booking is disabled.
+          {head.workspace.status === 'published' ? 'Private website preview' : 'Private draft preview'}
+          {' · Booking is disabled.'}
           {' '}
           <a href={`/admin/business-setup?salon=${encodeURIComponent(slug)}`}>Return to your builder</a>
         </p>
-        <AddOnBookingSummary document={head.revision.document} />
-        <BookingExtrasSummary document={head.revision.document} />
-        <TeamBookingSummary document={head.revision.document} />
-        <BookingSetupSummary document={head.revision.document} examples={{ serviceName: bookingPreview.service?.name ?? null, technicianNames: bookingPreview.technicians.map(person => person.name), days: bookingPreview.examples }} />
+        <AddOnBookingSummary published={head.workspace.status === 'published'} document={head.revision.document} />
+        <BookingExtrasSummary published={head.workspace.status === 'published'} document={head.revision.document} />
+        <TeamBookingSummary published={head.workspace.status === 'published'} document={head.revision.document} />
+        <BookingSetupSummary published={head.workspace.status === 'published'} document={head.revision.document} examples={{ serviceName: bookingPreview.service?.name ?? null, technicianNames: bookingPreview.technicians.map(person => person.name), days: bookingPreview.examples }} />
         {rendererOrigin ? <CustomWebsiteFrame payload={custom} rendererOrigin={rendererOrigin} /> : <p>The isolated preview is unavailable. Your saved design is safe.</p>}
       </main>
     );

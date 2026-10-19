@@ -28,7 +28,7 @@ type State = {
   history: { id: string; title: string; createdAt: string; assetIds: string[] }[];
   attempts: { id: string; message: string; status: string; phase: string; recoverable: boolean; createdAt: string; artifactId: string | null; inputTokens: number | null; outputTokens: number | null; costMicroUsd: number | null }[];
 };
-export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange, compact = false, onAssetsChange, creditsEnabled = false }: { creditsEnabled?: boolean; compact?: boolean; onAssetsChange?: (assets: DesignAsset[]) => void; salonSlug: string; revision: number; artifactId?: string; disabled: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
+export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, published = false, aiEnabled, onSaved, selected, setSelected, missingDetails, onContinueConversation, entryMode, onReadBusinessDetails, onBusyChange, compact = false, onAssetsChange, creditsEnabled = false }: { creditsEnabled?: boolean; compact?: boolean; onAssetsChange?: (assets: DesignAsset[]) => void; salonSlug: string; revision: number; artifactId?: string; disabled: boolean; published?: boolean; aiEnabled: boolean; onSaved: () => Promise<void>; selected: string[]; setSelected: Dispatch<SetStateAction<string[]>>; missingDetails: string[]; onContinueConversation: () => void; entryMode?: 'upload' | 'describe' | null; onBusyChange?: (busy: boolean) => void; onReadBusinessDetails?: (ids: string[]) => Promise<void> }) {
   const [state, setState] = useState<State | null>(null);
   const [source, setSource] = useState<CustomSiteSource | null>(null);
   const [message, setMessage] = useState('');
@@ -323,7 +323,9 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           <p>
             <strong>{state.payload.source.title}</strong>
             {' '}
-            · Saved as draft
+            ·
+            {' '}
+            <span>{published ? previewIsCurrent ? 'Published' : 'Saved design' : 'Saved as draft'}</span>
           </p>
           {state.payload.source.canva && <CanvaArtworkQuality key={`quality-${state.head.revision.document.website.config.customFrontendId}`} pages={state.payload.source.canva.pages} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onReplace={replaceArtwork} />}
           {state.payload.source.canva && reply && <p role="status">{reply}</p>}

@@ -288,3 +288,26 @@ it('clears a paid design prompt while loading and recovers the exact request aft
   expect(requests[1]).toEqual(requests[0]);
   expect(sessionStorage.getItem('luster-design-request:metered')).toBeNull();
 });
+
+it.each([true, false])('labels the current saved design by publication state, independently of disabled controls: %s', async (published) => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  const source = { title: 'Owner design', html: '<h1>Studio</h1>', css: '', javascript: '', analysis: '', limitations: [] };
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ head: { revision: { revision: 3, document: { website: { config: { customFrontendId: 'saved' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: [], configured: true, rendererOrigin: null })));
+  render(<CustomDesignStudio salonSlug="test" revision={3} artifactId="saved" published={published} disabled aiEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
+
+  expect(await screen.findByText(published ? /^Published$/ : /Saved as draft$/)).toBeVisible();
+  expect(screen.queryByText(published ? 'Saved as draft' : 'Published', { exact: true })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Share this preview' })).toBeDisabled();
+  expect(screen.getByRole('link', { name: 'Open full preview' })).toHaveAttribute('href', '/admin/business-setup/design-preview/test?revision=3');
+});
+
+it('does not label an older displayed design as the current published version', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }));
+  const source = { title: 'Older design', html: '<h1>Studio</h1>', css: '', javascript: '', analysis: '', limitations: [] };
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ head: { revision: { revision: 2, document: { website: { config: { customFrontendId: 'old' } } } } }, payload: { source, data: { preview: true, services: [], business: { name: 'Test' } }, images: {} }, assets: [], history: [], attempts: [], configured: true, rendererOrigin: null })));
+  render(<CustomDesignStudio salonSlug="test" revision={3} artifactId="current" published disabled aiEnabled onSaved={async () => {}} selected={[]} setSelected={vi.fn()} missingDetails={[]} onContinueConversation={vi.fn()} compact />);
+
+  expect(await screen.findByText('Saved design', { exact: true })).toBeVisible();
+  expect(screen.queryByText('Published', { exact: true })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Open full preview' })).not.toBeInTheDocument();
+});

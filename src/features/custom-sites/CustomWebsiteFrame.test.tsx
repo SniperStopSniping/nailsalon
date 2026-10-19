@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { compileCanvaDesign } from './canva';
 import type { CustomSitePayload } from './contracts';
@@ -22,7 +22,7 @@ describe('custom website trusted parent bridge', () => {
 
     expect(screen.getByText('Your booking details changed.')).toBeVisible();
 
-    fireEvent.click(screen.getByText('Current draft booking details'));
+    fireEvent.click(screen.getByText('Booking details in this preview'));
 
     expect(screen.getByText('Gel · $72.00 · 60 min')).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Open booking menu' })).not.toBeInTheDocument();
@@ -71,4 +71,22 @@ describe('custom website browsing viewport', () => {
     expect(Number.parseInt(initialHeight)).toBeLessThanOrEqual(window.innerHeight);
     expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
   });
+});
+
+it('keeps booking disabled in private previews without telling a published owner to publish again', () => {
+  const input = { ...payload, data: { ...payload.data, preview: true } };
+  render(<CustomWebsiteFrame payload={input} rendererOrigin="https://renderer.example" bookingPath="/salon/book/service" />);
+  const frame = screen.getByTitle('Custom site') as HTMLIFrameElement;
+  const send = vi.spyOn(frame.contentWindow!, 'postMessage');
+  act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'renderer-ready' } })));
+  const initialization = send.mock.calls[0]![0];
+
+  expect(initialization.payload.data.preview).toBe(true);
+
+  act(() => window.dispatchEvent(new MessageEvent('message', { source: frame.contentWindow, origin: 'null', data: { type: 'preview-booking', channel: initialization.channel } })));
+
+  expect(screen.getByRole('status')).toHaveTextContent('Booking is disabled in this private preview.');
+  expect(screen.queryByRole('link', { name: 'Open booking menu' })).not.toBeInTheDocument();
+
+  send.mockRestore();
 });

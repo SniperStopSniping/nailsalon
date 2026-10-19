@@ -32,5 +32,5 @@ export default async function BusinessSetupPreviewPage(props: {
   if (head.revision.revision !== Number(query.revision)) {
     return <p>Your saved changes have moved on. Refresh the preview to see the latest version.</p>;
   }
-  return <SetupPreview salon={access.salon} document={head.revision.document} snapshot={head.snapshot} />;
+  return <SetupPreview published={head.workspace.status === 'published'} salon={access.salon} document={head.revision.document} snapshot={head.snapshot} />;
 }
