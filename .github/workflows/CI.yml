@@ -329,6 +329,9 @@ jobs:
               # Combined candidate: Drizzle ORM 0.45.4 + next-intl 4.14.9,
               # retaining PR461 Node24, Sentry 10 and AI dependency graph.
               415d1c90eb42ea7230692a3f241d6febe7e872d6:c7bb0015690ce967afed8f1776d28ced92d5f116) ;;
+              # Identical reviewed graph after main's 1.143.3 release bump.
+              # Only root version metadata changed; Node24 remains pinned.
+              f672f9951f0de6f8229cca3fde5981a4bdc8522a:af4bf5fe330d46ebb4dbd1947d0b326a9b70fa35) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"

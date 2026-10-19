@@ -163,6 +163,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b', '8e1b8a6010053efb7bd0fb883f4674537829cdd0'],
     ['8c510528ccff7fa01b70bb29cb42dd6a32452ac2', 'f9473055446d79e1ccce710cd0924b3a677c5844'],
     ['415d1c90eb42ea7230692a3f241d6febe7e872d6', 'c7bb0015690ce967afed8f1776d28ced92d5f116'],
+    ['f672f9951f0de6f8229cca3fde5981a4bdc8522a', 'af4bf5fe330d46ebb4dbd1947d0b326a9b70fa35'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
