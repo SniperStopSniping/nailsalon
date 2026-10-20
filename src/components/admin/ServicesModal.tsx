@@ -66,7 +66,7 @@ import { AddOnCreateDialog } from './serviceLibrary/AddOnCreateDialog';
 import { ServiceLibraryTab } from './serviceLibrary/ServiceLibraryTab';
 
 // Types
-type BookingCategory = 'manicure' | 'pedicure' | 'combo';
+type BookingCategory = 'manicure' | 'pedicure' | 'combo' | 'other';
 
 type ServiceData = {
   confirmationMode?: 'instant' | 'request_approval' | 'consultation' | null;
@@ -247,15 +247,17 @@ type ServiceCategory =
   | 'pedicure'
   | 'hands'
   | 'feet'
-  | 'combo';
+  | 'combo'
+  | 'other';
 
 // The only visible main categories (shared canonical grouping): the raw
-// 7-value category stays internal metadata and never drives navigation.
+// Internal service classification never drives public navigation directly.
 const CATEGORIES = [
   { id: 'all', label: 'All', icon: Sparkles },
   { id: 'manicure', label: 'Manicure', icon: Scissors },
   { id: 'pedicure', label: 'Pedicure', icon: Scissors },
   { id: 'combo', label: 'Combos', icon: Sparkles },
+  { id: 'other', label: 'Other services', icon: Sparkles },
 ];
 
 // Format currency
@@ -1281,6 +1283,7 @@ function AddServiceDialog({
               <option value="combo">Combo</option>
               <option value="hands">Hands</option>
               <option value="feet">Feet</option>
+              <option value="other">Other services</option>
             </select>
             {/* The old copy claimed hands/feet services are hidden from the
               booking page. They are not: public visibility is decided by the
@@ -1315,6 +1318,7 @@ function AddServiceDialog({
               <option value="manicure">Manicure</option>
               <option value="pedicure">Pedicure</option>
               <option value="combo">Combos</option>
+              <option value="other">Other services</option>
             </select>
             <span className="mt-1.5 block text-xs text-[var(--owner-muted)]">
               Which tab clients find this service under on your booking page.

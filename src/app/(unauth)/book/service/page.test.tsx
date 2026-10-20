@@ -61,6 +61,13 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('server-only', () => ({}));
 
+// This suite renders legacy/manual pages in jsdom; custom source persistence
+// and its real booking handoff are covered by the isolated integration/browser suites.
+vi.mock('@/features/custom-sites/payload.server', () => ({
+  customSiteRendererOrigin: vi.fn(() => null),
+  customSitePayload: vi.fn(),
+}));
+
 vi.mock('@/components/PublicSalonPageShell', () => ({
   PublicSalonPageShell: (props: { children: React.ReactNode } & Record<string, unknown>) => {
     publicSalonPageShellSpy(props);

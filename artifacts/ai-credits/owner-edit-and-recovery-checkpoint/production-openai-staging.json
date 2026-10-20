@@ -1,0 +1,29 @@
+{
+  "recordedAt": "2026-10-20T05:51:26.785Z",
+  "target": "production",
+  "projectId": "prj_G7i795a439CUZOr9W2gD2DT0E2AO",
+  "variable": "OPENAI_API_KEY_CUSTOM_SITES",
+  "serverOnly": true,
+  "modelsAuthenticatedByReadOnlyGet": [
+    "gpt-6-luna",
+    "gpt-6.1-sol"
+  ],
+  "newBillableCalls": 0,
+  "reusedExistingBuilderCredentialAsOwnerRequested": true,
+  "newProviderCredentialCreated": false,
+  "localConfigurationUnchanged": true,
+  "productionCredentialDecrypted": false,
+  "credentialsLogged": false,
+  "sandboxStripeOrDevelopmentClerkCopied": false,
+  "existingVariablesOverwritten": false,
+  "requestedType": "secret",
+  "cliExitCode": 0,
+  "added": true,
+  "separateProductionValuePolicyRefusal": false,
+  "activationFlagsChanged": false,
+  "deploymentStarted": false,
+  "productionDatabaseTouched": false,
+  "metadataVerifiedProductionOnly": true,
+  "storedType": "sensitive",
+  "valueReadBack": false
+}

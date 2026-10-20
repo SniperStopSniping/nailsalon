@@ -1,4 +1,4 @@
-import type { ServiceCategory } from '../models/serviceCatalogTypes';
+import type { BookingCategory, ServiceCategory } from '../models/serviceCatalogTypes';
 
 export const LUSTER_MANICURE_TEMPLATE_KEY = 'luster_manicure';
 export const LUSTER_PEDICURE_TEMPLATE_KEY = 'luster_pedicure';
@@ -55,10 +55,10 @@ function compareBaseline(serviceA: MerchandisedService, serviceB: MerchandisedSe
  */
 export function sortServicesForCategory<
   T extends MerchandisedService & { bookingCategory?: string | null },
->(services: T[], bookingCategory: 'manicure' | 'pedicure' | 'combo'): T[] {
-  const leadKey = bookingCategory === 'combo'
-    ? null
-    : LUSTER_LEAD_TEMPLATE_KEYS[bookingCategory];
+>(services: T[], bookingCategory: BookingCategory): T[] {
+  const leadKey = bookingCategory === 'manicure' || bookingCategory === 'pedicure'
+    ? LUSTER_LEAD_TEMPLATE_KEYS[bookingCategory]
+    : null;
 
   return [...services].sort((serviceA, serviceB) => {
     if (leadKey) {

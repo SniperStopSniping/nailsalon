@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "iphone13Profile": true,
+  "physicalDevice": false,
+  "nativeTapActions": true,
+  "layout": {
+    "width": 390,
+    "doc": 390,
+    "dpr": 3,
+    "maxTouchPoints": 0
+  },
+  "sandboxCheckoutOpened": true,
+  "cancelledThroughOwnerUI": true,
+  "providerSessionExpired": true,
+  "noPayment": true,
+  "noCreditsAdded": true,
+  "crossSalonStatus": 403,
+  "credentialLeaks": 0,
+  "keyboardEscapeAndFocusRestore": true,
+  "refresh": true,
+  "unchangedSnapshot": true,
+  "modelCalls": 0,
+  "deniedHosts": [
+    "9442c69f5035.w.hcaptcha.com"
+  ],
+  "productionChanged": false
+}

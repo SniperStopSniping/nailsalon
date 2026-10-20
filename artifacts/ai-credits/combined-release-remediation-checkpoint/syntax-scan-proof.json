@@ -1,0 +1,29 @@
+{
+  "parentSourceSha": "df269cfe0b5278cac8c92e0e35696bb4f24fb713",
+  "priorCiRun": 39369596634,
+  "observedFailure": "Application-job repo-wide client/server boundary hook exceeded30 seconds; all three independent full Vitest shards passed.",
+  "change": "Memoize compiler-derived module facts by path and exact source text; retain no ASTs; return caller-owned import arrays. No assertion, source-file scope or timeout was removed/increased.",
+  "runtimeAppImportsOfHelper": false,
+  "testedContentInvalidation": true,
+  "testedCallerMutationIsolation": true,
+  "affectedGuardSuites": 7,
+  "passedTests": 87,
+  "failedTests": 0,
+  "skippedTests": 0,
+  "nodeVersion": "24.19.0",
+  "localSuiteTimingsMs": {
+    "libs/appointmentBlocking.test.ts": 2912.16,
+    "libs/architecturalInvariants.test.ts": 1550.27,
+    "libs/architectureClientServerBoundary.test.ts": 1583.4,
+    "libs/architectureGuardSupport.test.ts": 8.58,
+    "libs/domainOwnershipBoundaries.test.ts": 65.44,
+    "libs/reminderEligibility.test.ts": 1587.47,
+    "libs/availability/engine.imports.test.ts": 241.21
+  },
+  "timingsAreLocalNotCi": true,
+  "fullTypecheck": "passed",
+  "eslint": "passed",
+  "requiredNewHeadCi": "not yet run",
+  "providerCalls": 0,
+  "productionChanged": false
+}

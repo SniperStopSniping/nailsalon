@@ -1,0 +1,50 @@
+{
+  "testedAt": "2026-10-15T19:00:40.121Z",
+  "environment": "isolated Preview",
+  "fixture": "ai-extraction-77075efbeb0d",
+  "realProvider": true,
+  "message": "I work solo. Gel manicures take 60 minutes. Keep the address private. Make my website elegant and cream like my menu, with a big name at the top and an easy way to book.",
+  "reply": "I’ll draft an elegant cream website with your studio name large at the top and a clear booking button. The proposed updates set you as solo and gel manicures to 60 minutes, while keeping your address private and showing only Toronto. Nothing will be published. Your custom website is saved as a draft. Open Preview to review it.",
+  "operationId": "3ec5ab82-83ec-43d9-94b9-0a3a8ed7d442",
+  "revision": 5,
+  "artifactId": "0f4480ed-3fca-416b-8383-c45068aa2f21",
+  "elapsedMs": 64367,
+  "refreshResumes": true,
+  "noExtractionButtons": true,
+  "manualSourceEdits": false,
+  "calls": [
+    {
+      "operation_id": "3ec5ab82-83ec-43d9-94b9-0a3a8ed7d442",
+      "ordinal": 0,
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 4988,
+      "output_tokens": 379,
+      "cost_micro_usd": 81293,
+      "charged_micro_cad": 162586,
+      "elapsed_ms": 9797,
+      "validation": "unchecked"
+    },
+    {
+      "operation_id": "48ce91d6-f925-469c-80de-eec8403e620f",
+      "ordinal": 0,
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 3962,
+      "output_tokens": 2649,
+      "cost_micro_usd": 181968,
+      "charged_micro_cad": 363936,
+      "elapsed_ms": 52514,
+      "validation": "passed"
+    }
+  ],
+  "liveUnchanged": {
+    "publication_status": "draft",
+    "online_booking_enabled": false,
+    "live_services": 0,
+    "appointments": 0,
+    "publications": 0
+  }
+}

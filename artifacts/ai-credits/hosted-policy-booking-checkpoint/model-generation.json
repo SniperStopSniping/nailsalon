@@ -1,0 +1,44 @@
+{
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "exactPrompt": "Show my saved booking agreement on the website, in the rounded policy area before services. Keep the sage design and my services.",
+  "mode": "real owner chat; website-only presentation",
+  "operationId": "bd7b68a2-1e95-48cb-87d3-2d27b62cdbae",
+  "beforeRevision": 35,
+  "afterRevision": 37,
+  "artifactId": "830e40f3-0233-458d-be66-c78328905cbe",
+  "sourceHash": "9401d63f14def2f1d5336743c3350992805ce394f95f811f59f22566a0508a99",
+  "status": "completed",
+  "elapsedMs": 76613,
+  "calls": [
+    {
+      "id": "b41d35b6-79ec-42bb-b94c-213bd919162c",
+      "operation_id": "bd7b68a2-1e95-48cb-87d3-2d27b62cdbae",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 6076,
+      "output_tokens": 255,
+      "cost_micro_usd": 887,
+      "elapsed_ms": 3486,
+      "validation": "passed"
+    },
+    {
+      "id": "bf594238-d712-4e08-a2f8-cee552be9bcf",
+      "operation_id": "f72e0d96-01da-452d-acaa-0dc896e89cee",
+      "ordinal": 0,
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 7189,
+      "output_tokens": 4197,
+      "cost_micro_usd": 59941,
+      "elapsed_ms": 67843,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "servicesAndSettingsPreserved": true,
+  "publicPolicyWordingPreserved": true,
+  "published": false
+}

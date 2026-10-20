@@ -21,7 +21,8 @@ import {
   RuntimeDatabaseGuardError,
   type RuntimePostgresTarget,
 } from './runtimeDatabaseGuard';
-import { createRuntimeDatabaseVerificationCooldown } from './runtimeDatabasePoolRecovery';
+import { createRuntimeDatabaseCooldownClient } from './runtimeDatabasePoolClient';
+import { createRuntimeDatabaseVerificationCooldown, type RuntimeDatabaseVerificationCooldown } from './runtimeDatabasePoolRecovery';
 
 type VerifiedPoolConfig = PoolConfig & {
   // pg-pool supports a per-client verifier, but @types/pg does not currently
@@ -209,12 +210,9 @@ const POSTGRES_RUNTIME_RECONNECT_COOLDOWN_MS = 5_000;
  */
 function createGuardedPoolVerifier(
   target: RuntimePostgresTarget,
+  cooldown: RuntimeDatabaseVerificationCooldown,
 ): VerifiedPoolConfig['verify'] {
   const verify = createRuntimeDatabasePoolVerifier(target);
-  const cooldown = createRuntimeDatabaseVerificationCooldown({
-    classify: classifyPostgresRuntimeFailure,
-    cooldownMs: POSTGRES_RUNTIME_RECONNECT_COOLDOWN_MS,
-  });
 
   return (client, callback) => {
     void cooldown.guard(() => new Promise<void>((resolve, reject) => {
@@ -243,6 +241,10 @@ function createGuardedPoolVerifier(
 function createPostgresRuntimeConnection(
   target: RuntimePostgresTarget,
 ): PostgresRuntimeConnection {
+  const cooldown = createRuntimeDatabaseVerificationCooldown({
+    classify: classifyPostgresRuntimeFailure,
+    cooldownMs: POSTGRES_RUNTIME_RECONNECT_COOLDOWN_MS,
+  });
   const poolConfig: VerifiedPoolConfig = {
     connectionString: target.connectionString,
     // Pool configuration for resilience
@@ -255,7 +257,8 @@ function createPostgresRuntimeConnection(
     connectionTimeoutMillis: 15000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
-    verify: createGuardedPoolVerifier(target),
+    Client: createRuntimeDatabaseCooldownClient(cooldown),
+    verify: createGuardedPoolVerifier(target, cooldown),
   };
   const pool = new Pool(poolConfig);
 

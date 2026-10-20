@@ -24,8 +24,7 @@ import type { WeeklySchedule } from '@/models/Schema';
  * Bridges the app's resolved scheduling data (loadBookingPolicy maps, Google
  * busy windows, technician schedules) into the pure evaluator's input model.
  * All instants are converted on the slot-grid basis (`zonedTimeToUtc` +
- * `bookingConfig.timezone`) as approved by the P6 architecture — deliberately
- * NOT bookingPolicy.ts's Toronto-local minutes math.
+ * `bookingConfig.timezone`), shared with the booking policy engine.
  *
  * Privacy contract: client identity travels ONLY as the opaque comparison
  * keys produced by `buildSmartFitClientKeys`; day contexts and evaluations
@@ -94,8 +93,9 @@ function toMs(value: Date | string): number {
  */
 export function buildSmartFitDayContext(args: SmartFitDayContextArgs): SmartFitDayContext | null {
   // Noon keeps the day-name lookup unambiguous across DST transitions.
-  const noon = new Date(args.gridAnchorMs + 12 * 60 * MINUTE_MS);
+  const noon = zonedTimeToUtc({ date: args.date, time: '12:00', timeZone: args.timeZone });
   const effective = getEffectiveScheduleForWindow({
+    timeZone: args.timeZone,
     startTime: noon,
     weeklySchedule: args.weeklySchedule,
     override: args.override ?? null,
@@ -112,7 +112,7 @@ export function buildSmartFitDayContext(args: SmartFitDayContextArgs): SmartFitD
   let workEndMs = timeToMs(effective.schedule.end);
 
   if (args.locationBusinessHours) {
-    const hours = args.locationBusinessHours[getDayNameForDate(noon)];
+    const hours = args.locationBusinessHours[getDayNameForDate(noon, args.timeZone)];
     if (!hours) {
       return null;
     }

@@ -1,0 +1,28 @@
+{
+  "files": [
+    {
+      "path": "artifacts/ai-credits/preview-upgrade-rehearsal/refusal-proof.json",
+      "sha256": "2dd60d6d181c1abdd94bba743ae4c374a290fc36bd48406d745cb4b5f65b2ea5"
+    },
+    {
+      "path": "artifacts/ai-credits/preview-upgrade-rehearsal/checks.json",
+      "sha256": "f18cb931a0ff25cdad646b32ec695744259439670c3a9d16bb73b88e066a74c8"
+    },
+    {
+      "path": "artifacts/ai-credits/preview-upgrade-rehearsal/README.md",
+      "sha256": "60db9a6dcdca3eb4227cde558c0ce60ab0f8a0882060abbb5b4f00e611745260"
+    },
+    {
+      "path": "artifacts/ai-credits/preview-upgrade-rehearsal/migration-proof.json",
+      "sha256": "1cc8b2cef202b765fb705c414f65b8df70fbd78af955ba512e37169ff4aa037d"
+    },
+    {
+      "path": "artifacts/ai-credits/preview-upgrade-rehearsal/cleanup-and-isolation-proof.json",
+      "sha256": "c7df4f61d33f8f64c4197fa4e2457fd45d78b8c7374645c3fbb130921b9b7340"
+    },
+    {
+      "path": "scripts/rehearse-ai-credit-upgrade.ts",
+      "sha256": "d911194d5c9cb32e12a2cad2a5fa0808e0cf2ab572ff06a5c7c55c3f3be1c113"
+    }
+  ]
+}

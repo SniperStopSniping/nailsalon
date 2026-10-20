@@ -1,0 +1,152 @@
+{
+  "sourceSha": "081b5d8358f654e323c9712d9a1d4ad581fb29ff",
+  "runId": 39235325884,
+  "status": "completed",
+  "conclusion": "failure",
+  "jobs": [
+    {
+      "name": "Secret hygiene",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Monitoring Node 24 regression",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Client lifecycle PostgreSQL stabilization",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Application tests (24.x)",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Communications dispatcher PostgreSQL concurrency",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Component and onboarding browsers (customer-booking)",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Build with 24.x",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Calendar outbox PostgreSQL process fences",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "D5 deposits PostgreSQL concurrency (zero skips)",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Component and onboarding browsers (owner-operations)",
+      "conclusion": "failure",
+      "failedSteps": [
+        "Run storybook tests"
+      ]
+    },
+    {
+      "name": "Network no-show PostgreSQL isolation",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Vitest shard 1/3",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Vitest shard 2/3",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Vitest shard 3/3",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Public booking attempt PostgreSQL concurrency",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "SMS credit ledger PostgreSQL concurrency",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Build with 20.x",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Build with 22.6",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "L1 catalog rules PostgreSQL parity",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Component and onboarding browsers (onboarding-owner)",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "L1 PR5 approval lifecycle PostgreSQL races (zero skips)",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Booking entitlement override PostgreSQL concurrency",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Full Vitest Suite",
+      "conclusion": "success",
+      "failedSteps": []
+    },
+    {
+      "name": "Run all tests (20.x)",
+      "conclusion": "failure",
+      "failedSteps": [
+        "Require application and component evidence"
+      ]
+    },
+    {
+      "name": "UIQI release conditions",
+      "conclusion": "failure",
+      "failedSteps": [
+        "Require executable UIQI evidence jobs"
+      ]
+    },
+    {
+      "name": "Crowdin sync excluded from PR-head",
+      "conclusion": "skipped",
+      "failedSteps": []
+    }
+  ],
+  "ownerOperationsFailure": "Storybook webpack invocation: Cannot read properties of undefined (reading tap). Dependency qualification owned by separate release candidate.",
+  "fullGreenRun": false,
+  "independentNativePostgresBeforeAfter": {
+    "sameTwoCasesFailBeforeAndPassAfter": true,
+    "exactArtistIdentityAndChangedArtistReplay": true,
+    "sourceOwner": "Separate release verification; full combined creator lane pending."
+  },
+  "productionTouched": false
+}

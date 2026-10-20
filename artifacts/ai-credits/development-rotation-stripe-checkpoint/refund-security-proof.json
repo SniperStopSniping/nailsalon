@@ -1,0 +1,43 @@
+{
+  "passed": true,
+  "realProvider": "Stripe sandbox",
+  "originalProviderWebhookDelivery": true,
+  "replayMethod": "Locally re-signed captured real test event; not claimed as a Stripe resend.",
+  "productionChanged": false,
+  "signatureAndScope": {
+    "duplicateReplayStatuses": [
+      200,
+      200
+    ],
+    "duplicateCreditIncrease": 0,
+    "invalidSignatureStatus": 400,
+    "crossSalonStatus": 200,
+    "crossSalonHeld": true,
+    "wrongModeStatus": 200,
+    "creditIncreaseFromNegativeTests": 0
+  },
+  "positivePacksVerified": 3,
+  "refunds": [
+    {
+      "packKey": "ai_10_cad_v1",
+      "refundCents": 500,
+      "reversedMicroCad": 5000000,
+      "realRefundSucceeded": true,
+      "webhookApplied": true,
+      "reversalEntries": 1
+    },
+    {
+      "packKey": "ai_20_cad_v1",
+      "refundCents": 2000,
+      "reversedMicroCad": 20000000,
+      "realRefundSucceeded": true,
+      "webhookApplied": true,
+      "reversalEntries": 1
+    }
+  ],
+  "balanceBeforeMicroCad": 89825241,
+  "balanceAfterMicroCad": 64825241,
+  "totalCreditReversedMicroCad": 25000000,
+  "appointmentsAndServicesUnchanged": true,
+  "modelCalls": 0
+}

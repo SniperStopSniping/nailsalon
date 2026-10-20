@@ -1,0 +1,62 @@
+[
+  {
+    "path": "README.md",
+    "sha256": "5fe99293b785fcc63925c5bc72a9e97d31ee916cf064fc4b71cd9510d402f117"
+  },
+  {
+    "path": "customer-receipt-proof.json",
+    "sha256": "471c9e4b0aaa923c337415da73fccf9a9eac580680d0e80c3d00af7b8e19b870"
+  },
+  {
+    "path": "hosted-accounting-proof.json",
+    "sha256": "f767f914882181d1e33799c212327da958861180dd4219afc3fc89844fb6d05c"
+  },
+  {
+    "path": "hosted-recommendation-blocked-review.png",
+    "sha256": "c88ca7589edad275b422858e8abadc5c7eb4bb6773c4bed705e750bf4192ff66"
+  },
+  {
+    "path": "hosted-recommendation-booking-proof.json",
+    "sha256": "41ac9a0996a1353344b79f8a82ca0b11816cc0daf1e5020537de6d8136a04d75"
+  },
+  {
+    "path": "hosted-recommendation-customer-receipt.png",
+    "sha256": "6b0a9e21cb9c4b366902367c0fb292863d8e790f94f3b3b4fb171e0548dd333b"
+  },
+  {
+    "path": "hosted-recommendation-exact-review.png",
+    "sha256": "96c3fbee48f9d8f4e625f8664afc681aac892331aa027b0379315d5df7d9c8c8"
+  },
+  {
+    "path": "hosted-recommendation-preview-proof.json",
+    "sha256": "8b74ccc8dc56c613504bef1c0ff9d66cce686f148f7e2051ac17bd9c9c1ac7f5"
+  },
+  {
+    "path": "hosted-recommendation-private-mobile.png",
+    "sha256": "28c9451ff0aa63cb9d47783a5873c96285c5252e4cfbdca5a88db7f7673a7c74"
+  },
+  {
+    "path": "hosted-recommendation-proof.json",
+    "sha256": "58487fb4f41fe249a8d3224f51c55d4fc0c97cc499ad07f4aaa75df4b18dfe3f"
+  },
+  {
+    "path": "hosted-recommendation-publication-proof.json",
+    "sha256": "2acb78644dd5c0fc60e6f4dedc96130e51c2e44f5b683cf1a737d54591c495a8"
+  },
+  {
+    "path": "hosted-recommendation-published.png",
+    "sha256": "e1d203c66feb3ee77bab0981bef71477fc1314857df3b045503d00ed10c450be"
+  },
+  {
+    "path": "hosted-recommendation-return-proof.json",
+    "sha256": "7ad98eebd9d208b5054e3f0897ba728445085b8bc08864fcdb177611e67a2be7"
+  },
+  {
+    "path": "hosted-recommendation-unconfirmed-review.png",
+    "sha256": "c88ca7589edad275b422858e8abadc5c7eb4bb6773c4bed705e750bf4192ff66"
+  },
+  {
+    "path": "model-step.json",
+    "sha256": "7400560f9691669156ada1b402009891afb9e614a5745ba42f7f6749335dbc20"
+  }
+]

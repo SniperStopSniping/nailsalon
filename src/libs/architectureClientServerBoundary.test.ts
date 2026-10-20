@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
   getValueImportSpecifiers,
@@ -281,20 +281,28 @@ describe('client/server boundary — dynamic import() regression fixture', () =>
 // =============================================================================
 
 describe('client/server boundary — repo-wide enforcement', () => {
-  const allFiles = readSourceFiles(walkTsFiles());
+  let allFiles: Map<string, string>;
+  let violations: BoundaryViolation[];
+  let seedCount: number;
+  let clientCount: number;
+
+  // Parse the same immutable source snapshot once for these assertions. The
+  // complete repository scan gets its own bounded budget on shared CI CPUs;
+  // individual tests retain the default timeout and every boundary assertion.
+  beforeAll(() => {
+    allFiles = readSourceFiles(walkTsFiles());
+    const productionFiles = [...allFiles.entries()].filter(([file]) => !isTestOrStoryFile(file));
+    seedCount = productionFiles.filter(([file, text]) => isServerOnlySeed(file, text)).length;
+    clientCount = productionFiles.filter(([file, text]) => hasUseClientDirective(text, file)).length;
+    violations = findClientServerBoundaryViolations(allFiles);
+  }, 30_000);
 
   it('the scan is not vacuous: at least one server-only seed and one `use client` module exist', () => {
-    const productionFiles = [...allFiles.entries()].filter(([file]) => !isTestOrStoryFile(file));
-    const seedCount = productionFiles.filter(([file, text]) => isServerOnlySeed(file, text)).length;
-    const clientCount = productionFiles.filter(([file, text]) => hasUseClientDirective(text, file)).length;
-
     expect(seedCount).toBeGreaterThan(0);
     expect(clientCount).toBeGreaterThan(0);
   });
 
   it('no `use client` module runtime-imports a server-only module, directly or transitively', () => {
-    const violations = findClientServerBoundaryViolations(allFiles);
-
     if (violations.length > 0) {
       const report = violations
         .map(v => `  ${v.clientFile}\n    -> ${v.chain.slice(1).join('\n    -> ')}`)
@@ -310,8 +318,6 @@ describe('client/server boundary — repo-wide enforcement', () => {
 
     expect(allFiles.has(salonProvider)).toBe(true);
     expect(hasUseClientDirective(allFiles.get(salonProvider)!, salonProvider)).toBe(true);
-
-    const violations = findClientServerBoundaryViolations(allFiles);
 
     expect(violations.find(v => v.clientFile === salonProvider)).toBeUndefined();
   });

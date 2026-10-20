@@ -243,6 +243,9 @@ describe('ClientInsightsPanel', () => {
 
     expect(JSON.parse(String(snoozeCall?.[1]?.body))).not.toHaveProperty('messageSnapshot');
 
+    // The POST is recorded before the follow-up refresh releases the busy
+    // guard. Wait for the UI to accept another action before clicking it.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Mark complete' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Mark complete' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/admin/retention',

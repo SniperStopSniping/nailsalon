@@ -1,0 +1,33 @@
+{
+  "sourceSha": "eb7327ce3913400195d9ff210690a60b8bd9dbde",
+  "revision": 26,
+  "proposedService": {
+    "id": "draft_express_natural_manicure",
+    "name": "Express natural-nail manicure",
+    "origin": "assistant",
+    "category": "manicure",
+    "confirmed": false,
+    "priceCents": 3500,
+    "description": "Shaping, cuticle care and regular polish; no extensions or removal.",
+    "bookingCategory": "manicure",
+    "durationMinutes": 45,
+    "priceDisplayText": null,
+    "cleanupBufferMinutes": 0,
+    "preparationBufferMinutes": 0
+  },
+  "sources": {
+    "name": "owner",
+    "priceCents": "suggested",
+    "durationMinutes": "suggested"
+  },
+  "existingServicesSettingsAndWebsitePreserved": true,
+  "soloOwnerDraftEligibilityForNewServicePrepared": true,
+  "existingStaffIdentityHoursAndAssignmentsPreserved": true,
+  "liveServiceCount": 2,
+  "liveMenuUnchanged": true,
+  "unconfirmedPublicationBlocked": true,
+  "newDesignGeneration": false,
+  "newAppointments": 0,
+  "harnessCorrection": "Adding a solo service correctly adds its draft staff eligibility; all prior assignments and staff details remain unchanged",
+  "productionTouched": false
+}

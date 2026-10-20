@@ -1,0 +1,50 @@
+{
+  "testedAt": "2026-10-15T14:41:56.292Z",
+  "referenceSiteBooking": true,
+  "twoExistingBookingsPreserved": true,
+  "salonSlug": "ai-test-1270644eedefa092",
+  "selectedService": "e1465a2e-9022-4f25-8674-973f26fa2cbb",
+  "appointments": [
+    {
+      "id": "appt_9ae906cd-1aa0-4c62-a390-26c023d60396",
+      "total_price": 6500,
+      "total_duration_minutes": 75,
+      "technician_id": "abf85f84-c76d-4600-9515-6cdb7c45e620",
+      "start_time": "2026-10-15T15:15:00.000Z",
+      "end_time": "2026-10-15T16:30:00.000Z"
+    },
+    {
+      "id": "appt_a76b5966-05ab-4c7f-a5c5-6a674e324cce",
+      "total_price": 6500,
+      "total_duration_minutes": 75,
+      "technician_id": "abf85f84-c76d-4600-9515-6cdb7c45e620",
+      "start_time": "2026-10-15T16:45:00.000Z",
+      "end_time": "2026-10-15T18:00:00.000Z"
+    },
+    {
+      "id": "appt_f26de1ef-2aae-4f92-a922-05ac89d165bc",
+      "total_price": 6500,
+      "total_duration_minutes": 75,
+      "technician_id": "abf85f84-c76d-4600-9515-6cdb7c45e620",
+      "start_time": "2026-10-15T14:00:00.000Z",
+      "end_time": "2026-10-15T15:15:00.000Z"
+    }
+  ],
+  "services": [
+    {
+      "id": "e1465a2e-9022-4f25-8674-973f26fa2cbb",
+      "name": "BIAB natural nail overlay",
+      "price": 6500,
+      "duration_minutes": 75
+    },
+    {
+      "id": "72ba3e3e-cb9d-4df9-bd36-9160fd93a3a5",
+      "name": "Gel manicure",
+      "price": 5000,
+      "duration_minutes": 60
+    }
+  ],
+  "ordinaryCustomerContext": true,
+  "originalBookingUi": true,
+  "environment": "preview"
+}

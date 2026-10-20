@@ -8,6 +8,7 @@ import { getStarterAllowanceStatus } from '@/libs/billing/starterAllowanceStatus
 import { claimVerifiedStarterCredits } from '@/libs/billing/verifiedStarterGrant';
 import { db } from '@/libs/DB';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
+import { hasExactRequestOrigin } from '@/libs/requestOriginGuard';
 import { salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -17,11 +18,6 @@ const NO_STORE = { headers: { 'Cache-Control': 'private, no-store' } } as const;
 const requestSchema = z.object({
   salonId: z.string().trim().min(1).max(128),
 }).strict();
-
-function sameOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin');
-  return origin !== null && origin === new URL(request.url).origin;
-}
 
 function responseError(status: number, code: string, message: string): Response {
   return Response.json({ error: { code, message } }, { status, ...NO_STORE });
@@ -106,6 +102,10 @@ export async function GET(request: Request): Promise<Response> {
  * authenticated, verified primary contact methods participate in the claim.
  */
 export async function POST(request: Request): Promise<Response> {
+  if (!hasExactRequestOrigin(request)) {
+    return responseError(403, 'INVALID_ORIGIN', 'Invalid request origin.');
+  }
+
   // Parse only the target needed for the owner guard. The guard then rejects
   // collaborators and impersonated super-admin sessions before any billing or
   // identity records are read.
@@ -134,10 +134,6 @@ export async function POST(request: Request): Promise<Response> {
     }
     return owner.response;
   }
-  if (!sameOrigin(request)) {
-    return responseError(403, 'INVALID_ORIGIN', 'Invalid request origin.');
-  }
-
   const user = await currentUser();
   if (!user || !owner.admin.clerkUserId || user.id !== owner.admin.clerkUserId) {
     return responseError(403, 'OWNER_IDENTITY_REQUIRED', 'Your owner identity could not be confirmed.');

@@ -1,0 +1,98 @@
+{
+  "environment": "isolated_preview",
+  "appGitSha": "b1d13f8b7f29373d950533639e07c6364bd06ae2",
+  "mainIntegrationCommit": "371da33d895b549922116b7175642557546721e9",
+  "integratedMainSha": "224a9ca7cac93de326ab61cfd1a1633b73115c1f",
+  "ciMetadataCommit": "3b7ccae2000f01b3e041f4d02330b6c0df85774f",
+  "deploymentId": "dpl_8E2LufheQPS8s5oko6Le1ZEwJN8X",
+  "deploymentTarget": null,
+  "previewAlias": "https://luster-ai-builder-test.vercel.app",
+  "firstLoad": {
+    "signedOutIabDesktop": "automatic_without_reload_button",
+    "signedOutIab390pxMobile": "automatic_after_page_refresh_without_reload_button",
+    "controlledChrome": "still_stalls_about_blank_not_resolved"
+  },
+  "generatedBookButton": {
+    "serviceId": "585573ae-827d-41cf-a0dc-625d1fa578ed",
+    "canonicalServiceSelected": true,
+    "priceCents": 5000,
+    "durationMinutes": 60,
+    "newAppointmentSubmitted": false
+  },
+  "draftRefresh": {
+    "fromRevision": 103,
+    "toRevision": 104,
+    "fromLayout": "carousel",
+    "toLayout": "grid",
+    "autoRenderedInOwnerIab": true,
+    "actualCssDisplay": "grid",
+    "photos": [
+      {
+        "alt": "Wide test photo",
+        "role": "gallery",
+        "width": 1200,
+        "height": 480,
+        "mediaId": "17bebef8-56ad-4213-aea5-83e0ac367d04",
+        "storageKind": "asset"
+      },
+      {
+        "alt": "Portrait test photo",
+        "role": "gallery",
+        "width": 480,
+        "height": 960,
+        "mediaId": "da9bbb35-0ee5-4f18-a0d9-be989682ea01",
+        "storageKind": "asset"
+      }
+    ],
+    "artworkLinksControlsAndPhotosUnchanged": true
+  },
+  "staleSession": {
+    "baseRevision": 103,
+    "savedRevision": 104,
+    "descriptionAttemptRejected": true,
+    "newSavedRevisionUnchanged": true,
+    "savedDescriptionStill": "Wide test photo",
+    "ui": "Your saved design changed. Reload before saving this version.",
+    "latestHeadLoaded": true,
+    "unsavedInputRetained": true
+  },
+  "restoredPrivateRevision": 105,
+  "restoredArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+  "publicRevisionRemains": 98,
+  "integrity": {
+    "environment": "isolated_preview",
+    "otherBusinessesUnchanged": true,
+    "allServicesAndStaffUnchanged": true,
+    "earlierDraftAndPublishedArtifactRestored": true,
+    "restoredHead": 105,
+    "restoredArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+    "publication": {
+      "revision": 98,
+      "media_finalized": true
+    },
+    "additionalProviderCalls": 0,
+    "smsOperatorDisabled": true,
+    "productionChanged": false
+  },
+  "existingAppointments": 12,
+  "additionalProviderCalls": 0,
+  "additionalAiCostCad": 0,
+  "newAppointments": 0,
+  "health": {
+    "http": 503,
+    "status": "degraded",
+    "db": true,
+    "redis": true,
+    "clerk": true
+  },
+  "currentSourceTests": {
+    "ownerFrameUi": 82,
+    "runtime": 7,
+    "mainLegal": 5,
+    "ciContracts": 22,
+    "protectedSurfaceGate": "passed",
+    "scopedTypes": "passed",
+    "changedLint": "passed"
+  },
+  "productionChangedByThisTask": false
+}

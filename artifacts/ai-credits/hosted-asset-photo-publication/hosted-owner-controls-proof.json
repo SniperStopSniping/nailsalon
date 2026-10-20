@@ -1,0 +1,54 @@
+{
+  "environment": "isolated_preview",
+  "appGitSha": "db0fbbd3e0ecad1c5dbe27ef9302bf7e0f0c4f92",
+  "deploymentId": "dpl_EiVasRc6eCZXvmLJo96nTL4v7YBv",
+  "deploymentTarget": null,
+  "alias": "https://luster-ai-builder-test.vercel.app",
+  "ownerActions": [
+    "Restore previously saved Canva draft",
+    "Replace entire image with owned portrait geometry fixture through Images & layout",
+    "Open exact review without approving new artwork",
+    "Restore the original private draft"
+  ],
+  "replacementRevision": 100,
+  "previousImageFindingsCleared": true,
+  "freshArtworkReviewRequired": true,
+  "galleryPhotosPreserved": true,
+  "reviewModeCopy": {
+    "heading": "How to use your design",
+    "before": "Create a new editable website",
+    "after": "Keep my original artwork and make it clickable"
+  },
+  "publishButtonDisabledUntilArtworkReview": true,
+  "finalIntegrity": {
+    "environment": "isolated_preview",
+    "otherBusinessesUnchanged": true,
+    "allServicesAndStaffUnchanged": true,
+    "earlierDraftAndPublishedArtifactRestored": true,
+    "restoredHead": 101,
+    "restoredArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+    "publication": {
+      "revision": 98,
+      "media_finalized": true
+    },
+    "additionalProviderCalls": 0,
+    "smsOperatorDisabled": true,
+    "productionChanged": false
+  },
+  "additionalProviderCalls": 0,
+  "additionalAICostCad": 0,
+  "health": {
+    "httpStatus": 503,
+    "status": "degraded",
+    "db": true,
+    "redis": true,
+    "clerkConfigured": true,
+    "passwordTestAuthConfigured": false,
+    "emailConfigured": false,
+    "calendarConfigured": false,
+    "clientLifecycleSchema": "ready",
+    "depositsSchema": "ready",
+    "schemaDrift": "ready"
+  },
+  "productionChanged": false
+}

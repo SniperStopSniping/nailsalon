@@ -1,0 +1,19 @@
+{
+  "testedAt": "2026-10-15T17:04:07.428Z",
+  "provider": "openai",
+  "model": "gpt-6-astra",
+  "environment": "isolated-preview",
+  "prompt": "Make this my booking website. Match the uploaded layout closely, use my saved business details, and include the two photos I chose.",
+  "operationId": "5dc34015-dfd6-413b-9547-7de24adeb61e",
+  "seconds": 64.912,
+  "status": 200,
+  "artifactId": "a492cb15-6eb9-4180-9982-0d423c444ce1",
+  "revision": 10,
+  "manualSourceIntervention": false,
+  "referenceInput": "custom-frontends/desktop-editorial-custom-site.png",
+  "explicitPhotoInputs": [
+    "public/isla/gel-x.jpg",
+    "public/isla/gel-manicure.jpg"
+  ],
+  "inputNote": "Owned hand-authored reference fixture used only as model input. Output must be Astra-generated. Isla photos explicitly selected for this synthetic salon."
+}

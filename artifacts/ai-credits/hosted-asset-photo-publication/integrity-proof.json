@@ -1,0 +1,15 @@
+{
+  "environment": "isolated_preview",
+  "otherBusinessesUnchanged": true,
+  "allServicesAndStaffUnchanged": true,
+  "earlierDraftAndPublishedArtifactRestored": true,
+  "restoredHead": 98,
+  "restoredArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+  "publication": {
+    "revision": 98,
+    "media_finalized": true
+  },
+  "additionalProviderCalls": 0,
+  "smsOperatorDisabled": true,
+  "productionChanged": false
+}

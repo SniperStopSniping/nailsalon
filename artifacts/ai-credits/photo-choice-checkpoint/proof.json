@@ -1,0 +1,145 @@
+{
+  "scope": "Preserved Canva native photo choices and a real chat-based Gallery layout edit; not free-form frontend generation or a new booking trial.",
+  "sourceCommit": "ccc4a419c5d410a9d5b57003fc1925e2a5dfa17b",
+  "preview": {
+    "url": "https://luster-ai-builder-test.vercel.app",
+    "deployment": "dpl_G4fkhtE7j22ZznNVqDmhoTmW3UzS",
+    "target": "preview"
+  },
+  "prompt": "Make the first Gallery photo larger. Keep the About section, photos, artwork and booking settings unchanged.",
+  "photoChoicesBefore": [
+    {
+      "id": "5d7d2c7f-9fa7-4dad-8592-049fa6ef0aae",
+      "label": "Canva \u00b7 uploaded-wide-fixture.png"
+    },
+    {
+      "id": "17bebef8-56ad-4213-aea5-83e0ac367d04",
+      "label": "uploaded-wide-fixture.png"
+    },
+    {
+      "id": "139a2ff6-cbf0-4e1d-b1f3-501d78b5062e",
+      "label": "Canva \u00b7 1-Photo-1.jpg"
+    },
+    {
+      "id": "f52d9d1f-f4e0-4837-bb3f-3f8c8d4b4dfe",
+      "label": "botanical-colour-inspiration.jpg"
+    },
+    {
+      "id": "3fd19f50-3cc4-4c55-ac5d-2a8f24bd5a07",
+      "label": "botanical-rain-lily.webp"
+    }
+  ],
+  "photoChoicesAfter": [
+    {
+      "id": "17bebef8-56ad-4213-aea5-83e0ac367d04",
+      "label": "uploaded-wide-fixture.png"
+    },
+    {
+      "id": "f52d9d1f-f4e0-4837-bb3f-3f8c8d4b4dfe",
+      "label": "botanical-colour-inspiration.jpg"
+    },
+    {
+      "id": "3fd19f50-3cc4-4c55-ac5d-2a8f24bd5a07",
+      "label": "botanical-rain-lily.webp"
+    }
+  ],
+  "providerReceipt": {
+    "id": "646ed281-356b-440a-af5f-b860e4e90c2c",
+    "operation_id": "4c3a1bc5-9d00-459d-b9c3-c66ac35232b5",
+    "provider": "openai",
+    "model": "gpt-6-luna",
+    "input_tokens": 7673,
+    "output_tokens": 103,
+    "elapsed_ms": 2922,
+    "cost_micro_usd": 1011,
+    "charged_micro_cad": 2022,
+    "credit_cost_micro_cad": "2831",
+    "status": "completed",
+    "validation": "passed"
+  },
+  "revisions": {
+    "before": 114,
+    "generated": 115,
+    "generatedArtifact": "82eacd82-f9f3-4bad-a4f0-998ad3b7bf13",
+    "restored": 116,
+    "restoredArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d"
+  },
+  "repairCalls": 0,
+  "developerSourceRepair": false,
+  "refreshRetainedLayout": "editorial",
+  "mobile": {
+    "ownerViewport": [
+      390,
+      844
+    ],
+    "previewWidth": 351,
+    "scrollWidth": 351,
+    "photos": [
+      {
+        "naturalWidth": 1200,
+        "naturalHeight": 480,
+        "renderedWidth": 319,
+        "renderedHeight": 127.59375
+      },
+      {
+        "naturalWidth": 480,
+        "naturalHeight": 960,
+        "renderedWidth": 319,
+        "renderedHeight": 638
+      }
+    ],
+    "fixtures": "Synthetic geometry uploads, not design-quality examples"
+  },
+  "trialBudget": [
+    {
+      "id": "initial-custom-website-trial",
+      "cap_micro_cad": 68615594,
+      "used_micro_cad": "36037946"
+    }
+  ],
+  "integrity": {
+    "publicPublication": 98,
+    "publicArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+    "appointments": 12,
+    "newAppointmentsThisTrial": 0,
+    "businessServicesStaffHoursPoliciesChanged": false,
+    "productionChanged": false,
+    "migrationsApplied": false,
+    "providerMessageAccepted": false
+  },
+  "screenshots": [
+    "photo-choices-before.png",
+    "photo-choices-after.png",
+    "photo-edit-loading.png",
+    "photo-edit-chat-success.png",
+    "photo-edit-manual-layout.png",
+    "photo-edit-mobile-gallery.png",
+    "photo-edit-mobile-about.png",
+    "photo-edit-original-restored.png",
+    "photo-check-chrome-first-load.png",
+    "photo-check-chrome-mobile.png"
+  ],
+  "chromeObservation": {
+    "currentOwnerFirstPreviewRenderedWithoutReload": true,
+    "mobileRendered": true,
+    "priorIntermittentStallExplained": false,
+    "physicalDeviceVerified": false
+  },
+  "ciCorrection": {
+    "scope": "Existing Storybook step only",
+    "flag": "NEXT_PRIVATE_LOCAL_WEBPACK=1",
+    "workflowContractTestsPassed": 22,
+    "localBuildPassed": true,
+    "localWebpack": "5.111.1",
+    "branchLockfileWebpack": "5.112.0",
+    "packageOrLockfileChanged": false,
+    "branchCiValidationPending": true,
+    "commit": "0ce1ed262aec08cedde343e8c520acbf53c86428"
+  },
+  "staffLoadingTest": {
+    "localCasesPassed": 3,
+    "explicitDeferredResponse": true,
+    "applicationBehaviorChanged": false,
+    "ciValidationPending": true
+  }
+}

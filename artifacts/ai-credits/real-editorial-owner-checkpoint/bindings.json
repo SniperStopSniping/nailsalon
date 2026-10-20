@@ -1,0 +1,19 @@
+{
+  "instagram": "https://www.instagram.com/luster_ai_test_only/",
+  "phone": "tel:+14165550109",
+  "email": "mailto:booking@example.test",
+  "serviceButtons": [
+    {
+      "class": "service-book",
+      "data-luster-book": "setup_preview_774fd1cd-1e6c-4396-abbd-757613f3328c"
+    },
+    {
+      "class": "service-book",
+      "data-luster-book": "setup_preview_585573ae-827d-41cf-a0dc-625d1fa578ed"
+    },
+    {
+      "class": "service-book",
+      "data-luster-book": "setup_preview_22fa1c6c-e5c7-4cd7-a39f-be5ce17d606e"
+    }
+  ]
+}

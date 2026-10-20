@@ -33,7 +33,7 @@ import type { OnboardingLabState } from '../../../../prototypes/site-builder-v2-
 import { OnboardingSitePreview } from '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/preview/OnboardingSitePreview';
 import { getOnboardingIntegrationRoute } from '../account-history';
 import type { OnboardingAuthProviderAvailability } from '../auth-providers';
-import { resolveOnboardingOrganization } from '../client';
+import { OnboardingIntegrationRequestError, resolveOnboardingOrganization } from '../client';
 import { describeClerkError, getClerkErrorCode } from './clerk-errors';
 import { AppleMark, GoogleMark } from './provider-marks';
 
@@ -44,15 +44,20 @@ type GateIntent = 'sign-in' | 'sign-up';
 type GateStep =
   | { kind: 'email' }
   | { kind: 'finalizing' }
-  | { kind: 'org'; organizations: { id: string; name: string }[] }
+  | { kind: 'org'; organizations: { id: string; name: string }[]; sessionId: string }
   | { kind: 'password'; email: string; mode: 'existing' | 'new' }
   | { kind: 'providers' }
   | { kind: 'reset-code'; email: string }
   | { kind: 'reset-password'; email: string }
+  | { kind: 'setup-error'; message: string; retryable: boolean; sessionId?: string }
   | { kind: 'sso'; provider: OAuthProviderStrategy }
   | { kind: 'verify-sign-up'; email: string };
 
 const RESEND_COOLDOWN_MS = 30_000;
+const ORGANIZATION_SETUP_UNAVAILABLE_MESSAGE = 'We couldn’t finish setting up your business right now. Your work is still safe on this device. Please contact Luster support.';
+const ORGANIZATION_SIGN_IN_AGAIN_MESSAGE = 'We couldn’t activate your business. Sign in again to continue.';
+const ORGANIZATION_SESSION_ENDED_MESSAGE = 'Your sign-in session ended. Sign in again to continue.';
+const ENDED_SESSION_STATUSES = new Set(['abandoned', 'ended', 'expired', 'removed', 'replaced', 'revoked']);
 
 type PendingSessionTask = {
   sessionId: string;
@@ -124,7 +129,11 @@ export function PremiumAccountGate({
     new URLSearchParams(window.location.search).has('sso'));
   const [pendingTask, setPendingTask] = useState<PendingSessionTask | null>(null);
 
-  const orgResolutionRef = useRef(false);
+  const orgAttemptedKeysRef = useRef(new Set<string>());
+  const orgResolutionInFlightKeysRef = useRef(new Set<string>());
+  const pendingTaskRef = useRef<PendingSessionTask | null>(null);
+  const mountedRef = useRef(true);
+  const signOutInFlightRef = useRef(false);
   const sessionVerifyPreparedRef = useRef(false);
   const focusTargetRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -180,48 +189,193 @@ export function PremiumAccountGate({
   // Clerk's hooks treat pending sessions as signed out, so the raw session
   // resource is observed directly to notice a pending task.
   useEffect(() => {
-    setPendingTask(derivePendingSessionTask(clerk.session));
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const initialTask = derivePendingSessionTask(clerk.session);
+    pendingTaskRef.current = initialTask;
+    setPendingTask(initialTask);
     return clerk.addListener(({ session: nextSession }) => {
-      setPendingTask(derivePendingSessionTask(nextSession));
+      if (!mountedRef.current) {
+        return;
+      }
+      const nextTask = derivePendingSessionTask(nextSession);
+      const previousTask = pendingTaskRef.current;
+      pendingTaskRef.current = nextTask;
+      setPendingTask(nextTask);
+      const nextStatus = nextSession && typeof nextSession === 'object'
+        ? (nextSession as { status?: unknown }).status
+        : null;
+      const ended = nextSession === null || nextSession === undefined
+        || (typeof nextStatus === 'string' && ENDED_SESSION_STATUSES.has(nextStatus));
+      if (previousTask && !nextTask && ended) {
+        setStep({ kind: 'providers' });
+        setFormError(ORGANIZATION_SESSION_ENDED_MESSAGE);
+      }
     });
   }, [clerk]);
+
+  const resolvePendingOrganization = useCallback(async (
+    task: PendingSessionTask,
+    explicitRetry = false,
+  ) => {
+    const taskKey = `${task.sessionId}\u0000${task.taskKey}`;
+    if (orgResolutionInFlightKeysRef.current.has(taskKey)) {
+      return;
+    }
+    if (!explicitRetry && orgAttemptedKeysRef.current.has(taskKey)) {
+      return;
+    }
+    orgAttemptedKeysRef.current.add(taskKey);
+    orgResolutionInFlightKeysRef.current.add(taskKey);
+    setFormError(null);
+    setStep({ kind: 'finalizing' });
+
+    const isCurrentTask = () => {
+      const current = pendingTaskRef.current;
+      const rawTask = derivePendingSessionTask(clerk.session);
+      return rawTask?.sessionId === task.sessionId
+        && rawTask.taskKey === task.taskKey
+        && mountedRef.current
+        && current?.sessionId === task.sessionId
+        && current.taskKey === task.taskKey;
+    };
+
+    try {
+      // Pending sessions may not have Clerk's active-session cookie marker.
+      // Use their genuine session JWT for this one pending-task endpoint;
+      // Clerk still verifies it on the server and salon claiming stays gated.
+      const session = clerk.session;
+      if (!isCurrentTask() || !session || session.id !== task.sessionId) {
+        return;
+      }
+      let sessionToken: string | null;
+      try {
+        sessionToken = await session.getToken({ skipCache: true });
+      } catch {
+        throw new OnboardingIntegrationRequestError(
+          'We couldn’t confirm your sign-in. Please try again.',
+          { code: 'SESSION_TOKEN_UNAVAILABLE', status: 503 },
+        );
+      }
+      if (!isCurrentTask()) {
+        return;
+      }
+      if (!sessionToken) {
+        throw new OnboardingIntegrationRequestError(
+          ORGANIZATION_SIGN_IN_AGAIN_MESSAGE,
+          { code: 'UNAUTHENTICATED', status: 401 },
+        );
+      }
+      const resolution = await resolveOnboardingOrganization(salonName, { sessionToken });
+      if (!isCurrentTask()) {
+        return;
+      }
+      const [firstOrganization] = resolution.organizations;
+      if (resolution.organizations.length === 1 && firstOrganization) {
+        try {
+          await clerk.setActive({
+            organization: firstOrganization.id,
+            session: task.sessionId,
+          });
+        } catch {
+          if (isCurrentTask()) {
+            setStep({
+              kind: 'setup-error',
+              message: ORGANIZATION_SIGN_IN_AGAIN_MESSAGE,
+              retryable: false,
+              sessionId: task.sessionId,
+            });
+          }
+        }
+        return;
+      }
+      setStep({ kind: 'org', organizations: resolution.organizations, sessionId: task.sessionId });
+    } catch (error) {
+      if (!isCurrentTask()) {
+        return;
+      }
+      const code = error && typeof error === 'object' && 'code' in error
+        ? String((error as { code?: unknown }).code ?? '')
+        : '';
+      const unavailable = code === 'ORGANIZATION_SETUP_UNAVAILABLE'
+        || code === 'organization_quota_exceeded'
+        || code === 'ORGANIZATION_QUOTA_EXCEEDED';
+      const status = error && typeof error === 'object' && 'status' in error
+        ? Number((error as { status?: unknown }).status)
+        : null;
+      const sessionExpired = status === 401
+        || ['UNAUTHENTICATED', 'SESSION_EXPIRED', 'session_expired', 'unauthenticated'].includes(code);
+      setStep({
+        kind: 'setup-error',
+        message: unavailable
+          ? ORGANIZATION_SETUP_UNAVAILABLE_MESSAGE
+          : sessionExpired
+            ? ORGANIZATION_SIGN_IN_AGAIN_MESSAGE
+            : error instanceof Error && error.message.trim()
+              ? error.message
+              : 'We couldn’t finish setting up your business. Please try again.',
+        retryable: !unavailable && !sessionExpired,
+        sessionId: sessionExpired ? task.sessionId : undefined,
+      });
+    } finally {
+      orgResolutionInFlightKeysRef.current.delete(taskKey);
+    }
+  }, [clerk, salonName]);
 
   // A pending session with the choose-organization task never shows a
   // generic Clerk screen: the business shell is resolved server-side, named
   // after the salon, and activated here. Luster's own salon membership
   // remains the tenancy authority.
   useEffect(() => {
+    if (!pendingTask || pendingTask.taskKey !== 'choose-organization') {
+      return;
+    }
+    void resolvePendingOrganization(pendingTask);
+  }, [pendingTask, resolvePendingOrganization]);
+
+  const retryOrganizationSetup = useCallback(() => {
+    if (pendingTask?.taskKey === 'choose-organization') {
+      void resolvePendingOrganization(pendingTask, true);
+    }
+  }, [pendingTask, resolvePendingOrganization]);
+
+  const signInAgain = useCallback(async (sessionId: string) => {
+    const current = pendingTaskRef.current;
     if (
-      !pendingTask
-      || pendingTask.taskKey !== 'choose-organization'
-      || orgResolutionRef.current
+      signOutInFlightRef.current
+      || !mountedRef.current
+      || current?.sessionId !== sessionId
+      || current.taskKey !== 'choose-organization'
     ) {
       return;
     }
-    orgResolutionRef.current = true;
-    setStep({ kind: 'finalizing' });
-    void (async () => {
-      try {
-        const resolution = await resolveOnboardingOrganization(salonName);
-        const [firstOrganization] = resolution.organizations;
-        if (resolution.organizations.length === 1 && firstOrganization) {
-          await clerk.setActive({
-            organization: firstOrganization.id,
-            session: pendingTask.sessionId,
-          });
-          return;
-        }
-        setStep({ kind: 'org', organizations: resolution.organizations });
-      } catch (error) {
-        setFormError(error instanceof Error && error.message.trim()
-          ? error.message
-          : 'We couldn’t finish setting up your business. Try again.');
+    signOutInFlightRef.current = true;
+    setBusy(true);
+    try {
+      await clerk.signOut({ sessionId, redirectUrl: claimUrl });
+      const latest = pendingTaskRef.current;
+      if (mountedRef.current && latest?.sessionId === sessionId) {
+        pendingTaskRef.current = null;
+        setPendingTask(null);
         setStep({ kind: 'providers' });
-      } finally {
-        orgResolutionRef.current = false;
+        setFormError(ORGANIZATION_SESSION_ENDED_MESSAGE);
       }
-    })();
-  }, [clerk, pendingTask, salonName]);
+    } catch {
+      if (mountedRef.current && pendingTaskRef.current?.sessionId === sessionId) {
+        setFormError('We couldn’t restart sign-in. Please try again.');
+      }
+    } finally {
+      signOutInFlightRef.current = false;
+      if (mountedRef.current) {
+        setBusy(false);
+      }
+    }
+  }, [claimUrl, clerk]);
 
   const startOAuth = useCallback(async (provider: OAuthProviderStrategy) => {
     if (!signIn || busy) {
@@ -483,20 +637,35 @@ export function PremiumAccountGate({
   }, [busy, clearTransient, passwordValue, setActive, signIn, step]);
 
   const chooseOrganization = useCallback(async (organizationId: string) => {
-    if (!pendingTask || busy) {
+    const currentTask = pendingTaskRef.current;
+    if (
+      !pendingTask || busy || !mountedRef.current
+      || pendingTask.taskKey !== 'choose-organization'
+      || currentTask?.sessionId !== pendingTask.sessionId
+      || currentTask.taskKey !== pendingTask.taskKey
+      || step.kind !== 'org' || step.sessionId !== pendingTask.sessionId
+      || !step.organizations.some(organization => organization.id === organizationId)
+    ) {
       return;
     }
+    const selectedTask = pendingTask;
     setBusy(true);
     clearTransient();
     try {
-      await clerk.setActive({ organization: organizationId, session: pendingTask.sessionId });
-      setStep({ kind: 'finalizing' });
+      await clerk.setActive({ organization: organizationId, session: selectedTask.sessionId });
+      const current = pendingTaskRef.current;
+      if (current?.sessionId === selectedTask.sessionId && current.taskKey === selectedTask.taskKey) {
+        setStep({ kind: 'finalizing' });
+      }
     } catch {
-      setFormError('We couldn’t open that business. Try again.');
+      const current = pendingTaskRef.current;
+      if (current?.sessionId === selectedTask.sessionId && current.taskKey === selectedTask.taskKey) {
+        setFormError('We couldn’t open that business. Try again.');
+      }
     } finally {
       setBusy(false);
     }
-  }, [busy, clearTransient, clerk, pendingTask]);
+  }, [busy, clearTransient, clerk, pendingTask, step]);
 
   if (ssoCallback) {
     return (
@@ -934,6 +1103,44 @@ export function PremiumAccountGate({
                   </button>
                 ))}
               </div>
+            </section>
+          )
+        : null}
+
+      {step.kind === 'setup-error'
+        ? (
+            <section className="onboarding-gate__panel">
+              <h1 className="onboarding-gate__step-title" ref={headingRef} tabIndex={-1}>
+                Business setup needs attention
+              </h1>
+              <p className="onboarding-gate__error" role="alert">{step.message}</p>
+              <FormMessages formError={formError} statusNote={statusNote} />
+              {step.retryable
+                ? (
+                    <button
+                      className="onboarding-gate__primary"
+                      disabled={busy}
+                      type="button"
+                      onClick={retryOrganizationSetup}
+                    >
+                      {busy ? 'Trying again…' : 'Retry business setup'}
+                    </button>
+                  )
+                : null}
+              {step.sessionId
+                ? (
+                    <button
+                      className="onboarding-gate__primary"
+                      disabled={busy}
+                      type="button"
+                      onClick={() => {
+                        void signInAgain(step.sessionId as string);
+                      }}
+                    >
+                      {busy ? 'Signing out…' : 'Sign in again'}
+                    </button>
+                  )
+                : null}
             </section>
           )
         : null}

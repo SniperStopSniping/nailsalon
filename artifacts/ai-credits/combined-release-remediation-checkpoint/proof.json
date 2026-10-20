@@ -1,0 +1,74 @@
+{
+  "sourceParent": "9c839517cedd88733317272788a03e235528000a",
+  "preservedBuilderHead": "b5adefa28a8913d97a0f0021c2c866796f0e0c63",
+  "donorCandidate": "1f2162ac948192dc5f5019c7abd4ff9757f8f6cc",
+  "cherryPicks": {
+    "d806874b": "0abc9aab563c41dbeab004187c2d8a746d1725ca",
+    "f6a8fe16": "229ebd63e5fd79b6df430512be776fcdbb5d05c0",
+    "e489b0b4": "e37ed794a39561a326fe01097d9f0215fb15653a",
+    "6feee405": "584004ff0d9a7ffef80a587bcdd498fba53905d4",
+    "ab156c26": "52bf44eea6b5985620fe9d5e954c9e7ba2fafd7e",
+    "273327f1": "957346c92a425ee9cca4014aab1e348b0d776912",
+    "1f2162ac": "9c839517cedd88733317272788a03e235528000a"
+  },
+  "scopedProvenanceSource": "39579c0b636a8cf3594c1237bcf157d8d00c5ce7",
+  "reviewedDependencyBlobs": {
+    "package.json": "35b8e45ccdebc4b086e18b311539b23bab137e88",
+    "package-lock.json": "c8d051aa1953cbd1dc7320d366d5bb7f5a7f5a2b"
+  },
+  "builderCanvaRendererModulesUnchanged": true,
+  "focusedTests": {
+    "passed": 108,
+    "failed": 0,
+    "skipped": 0
+  },
+  "workflowAndProvenanceTests": {
+    "passed": 39,
+    "failed": 0,
+    "skipped": 0
+  },
+  "fullTypecheck": "passed",
+  "changedSourceLint": {
+    "files": 35,
+    "passed": true
+  },
+  "deletionBrowser": {
+    "passed": 8,
+    "projects": [
+      "desktop-chromium",
+      "mobile-webkit"
+    ]
+  },
+  "runtimeDependencyAudit": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "allDependencyAudit": {
+    "info": 0,
+    "low": 8,
+    "moderate": 26,
+    "high": 107,
+    "critical": 0,
+    "total": 141
+  },
+  "dependencyCacheQualification": "Local npm ls is NOT qualified: shared linked cache reports missing/extraneous entries. The donor package/lock bytes are exact; a fresh exact-head CI install must pass the strict installed-graph gate. No package was installed/removed.",
+  "priorFundingNativeCi": {
+    "sha": "b5adefa28a8913d97a0f0021c2c866796f0e0c63",
+    "runId": 39364479186,
+    "jobId": 118438327926,
+    "walletCases": 9,
+    "stepConclusion": "success",
+    "fullCiConclusion": "success",
+    "successfulJobs": 26
+  },
+  "newCombinedFullCi": "not yet run",
+  "productionAppDeployed": false,
+  "productionSalonDataChanged": false,
+  "productionMigrationApplied": false,
+  "newProviderGenerations": 0,
+  "newStripePayments": 0
+}

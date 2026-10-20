@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "sourceSha": "d0e7519b3a89f1b9256616e317e9e04383222de9",
+  "actualOwnerUi": true,
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "beforeRevision": 62,
+  "freshRevision": 63,
+  "restoredRevision": 64,
+  "reopenedBothChoicesVisible": true,
+  "retryHiddenAfterSuccess": true,
+  "cancelDidNotWrite": true,
+  "restoredPreviousGeneratedSource": true,
+  "businessServicesPolicyAndHoursPreserved": true,
+  "publicSalonUnchanged": true,
+  "historicalAppointmentsUnchanged": 6,
+  "additionalAiCalls": 0,
+  "refreshRetainsRestoredDraft": true,
+  "productionTouched": false,
+  "measurementCorrection": "Earlier 58-to-60 and 60-to-62 cycles passed the UI and domain checks but compared the entire salon row, including the intentionally updated manual draft projection. This rerun excludes only the three known draft-projection fields and the schema-defined automatic updated_at timestamp; published fields and all other salon values are compared."
+}

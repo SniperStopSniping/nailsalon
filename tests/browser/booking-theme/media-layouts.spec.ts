@@ -121,34 +121,35 @@ test('logo compositions preserve square, wide and tall uploads', async ({ page }
   }
 });
 
-test('all 24 headers leave the shipped Services markup unchanged', async ({ page, browserName }) => {
-  const menu = async () => page.locator('[data-public-surface="serviceMenu"]').evaluate((element) => {
-    const copy = element.cloneNode(true) as HTMLElement;
-    for (const node of copy.querySelectorAll('*')) {
-      for (const attribute of ['id', 'aria-controls', 'aria-labelledby', 'aria-describedby']) {
-        node.removeAttribute(attribute);
+// Keep every header/viewport comparison, with a fresh context and independent
+// deadline per header instead of accumulating 24 navigations in one WebKit tab.
+for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
+  test(`${layout.id} leaves the shipped Services markup unchanged`, async ({ page, browserName }) => {
+    const menu = async () => page.locator('[data-public-surface="serviceMenu"]').evaluate((element) => {
+      const copy = element.cloneNode(true) as HTMLElement;
+      for (const node of copy.querySelectorAll('*')) {
+        for (const attribute of ['id', 'aria-controls', 'aria-labelledby', 'aria-describedby']) {
+          node.removeAttribute(attribute);
+        }
       }
-    }
-    return copy.outerHTML;
-  });
 
-  test.setTimeout(180_000);
+      return copy.outerHTML;
+    });
 
-  for (const width of browserName === 'webkit' ? [390] : [390, 1440]) {
-    await page.setViewportSize({ width, height: 1000 });
-    await page.goto('/?step=service&quick-book-layout=compact_dropdown', { waitUntil: 'domcontentloaded' });
+    for (const width of browserName === 'webkit' ? [390] : [390, 1440]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto('/?step=service&quick-book-layout=compact_dropdown', { waitUntil: 'domcontentloaded' });
 
-    await expect(page.locator('[data-qbp-service]').first()).toBeVisible();
+      await expect(page.locator('[data-qbp-service]').first()).toBeVisible();
 
-    const shipped = await menu();
-    for (const layout of QUICK_BOOK_MEDIA_LAYOUTS) {
+      const shipped = await menu();
       await page.goto(`/?step=service&quick-book-layout=${layout.id}`, { waitUntil: 'domcontentloaded' });
 
       await expect(page.locator('[data-qbp-service]').first()).toBeVisible();
       expect(await menu(), `${layout.id} changed Services at ${width}px`).toBe(shipped);
     }
-  }
-});
+  });
+}
 
 test('older profile records render a selected new header without adopting new Services or visibility settings', async ({ page }) => {
   test.setTimeout(120_000);

@@ -1,0 +1,66 @@
+{
+  "revision": 4,
+  "artifactId": "79603cc0-7266-49ed-acf9-4f9103d73737",
+  "devices": [
+    {
+      "device": "desktop",
+      "sizes": {
+        "width": 1440,
+        "content": 1440,
+        "parentReadable": false
+      },
+      "services": "BIAB\n$65.00\n·\n75 min\nBook now ↗\nGel manicure\n$50.00\n·\n60 min\nBook now ↗",
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/",
+          "role": null
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test",
+          "role": null
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109",
+          "role": null
+        }
+      ]
+    },
+    {
+      "device": "mobile",
+      "sizes": {
+        "width": 390,
+        "content": 390,
+        "parentReadable": false
+      },
+      "services": "BIAB\n$65.00\n·\n75 min\nBook now ↗\nGel manicure\n$50.00\n·\n60 min\nBook now ↗",
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/",
+          "role": null
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test",
+          "role": null
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109",
+          "role": null
+        }
+      ]
+    }
+  ],
+  "hosted": true,
+  "manualSourceRepair": false
+}

@@ -90,6 +90,13 @@ export function getDateKeyInTimeZone(value: Date, timeZone?: string | null): str
   return `${year}-${month}-${day}`;
 }
 
+/** Advance a calendar date without assuming every local day lasts 24 hours. */
+export function addDaysToDateKey(date: string, days: number): string {
+  const value = new Date(`${date}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 export function getTimeKeyInTimeZone(value: Date, timeZone?: string | null): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timeZone ?? DEFAULT_BOOKING_TIME_ZONE,
@@ -102,6 +109,13 @@ export function getTimeKeyInTimeZone(value: Date, timeZone?: string | null): str
   const minute = parts.find(part => part.type === 'minute')?.value;
 
   return `${hour === '24' ? '00' : hour}:${minute}`;
+}
+
+/** Reject skipped local times during a daylight-saving transition. */
+export function isZonedTimeMatch(value: Date, args: { date: string; time: string; timeZone?: string | null }): boolean {
+  const [hour = '', minute = ''] = args.time.split(':');
+  return getDateKeyInTimeZone(value, args.timeZone) === args.date
+    && getTimeKeyInTimeZone(value, args.timeZone) === `${hour.padStart(2, '0')}:${minute}`;
 }
 
 export function formatDateInTimeZone(

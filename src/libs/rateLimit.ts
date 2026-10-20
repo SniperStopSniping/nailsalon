@@ -165,6 +165,8 @@ export function getClientIp(request: Request): string {
  * Rate limit presets for different endpoint types
  */
 export const RATE_LIMIT_PRESETS = {
+  /** Lazy website photo reads; a saved gallery may contain sixty images. */
+  MEDIA_READ: { maxRequests: 180, windowMs: 60 * 1000 },
   /** OTP/auth - strict limits (already handled by checkOtpRateLimit) */
   AUTH: { maxRequests: 5, windowMs: 60 * 1000 },
   /** Reviews - prevent spam (5 per minute per IP) */

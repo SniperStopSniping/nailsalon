@@ -1,0 +1,20 @@
+{
+  "baseSha": "3b7baeffb411943aeba226abc8ba6a26af7982ce",
+  "failedCiRunId": 39372657086,
+  "rootCause": "Vite lazy dnd-kit dependency optimization used a second React hook dispatcher in the browser fixture.",
+  "changedRuntimeApplicationFiles": 0,
+  "scopedBrowserConfigurationFix": true,
+  "desktopChromiumAndIPhoneProfileWebKit": true,
+  "affectedSuitePassed": 70,
+  "affectedSuiteFailed": 0,
+  "tallWideSmallArtworkCasesPassed": 6,
+  "visiblePixelsPreserved": true,
+  "linksBackgroundReloadAndTransportPreserved": true,
+  "fullTypeScript": "passed",
+  "scopedEslint": "passed",
+  "whitespace": "passed",
+  "exactNewHeadCi": "required after commit",
+  "productionDeployed": false,
+  "stagedTreeSecretScan": "passed",
+  "priorCommitRangeSecretScan": "passed,114 reviewed commits"
+}

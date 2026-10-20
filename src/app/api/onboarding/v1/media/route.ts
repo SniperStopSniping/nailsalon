@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, or } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { SetupError } from '@/features/business-setup/contracts';
+import { uploadOnboardingArtwork } from '@/features/custom-sites/assets.server';
 import {
   type CanonicalOnboardingProfileMedia,
   CanonicalOnboardingProfileMediaError,
@@ -288,15 +290,17 @@ export async function POST(request: Request): Promise<Response> {
 
   let storageKey: string | null = null;
   try {
-    const stored = await saveOnboardingMediaFile({
-      file,
-      role: parsed.data.role,
-      revisionId: authorized.revisionId,
-      salonId: authorized.salonId,
-      siteId: authorized.siteId,
-      stableItemId: parsed.data.localItemId,
-      uploadAttemptId: uploadLeaseId,
-    });
+    const stored = parsed.data.role === 'custom_design'
+      ? await uploadOnboardingArtwork(authorized, file)
+      : await saveOnboardingMediaFile({
+        file,
+        role: parsed.data.role,
+        revisionId: authorized.revisionId,
+        salonId: authorized.salonId,
+        siteId: authorized.siteId,
+        stableItemId: parsed.data.localItemId,
+        uploadAttemptId: uploadLeaseId,
+      });
     storageKey = stored.storageKey;
     const publicUrl = `/api/onboarding/v1/media/${manifestItem.id}`;
     const [ready] = await db
@@ -371,7 +375,7 @@ export async function POST(request: Request): Promise<Response> {
     if (storageKey) {
       await deleteOnboardingMediaFile(storageKey, authorized).catch(() => undefined);
     }
-    const code = error instanceof OnboardingMediaStorageError
+    const code = error instanceof OnboardingMediaStorageError || error instanceof SetupError
       ? error.code
       : error instanceof CanonicalOnboardingProfileMediaError
         ? error.code
@@ -388,10 +392,10 @@ export async function POST(request: Request): Promise<Response> {
       error: {
         code,
         message: error instanceof OnboardingMediaStorageError
-          || error instanceof CanonicalOnboardingProfileMediaError
+          || error instanceof SetupError || error instanceof CanonicalOnboardingProfileMediaError
           ? error.message
           : 'This image could not be saved. Your local copy is still safe.',
       },
-    }, { status: 422 });
+    }, { status: error instanceof SetupError && error.code === 'STALE' ? 409 : error instanceof SetupError && error.code === 'FORBIDDEN' ? 404 : 422 });
   }
 }

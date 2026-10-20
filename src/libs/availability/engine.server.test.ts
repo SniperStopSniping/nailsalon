@@ -132,6 +132,46 @@ describe('preflightDayAvailability', () => {
 });
 
 describe('computeDaySlots — explain aggregate', () => {
+  it('offers and checks the same salon-local hours outside Toronto', () => {
+    const input = baseInput({ timeZone: 'America/Vancouver' });
+    input.bookingPolicy.appointmentsByTechnician.set(TECH_ID, [{ id: 'vancouver-appt', startTime: new Date('2026-03-06T17:00:00Z'), endTime: new Date('2026-03-06T18:00:00Z') }]);
+    const result = explain(input);
+
+    expect(result.visibleSlots).toEqual(['9:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00']);
+    expect(result.slots.find(slot => slot.time === '9:00')).toMatchObject({ startTime: '2026-03-06T17:00:00.000Z' });
+    expect(result.bookedSlots).toContain('9:00');
+    expect(result.explanation.bookableSlotCount).toBe(7);
+  });
+
+  it.each(['America/Toronto', 'America/Vancouver'])('omits nonexistent spring-forward starts in %s', (timeZone) => {
+    const result = explain(baseInput({
+      date: '2026-03-08',
+      timeZone,
+      now: new Date('2026-03-01T00:00:00Z'),
+      visibleDurationMinutes: 30,
+      slotIntervalMinutes: 30,
+      technicians: [{ ...baseInput().technicians[0]!, weeklySchedule: { sunday: { start: '00:00', end: '05:00' } } }],
+    }));
+
+    expect(result.visibleSlots).not.toContain('2:00');
+    expect(result.visibleSlots).not.toContain('2:30');
+    expect(result.visibleSlots).toContain('3:00');
+    expect(new Set(result.slots.map(slot => slot.startTime)).size).toBe(result.slots.length);
+  });
+
+  it('offers a repeated fall-back local start once with one exact instant', () => {
+    const result = explain(baseInput({
+      date: '2026-11-01',
+      timeZone: 'America/Vancouver',
+      visibleDurationMinutes: 30,
+      slotIntervalMinutes: 30,
+      technicians: [{ ...baseInput().technicians[0]!, weeklySchedule: { sunday: { start: '00:00', end: '05:00' } } }],
+    }));
+
+    expect(result.slots.filter(slot => slot.time === '1:30')).toHaveLength(1);
+    expect(new Set(result.slots.map(slot => slot.startTime)).size).toBe(result.slots.length);
+  });
+
   it('reports a fully open day with no refusals inside the working window', () => {
     const { explanation, visibleSlots } = explain(baseInput());
 

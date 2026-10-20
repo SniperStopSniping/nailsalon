@@ -620,14 +620,14 @@ describe('FinalReviewScreen', () => {
       />,
     );
 
-    expect(screen.getByText('Clients can book you')).toBeVisible();
+    expect(screen.getByText('Booking is set up')).toBeVisible();
     expect(screen.getByLabelText('Selected website design'))
       .toHaveTextContent('Website styleSoftColoursBlush & Cocoa');
     expect(screen.getByRole('button', { name: 'Finish setup' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Edit Clients can book you' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Booking is set up' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit Business information' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit Contact and privacy' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Edit Looks right on a phone' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Phone preview available' })).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Tablet' }));
 
@@ -660,7 +660,7 @@ describe('FinalReviewScreen', () => {
   });
 
   it('keeps mobile readiness collapsed below the preview until the owner opens it', async () => {
-    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation(query => ({
+    vi.stubGlobal('matchMedia', vi.fn((query: string): MediaQueryList => ({
       addEventListener: vi.fn(),
       addListener: vi.fn(),
       dispatchEvent: vi.fn(() => true),
@@ -669,7 +669,7 @@ describe('FinalReviewScreen', () => {
       onchange: null,
       removeEventListener: vi.fn(),
       removeListener: vi.fn(),
-    }));
+    })));
     const state = createDanielaFixtureState();
     const document = initializeStarter('one_page');
     render(
@@ -703,8 +703,6 @@ describe('FinalReviewScreen', () => {
     expect(detail).not.toHaveAttribute('aria-hidden');
     expect(screen.getByRole('button', { name: /Hide checklist/u }))
       .toHaveAttribute('aria-expanded', 'true');
-
-    matchMedia.mockRestore();
   });
 
   it('opens the real Canva repair flow for a missing uploaded page', async () => {

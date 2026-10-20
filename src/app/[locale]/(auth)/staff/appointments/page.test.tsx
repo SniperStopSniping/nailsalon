@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import StaffAppointmentsPage from './page';
 
@@ -51,6 +51,10 @@ describe('StaffAppointmentsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('shows the access-required state when the staff user is signed out', async () => {
@@ -108,6 +112,10 @@ describe('StaffAppointmentsPage', () => {
   });
 
   it('lets staff confirm an early report and keeps the sharing acknowledgement visible', async () => {
+    // A rolling +30-minute fixture leaves today's calendar after 23:30 UTC.
+    // Freeze only Date at a daytime instant; async UI timers stay real.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-16T16:00:00.000Z'));
     useUserMock.mockReturnValue({ user: { id: 'user_1' }, isLoaded: true });
     const startTime = new Date(Date.now() + 30 * 60_000).toISOString();
     const appointment = {
@@ -154,6 +162,10 @@ describe('StaffAppointmentsPage', () => {
       communications: [],
     };
     let report: unknown;
+    let finishLoadingDetail!: () => void;
+    const detailReady = new Promise<void>((resolve) => {
+      finishLoadingDetail = resolve;
+    });
     fetchMock.mockImplementation(async (url: string, options?: RequestInit) => {
       if (url.endsWith('/cancel')) {
         report = JSON.parse(String(options?.body));
@@ -161,12 +173,21 @@ describe('StaffAppointmentsPage', () => {
         return Response.json({ data: { appointment, noShowSharing: 'shared' } });
       }
       if (url.endsWith('/manage')) {
+        await detailReady;
         return Response.json({ data: detail });
       }
       return Response.json({ data: { appointments: [appointment] } });
     });
     render(<StaffAppointmentsPage />);
     fireEvent.click(await screen.findByTestId('appointment-block-appt_1'));
+
+    expect(await screen.findByText('Loading appointment details…')).toBeVisible();
+
+    // Finish the real loading transition, including the sheet's reset effect,
+    // before opening Details. Clicking between those commits is timing-dependent.
+    await act(async () => {
+      finishLoadingDetail();
+    });
     fireEvent.click(await screen.findByRole('button', { name: /^Details Show$/ }));
     fireEvent.click(await screen.findByTestId('appointment-sheet-no-show'));
 

@@ -52,7 +52,7 @@ export const getReadinessItems = (
       status: 'needs_attention',
     });
   } else {
-    items.push({ id: 'booking-path', label: 'Clients can book you', status: 'ready' });
+    items.push({ id: 'booking-path', label: 'Booking is set up', detail: 'Customers can book after you review and publish.', status: 'ready' });
   }
   if (state.profile.businessName.trim()) {
     items.push({ id: 'business-name', label: 'Business information', status: 'ready' });
@@ -60,7 +60,7 @@ export const getReadinessItems = (
   if (hasPublicContactMethod(state)) {
     items.push({ id: 'contact', label: 'Contact and privacy', status: 'ready' });
   }
-  items.push({ id: 'mobile', label: 'Looks right on a phone', status: 'ready' });
+  items.push({ id: 'mobile', label: 'Phone preview available', status: 'ready' });
   items.push({ id: 'style', label: 'Website style', screen: 'site_style', status: 'ready' });
 
   const combinedPolicyReady = isDepositsAndCancellationsComplete(state.profile.policies)

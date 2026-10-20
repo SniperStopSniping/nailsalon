@@ -1,0 +1,37 @@
+{
+  "provider": "openai",
+  "model": "gpt-6-astra",
+  "calls": [
+    {
+      "id": "5442416d-d93e-4f07-8d4d-12c0f9fd463d",
+      "operation_id": "5dc34015-dfd6-413b-9547-7de24adeb61e",
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 8275,
+      "output_tokens": 3427,
+      "cost_micro_usd": 274780,
+      "charged_micro_cad": 549560,
+      "elapsed_ms": 62876,
+      "validation": "passed"
+    },
+    {
+      "id": "94062c91-c993-4f79-9b8b-04be875c732e",
+      "operation_id": "955a9574-a8ac-4553-be3d-3e936e6ac60d",
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 11435,
+      "output_tokens": 3892,
+      "cost_micro_usd": 337530,
+      "charged_micro_cad": 675060,
+      "elapsed_ms": 61119,
+      "validation": "passed"
+    }
+  ],
+  "newEstimatedUsd": 0.61231,
+  "newConservativeCad": 1.22462,
+  "combinedTrialChargedOrReservedCad": 14.772002,
+  "approvedCapCad": 40,
+  "accountingNote": "Measured provider token usage at configured standard rates; CAD uses conservative 2 CAD per USD allowance, not invoice FX. Earlier unknown-charge timeout reserve remains charged."
+}

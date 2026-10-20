@@ -1,0 +1,99 @@
+{
+  "passed": true,
+  "applicationSourceSha": "f481debeaea9a1d6adf1352a061f723f4fdf5310",
+  "browser": "WebKit iPhone13 emulation",
+  "physicalDevice": false,
+  "nativeCustomerActions": true,
+  "website": "Existing genuinely model-generated Cobalt site; no source repair or replacement",
+  "publicationRevision": 9,
+  "creationResponseStatus": 201,
+  "appointmentRequestCount": 2,
+  "successfulBookingRequests": 1,
+  "intentionalNegativeProbeRequests": 1,
+  "exactlyOneNewAppointment": true,
+  "newAppointmentId": "appt_f00e2c66-80e5-4c03-a42b-c7118cfb46a7",
+  "existingAppointmentId": "appt_f8fa06e3-4516-41f3-9048-c885ea2d15ad",
+  "allExistingAppointmentRowsPreserved": true,
+  "appointments": [
+    {
+      "id": "appt_f8fa06e3-4516-41f3-9048-c885ea2d15ad",
+      "total_price": 7000,
+      "total_duration_minutes": 75
+    },
+    {
+      "id": "appt_f00e2c66-80e5-4c03-a42b-c7118cfb46a7",
+      "total_price": 7000,
+      "total_duration_minutes": 75
+    }
+  ],
+  "serviceAndStaffBindingChecks": [
+    {
+      "originalBooking": true,
+      "preservedCanva": false,
+      "serviceId": "4c854040-0158-45b0-9830-dbf093b7ad7a",
+      "serviceName": "BIAB",
+      "targetWidth": 126.3125,
+      "targetHeight": 58
+    },
+    {
+      "originalBooking": true,
+      "selectedStaff": "AI Test Owner",
+      "staffEligibilityVerified": true
+    }
+  ],
+  "newAppointmentLocalTime": "2026-10-20 11:30 America/Toronto",
+  "priceCents": 7000,
+  "durationMinutes": 75,
+  "serverProbes": [
+    {
+      "kind": "virtual-preview-service-rejected",
+      "status": 400,
+      "code": "INVALID_SELECTION"
+    }
+  ],
+  "anonymousPrivateAddressChecks": [
+    {
+      "path": "/studio-c58c6f3a375d43d0/book/service",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    },
+    {
+      "path": "/studio-c58c6f3a375d43d0/book/service",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    },
+    {
+      "path": "/studio-c58c6f3a375d43d0/book/time",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    },
+    {
+      "path": "/api/appointments/availability",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    },
+    {
+      "path": "/studio-c58c6f3a375d43d0/book/confirm",
+      "status": 200,
+      "beforeAppointmentCreation": true,
+      "leaked": false
+    }
+  ],
+  "textsOptedOutAndDisabled": true,
+  "paymentProviderDisabled": true,
+  "newPurchases": 0,
+  "modelCalls": 0,
+  "providerMicroUsd": 0,
+  "fundingEvidence": {
+    "balance_micro_cad": "9775907",
+    "purchase_entries": 1,
+    "recovery_entries": 0
+  },
+  "browserErrors": [],
+  "productionChanged": false,
+  "hostedDeployment": false
+}

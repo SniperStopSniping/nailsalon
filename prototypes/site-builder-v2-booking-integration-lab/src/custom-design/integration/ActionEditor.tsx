@@ -157,6 +157,7 @@ export function ActionEditor({
   const fallbackType = options[0]?.type ?? 'start_booking';
   const [draft, setDraft] = useState<ActionDraft>(() =>
     actionToDraft(initialAction, internalTargets, fallbackType));
+  const [showAllTypes, setShowAllTypes] = useState(false);
   const [valid, setValid] = useState(() =>
     parseCustomDesignAction(draftToCandidate(
       actionToDraft(initialAction, internalTargets, fallbackType),
@@ -180,7 +181,7 @@ export function ActionEditor({
       {typePicker === 'buttons'
         ? (
             <div className="custom-design-action-types" role="group" aria-label="Link type">
-              {options.map(option => (
+              {options.filter(option => showAllTypes || option.type === draft.type || (option.type !== 'internal' && option.type !== 'custom_url')).map(option => (
                 <button
                   aria-pressed={draft.type === option.type}
                   key={option.type}
@@ -190,6 +191,9 @@ export function ActionEditor({
                   {option.label}
                 </button>
               ))}
+              {options.some(option => option.type === 'internal' || option.type === 'custom_url')
+                ? <button aria-expanded={showAllTypes} type="button" onClick={() => setShowAllTypes(current => !current)}>{showAllTypes ? 'Fewer link types' : 'More link types'}</button>
+                : null}
             </div>
           )
         : (

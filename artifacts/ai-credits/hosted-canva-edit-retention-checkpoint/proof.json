@@ -1,0 +1,94 @@
+{
+  "sourceCommit": "57446ad2605534947496cda670a9d5be6c063003",
+  "deploymentId": "dpl_5htScVe2h4RxG2iX3YT8xA1V936w",
+  "deploymentUrl": "https://isla-nail-studio-d0pu4b96y-sniperstopsnipings-projects.vercel.app",
+  "alias": "https://luster-ai-builder-test.vercel.app",
+  "previewOnly": true,
+  "exactProjectShaBranch": true,
+  "committedTypesAnd164Pages": true,
+  "runtimeChecks": {
+    "db": true,
+    "redis": true,
+    "clerkEnv": true,
+    "optionalIntegrationsDisabled": true
+  },
+  "nodeTests": 196,
+  "focusedReplayRerun": {
+    "passed": 2,
+    "filteredOut": 159,
+    "overlapsNodeSuite": true
+  },
+  "scopedTypes": true,
+  "eslint": true,
+  "secretScanTrackedFiles": 5225,
+  "naturalChromeStall": {
+    "observed": true,
+    "controlledFaultInjection": false,
+    "ordinaryReloadWebsiteRecovered": true,
+    "consoleWarningsObserved": []
+  },
+  "publicDesktop": {
+    "imageWidth": 1120,
+    "imageHeight": 622.21875,
+    "originalPixels": [
+      900,
+      500
+    ],
+    "background": "rgb(232, 218, 186)",
+    "gap": 16
+  },
+  "publicPhone": {
+    "context": "owner-authenticated IAB on public route",
+    "viewportWidth": 390,
+    "imageWidth": 390,
+    "imageHeight": 216.6640625,
+    "documentWidth": 390,
+    "physicalTouchScrollingQualified": false
+  },
+  "signedOutChromeOriginalBooking": {
+    "canonicalServiceId": "svc_a7923a48_ca1d_4648_ab4e_da022373b8ff_gel-manicure",
+    "staffId": "cbbe13c6-7399-496c-88d6-36cdafe54934",
+    "priceCad": 65,
+    "durationMinutes": 60,
+    "minimumNoticeMinutes": 120,
+    "bufferMinutes": 10,
+    "date": "2026-10-21",
+    "availableSlots": 19,
+    "onePmOffered": false,
+    "twoPmOffered": false,
+    "twoFifteenOffered": true,
+    "newAppointmentSubmitted": false
+  },
+  "privatePreviewBookingDisabledObserved": true,
+  "draftRevision": 16,
+  "publishedRevision": 14,
+  "dataIsolation": {
+    "protectedOtherBusinesses": true,
+    "zeroNewAiCalls": true,
+    "mode": "published",
+    "records": {
+      "onboarding_draft_claim": 2,
+      "onboarding_site_revision": 2,
+      "onboarding_site_media": 2,
+      "custom_site_asset": 7,
+      "business_setup_workspace": 1,
+      "business_setup_revision": 16,
+      "business_setup_publication": 2,
+      "custom_site_artifact": 9,
+      "appointment": 1
+    }
+  },
+  "newRealProviderTrial": {
+    "ran": false,
+    "reason": "Selected manual synthetic salon has zero customer AI credits; no purchase or grant made.",
+    "newCalls": 0,
+    "globalCallsUnchanged": 170
+  },
+  "productionTouched": false,
+  "limitations": [
+    "Manual fixture, not a new model-generated custom frontend.",
+    "New AI edit contract is deterministically tested; a funded real-provider owner regression remains.",
+    "No fresh appointment was submitted; original completed synthetic booking remains preserved.",
+    "Native About-photo/gallery/review handoff and combined release gates are unfinished."
+  ]
+}

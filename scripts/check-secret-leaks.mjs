@@ -42,6 +42,9 @@ const RULES = {
 // Allowlisting is value-specific. These fingerprints bind a safe value to its
 // exact path and rule/key, so changing or moving it cannot exempt nearby data.
 const SAFE_ASSIGNMENT_FINGERPRINTS = new Set([
+  // Historical evidence manifest: exact path/key and verified file SHA256.
+  // Current manifests use explicit path/sha256 entries; adjacent secrets stay scanned.
+  '969aca4759330192b224b86f74b169c67148fd0b3097b7a954890f9812efd732',
   // Infra PR 1 disposable PostgreSQL service password in CI.yml.
   'f2058d6e1a93e15360880c33992a289dfaccb9832632850e36c91c95ee4e5552',
   // CI constructs this synthetic E2E-only password from GitHub run metadata.

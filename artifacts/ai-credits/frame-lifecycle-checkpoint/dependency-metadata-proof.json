@@ -1,0 +1,11 @@
+{
+  "versions": {
+    "before": "1.143.2",
+    "after": "1.143.3"
+  },
+  "dependencyGraphIdentical": true,
+  "node24Retained": true,
+  "previousExactPairReviewed": true,
+  "oldPair": "415d1c90eb42ea7230692a3f241d6febe7e872d6:c7bb0015690ce967afed8f1776d28ced92d5f116",
+  "newPair": "f672f9951f0de6f8229cca3fde5981a4bdc8522a:af4bf5fe330d46ebb4dbd1947d0b326a9b70fa35"
+}

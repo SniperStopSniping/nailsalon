@@ -1,0 +1,72 @@
+{
+  "source": "0e65facb9d4d222f5cd97044852f28014f9220c0",
+  "environment": "isolated_preview",
+  "nativeEnrollmentEnabled": false,
+  "ownerNativeUploadAcceptance": false,
+  "productionChanged": false,
+  "app": {
+    "deploymentId": "dpl_Dq1e5gdrxQtmNd71YikUsvPgzsJM",
+    "target": null,
+    "state": "READY",
+    "runtimeSha": "0e65fac",
+    "db": true,
+    "redis": true,
+    "clerk": true,
+    "schema": "ready"
+  },
+  "nativeMediaDeniedRead": {
+    "statuses": [
+      "404"
+    ],
+    "privateNoStore": true,
+    "varyCookie": true,
+    "bodyBytes": 0
+  },
+  "renderer": {
+    "deploymentId": "dpl_F8x1J2QXjiNutnbi6TfD98vfVS5y",
+    "target": null,
+    "state": "READY",
+    "headStatus": 200,
+    "capability": "native-images-v1",
+    "setCookie": false,
+    "getStatus": 200,
+    "cspHashMatches": true,
+    "exactParent": true,
+    "ancestorsExact": true,
+    "networkDisabled": true,
+    "opaqueSandbox": true,
+    "nativeLoadingPresent": true
+  },
+  "currentTestAppSha": "57446ad2605534947496cda670a9d5be6c063003",
+  "currentTestRendererSha": "39014e51cd3dabdcc4a5aa06f4a2a81255b6caba",
+  "previousRendererBodySha256": "226dfe905052f79df54a8259b2a141052c55de3b6c15081cdf4512535096ebc9",
+  "rollbackAliasBodyMatchesPrevious": true,
+  "existingBooking": {
+    "priceCents": 6500,
+    "durationMinutes": 60,
+    "bufferMinutes": 10,
+    "noticeMinutes": 120,
+    "date": "2026-10-21",
+    "availableTimes": 19,
+    "onePmOffered": false,
+    "twoPmOffered": false,
+    "twoFifteenPmOffered": true,
+    "appointmentCreated": false
+  },
+  "isolation": {
+    "otherBusinessesPreserved": true,
+    "zeroNewAiCalls": true,
+    "existingAppointmentsPreserved": true,
+    "records": {
+      "onboarding_draft_claim": 2,
+      "onboarding_site_revision": 2,
+      "onboarding_site_media": 2,
+      "custom_site_asset": 7,
+      "business_setup_workspace": 1,
+      "business_setup_revision": 16,
+      "business_setup_publication": 2,
+      "custom_site_artifact": 9,
+      "appointment": 1
+    }
+  }
+}

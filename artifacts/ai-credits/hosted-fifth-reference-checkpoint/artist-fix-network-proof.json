@@ -1,0 +1,26 @@
+{
+  "sourceSha": "081b5d8358f654e323c9712d9a1d4ad581fb29ff",
+  "revision": 77,
+  "requestedArtistId": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+  "returnedArtistId": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+  "persistedResponseArtistId": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+  "appointmentId": "appt_f7ac8e03-c266-465a-9f30-c5321aa7ca4d",
+  "apiResponses": [
+    {
+      "status": 200,
+      "path": "/api/appointments/availability"
+    },
+    {
+      "status": 200,
+      "path": "/api/appointments/availability"
+    },
+    {
+      "status": 201,
+      "path": "/api/appointments"
+    }
+  ],
+  "uiConfirmsCommittedMorgan": true,
+  "bothArtistsAvailableAtRequestedTime": true,
+  "manualSourceRepair": false,
+  "productionTouched": false
+}

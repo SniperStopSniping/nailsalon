@@ -1,0 +1,30 @@
+{
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "exactPrompt": "Keep the design, but change BIAB to $65.",
+  "beforeRevision": 45,
+  "afterRevision": 46,
+  "status": "completed",
+  "elapsedMs": 5310,
+  "calls": [
+    {
+      "id": "573ac915-e42a-4265-bcd5-180aa61ecde9",
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 6542,
+      "output_tokens": 185,
+      "cost_micro_usd": 911,
+      "elapsed_ms": 3664,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "canonicalDraftPriceCents": 6500,
+  "publicPriceBeforeApprovalCents": 7500,
+  "serviceIdentity": "774fd1cd-1e6c-4396-abbd-757613f3328c",
+  "durationMinutes": 75,
+  "priceConfirmed": false,
+  "designAndOtherSettingsUnchanged": true,
+  "historicalAppointmentsPreserved": 4,
+  "frontendRegeneration": false
+}

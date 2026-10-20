@@ -1,0 +1,184 @@
+{
+  "source": "0e65facb9d4d222f5cd97044852f28014f9220c0",
+  "environment": "isolated_preview",
+  "productionChanged": false,
+  "app": {
+    "deploymentId": "dpl_3iKVTB1Qw3qcmHc9qMssbY9t8vGz",
+    "target": null,
+    "state": "READY",
+    "alias": "luster-ai-builder-test.vercel.app"
+  },
+  "renderer": {
+    "deploymentId": "dpl_F8x1J2QXjiNutnbi6TfD98vfVS5y",
+    "target": null,
+    "state": "READY",
+    "alias": "luster-ai-render-test.vercel.app",
+    "capability": "native-images-v1",
+    "bodySha256": "b3d4b2fdf7b3372dfcde10f2b12546d17c8db7b8434c2aa46800ace36699ee30"
+  },
+  "enrollment": {
+    "key": "CUSTOM_SITE_NATIVE_PHOTOS_ENABLED",
+    "target": [
+      "preview"
+    ],
+    "gitBranch": "codex/ai-website-release-20261019",
+    "enabled": true,
+    "credentialsChanged": false
+  },
+  "localTests": {
+    "backend": {
+      "tests": 223,
+      "files": 5
+    },
+    "ui": {
+      "tests": 41,
+      "files": 4
+    },
+    "rerunThisHostedCheckpoint": false
+  },
+  "publication": {
+    "environment": "isolated_preview",
+    "headRevision": 22,
+    "artifactId": "e595cc96-4d51-4475-9ee1-d8379d947c6d",
+    "sourceHash": "c1571fcf0bbf9674fecca1b8b6157f3bc78ba3808736c7f6d04571fd31c0eff0",
+    "publication": {
+      "revision": 22,
+      "media_finalized": true,
+      "approved_revision": 22
+    },
+    "artworkAndLinksUnchanged": true,
+    "exactLiveArtifact": true
+  },
+  "draftMediaDenied": {
+    "status": 404,
+    "bodyBytes": 0,
+    "privateNoStore": true,
+    "varyCookie": true,
+    "headRevision": 21
+  },
+  "publishedMedia": {
+    "headRevision": 22,
+    "publicImages": [
+      {
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 6906,
+        "sha256": "81fd2e09bc8331ab683ac7750908de7360785b0dda272d3cf67083a85c5b593a",
+        "privateNoStore": true,
+        "varyCookie": true
+      },
+      {
+        "status": 200,
+        "contentType": "image/webp",
+        "bytes": 7056,
+        "sha256": "dae641c16128c344b8ef5eac5c627444dfaf6ac9cce2fb71cb86449e3b657a61",
+        "privateNoStore": true,
+        "varyCookie": true
+      }
+    ],
+    "crossSiteRequest": {
+      "status": 403,
+      "bodyBytes": 0
+    }
+  },
+  "booking": {
+    "environment": "isolated_preview",
+    "appointment": {
+      "id": "appt_1463d4fa-cc6e-4e32-82b5-cdf9d6e3724f",
+      "start_time": "2026-10-21T18:15:00.000Z",
+      "end_time": "2026-10-21T19:15:00.000Z",
+      "status": "confirmed",
+      "technician_id": "cbbe13c6-7399-496c-88d6-36cdafe54934",
+      "total_price": 6500,
+      "total_duration_minutes": 60,
+      "buffer_minutes": 10,
+      "blocked_duration_minutes": 70
+    },
+    "services": [
+      {
+        "service_id": "svc_a7923a48_ca1d_4648_ab4e_da022373b8ff_gel-manicure",
+        "price_at_booking": 6500,
+        "duration_at_booking": 60
+      }
+    ],
+    "communications": [
+      {
+        "channel": "email",
+        "status": "pending",
+        "attempts": 0,
+        "blocked_reason": null
+      }
+    ],
+    "delivery": [
+      {
+        "channel": "email",
+        "status": "failed",
+        "error_code": "RESEND_NOT_CONFIGURED",
+        "provider_accepted": false
+      },
+      {
+        "channel": "email",
+        "status": "failed",
+        "error_code": "RESEND_NOT_CONFIGURED",
+        "provider_accepted": false
+      }
+    ],
+    "otherAppointmentCount": 1
+  },
+  "availability": {
+    "before": 19,
+    "after": 14,
+    "existingOnePmProtected": true,
+    "twoFifteenRemovedAfterBooking": true,
+    "threeThirtyAvailableAfterBooking": true
+  },
+  "dimensions": {
+    "desktop": {
+      "artwork": [
+        1120,
+        622.21875
+      ],
+      "portrait": [
+        532,
+        1064
+      ],
+      "wide": [
+        532,
+        212.796875
+      ]
+    },
+    "phone": {
+      "viewport": [
+        390,
+        844
+      ],
+      "outerScrollWidth": 390,
+      "artwork": [
+        390,
+        216.6640625
+      ],
+      "portrait": [
+        358,
+        716
+      ],
+      "wide": [
+        358,
+        143.1953125
+      ]
+    }
+  },
+  "isolation": {
+    "businesses": 19,
+    "other18Preserved": true,
+    "originalAppointmentPreserved": true,
+    "canonicalServicesStaffAndBookingSettingsUnchanged": true,
+    "newAppointments": 1,
+    "assetsBefore": 7,
+    "assetsAfter": 9,
+    "mediaAliasesBefore": 2,
+    "mediaAliasesAfter": 4,
+    "legacyClaimAndRevisionCountsUnchanged": true,
+    "newAiCalls": 0,
+    "providerCostThisCheckpointCad": 0
+  }
+}

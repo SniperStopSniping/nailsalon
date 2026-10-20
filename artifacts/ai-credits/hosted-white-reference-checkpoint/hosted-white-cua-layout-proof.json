@@ -1,0 +1,41 @@
+{
+  "layoutChecks": [
+    {
+      "device": "desktop",
+      "contentWidth": 1309,
+      "width": 1309,
+      "prices": [
+        "$65.00",
+        "$50.00",
+        "$35.00"
+      ],
+      "durations": [
+        "75",
+        "60",
+        "45"
+      ],
+      "serviceIds": [
+        "setup_preview_774fd1cd-1e6c-4396-abbd-757613f3328c",
+        "setup_preview_585573ae-827d-41cf-a0dc-625d1fa578ed",
+        "setup_preview_22fa1c6c-e5c7-4cd7-a39f-be5ce17d606e"
+      ]
+    },
+    {
+      "device": "mobile",
+      "contentWidth": 390,
+      "width": 390
+    },
+    {
+      "device": "desktop",
+      "contentWidth": 1440,
+      "width": 1440
+    }
+  ],
+  "viewportOverrideReset": true,
+  "notes": [
+    "Browser zoom was 1.1; requested viewport was adjusted to measure390 and1440 CSSpx.",
+    "Native wide screenshot capture duplicated/cropped composited regions. Do not use those screenshots as desktop fidelity evidence.",
+    "390 CSSpx full viewport CDP screenshot was correct."
+  ],
+  "manualSourceRepair": false
+}

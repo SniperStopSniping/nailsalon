@@ -19,6 +19,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import type { SalonDeletionAsset } from './salonDeletion';
+
 export {
   ADD_ON_CATEGORIES,
   type AddOnCategory,
@@ -93,12 +95,14 @@ export const serviceCategoryEnum = pgEnum('service_category', [
   'hands',
   'feet',
   'combo',
+  'other',
 ]);
 
 export const bookingCategoryEnum = pgEnum('booking_category', [
   'manicure',
   'pedicure',
   'combo',
+  'other',
 ]);
 
 export const addOnCategoryEnum = pgEnum('add_on_category', [
@@ -5642,4 +5646,275 @@ export const networkNoShowAuditSchema = pgTable('network_no_show_audit', {
 }, table => ({
   eventHistory: index('network_no_show_audit_event_history').on(table.eventId, table.createdAt),
   salonReadHistory: index('network_no_show_audit_salon_history').on(table.salonId, table.createdAt),
+}));
+
+// AI and manual setup share one immutable draft history. Canonical booking rows
+// remain the only live service/schedule authority.
+export const businessSetupWorkspaceSchema = pgTable('business_setup_workspace', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  headRevision: integer('head_revision').notNull(),
+  baselineHash: text('baseline_hash').notNull(),
+  baseline: jsonb('baseline').$type<import('../features/business-setup/contracts').SetupDocument>().notNull(),
+  status: text('status').$type<'editing' | 'published'>().notNull().default('editing'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+}, table => ({ salonUnique: uniqueIndex('business_setup_workspace_salon_key').on(table.salonId), tenantKey: uniqueIndex('business_setup_workspace_tenant_key').on(table.salonId, table.id) }));
+
+export const businessSetupRevisionSchema = pgTable('business_setup_revision', {
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  revision: integer('revision').notNull(),
+  operationId: text('operation_id').notNull(),
+  operationHash: text('operation_hash').notNull(),
+  document: jsonb('document').$type<import('../features/business-setup/contracts').SetupDocument>().notNull(),
+  actorId: text('actor_id').notNull(),
+  origin: text('origin').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  pk: primaryKey({ columns: [table.workspaceId, table.revision] }),
+  operationUnique: uniqueIndex('business_setup_revision_operation_key').on(table.workspaceId, table.operationId),
+  tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade'),
+}));
+
+export const businessSetupPreviewShareSchema = pgTable('business_setup_preview_share', {
+  tokenHash: text('token_hash').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  revision: integer('revision').notNull(),
+  actorId: text('actor_id').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade'),
+  revisionFk: foreignKey({ columns: [table.workspaceId, table.revision], foreignColumns: [businessSetupRevisionSchema.workspaceId, businessSetupRevisionSchema.revision] }).onDelete('cascade'),
+}));
+
+export const businessSetupApprovalSchema = pgTable('business_setup_approval', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  revision: integer('revision').notNull(),
+  manifestHash: text('manifest_hash').notNull(),
+  actorId: text('actor_id').notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+}, table => ({ tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade') }));
+
+export const businessSetupPublicationSchema = pgTable('business_setup_publication', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  revision: integer('revision').notNull(),
+  operationId: text('operation_id').notNull(),
+  approvalId: text('approval_id').notNull(),
+  actorId: text('actor_id').notNull(),
+  serviceIds: jsonb('service_ids').$type<Record<string, string>>().notNull(),
+  staffIds: jsonb('staff_ids').$type<Record<string, string>>().notNull().default({}),
+  addOnIds: jsonb('add_on_ids').$type<Record<string, string>>().notNull().default({}),
+  publishedAt: timestamp('published_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  mediaFinalized: boolean('media_finalized').notNull().default(false),
+}, table => ({
+  revisionUnique: uniqueIndex('business_setup_publication_revision_key').on(table.workspaceId, table.revision),
+  operationUnique: uniqueIndex('business_setup_publication_operation_key').on(table.salonId, table.operationId),
+  tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade'),
+}));
+
+export const businessSetupTurnSchema = pgTable('business_setup_turn', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  workspaceId: text('workspace_id').notNull(),
+  actorId: text('actor_id').notNull(),
+  expectedRevision: integer('expected_revision').notNull(),
+  requestHash: text('request_hash').notNull(),
+  message: text('message').notNull(),
+  reply: text('reply'),
+  operations: jsonb('operations').$type<import('../features/business-setup/contracts').SetupOperation[]>(),
+  status: text('status').$type<'pending' | 'generated' | 'completed' | 'failed' | 'upload_review' | 'upload_applied' | 'upload_dismissed'>().notNull(),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  costMicroUsd: integer('cost_micro_usd'),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  designRequest: text('design_request'),
+  designOperationId: text('design_operation_id'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+}, table => ({ tenantFk: foreignKey({ columns: [table.salonId, table.workspaceId], foreignColumns: [businessSetupWorkspaceSchema.salonId, businessSetupWorkspaceSchema.id] }).onDelete('cascade') }));
+
+// Generated frontend files are immutable. Only their tenant-checked identity is
+// referenced by the existing shared draft and exact publication manifest.
+export const customSiteAssetSchema = pgTable('custom_site_asset', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  role: text('role').$type<'reference' | 'logo' | 'photo'>().notNull(),
+  name: text('name').notNull(),
+  mimeType: text('mime_type').notNull(),
+  storageKey: text('storage_key'),
+  pdfBase64: text('pdf_base64'),
+  imageBase64: text('image_base64'),
+  byteSize: integer('byte_size').notNull(),
+  hash: text('hash').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({ tenantKey: uniqueIndex('custom_site_asset_tenant_key').on(table.salonId, table.id) }));
+export const customSiteArtifactSchema = pgTable('custom_site_artifact', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  source: jsonb('source').$type<import('../features/custom-sites/contracts').CustomSiteSource>().notNull(),
+  sourceHash: text('source_hash').notNull(),
+  assetIds: jsonb('asset_ids').$type<string[]>().notNull(),
+  parentId: text('parent_id'),
+  operationId: text('operation_id').notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({ operationKey: uniqueIndex('custom_site_artifact_operation_key').on(table.salonId, table.operationId) }));
+export const customSiteGenerationSchema = pgTable('custom_site_generation', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  actorId: text('actor_id').notNull(),
+  requestHash: text('request_hash').notNull(),
+  expectedRevision: integer('expected_revision').notNull(),
+  message: text('message').notNull(),
+  status: text('status').$type<'pending' | 'generated' | 'completed' | 'failed'>().notNull(),
+  artifactId: text('artifact_id'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  costMicroUsd: integer('cost_micro_usd'),
+  reservedMicroUsd: integer('reserved_micro_usd').notNull(),
+  request: jsonb('request').$type<import('../features/custom-sites/contracts').CustomSiteGenerateInput>(),
+  phase: text('phase').notNull().default('waiting'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({ tenantIndex: index('custom_site_generation_salon_idx').on(table.salonId, table.createdAt) }));
+
+// One shared ledger across every salon in the isolated trial. Deleting a salon
+// must not erase spend or release uncertain, already-sent reservations.
+export const setupAiBudgetSchema = pgTable('setup_ai_budget', {
+  id: text('id').primaryKey(),
+  capMicroCad: integer('cap_micro_cad').notNull(),
+});
+export const setupAiCallSchema = pgTable('setup_ai_call', {
+  id: text('id').primaryKey(),
+  budgetId: text('budget_id').references(() => setupAiBudgetSchema.id),
+  creditReservationId: text('credit_reservation_id'),
+  creditReservedMicroCad: bigint('credit_reserved_micro_cad', { mode: 'number' }).notNull().default(0),
+  creditCostMicroCad: bigint('credit_cost_micro_cad', { mode: 'number' }),
+  salonId: text('salon_id').notNull(),
+  actorId: text('actor_id').notNull(),
+  operationId: text('operation_id').notNull(),
+  ordinal: integer('ordinal').notNull(),
+  model: text('model').notNull(),
+  provider: text('provider').notNull(),
+  requestHash: text('request_hash').notNull(),
+  reservedMicroUsd: integer('reserved_micro_usd').notNull(),
+  chargedMicroCad: integer('charged_micro_cad').notNull(),
+  costMicroUsd: integer('cost_micro_usd'),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  elapsedMs: integer('elapsed_ms'),
+  status: text('status').$type<'pending' | 'completed' | 'incomplete' | 'failed'>().notNull(),
+  rawOutput: text('raw_output'),
+  validation: text('validation').notNull().default('unchecked'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({ requestKey: uniqueIndex('setup_ai_call_request_key').on(table.operationId, table.ordinal) }));
+
+// Paid AI credits are independent of SMS credits and the operator's trial budget.
+export const aiCreditAccountSchema = pgTable('ai_credit_account', {
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({ pk: primaryKey({ columns: [table.salonId, table.planEnv] }) }));
+
+export const aiCreditPurchaseSchema = pgTable('ai_credit_purchase', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+  actorId: text('actor_id').notNull(),
+  operationId: text('operation_id').notNull(),
+  packKey: text('pack_key').$type<import('../features/ai-credits/catalog').AiCreditPackKey>().notNull(),
+  amountCents: integer('amount_cents').notNull(),
+  creditMicroCad: bigint('credit_micro_cad', { mode: 'number' }).notNull(),
+  currency: text('currency').notNull().default('cad'),
+  stripePriceId: text('stripe_price_id').notNull(),
+  stripeCustomerId: text('stripe_customer_id').notNull(),
+  stripeSessionId: text('stripe_session_id').unique(),
+  stripePaymentIntentId: text('stripe_payment_intent_id').unique(),
+  paidAmountCents: integer('paid_amount_cents'),
+  taxCents: integer('tax_cents').notNull().default(0),
+  status: text('status').$type<'creating' | 'checkout_created' | 'paid' | 'expired' | 'failed'>().notNull(),
+  refundedCents: integer('refunded_cents').notNull().default(0),
+  reversedMicroCad: bigint('reversed_micro_cad', { mode: 'number' }).notNull().default(0),
+  disputed: boolean('disputed').notNull().default(false),
+  disputeId: text('dispute_id'),
+  disputeResolution: text('dispute_resolution').$type<'won' | 'lost'>(),
+  adjustmentVersion: integer('adjustment_version').notNull().default(0),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+  paidAt: timestamp('paid_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  operationKey: uniqueIndex('ai_credit_purchase_operation').on(table.salonId, table.planEnv, table.operationId),
+  tenantKey: uniqueIndex('ai_credit_purchase_tenant').on(table.salonId, table.planEnv, table.id),
+  active: uniqueIndex('ai_credit_purchase_active').on(table.salonId, table.planEnv).where(sql`${table.status} in ('creating','checkout_created')`),
+  accountFk: foreignKey({ columns: [table.salonId, table.planEnv], foreignColumns: [aiCreditAccountSchema.salonId, aiCreditAccountSchema.planEnv] }).onDelete('cascade'),
+}));
+
+export const aiCreditLedgerSchema = pgTable('ai_credit_ledger', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+  entryKey: text('entry_key').notNull(),
+  kind: text('kind').$type<'purchase' | 'usage' | 'reversal' | 'recovery'>().notNull(),
+  amountMicroCad: bigint('amount_micro_cad', { mode: 'number' }).notNull(),
+  purchaseId: text('purchase_id'),
+  operationId: text('operation_id'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  entryKey: uniqueIndex('ai_credit_ledger_entry').on(table.salonId, table.planEnv, table.entryKey),
+  accountFk: foreignKey({ columns: [table.salonId, table.planEnv], foreignColumns: [aiCreditAccountSchema.salonId, aiCreditAccountSchema.planEnv] }).onDelete('cascade'),
+  purchaseFk: foreignKey({ columns: [table.salonId, table.planEnv, table.purchaseId], foreignColumns: [aiCreditPurchaseSchema.salonId, aiCreditPurchaseSchema.planEnv, aiCreditPurchaseSchema.id] }),
+}));
+
+export const aiCreditReservationSchema = pgTable('ai_credit_reservation', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+  operationId: text('operation_id').notNull(),
+  requestHash: text('request_hash').notNull(),
+  actorId: text('actor_id').notNull(),
+  reservedMicroCad: bigint('reserved_micro_cad', { mode: 'number' }).notNull(),
+  settledMicroCad: bigint('settled_micro_cad', { mode: 'number' }).notNull().default(0),
+  status: text('status').$type<'held' | 'settled' | 'released'>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at', { mode: 'date', withTimezone: true }),
+  requestKind: text('request_kind').$type<import('../features/ai-credits/pricing').AiCreditRequestKind>(),
+  expectedRevision: integer('expected_revision'),
+  acceptedLimitMicroCad: bigint('accepted_limit_micro_cad', { mode: 'number' }),
+  pricing: jsonb('pricing').$type<import('../features/ai-credits/pricing').AiCreditPricingSnapshot>(),
+  executionToken: text('execution_token'),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }),
+  resolution: text('resolution').$type<'completed' | 'platform_failure' | 'unknown_usage' | 'capped_usage'>(),
+}, table => ({
+  operationKey: uniqueIndex('ai_credit_reservation_operation').on(table.salonId, table.planEnv, table.operationId),
+  accountFk: foreignKey({ columns: [table.salonId, table.planEnv], foreignColumns: [aiCreditAccountSchema.salonId, aiCreditAccountSchema.planEnv] }).onDelete('cascade'),
+}));
+
+// Tenant-independent recovery state, atomically recorded before a salon purge.
+export const salonDeletionCleanupSchema = pgTable('salon_deletion_cleanup', {
+  id: text('id').primaryKey(),
+  sourceSalonId: text('source_salon_id').notNull(),
+  confirmationDigest: text('confirmation_digest').notNull(),
+  rowsDeleted: integer('rows_deleted').notNull().default(0),
+  mediaTotal: integer('media_total').notNull(),
+  mediaRemoved: integer('media_removed').notNull().default(0),
+  pendingAssets: jsonb('pending_assets').$type<SalonDeletionAsset[]>().notNull().default([]),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  leaseToken: text('lease_token'),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  sourceOnce: uniqueIndex('salon_deletion_cleanup_source_once').on(table.sourceSalonId),
+  due: index('salon_deletion_cleanup_due').on(table.nextAttemptAt).where(sql`${table.completedAt} IS NULL`),
+  countsValid: check('salon_deletion_cleanup_counts_valid', sql`${table.rowsDeleted} >= 0 AND ${table.mediaTotal} >= 0 AND ${table.mediaRemoved} >= 0 AND ${table.mediaRemoved} <= ${table.mediaTotal} AND ${table.attempts} >= 0 AND jsonb_typeof(${table.pendingAssets}) = 'array' AND ${table.mediaRemoved} + jsonb_array_length(${table.pendingAssets}) = ${table.mediaTotal}`),
 }));

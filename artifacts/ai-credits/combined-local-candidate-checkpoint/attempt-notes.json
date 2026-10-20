@@ -1,0 +1,26 @@
+{
+  "automaticMergeConflicts": 12,
+  "uncommittedMergeOperationQuitWithoutChangingResolvedTree": true,
+  "candidateSavedAsOrdinaryReviewCommit": "2afb6c277e4fcbb452230a25ac74dccddf05bca8",
+  "originalAiBranchPreserved": "10bf877e539f47cd8fb57b2ef12fb9b5779534d4",
+  "auditedSourcePreserved": "e65fb5164af91311f54eb61bdf48dc357003fd12",
+  "initialCustomerTestCollection": {
+    "passed": false,
+    "executed": 0,
+    "reason": "Automatic composition duplicated an identical helper. Removed the duplicate before running62 real cases."
+  },
+  "initialFullTypecheck": {
+    "passed": false,
+    "reason": "Two existing test fixtures used an untyped callback mock and unsupported role-query options. Corrected the fixtures, full typecheck then passed, and both affected suites passed67 assertions."
+  },
+  "credentialScan": {
+    "firstPassed": false,
+    "reason": "An evidence filename containing secret was used as a JSON hash key. Its value was verified as the actual SHA256 of the referenced proof file. Replaced that mapping with explicit path/sha256 entries; scanner unchanged. Final source and optimized client scans passed."
+  },
+  "nativeBoundaryFirstRead": {
+    "passed": false,
+    "reason": "A raw stored-cookie API read did not refresh a short-lived Clerk JWT. Follow-up confirmed401 for that stale snapshot; the genuine browser SDK refreshed it, then own200/other403 and invalid-Origin403 checks passed. No cookie or token was fabricated."
+  },
+  "paidModelGenerationRerun": false,
+  "newDesignSourceManuallyAuthored": false
+}

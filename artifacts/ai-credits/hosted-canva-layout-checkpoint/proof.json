@@ -1,0 +1,105 @@
+{
+  "commit": "4c187a226085ce116e357c1542476b8f1d44e3a7",
+  "environment": "isolated_preview",
+  "publishedRevision": 14,
+  "publicationId": "caab3928-816a-4e75-aa27-60414a23562e",
+  "exactApprovalRevision": 14,
+  "mediaFinalized": true,
+  "publicationCount": 2,
+  "appearance": {
+    "gapAfter": 16,
+    "background": "#e8daba",
+    "displayMode": "contained"
+  },
+  "imageBytesAndLinksUnchanged": true,
+  "bookingSettingsUnchanged": true,
+  "originalPublishedSourceRetained": true,
+  "existingAppointmentPreserved": true,
+  "newAiCalls": 0,
+  "productionTouched": false,
+  "desktop": {
+    "viewport": 1280,
+    "width": 1120,
+    "height": 622.21875
+  },
+  "phone": {
+    "viewport": 390,
+    "width": 390,
+    "height": 216.6640625,
+    "scrollWidth": 390
+  },
+  "fixture": "Owned hand-authored manual test artwork; not AI generation evidence",
+  "privateDraftRevision": 16,
+  "restoredDesignMatchesEarlierRevision9": true,
+  "publishedRevisionUnaffectedByRestore": true,
+  "signedOutOriginalBooking": {
+    "source": "Actual signed-out original Luster booking UI",
+    "serviceId": "svc_a7923a48_ca1d_4648_ab4e_da022373b8ff_gel-manicure",
+    "staffId": "cbbe13c6-7399-496c-88d6-36cdafe54934",
+    "date": "2026-10-21",
+    "gelWithTaylorShown": true,
+    "oneHourShown": true,
+    "sixtyFiveShown": true,
+    "noticeShown": true,
+    "bufferShown": true,
+    "timeCount": 19,
+    "onePmOffered": false,
+    "twoPmOffered": false,
+    "twoFifteenOffered": true,
+    "viewportWidth": 1200,
+    "newAppointmentSubmitted": false,
+    "newAiCalls": 0
+  },
+  "publicPhone": {
+    "route": "public published website",
+    "browserAuthentication": "owner authenticated; public projection remains the approved revision",
+    "image": {
+      "background": "rgb(232, 218, 186)",
+      "documentWidth": 390,
+      "gap": "16px",
+      "height": 216.6640625,
+      "width": 390
+    },
+    "bookingTarget": {
+      "disabled": false,
+      "height": 56.328125,
+      "width": 225.4140625
+    },
+    "parentViewportObserved": {
+      "documentWidth": 390,
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "innerHeight": 844,
+      "visualWidth": 390,
+      "visualHeight": 844
+    },
+    "screenshot": "published-phone.jpg",
+    "captureNote": "Explicit390x844 browser screenshot clip matches the measured viewport. The initial full capture included the unused desktop canvas and is retained privately as an unsuccessful capture."
+  },
+  "newAppointmentSubmitted": false,
+  "other18BusinessesUnchanged": true,
+  "sourceChecks": {
+    "node": 201,
+    "ui": 34,
+    "scopedTypes": true,
+    "eslint": true,
+    "secretScanTrackedFiles": 5215
+  },
+  "limitations": [
+    "Manual fixture acceptance, not a new real-provider generation trial.",
+    "Phone public-route test used owner-authenticated IAB; original customer booking was independently checked signed-out in Chrome.",
+    "Chrome CDP inspection remained unavailable during a paused response; no phone Chrome pass is claimed for this round.",
+    "Native About-photo/gallery/review handoff compatibility and combined release qualification are unfinished."
+  ],
+  "deployment": {
+    "deploymentId": "dpl_6vP5dLghgT6sPhwhTu6wytvyULNG",
+    "sha": "4c187a226085ce116e357c1542476b8f1d44e3a7",
+    "target": "preview",
+    "database": true,
+    "redis": true,
+    "developmentAuth": true,
+    "configurationWrites": false,
+    "schemaWrites": false,
+    "productionTouched": false
+  }
+}

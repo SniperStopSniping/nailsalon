@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { QUICK_BOOK_MEDIA_LAYOUTS } from '../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import { impersonateSalonAsSuperAdmin } from './support/appointment-ops';
-import { appPath, authStatePaths, e2eConfig } from './support/config';
+import { appPath, authStatePaths, e2eConfig, e2eOrigin } from './support/config';
 
 /**
  * Quick Book design system — the owner's saved information is the only input;
@@ -64,6 +64,7 @@ test('every representative design previews and stays unpublished until the owner
   try {
     for (const layout of REPRESENTATIVE_LAYOUTS) {
       const patch = await page.request.patch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(e2eConfig.salonSlug)}`, {
+        headers: { Origin: e2eOrigin },
         data: { config: { quickBookLayout: layout.id } },
       });
 
@@ -136,6 +137,7 @@ test('every representative design previews and stays unpublished until the owner
     }
   } finally {
     const restore = await page.request.patch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(e2eConfig.salonSlug)}`, {
+      headers: { Origin: e2eOrigin },
       data: { config: { quickBookLayout: originalDraftLayout } },
     });
 
@@ -191,6 +193,7 @@ test('the Layouts panel offers every family with truthful default-image guidance
     });
   } finally {
     const restore = await page.request.patch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(e2eConfig.salonSlug)}`, {
+      headers: { Origin: e2eOrigin },
       data: { config: { quickBookLayout: originalDraftLayout } },
     });
 

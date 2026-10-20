@@ -1,0 +1,759 @@
+{
+  "sourceSha": "c3253898b719219643080abdb713a06a031194d4",
+  "startedAt": "2026-10-18T17:24:53.246Z",
+  "completedAt": "2026-10-18T17:25:12.534Z",
+  "kind": "saved-real-AI-output-compatibility",
+  "newGeneration": false,
+  "realAuthentication": false,
+  "appointmentCreation": false,
+  "beforeFingerprint": {
+    "salon": "af43ee89719c31e004ee82793ffd0c76",
+    "salon_location": "1d4ba1a4cb27feb871ae07f34cb91518",
+    "service": "1a4059e134df4000fe6cd8c144e6b9cd",
+    "technician": "3860e18e0d2a0b18d1596943399048e3",
+    "add_on": "dfeb10751e07f304e53548ac7a59a0f1",
+    "appointment": "690790ec6a5909b122cbec5f6dd23b55",
+    "business_setup_workspace": "4ce509836b7b992f067c083fc8d1eb7f",
+    "business_setup_revision": "55f7e7ccbbdc7e0b881c16ff0befe8fc",
+    "business_setup_approval": "59502cb9822803ea0509684032ff9d70",
+    "business_setup_publication": "135446e439b5ca8e54ad638912afc85d",
+    "custom_site_artifact": "b1e2103f8872f658b83264a02637dc2a",
+    "technician_services": "095e42ddb96e5b1353f66acec7dd1747",
+    "service_add_on": "cdc13d3edfab3d270dabc7e0bf3c4129",
+    "appointment_services": "eebff1129e5adb6d0390d56d8330f953",
+    "usage": "b92bd9123b2eadae4cee8048b4cdf38d",
+    "budget": "b5f653b3200b8ca63b1525757ea477ad"
+  },
+  "afterFingerprint": {
+    "salon": "af43ee89719c31e004ee82793ffd0c76",
+    "salon_location": "1d4ba1a4cb27feb871ae07f34cb91518",
+    "service": "1a4059e134df4000fe6cd8c144e6b9cd",
+    "technician": "3860e18e0d2a0b18d1596943399048e3",
+    "add_on": "dfeb10751e07f304e53548ac7a59a0f1",
+    "appointment": "690790ec6a5909b122cbec5f6dd23b55",
+    "business_setup_workspace": "4ce509836b7b992f067c083fc8d1eb7f",
+    "business_setup_revision": "55f7e7ccbbdc7e0b881c16ff0befe8fc",
+    "business_setup_approval": "59502cb9822803ea0509684032ff9d70",
+    "business_setup_publication": "135446e439b5ca8e54ad638912afc85d",
+    "custom_site_artifact": "b1e2103f8872f658b83264a02637dc2a",
+    "technician_services": "095e42ddb96e5b1353f66acec7dd1747",
+    "service_add_on": "cdc13d3edfab3d270dabc7e0bf3c4129",
+    "appointment_services": "eebff1129e5adb6d0390d56d8330f953",
+    "usage": "b92bd9123b2eadae4cee8048b4cdf38d",
+    "budget": "b5f653b3200b8ca63b1525757ea477ad"
+  },
+  "authoritativeStateUnchanged": true,
+  "passed": true,
+  "cases": [
+    {
+      "label": "petal",
+      "slug": "paid-ai-petal-41bb1f28",
+      "engine": "chromium",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "artifactId": "b8e59455-53da-4a37-baff-baf4fde64756",
+      "sourceHash": "e4e3c9e3f4107bcbba06509b29777addd5b2f5f8c73e5e82c697f3ce7280b94a",
+      "ancestry": [
+        {
+          "id": "b8e59455-53da-4a37-baff-baf4fde64756",
+          "parent_id": "dfda0819-4646-4de8-af16-917114ffa583",
+          "depth": 0,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "dfda0819-4646-4de8-af16-917114ffa583",
+          "parent_id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+          "depth": 1,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+          "parent_id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+          "depth": 2,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+          "parent_id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+          "depth": 3,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+          "parent_id": null,
+          "depth": 4,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "imageCount": 2,
+        "visibleImageCount": 2,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": []
+      },
+      "originalBookingServiceId": "d8508381-0392-488a-bf8a-e1cc4fbfbf49",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "garden",
+      "slug": "paid-ai-garden-69d151c3",
+      "engine": "chromium",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "sourceHash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6",
+      "ancestry": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "depth": 0,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "imageCount": 0,
+        "visibleImageCount": 0,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          },
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "phone",
+            "protocol": "tel:",
+            "host": ""
+          }
+        ]
+      },
+      "originalBookingServiceId": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "nocturne",
+      "slug": "paid-ai-nocturne-6e9e1783",
+      "engine": "chromium",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "artifactId": "458f16fa-8711-48e5-b307-acef189aa06a",
+      "sourceHash": "67d90f142dd9e560486fdb79e86723b72ab5a53896ac6baa98a322536b5ab4d8",
+      "ancestry": [
+        {
+          "id": "458f16fa-8711-48e5-b307-acef189aa06a",
+          "parent_id": null,
+          "depth": 0,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "imageCount": 0,
+        "visibleImageCount": 0,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": []
+      },
+      "originalBookingServiceId": "36017d25-ae01-41f6-aed8-92d8f1c79bf9",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "velour",
+      "slug": "paid-ai-velourphoto-b66214f0",
+      "engine": "chromium",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "sourceHash": "b1fa157f4465fcac33f02f62de0c1dda0d5bc679438b6b45e03b64b55c0ea885",
+      "ancestry": [
+        {
+          "id": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+          "parent_id": "6f99365d-a709-4e13-a913-30f576c4473e",
+          "depth": 0,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "6f99365d-a709-4e13-a913-30f576c4473e",
+          "parent_id": "fc26fa87-794c-4dcf-bfbb-acf8ec730ead",
+          "depth": 1,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "fc26fa87-794c-4dcf-bfbb-acf8ec730ead",
+          "parent_id": null,
+          "depth": 2,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "imageCount": 4,
+        "visibleImageCount": 4,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          }
+        ]
+      },
+      "originalBookingServiceId": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "fleur",
+      "slug": "paid-ai-fleur-69dcada7",
+      "engine": "chromium",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "sourceHash": "07f80fc390a7607b51511ad85f95c1ddb4e6fd56c92a68fb44b955155860c011",
+      "ancestry": [
+        {
+          "id": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+          "parent_id": "1af2f4d1-c89b-4b77-b01d-f6f50dc83e38",
+          "depth": 0,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "1af2f4d1-c89b-4b77-b01d-f6f50dc83e38",
+          "parent_id": null,
+          "depth": 1,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 3,
+      "measurements": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "imageCount": 9,
+        "visibleImageCount": 6,
+        "explicitlyHiddenImageCount": 3,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          }
+        ]
+      },
+      "originalBookingServiceId": "05df4436-0753-4f89-acc9-23495da411e4",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "petite",
+      "slug": "paid-ai-petite-22ec2df6",
+      "engine": "chromium",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "artifactId": "044abc5a-8f22-4d37-ae51-0f4cea31ffdc",
+      "sourceHash": "aa031edcc0ffdba4d7ae0076485bd0673f46dbcb177671aa59de013ccd97624f",
+      "ancestry": [
+        {
+          "id": "044abc5a-8f22-4d37-ae51-0f4cea31ffdc",
+          "parent_id": "fcccb958-5cde-43f3-8132-81233abcbe49",
+          "depth": 0,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "fcccb958-5cde-43f3-8132-81233abcbe49",
+          "parent_id": null,
+          "depth": 1,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "imageCount": 2,
+        "visibleImageCount": 2,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          }
+        ]
+      },
+      "originalBookingServiceId": "a44f2210-2bcb-4ea5-973c-0070d843c165",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "canva",
+      "slug": "paid-ai-solcanva-18f0bdda",
+      "engine": "chromium",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "artifactId": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+      "sourceHash": "da9999ae497ba793723659b97a4a36d2ac8461b5f4ee971262342464153fd552",
+      "ancestry": [
+        {
+          "id": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+          "parent_id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "depth": 0,
+          "has_completed_model_generation": false
+        },
+        {
+          "id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "parent_id": null,
+          "depth": 1,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 5,
+      "measurements": {
+        "viewportWidth": 1440,
+        "documentWidth": 1440,
+        "imageCount": 1,
+        "visibleImageCount": 1,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          },
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          },
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          }
+        ]
+      },
+      "originalBookingServiceId": "138533c4-b512-4f18-ab4d-d83dfb144473",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "petal",
+      "slug": "paid-ai-petal-41bb1f28",
+      "engine": "webkit",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "artifactId": "b8e59455-53da-4a37-baff-baf4fde64756",
+      "sourceHash": "e4e3c9e3f4107bcbba06509b29777addd5b2f5f8c73e5e82c697f3ce7280b94a",
+      "ancestry": [
+        {
+          "id": "b8e59455-53da-4a37-baff-baf4fde64756",
+          "parent_id": "dfda0819-4646-4de8-af16-917114ffa583",
+          "depth": 0,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "dfda0819-4646-4de8-af16-917114ffa583",
+          "parent_id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+          "depth": 1,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+          "parent_id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+          "depth": 2,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+          "parent_id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+          "depth": 3,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+          "parent_id": null,
+          "depth": 4,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "imageCount": 2,
+        "visibleImageCount": 2,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": []
+      },
+      "originalBookingServiceId": "d8508381-0392-488a-bf8a-e1cc4fbfbf49",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "garden",
+      "slug": "paid-ai-garden-69d151c3",
+      "engine": "webkit",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "artifactId": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+      "sourceHash": "077528fe1d399e079f41c1e6a682d939b2ebd32029c727990d7f7bf4eb9d7ff6",
+      "ancestry": [
+        {
+          "id": "bd31a2e1-c9b0-4331-b171-e6968d77c28e",
+          "parent_id": null,
+          "depth": 0,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "imageCount": 0,
+        "visibleImageCount": 0,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          },
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "phone",
+            "protocol": "tel:",
+            "host": ""
+          }
+        ]
+      },
+      "originalBookingServiceId": "93566abb-3cdc-42a5-86b0-5abf7ae8054f",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "nocturne",
+      "slug": "paid-ai-nocturne-6e9e1783",
+      "engine": "webkit",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "artifactId": "458f16fa-8711-48e5-b307-acef189aa06a",
+      "sourceHash": "67d90f142dd9e560486fdb79e86723b72ab5a53896ac6baa98a322536b5ab4d8",
+      "ancestry": [
+        {
+          "id": "458f16fa-8711-48e5-b307-acef189aa06a",
+          "parent_id": null,
+          "depth": 0,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "imageCount": 0,
+        "visibleImageCount": 0,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": []
+      },
+      "originalBookingServiceId": "36017d25-ae01-41f6-aed8-92d8f1c79bf9",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "velour",
+      "slug": "paid-ai-velourphoto-b66214f0",
+      "engine": "webkit",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "artifactId": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+      "sourceHash": "b1fa157f4465fcac33f02f62de0c1dda0d5bc679438b6b45e03b64b55c0ea885",
+      "ancestry": [
+        {
+          "id": "2c1f785c-f0b1-4a75-af6c-ef972f1dc0c7",
+          "parent_id": "6f99365d-a709-4e13-a913-30f576c4473e",
+          "depth": 0,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "6f99365d-a709-4e13-a913-30f576c4473e",
+          "parent_id": "fc26fa87-794c-4dcf-bfbb-acf8ec730ead",
+          "depth": 1,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "fc26fa87-794c-4dcf-bfbb-acf8ec730ead",
+          "parent_id": null,
+          "depth": 2,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "imageCount": 4,
+        "visibleImageCount": 4,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          }
+        ]
+      },
+      "originalBookingServiceId": "a05e9ef3-2f4c-473e-84d0-195979df3126",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "fleur",
+      "slug": "paid-ai-fleur-69dcada7",
+      "engine": "webkit",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "artifactId": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+      "sourceHash": "07f80fc390a7607b51511ad85f95c1ddb4e6fd56c92a68fb44b955155860c011",
+      "ancestry": [
+        {
+          "id": "2b9223d6-8627-4d4a-8153-a5fa8616ab4e",
+          "parent_id": "1af2f4d1-c89b-4b77-b01d-f6f50dc83e38",
+          "depth": 0,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "1af2f4d1-c89b-4b77-b01d-f6f50dc83e38",
+          "parent_id": null,
+          "depth": 1,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 3,
+      "measurements": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "imageCount": 9,
+        "visibleImageCount": 6,
+        "explicitlyHiddenImageCount": 3,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          }
+        ]
+      },
+      "originalBookingServiceId": "05df4436-0753-4f89-acc9-23495da411e4",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "petite",
+      "slug": "paid-ai-petite-22ec2df6",
+      "engine": "webkit",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "artifactId": "044abc5a-8f22-4d37-ae51-0f4cea31ffdc",
+      "sourceHash": "aa031edcc0ffdba4d7ae0076485bd0673f46dbcb177671aa59de013ccd97624f",
+      "ancestry": [
+        {
+          "id": "044abc5a-8f22-4d37-ae51-0f4cea31ffdc",
+          "parent_id": "fcccb958-5cde-43f3-8132-81233abcbe49",
+          "depth": 0,
+          "has_completed_model_generation": true
+        },
+        {
+          "id": "fcccb958-5cde-43f3-8132-81233abcbe49",
+          "parent_id": null,
+          "depth": 1,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 2,
+      "measurements": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "imageCount": 2,
+        "visibleImageCount": 2,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          }
+        ]
+      },
+      "originalBookingServiceId": "a44f2210-2bcb-4ea5-973c-0070d843c165",
+      "blockedRequests": [],
+      "browserErrors": []
+    },
+    {
+      "label": "canva",
+      "slug": "paid-ai-solcanva-18f0bdda",
+      "engine": "webkit",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "artifactId": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+      "sourceHash": "da9999ae497ba793723659b97a4a36d2ac8461b5f4ee971262342464153fd552",
+      "ancestry": [
+        {
+          "id": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+          "parent_id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "depth": 0,
+          "has_completed_model_generation": false
+        },
+        {
+          "id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "parent_id": null,
+          "depth": 1,
+          "has_completed_model_generation": true
+        }
+      ],
+      "passed": true,
+      "servicesChecked": 5,
+      "measurements": {
+        "viewportWidth": 390,
+        "documentWidth": 390,
+        "imageCount": 1,
+        "visibleImageCount": 1,
+        "explicitlyHiddenImageCount": 0,
+        "brokenImages": 0,
+        "contactLinks": [
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          },
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          },
+          {
+            "kind": "instagram",
+            "protocol": "https:",
+            "host": "www.instagram.com"
+          },
+          {
+            "kind": "email",
+            "protocol": "mailto:",
+            "host": ""
+          }
+        ]
+      },
+      "originalBookingServiceId": "138533c4-b512-4f18-ab4d-d83dfb144473",
+      "blockedRequests": [],
+      "browserErrors": []
+    }
+  ]
+}

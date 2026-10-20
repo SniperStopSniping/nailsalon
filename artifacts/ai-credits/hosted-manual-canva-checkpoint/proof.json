@@ -1,0 +1,50 @@
+{
+  "sourceSha": "d0e7519b3a89f1b9256616e317e9e04383222de9",
+  "environment": "isolated hosted Preview",
+  "interface": "Codex in-app browser, native file picker and visible controls",
+  "newAnonymousLocalOnboardingDraft": true,
+  "entry": "Your Canva Design",
+  "fixture": "Owned screenshot of our model-generated synthetic Cobalt page; not an original Canva export. It includes clipped-viewport content and whitespace from capture, so it is not a visual-fidelity or export-quality benchmark.",
+  "firstImage": {
+    "width": 390,
+    "height": 2597,
+    "lowResolutionWarningShown": true,
+    "longImageGuidanceShown": true
+  },
+  "manualInstagram": {
+    "href": "https://www.instagram.com/luster_ai_test_only/",
+    "drawnOnPrintedHandle": true,
+    "resizedThroughSixTallerClicks": true,
+    "keyboardOpenedCorrectDestination": true,
+    "directPointerOpenedCorrectDestination": true,
+    "syntheticProfileDoesNotExist": true,
+    "profileExistenceNotClaimed": true
+  },
+  "sameBrowserRefresh": {
+    "savedImageCount": 1,
+    "savedLinkCount": 1,
+    "doesNotProveOtherDeviceResume": true
+  },
+  "desktopSizeAndBackground": {
+    "mode": "Wide & centred",
+    "background": "rgb(35, 30, 34)",
+    "naturalWidth": 390,
+    "naturalHeight": 2597,
+    "renderedWidth": 613.8865966796875,
+    "renderedHeight": 4087.85107421875,
+    "artworkAspectPreserved": true
+  },
+  "replacement": {
+    "width": 1440,
+    "height": 1076,
+    "linkPositionReviewRequired": true,
+    "unreviewedInstagramAnchorCountInCustomerPreview": 0,
+    "positionNotApproved": true
+  },
+  "aiCalls": 0,
+  "claimOrPublicationPerformed": false,
+  "realBookingTestedInThisManualJourney": false,
+  "manualOnboardingCatalogNotVerifiedAgainstPublishedServices": true,
+  "productionTouched": false,
+  "newOneClickSizingControlNotOnThisRuntime": true
+}

@@ -1,0 +1,52 @@
+{
+  "source": "b738fca4027822d210328318356f05f07cbe774a",
+  "environment": "isolated_preview",
+  "deploymentId": "dpl_FhrEbdq5wZ8gTomM1YtDMADqoeAZ",
+  "target": null,
+  "alias": "luster-ai-builder-test.vercel.app",
+  "call": {
+    "id": "d6aa083a-d4d7-4244-be9d-1c7879419983",
+    "operation_id": "35a0e68a-68e4-4d3f-bdfa-535e493e8484",
+    "ordinal": 0,
+    "model": "gpt-6-luna",
+    "provider": "openai",
+    "status": "completed",
+    "input_tokens": 7116,
+    "output_tokens": 138,
+    "cost_micro_usd": 959,
+    "charged_micro_cad": 1918,
+    "elapsed_ms": 10308,
+    "validation": "passed"
+  },
+  "headRevision": 93,
+  "artifactId": "387a406e-c089-43be-b3f2-ef99971f30c4",
+  "sourceHash": "bec38353186c49af5e6aa4a807e0b95a71352e8facb7980db2faf866975c0fdb",
+  "estimatedUsd": 0.000959,
+  "trialCad": 0.001918,
+  "operatorUsedCad": 36.029848,
+  "operatorCapCad": 68.615594,
+  "originalReferenceRemainedAttached": true,
+  "extraClarification": false,
+  "fullSiteGenerations": 0,
+  "manualSourceRepairs": 0,
+  "artworkAndLinksUnchanged": true,
+  "samePhotoIdentitiesAndDimensions": true,
+  "businessServicesStaffPolicyUnchanged": true,
+  "integrity": {
+    "environment": "isolated_preview",
+    "protectedOtherBusinesses": true,
+    "allExistingAppointmentsServicesStaffUnchanged": true,
+    "earlierDraftRestored": true,
+    "restoredHead": 94,
+    "restoredArtifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+    "publicState": {
+      "revision": 77,
+      "media_finalized": true,
+      "approved_artifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+      "live_artifact": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d"
+    },
+    "productionChanged": false
+  },
+  "publicationPerformed": false,
+  "newBookingCreated": false
+}

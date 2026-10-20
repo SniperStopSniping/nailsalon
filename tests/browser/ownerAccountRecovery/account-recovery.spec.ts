@@ -127,6 +127,12 @@ for (const width of [320, 390, 430]) {
 
     await page.getByLabel('Salon or studio name *', { exact: true }).fill('Current studio');
 
+    // Profile autosave and Builder document persistence settle separately.
+    await expect.poll(async () => {
+      const draft = await readDraftContent(page);
+      return { profileName: draft.content.profile.businessName, documentName: draft.document?.siteName };
+    }).toEqual({ profileName: 'Current studio', documentName: 'Current studio' });
+
     await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
 
     const draftBefore = await readDraftContent(page);

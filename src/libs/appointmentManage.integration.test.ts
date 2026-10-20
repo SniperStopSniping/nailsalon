@@ -19,6 +19,7 @@ import {
   getAppointmentManageDetail,
   runAppointmentManageMutation,
 } from './appointmentManage';
+import { zonedTimeToUtc } from './timeZone';
 
 vi.mock('server-only', () => ({}));
 
@@ -356,6 +357,24 @@ afterAll(async () => {
 });
 
 describe('real appointment management mutations', () => {
+  it('moves an appointment using Vancouver hours while preserving booked price and service duration', async () => {
+    await db.update(schema.salonSchema).set({ settings: { ...DEFAULT_SALON_SETTINGS, booking: { ...DEFAULT_SALON_SETTINGS.booking, timezone: 'America/Vancouver' } } }).where(eq(schema.salonSchema.id, SALON_ID));
+    const before = await appointment();
+    const nextStart = zonedTimeToUtc({ date: '2027-01-04', time: '20:00', timeZone: 'America/Vancouver' });
+    await mutate({ startTime: nextStart });
+    const after = await appointment();
+
+    expect(after.startTime).toEqual(nextStart);
+    expect(after.totalPrice).toBe(before.totalPrice);
+    expect(after.totalDurationMinutes).toBe(before.totalDurationMinutes);
+
+    await expectManageError(mutate({
+      startTime: zonedTimeToUtc({ date: '2027-01-04', time: '07:00', timeZone: 'America/Vancouver' }),
+    }), 'APPOINTMENT_CONFLICT');
+
+    expect((await appointment()).startTime).toEqual(nextStart);
+  });
+
   it('returns a canonical added-tax estimate with deposit credit for every owner/staff consumer', async () => {
     await db.update(schema.appointmentSchema).set({
       paymentStatus: 'pending',

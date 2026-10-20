@@ -1,0 +1,38 @@
+{
+  "testedAt": "2026-10-15T19:06:38.298Z",
+  "environment": "isolated Preview",
+  "realProvider": true,
+  "operationId": "80d118ee-318d-49ce-b21c-651883d9654d",
+  "revision": 3,
+  "elapsedMs": 14912,
+  "calls": [
+    {
+      "operation_id": "80d118ee-318d-49ce-b21c-651883d9654d",
+      "ordinal": 0,
+      "model": "gpt-6-astra",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 2639,
+      "output_tokens": 415,
+      "cost_micro_usd": 53730,
+      "charged_micro_cad": 107460,
+      "elapsed_ms": 12662,
+      "validation": "unchecked"
+    }
+  ],
+  "refreshResumes": true,
+  "liveUnchanged": {
+    "publication_status": "draft",
+    "online_booking_enabled": false,
+    "live_services": 0,
+    "appointments": 0,
+    "publications": 0
+  },
+  "referenceDimensions": {
+    "width": 137,
+    "height": 1280
+  },
+  "finding": "Read the visible business name. Flagged tiny contact/policy/opening-time text and category headings rather than inventing service prices or durations.",
+  "intervention": "A redundant all-closed hours operation made the summary overstate saved hours. Fixed semantic no-change detection and added a regression test. No stored model response or source was manually edited.",
+  "referenceAndScreenshots": "Kept private; no private reference pixels or raw response included here."
+}

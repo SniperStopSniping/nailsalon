@@ -517,6 +517,7 @@ test('renders a semantic booking hotspot, cancels activation after a swipe, and 
   await hotspot.getByRole('button', { name: 'Place in centre' }).click();
   await hotspot.getByLabel('Accessible label').fill('Start booking from artwork');
   await hotspot.getByLabel('I confirm this label explains the action').check();
+  await hotspot.getByLabel('Show as a raised button').check();
 
   await expect(hotspot.getByLabel('What should happen?')).toHaveValue('start_booking');
   await expect(hotspot.getByRole('button', { name: 'Done' })).toBeEnabled();

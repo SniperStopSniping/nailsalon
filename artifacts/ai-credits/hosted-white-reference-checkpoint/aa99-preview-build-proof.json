@@ -1,0 +1,12 @@
+{
+  "sourceSha": "aa99b1977eaecd4907434d5a3b5256f5c746552e",
+  "projectId": "prj_G7i795a439CUZOr9W2gD2DT0E2AO",
+  "deploymentId": "dpl_AJ23rHy8X2xeDsfPNtGFktRdJss2",
+  "environment": "isolated Preview",
+  "explicitTypeValidationPassed": true,
+  "staticPages": 164,
+  "healthGitSha": "aa99b19",
+  "dbRedisAndClerkReady": true,
+  "genericHealthDegradedForIntentionallyUnconfiguredTestIntegrations": true,
+  "productionTouched": false
+}

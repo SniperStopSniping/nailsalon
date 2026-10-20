@@ -580,6 +580,19 @@ describe('BookServiceClient', () => {
     expect(screen.getByRole('navigation', { name: 'Booking links' })).toHaveAttribute('data-public-surface', 'bookingRecoveryNavigation');
   });
 
+  it('shows and selects a non-nail appointment under a neutral group without empty nail tabs', () => {
+    const other = { ...services[0]!, id: 'svc-lashes', name: 'Lash Services', category: 'other' as const, bookingCategory: 'other' as const, imageUrl: '/assets/images/services/other-service.svg' };
+    render(<BookServiceClient services={[other]} bookingFlow={['service', 'time', 'confirm']} locations={[]} />);
+
+    expect(screen.getByRole('button', { name: /Other services/u })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^Manicure$/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Pedicure$/u })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('service-card-svc-lashes'));
+
+    expect(bookingStateMock.setBaseServiceId).toHaveBeenCalledWith('svc-lashes');
+  });
+
   it('localizes recovery access and keeps the resolved salon when route or query data differs', () => {
     navigationMock.params = { locale: 'fr', slug: 'other-salon' };
     navigationMock.searchParams = new URLSearchParams('salonSlug=another-salon');
@@ -1748,6 +1761,22 @@ describe('BookServiceClient', () => {
     fireEvent.click(serviceCard);
 
     expect(screen.getByTestId('service-continue-button')).toBeVisible();
+  });
+
+  it('waits for booking-state hydration before accepting an add-on from a custom-site service link', () => {
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+    bookingStateMock.values.isHydrated = false;
+    const props: React.ComponentProps<typeof BookServiceClient> = { services, addOns, serviceAddOnRules, bookingFlow: ['service', 'time', 'confirm'], locations: [] };
+    const { rerender } = render(<BookServiceClient {...props} />);
+
+    expect(screen.getByRole('button', { name: 'Add French Tip' })).toBeDisabled();
+    expect(screen.getByTestId('service-continue-button')).toBeDisabled();
+
+    bookingStateMock.values.isHydrated = true;
+    rerender(<BookServiceClient {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add French Tip' }));
+
+    expect(screen.getByRole('button', { name: 'Remove French Tip' })).toBeEnabled();
   });
 
   it('renders exactly the Manicure, Pedicure, and Combos chips in a horizontal mobile scroll track', () => {

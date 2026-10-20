@@ -1,0 +1,263 @@
+{
+  "scope": "Local isolated owner UI; Sol extraction and placement; no manual source/contact correction, Stripe purchase or deployment",
+  "privateEvidenceDirectory": "/tmp/luster-ai-sol-canva-first-pass-evidence-20261018",
+  "runs": [
+    {
+      "step": "message",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:48:54.280Z",
+      "beforeRevision": 1,
+      "afterRevision": 4,
+      "artifactId": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+      "calls": [
+        {
+          "id": "44a1b92c-e111-4dda-a30e-66a8a270ba90",
+          "operation_id": "632770f1-20fc-4d40-bdeb-ec9f49028ef1",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5461,
+          "output_tokens": 1770,
+          "cost_micro_usd": 31351,
+          "charged_micro_cad": 62702,
+          "credit_cost_micro_cad": "87783",
+          "elapsed_ms": 33986,
+          "validation": "passed"
+        },
+        {
+          "id": "86c07c2f-3be3-4a5d-892f-200df9c3467b",
+          "operation_id": "5eec8587-9584-4e31-abc4-1f070655dee2",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 1861,
+          "output_tokens": 1761,
+          "cost_micro_usd": 22261,
+          "charged_micro_cad": 44522,
+          "credit_cost_micro_cad": "62331",
+          "elapsed_ms": 31210,
+          "validation": "passed"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "parent_id": null,
+          "source_hash": "a494be5bd398877eb9bd1c890679a69b9201048f4911a1387ce84b9f78579944"
+        }
+      ],
+      "appointments": [],
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "preservedCanvaPages": 1,
+          "areaCount": 8
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "instagram",
+          "areaId": "contact-instagram",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "email",
+          "areaId": "contact-email",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "service",
+          "serviceName": "Lash Services",
+          "areaId": "select-lash-services",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "preservedCanvaPages": 1,
+          "areaCount": 8
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "instagram",
+          "areaId": "contact-instagram",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "email",
+          "areaId": "contact-email",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "service",
+          "serviceName": "Lash Services",
+          "areaId": "select-lash-services",
+          "matched": true
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "step": "canva-review",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:50:58.201Z",
+      "beforeRevision": 4,
+      "afterRevision": 5,
+      "artifactId": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "parent_id": null,
+          "source_hash": "a494be5bd398877eb9bd1c890679a69b9201048f4911a1387ce84b9f78579944"
+        },
+        {
+          "id": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+          "parent_id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "source_hash": "da9999ae497ba793723659b97a4a36d2ac8461b5f4ee971262342464153fd552"
+        }
+      ],
+      "appointments": [],
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "preservedCanvaPages": 1,
+          "areaCount": 8
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "instagram",
+          "areaId": "contact-instagram",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "email",
+          "areaId": "contact-email",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "service",
+          "serviceName": "Lash Services",
+          "areaId": "select-lash-services",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "preservedCanvaPages": 1,
+          "areaCount": 8
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "instagram",
+          "areaId": "contact-instagram",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "email",
+          "areaId": "contact-email",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "service",
+          "serviceName": "Lash Services",
+          "areaId": "select-lash-services",
+          "matched": true
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "step": "publish",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:51:23.567Z",
+      "beforeRevision": 5,
+      "afterRevision": 6,
+      "artifactId": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "parent_id": null,
+          "source_hash": "a494be5bd398877eb9bd1c890679a69b9201048f4911a1387ce84b9f78579944"
+        },
+        {
+          "id": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+          "parent_id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "source_hash": "da9999ae497ba793723659b97a4a36d2ac8461b5f4ee971262342464153fd552"
+        }
+      ],
+      "appointments": [],
+      "bookingResponseStatus": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    },
+    {
+      "step": "book",
+      "status": "passed",
+      "startedAt": "2026-10-18T02:51:58.194Z",
+      "beforeRevision": 6,
+      "afterRevision": 6,
+      "artifactId": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+      "calls": [],
+      "artifacts": [
+        {
+          "id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "parent_id": null,
+          "source_hash": "a494be5bd398877eb9bd1c890679a69b9201048f4911a1387ce84b9f78579944"
+        },
+        {
+          "id": "6b7551b3-fddf-4548-b1e6-f697cd0ae724",
+          "parent_id": "93eb1ca9-4833-4ea3-afb1-17022d699cda",
+          "source_hash": "da9999ae497ba793723659b97a4a36d2ac8461b5f4ee971262342464153fd552"
+        }
+      ],
+      "appointments": [
+        {
+          "id": "appt_e3992a2b-a711-443f-818e-522fc29f1969",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        }
+      ],
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": true,
+          "serviceId": "138533c4-b512-4f18-ab4d-d83dfb144473",
+          "serviceName": "Lash Services",
+          "targetWidth": 71.359375,
+          "targetHeight": 61.5
+        }
+      ],
+      "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+    }
+  ]
+}

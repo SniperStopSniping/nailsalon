@@ -5,14 +5,16 @@ import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { cloudinary, isCloudinaryConfigured } from '@/libs/Cloudinary';
+import { resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import sharp from '@/libs/safeSharp.server';
 
+import { onboardingArtworkAssetId } from './artwork-storage-key';
 import { ONBOARDING_SITE_MEDIA_ROLES } from './contracts';
 import type { OnboardingMediaRole } from './media-claim-client';
-import { ONBOARDING_MEDIA_MAX_FILE_BYTES } from './media-limits';
+import { ONBOARDING_MEDIA_MAX_DECODED_PIXELS, ONBOARDING_MEDIA_MAX_FILE_BYTES } from './media-limits';
 
 const MAX_BYTES = ONBOARDING_MEDIA_MAX_FILE_BYTES;
-const MAX_PIXELS = 40_000_000;
+const MAX_PIXELS = ONBOARDING_MEDIA_MAX_DECODED_PIXELS;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const SAFE_ID = /^[\w-]{1,160}$/;
 const ROLES = new Set<string>(ONBOARDING_SITE_MEDIA_ROLES);
@@ -20,7 +22,7 @@ const CLOUD_PREFIX = 'cloudinary_authenticated:';
 const CLOUD_KEY = /^salons\/([\w-]{1,160})\/onboarding-sites\/([\w-]{1,160})\/revisions\/([\w-]{1,160})\/(profile|logo|gallery|custom_design|cover)\/([a-f0-9]{32})$/;
 const LOCAL_KEY = /^([\w-]{1,160})\/([\w-]{1,160})\/([\w-]{1,160})\/(profile|logo|gallery|custom_design|cover)\/([a-f0-9]{32})\.webp$/;
 
-export type OnboardingMediaStorageProvider = 'cloudinary_authenticated' | 'development_local';
+export type OnboardingMediaStorageProvider = 'cloudinary_authenticated' | 'development_local' | 'custom_site_asset';
 export type OnboardingMediaStorageOwner = { salonId: string; siteId?: string };
 
 export type StoredOnboardingMediaFile = {
@@ -40,6 +42,7 @@ export type SaveOnboardingMediaFileInput = {
   siteId: string;
   stableItemId: string;
   uploadAttemptId: string;
+  imagePreparation?: { artwork?: true; maxOutputBytes: number; preserveDimensions?: true };
 };
 
 export class OnboardingMediaStorageError extends Error {
@@ -95,11 +98,17 @@ const ownedStorageKey = (storageKey: string, owner: OnboardingMediaStorageOwner)
 export const isOnboardingMediaStorageProvider = (
   value: string | null,
 ): value is OnboardingMediaStorageProvider => (
-  value === 'cloudinary_authenticated' || value === 'development_local'
+  value === 'cloudinary_authenticated' || value === 'development_local' || value === 'custom_site_asset'
 );
 
 const resolveRoot = (): string => {
-  if (process.env.NODE_ENV === 'production') {
+  // A locally optimized Next.js build also has NODE_ENV=production. It can
+  // read its existing Development uploads only with an explicit local marker.
+  // Hosted deployments and ambiguous environments keep the original denial.
+  const localOptimizedDevelopment = !process.env.VERCEL && !process.env.VERCEL_ENV
+    && process.env.APP_ENV === 'development'
+    && resolveRuntimeEnvironment(process.env) === 'development';
+  if (process.env.NODE_ENV === 'production' && !localOptimizedDevelopment) {
     throw new OnboardingMediaStorageError(
       'IMAGE_STORAGE_UNAVAILABLE',
       'The development media adapter is disabled in Production.',
@@ -135,22 +144,11 @@ const resolveStoragePath = (storageKey: string): string => {
   return absolute;
 };
 
-export const saveOnboardingMediaFile = async ({
-  file,
-  role,
-  revisionId,
-  salonId,
-  siteId,
-  stableItemId,
-  uploadAttemptId,
-}: SaveOnboardingMediaFileInput): Promise<StoredOnboardingMediaFile> => {
-  assertSafeId(stableItemId, 'image item id');
-  assertSafeId(revisionId, 'site revision id');
-  assertSafeId(salonId, 'salon id');
-  assertSafeId(siteId, 'site id');
-  assertSafeId(uploadAttemptId, 'upload attempt id');
-  if (!ROLES.has(role)) {
-    throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'Invalid image role.');
+/** Decode, validate and normalize image bytes before any storage adapter. */
+export async function normalizeOnboardingImage(file: File, preparation?: SaveOnboardingMediaFileInput['imagePreparation']) {
+  const outputLimit = preparation?.maxOutputBytes ?? MAX_BYTES;
+  if (!Number.isInteger(outputLimit) || outputLimit <= 0 || outputLimit > MAX_BYTES) {
+    throw new OnboardingMediaStorageError('INVALID_IMAGE', 'The image preparation limit is invalid.');
   }
   if (!ALLOWED_TYPES.has(file.type)) {
     throw new OnboardingMediaStorageError(
@@ -191,24 +189,49 @@ export const saveOnboardingMediaFile = async ({
       'The image contents do not match the selected file type.',
     );
   }
+  if (preparation?.artwork && (!metadata.width || !metadata.height || metadata.width > 40000 || metadata.height > 40000)) {
+    throw new OnboardingMediaStorageError('INVALID_IMAGE', 'This Canva page is too long or wide. Export it as separate pages before uploading.');
+  }
 
   let normalized: Buffer;
   let normalizedMetadata: Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>;
   try {
-    const settings = [
-      { maxEdge: undefined, quality: 88 },
-      { maxEdge: 2_560, quality: 82 },
-      { maxEdge: 2_048, quality: 76 },
-      { maxEdge: 1_600, quality: 70 },
-    ];
+    const settings = preparation?.artwork
+      ? [
+          // Preserve text edges and native pixels when the lossless export fits.
+          { width: undefined, maxEdge: undefined, quality: 100, lossless: true },
+          ...[96, 90, 84].map(quality => ({ width: undefined, maxEdge: undefined, quality, lossless: false })),
+          // A long Canva page needs width for legible text. Never squeeze the
+          // whole page into a short maximum-height thumbnail or upscale pixels.
+          ...(preparation.preserveDimensions ? [] : [2400, 1920, 1600, 1200, 1000, 800, 600].map(width => ({ width, maxEdge: undefined, quality: 90, lossless: false }))),
+        ]
+      : [
+          { width: undefined, maxEdge: undefined, quality: 88, lossless: false },
+          { width: undefined, maxEdge: 2_560, quality: 82, lossless: false },
+          { width: undefined, maxEdge: 2_048, quality: 76, lossless: false },
+          { width: undefined, maxEdge: 1_600, quality: 70, lossless: false },
+          ...(preparation
+            ? [
+                { width: undefined, maxEdge: 1_280, quality: 76, lossless: false },
+                { width: undefined, maxEdge: 1_024, quality: 74, lossless: false },
+                { width: undefined, maxEdge: 896, quality: 72, lossless: false },
+              ]
+            : []),
+        ];
     normalized = Buffer.alloc(0);
-    for (const { maxEdge, quality } of settings) {
+    for (const { width, maxEdge, quality, lossless } of settings) {
+      const nativeWidth = metadata.orientation && metadata.orientation >= 5 ? metadata.height! : metadata.width!;
+      if (width && width >= nativeWidth) {
+        continue;
+      }
       const pipeline = sharp(input, { failOn: 'error', limitInputPixels: MAX_PIXELS }).rotate();
       if (maxEdge) {
         pipeline.resize({ width: maxEdge, height: maxEdge, fit: 'inside', withoutEnlargement: true });
+      } else if (width) {
+        pipeline.resize({ width, withoutEnlargement: true });
       }
-      normalized = await pipeline.webp({ quality }).toBuffer();
-      if (normalized.byteLength <= MAX_BYTES) {
+      normalized = await pipeline.webp({ quality, lossless }).toBuffer();
+      if (normalized.byteLength <= outputLimit) {
         break;
       }
     }
@@ -219,12 +242,35 @@ export const saveOnboardingMediaFile = async ({
       'This photo could not be prepared for your site.',
     );
   }
-  if (!normalizedMetadata.width || !normalizedMetadata.height || normalized.byteLength > MAX_BYTES) {
+  if (!normalizedMetadata.width || !normalizedMetadata.height || normalized.byteLength > outputLimit) {
     throw new OnboardingMediaStorageError(
       'INVALID_IMAGE',
-      'This photo has invalid dimensions or is too large after preparation.',
+      preparation?.artwork ? 'This design is too large to save clearly. Export it as separate PNG pages and upload them in order.' : 'This photo has invalid dimensions or is too large after preparation.',
     );
   }
+
+  return { normalized, normalizedMetadata };
+}
+
+export const saveOnboardingMediaFile = async ({
+  file,
+  role,
+  revisionId,
+  salonId,
+  siteId,
+  stableItemId,
+  uploadAttemptId,
+  imagePreparation,
+}: SaveOnboardingMediaFileInput): Promise<StoredOnboardingMediaFile> => {
+  assertSafeId(stableItemId, 'image item id');
+  assertSafeId(revisionId, 'site revision id');
+  assertSafeId(salonId, 'salon id');
+  assertSafeId(siteId, 'site id');
+  assertSafeId(uploadAttemptId, 'upload attempt id');
+  if (!ROLES.has(role)) {
+    throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'Invalid image role.');
+  }
+  const { normalized, normalizedMetadata } = await normalizeOnboardingImage(file, imagePreparation);
 
   const fingerprint = createHash('sha256')
     // Revisions are append-only. Including the immutable revision identity
@@ -302,6 +348,14 @@ export const readOnboardingMediaFile = async (
   storageKey: string,
   owner: OnboardingMediaStorageOwner,
 ): Promise<Buffer> => {
+  if (storageKey.startsWith('custom_site_asset:')) {
+    const assetId = onboardingArtworkAssetId(storageKey, owner);
+    if (!assetId) {
+      throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'The media storage key is invalid.');
+    }
+    const { readOnboardingArtworkAsset } = await import('@/features/custom-sites/assets.server');
+    return readOnboardingArtworkAsset(owner.salonId, assetId);
+  }
   const { isCloud, key } = ownedStorageKey(storageKey, owner);
   if (!isCloud) {
     const bytes = await readFile(resolveStoragePath(key));
@@ -373,6 +427,15 @@ export const deleteOnboardingMediaFile = async (
   storageKey: string,
   owner: OnboardingMediaStorageOwner,
 ): Promise<void> => {
+  if (storageKey.startsWith('custom_site_asset:')) {
+    if (!onboardingArtworkAssetId(storageKey, owner)) {
+      throw new OnboardingMediaStorageError('INVALID_MEDIA_OWNER', 'The media storage key is invalid.');
+    }
+    // The media row owns only an alias, not the shared immutable object. A
+    // failed/stale upload or a replaced draft cannot delete published/history
+    // bytes. The asset library and tenant lifecycle own their retention.
+    return;
+  }
   const { isCloud, key } = ownedStorageKey(storageKey, owner);
   if (isCloud) {
     assertCloudinaryConfigured();

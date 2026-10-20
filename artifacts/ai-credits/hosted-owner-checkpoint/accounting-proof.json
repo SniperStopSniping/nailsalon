@@ -1,0 +1,123 @@
+{
+  "hosted": true,
+  "models": [
+    "gpt-6-luna",
+    "gpt-6.1-sol"
+  ],
+  "calls": [
+    {
+      "id": "c5d145be-1920-4d10-911c-1d9da3b98dea",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "ordinal": 0,
+      "input_tokens": 5101,
+      "output_tokens": 578,
+      "cost_micro_usd": 927,
+      "credit_cost_micro_cad": "2596",
+      "charged_micro_cad": 1854,
+      "elapsed_ms": 6670,
+      "validation": "passed"
+    },
+    {
+      "id": "d5182e14-af37-40f9-a554-b59f1e020cc8",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "ordinal": 0,
+      "input_tokens": 5480,
+      "output_tokens": 222,
+      "cost_micro_usd": 796,
+      "credit_cost_micro_cad": "2229",
+      "charged_micro_cad": 1592,
+      "elapsed_ms": 3523,
+      "validation": "passed"
+    },
+    {
+      "id": "a76cf497-8be2-4d33-8950-4dfb618501d2",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "ordinal": 0,
+      "input_tokens": 2520,
+      "output_tokens": 4799,
+      "cost_micro_usd": 54289,
+      "credit_cost_micro_cad": "152010",
+      "charged_micro_cad": 108578,
+      "elapsed_ms": 104232,
+      "validation": "passed"
+    },
+    {
+      "id": "d945f258-0476-4cf3-a31f-fb907aa1aebb",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "ordinal": 0,
+      "input_tokens": 5582,
+      "output_tokens": 216,
+      "cost_micro_usd": 806,
+      "credit_cost_micro_cad": "2257",
+      "charged_micro_cad": 1612,
+      "elapsed_ms": 3138,
+      "validation": "passed"
+    },
+    {
+      "id": "be5c94fe-1c96-4140-bf3d-4ffde0a43a30",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "ordinal": 0,
+      "input_tokens": 7053,
+      "output_tokens": 5136,
+      "cost_micro_usd": 68991,
+      "credit_cost_micro_cad": "193175",
+      "charged_micro_cad": 137982,
+      "elapsed_ms": 104991,
+      "validation": "passed"
+    },
+    {
+      "id": "be77cb0b-03ae-4e3c-a78c-89629bb2ebfd",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "ordinal": 0,
+      "input_tokens": 5668,
+      "output_tokens": 220,
+      "cost_micro_usd": 819,
+      "credit_cost_micro_cad": "2294",
+      "charged_micro_cad": 1638,
+      "elapsed_ms": 4004,
+      "validation": "passed"
+    },
+    {
+      "id": "0d944599-9467-4cb9-8bea-ff6b4bd36799",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "ordinal": 0,
+      "input_tokens": 5882,
+      "output_tokens": 252,
+      "cost_micro_usd": 862,
+      "credit_cost_micro_cad": "2414",
+      "charged_micro_cad": 1724,
+      "elapsed_ms": 3881,
+      "validation": "passed"
+    }
+  ],
+  "providerMicroUsd": 127490,
+  "estimatedProviderCadAtConfiguredFx": 0.17848599999999998,
+  "invoiceReconciled": false,
+  "pricingBasis": "Provider-reported tokens and versioned application rates; accounting FX 1.4 CAD/USD, not a spot quote.",
+  "ledger": [
+    {
+      "kind": "purchase",
+      "count": 1,
+      "micro_cad": "10000000"
+    },
+    {
+      "kind": "usage",
+      "count": 5,
+      "micro_cad": "-356975"
+    }
+  ],
+  "heldRequests": 0,
+  "hostedOperatorCapMicroCad": 68615594,
+  "sharedCapIncludingLocalMicroCad": 80000000,
+  "otherSalonServiceStaffAndAppointmentFingerprintsUnchanged": true,
+  "protectedOtherSalons": 16,
+  "protectedOtherAppointments": 17,
+  "productionTouched": false
+}

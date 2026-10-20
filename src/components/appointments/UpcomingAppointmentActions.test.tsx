@@ -148,6 +148,12 @@ function findReminderRequest() {
   return fetchMock.mock.calls.find(([input]) => String(input).includes('/send-reminder'));
 }
 
+async function settleFetchEffects() {
+  await act(async () => {
+    await Promise.all(fetchMock.mock.results.map(({ value }) => Promise.resolve(value)));
+  });
+}
+
 describe('UpcomingAppointmentActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -421,8 +427,9 @@ describe('UpcomingAppointmentActions', () => {
     expect(onReminderSent).toHaveBeenCalledTimes(1);
   });
 
-  it('routes change and cancel actions to their callbacks', () => {
+  it('routes change and cancel actions to their callbacks', async () => {
     const { onChangeAppointment, onCancelAppointment } = renderActions();
+    await settleFetchEffects();
 
     fireEvent.click(screen.getByRole('button', { name: 'Change appointment' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel appointment' }));
@@ -469,8 +476,9 @@ describe('UpcomingAppointmentActions', () => {
     });
   });
 
-  it('shows Directions only when the appointment has a usable location', () => {
+  it('shows Directions only when the appointment has a usable location', async () => {
     const { unmount, onOpenNativeUrl } = renderActions();
+    await settleFetchEffects();
 
     expect(screen.getByRole('button', { name: 'Directions' })).toBeInTheDocument();
 
@@ -490,6 +498,7 @@ describe('UpcomingAppointmentActions', () => {
         location: null,
       },
     });
+    await settleFetchEffects();
 
     expect(screen.queryByRole('button', { name: 'Directions' })).not.toBeInTheDocument();
   });

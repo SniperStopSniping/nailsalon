@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "actualOwnerUi": true,
+  "selectionUsedVisibleRequestAndDate": true,
+  "beforeRevision": 46,
+  "earlierDesignRestoredAt": 47,
+  "latestDesignRestoredAt": 48,
+  "priceDraft65UnconfirmedPreserved": true,
+  "livePrice75Unchanged": true,
+  "allOtherBusinessSettingsPreserved": true,
+  "historicalAppointmentsPreserved": 4,
+  "additionalAiCalls": 0,
+  "refreshRetainsRestoredSourceAndManualWording": true,
+  "published": false
+}

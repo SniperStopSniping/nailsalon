@@ -1,0 +1,22 @@
+{
+  "testedAt": "2026-10-15T14:41:16.299Z",
+  "salonSlug": "ai-test-1270644eedefa092",
+  "artifactId": "f453c89a-9e0f-46bf-a6ce-dce1140f2605",
+  "receipt": {
+    "id": "175fd51e-d7b4-4a90-86e0-2f526b7144a6",
+    "salonId": "ai_trial_1270644eedefa092e7714a00ff5583ee",
+    "workspaceId": "9c1f5d8e-5428-4484-9b5f-965e46c51a2c",
+    "revision": 11,
+    "operationId": "6154b9af-e9f0-4d3d-82f4-6d1690025724",
+    "approvalId": "d5e814ea-afd4-4b13-9552-36957241c286",
+    "actorId": "76351038-7034-4233-84a1-1f8b14766f03",
+    "serviceIds": {
+      "72ba3e3e-cb9d-4df9-bd36-9160fd93a3a5": "72ba3e3e-cb9d-4df9-bd36-9160fd93a3a5",
+      "e1465a2e-9022-4f25-8674-973f26fa2cbb": "e1465a2e-9022-4f25-8674-973f26fa2cbb"
+    },
+    "publishedAt": "2026-10-15T14:41:16.077Z",
+    "mediaFinalized": true
+  },
+  "reviewedExactRevision": true,
+  "referenceGenerationAndChatRevision": true
+}

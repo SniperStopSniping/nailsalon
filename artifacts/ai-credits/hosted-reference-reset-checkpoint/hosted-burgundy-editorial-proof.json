@@ -1,0 +1,46 @@
+{
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "name": "burgundy-editorial",
+  "exactPrompt": "Make my website look like this. Use my saved business details.",
+  "scope": "website",
+  "beforeRevision": 57,
+  "afterRevision": 58,
+  "status": "completed",
+  "elapsedMs": 120160,
+  "calls": [
+    {
+      "id": "908cc8dd-2f64-48a0-a933-7a0ba917c694",
+      "operation_id": "f7ccc247-ca44-42eb-8af5-e8b0b183c74e",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 5813,
+      "output_tokens": 220,
+      "cost_micro_usd": 837,
+      "elapsed_ms": 3444,
+      "validation": "passed"
+    },
+    {
+      "id": "a6e492a4-ffce-4e1c-8f6b-88c1dbeb5bfd",
+      "operation_id": "c5dcd025-458b-41f8-befb-f7d54463189e",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "input_tokens": 3037,
+      "output_tokens": 5365,
+      "cost_micro_usd": 61241,
+      "elapsed_ms": 114174,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false,
+  "artifactId": "d666f16e-0450-47ba-b9ea-9332240b60c9",
+  "sourceHash": "27aadcc8c46f7fdeffeb77599ddd6e69a7f6bf5f77c0f88caf56272e570d9721",
+  "businessAndHistoricalAppointmentsPreserved": true,
+  "historicalAppointments": 6,
+  "firstResultAutoOpened": true,
+  "refreshedDuringGeneration": true
+}
