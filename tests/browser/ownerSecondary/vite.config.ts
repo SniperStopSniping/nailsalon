@@ -10,6 +10,7 @@ const repository = path.resolve(root, '../../..');
 export default defineConfig({ root, cacheDir: path.join(os.tmpdir(), 'luster-owner-secondary-cache'), plugins: [react()], resolve: { alias: {
   '@clerk/nextjs': path.join(repository, 'tests/browser/clerk.ts'),
   'next/image': path.join(repository, 'tests/browser/appointmentWorkflow/next-image.tsx'),
+  'next/link': path.join(repository, 'tests/browser/ownerEntry/link.tsx'),
   'next/navigation': path.join(repository, 'tests/browser/ownerNavigation/navigation.ts'),
   '@/providers/SalonProvider': path.join(repository, 'tests/browser/clientProfile/salon-provider.tsx'),
   '@': path.join(repository, 'src'),
