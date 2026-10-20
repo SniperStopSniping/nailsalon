@@ -50,6 +50,7 @@ type Message = {
   reply: string | null;
   status: string;
   recoverable?: boolean;
+  progress?: string;
 };
 type MessageRequest = { message: string; operationId: string; expectedRevision: number; scope: string; referenceIds: string[] };
 type Submission = { request: MessageRequest; status: 'sending' | 'checking' | 'failed'; startedAt: number; hadWebsite?: boolean; error?: string };
@@ -584,7 +585,7 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                     <p role="status" className="setup-thinking">
                       <span aria-hidden="true">✦</span>
                       {' '}
-                      Working on your changes…
+                      {message.progress ?? 'Working on your changes…'}
                     </p>
                   )}
                   {['failed', 'interrupted'].includes(message.status) && (

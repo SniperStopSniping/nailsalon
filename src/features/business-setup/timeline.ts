@@ -1,5 +1,14 @@
 type Turn = { id: string; message: string; reply: string | null; status: string; createdAt: Date; leaseExpiresAt: Date; designOperationId: string | null };
-type Design = { id: string; message: string; status: string; createdAt: Date };
+type Design = { id: string; message: string; status: string; createdAt: Date; phase?: string };
+
+const DESIGN_PROGRESS: Record<string, string> = {
+  waiting: 'Preparing your website…',
+  generating: 'Creating your website design. This can take a few minutes…',
+  repairing: 'Making a correction before showing your design…',
+  validating: 'Checking your design and booking links…',
+  saving: 'Saving your new website draft…',
+  applying: 'Finishing your saved website draft…',
+};
 
 /** Both owner entry points display the same saved conversation after refresh. */
 export function setupTimeline(turns: Turn[], designs: Design[], now = Date.now()) {
@@ -7,7 +16,10 @@ export function setupTimeline(turns: Turn[], designs: Design[], now = Date.now()
   const designById = new Map(designs.map(design => [design.id, design]));
   const designStatus = (design: Design) => ['pending', 'generated'].includes(design.status) ? (design.createdAt.getTime() + 300000 < now ? 'interrupted' : 'pending') : design.status;
   return [
-    ...turns.map(turn => ({ ...turn, status: turn.designOperationId && designById.has(turn.designOperationId) ? designStatus(designById.get(turn.designOperationId)!) : ['pending', 'generated'].includes(turn.status) ? (turn.leaseExpiresAt.getTime() < now ? 'interrupted' : 'pending') : turn.status })),
+    ...turns.map((turn) => {
+      const design = turn.designOperationId ? designById.get(turn.designOperationId) : undefined;
+      return { ...turn, phase: design?.phase, status: design ? designStatus(design) : ['pending', 'generated'].includes(turn.status) ? (turn.leaseExpiresAt.getTime() < now ? 'interrupted' : 'pending') : turn.status };
+    }),
     ...designs.filter(design => !linked.has(design.id)).map(design => ({ ...design, status: designStatus(design), reply: design.status === 'completed' ? 'Your updated website design is saved as a draft. Open Preview to review the result.' : null })),
-  ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).slice(-40).map(({ id, message, reply, status }) => ({ id, message, reply, status }));
+  ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()).slice(-40).map(({ id, message, reply, status, phase }) => ({ id, message, reply, status, ...(status === 'pending' && phase && Object.hasOwn(DESIGN_PROGRESS, phase) ? { progress: DESIGN_PROGRESS[phase] } : {}) }));
 }

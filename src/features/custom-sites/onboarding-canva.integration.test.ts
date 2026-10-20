@@ -86,7 +86,7 @@ afterAll(async () => {
   await rm(mediaRoot, { recursive: true, force: true });
 });
 
-async function fixture(legacy = false, native: false | 'ready' | 'hidden' | 'missing' | 'example' = false, aboutIntro?: string) {
+async function fixture(legacy = false, native: false | 'ready' | 'hidden' | 'missing' | 'example' = false, aboutIntro?: string, artworkText = 'My original Canva artwork') {
   const actor = { salonId: randomUUID(), adminId: randomUUID() };
   const site = { ...actor, siteId: randomUUID(), revisionId: randomUUID(), revision: 1 };
   const serviceId = randomUUID();
@@ -133,7 +133,7 @@ async function fixture(legacy = false, native: false | 'ready' | 'hidden' | 'mis
     }
   }
   const design = createDefaultCustomDesignSettings();
-  design.images = [{ id: 'artwork-one', assetId: 'local-artwork', fileName: 'design.webp', mimeType: 'image/webp', fileSize: 1000, width: 600, height: 1400, aspectRatio: 600 / 1400, altText: 'My original Canva artwork', decorative: false, interactiveAreas: [{ id: 'my-instagram', accessibleLabel: 'My Instagram', geometry: { x: 10, y: 50, width: 80, height: 5 }, semanticOrder: 0, labelConfirmed: true, validationStatus: 'valid', reviewStatus: 'approved', action: { type: 'instagram', destination: { username: 'my_studio' } } }] }];
+  design.images = [{ id: 'artwork-one', assetId: 'local-artwork', fileName: 'design.webp', mimeType: 'image/webp', fileSize: 1000, width: 600, height: 1400, aspectRatio: 600 / 1400, altText: artworkText, decorative: false, interactiveAreas: [{ id: 'my-instagram', accessibleLabel: 'My Instagram', geometry: { x: 10, y: 50, width: 80, height: 5 }, semanticOrder: 0, labelConfirmed: true, validationStatus: 'valid', reviewStatus: 'approved', action: { type: 'instagram', destination: { username: 'my_studio' } } }] }];
   for (const page of builder.pages) {
     for (const section of page.sections) {
       if (section.sectionType === 'custom_design') {
@@ -217,8 +217,11 @@ it('rejects an old onboarding editor write after handoff instead of overwriting 
   expect(await linkedOnboardingCanvaDraft(database, { salonId: randomUUID(), siteId: site.siteId, revisionId: site.revisionId })).toBeNull();
 });
 
-it('requires owner artwork review and exact setup approval before original publication', async () => {
-  const { actor, input, serviceId } = await fixture();
+it.each([
+  { label: 'plain artwork', artworkText: 'My original Canva artwork' },
+  { label: 'a menu with an accessible printed price', artworkText: 'Gel manicure $65 CAD, 60 minutes. Instagram @my_studio.' },
+])('requires owner artwork review and exact setup approval before publishing $label', async ({ artworkText }) => {
+  const { actor, input, serviceId } = await fixture(false, false, undefined, artworkText);
   const imported = await importOnboardingCanva(actor, input);
   const unchecked = await reviewSetup(actor);
 
@@ -251,6 +254,7 @@ it('requires owner artwork review and exact setup approval before original publi
 
   expect(publicPayload.artworkUnavailable).not.toBe(true);
   expect(publicPayload.source.canva?.ownerReviewed).toBe(true);
+  expect(publicPayload.source.canva?.pages[0]?.alt).toBe(artworkText);
   expect(publicPayload.data.preview).toBe(false);
   expect(publicPayload.images).toHaveProperty((await records(actor.salonId)).assets[0]!.id);
   expect(publicPayload.data.services[0]).toMatchObject({ id: serviceId, priceCents: 6500, durationMinutes: 60 });

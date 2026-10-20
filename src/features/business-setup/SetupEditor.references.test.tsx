@@ -132,6 +132,17 @@ it('keeps Preview open when saved conversation history finishes loading after na
   expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
 });
 
+it('resumes saved generation progress without asking the owner to submit again', async () => {
+  messages = [{ id: crypto.randomUUID(), message: 'Create my website', reply: null, status: 'pending', progress: 'Checking your design and booking links…' }];
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled />);
+  await screen.findByText('Checking your design and booking links…');
+
+  expect(screen.getByText('Create my website')).toBeInTheDocument();
+  expect(screen.getByLabelText('Message Luster')).toHaveValue('');
+  expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+  expect(requests.filter(request => request.action === 'message')).toHaveLength(0);
+});
+
 it.each([false, true])('resumes a completed generation after refresh without resending or showing stale text (had website: %s)', async (hadWebsite) => {
   const id = crypto.randomUUID();
   document.website.config.customFrontendId = crypto.randomUUID();

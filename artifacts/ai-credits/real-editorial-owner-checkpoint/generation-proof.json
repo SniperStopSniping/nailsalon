@@ -1,0 +1,132 @@
+{
+  "firstRevision": 118,
+  "editedRevision": 119,
+  "firstArtifact": "6185e42a-a357-43a2-8af4-d0ea6791b099",
+  "editedArtifact": "9e9bec68-ac55-469e-b71f-2c25c711e5fa",
+  "parentArtifact": "6185e42a-a357-43a2-8af4-d0ea6791b099",
+  "rawOutputsRetained": true,
+  "automaticRepairs": 0,
+  "htmlUnchanged": true,
+  "javascriptUnchanged": true,
+  "desktopRulesUnchanged": true,
+  "addedPhoneRules": [
+    {
+      "selector": ".hero-copy",
+      "declarations": [
+        {
+          "property": "padding-top",
+          "value": "56px"
+        }
+      ]
+    },
+    {
+      "selector": ".hero h1",
+      "declarations": [
+        {
+          "property": "line-height",
+          "value": ".99"
+        }
+      ]
+    },
+    {
+      "selector": ".hero-bottom",
+      "declarations": [
+        {
+          "property": "margin-top",
+          "value": "34px"
+        }
+      ]
+    },
+    {
+      "selector": ".section-heading",
+      "declarations": [
+        {
+          "property": "margin-top",
+          "value": "34px"
+        },
+        {
+          "property": "margin-bottom",
+          "value": "38px"
+        }
+      ]
+    },
+    {
+      "selector": ".service-card",
+      "declarations": [
+        {
+          "property": "padding",
+          "value": "30px 25px"
+        },
+        {
+          "property": "min-height",
+          "value": "292px"
+        }
+      ]
+    },
+    {
+      "selector": ".service-top",
+      "declarations": [
+        {
+          "property": "margin-bottom",
+          "value": "32px"
+        }
+      ]
+    },
+    {
+      "selector": ".service-card-bottom",
+      "declarations": [
+        {
+          "property": "padding-top",
+          "value": "28px"
+        }
+      ]
+    }
+  ],
+  "sourceHashes": {
+    "first": "9eebed52d7a8ef3c7ec171b67f5b276b52d135c4bb5551a48192cce7ec3a5f73",
+    "edited": "4a56b19a7e47bcd383834964e8dee37ad843fd8d18bf421a606761b987054c3a"
+  },
+  "totalProviderUsd": 0.071931,
+  "trialMeterIncreaseCad": 0.143862,
+  "creditChargeCad": 0.201409,
+  "models": [
+    {
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "operationId": "331f427a-c3d5-41e1-8935-f792ec3a229f",
+      "ordinal": 0,
+      "status": "completed",
+      "validation": "passed",
+      "inputTokens": 6620,
+      "outputTokens": 172,
+      "elapsedMs": 3391,
+      "providerUsd": 0.000914
+    },
+    {
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "operationId": "f7911766-5042-4339-88b9-d584d3b1c821",
+      "ordinal": 0,
+      "status": "completed",
+      "validation": "passed",
+      "inputTokens": 2536,
+      "outputTokens": 6065,
+      "elapsedMs": 100580,
+      "providerUsd": 0.066989
+    },
+    {
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "operationId": "0983e2a4-5a99-48c0-86af-3f16c45dea15",
+      "ordinal": 0,
+      "status": "completed",
+      "validation": "passed",
+      "inputTokens": 8007,
+      "outputTokens": 6054,
+      "elapsedMs": 47774,
+      "providerUsd": 0.004028
+    }
+  ],
+  "publishedRevision": 98,
+  "otherRowsPreserved": true
+}
