@@ -1,0 +1,11 @@
+{
+  "baseSHA": "3980197563c4ddc5774f6c5dcbfb8fe9f8827a6a",
+  "branch": "codex/luster-video-production",
+  "applicationChanges": false,
+  "approvedFilmingSHA": "3980197563c4ddc5774f6c5dcbfb8fe9f8827a6a",
+  "status": "Released base verified by exact deployment health; isolated local production build passed",
+  "userReferenceVideoApproved": false,
+  "localBuildPassed": true,
+  "baseRequiredChecks": "success; optional Crowdin skipped",
+  "productionAtAudit": "f980091"
+}

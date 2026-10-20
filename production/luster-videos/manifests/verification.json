@@ -1,0 +1,221 @@
+{
+  "checkedAt": "2026-09-30",
+  "applicationSHA": "3980197563c4ddc5774f6c5dcbfb8fe9f8827a6a",
+  "applicationSourceChanges": false,
+  "approvalReady": true,
+  "userReferenceApproval": "pending",
+  "passed": [
+    {
+      "check": "Isolated runtime, database marker and provider configuration",
+      "command": "python3 production/luster-videos/demo/runtime.py verify; python3 production/luster-videos/demo/runtime.py status",
+      "evidence": "Independent read-only isolation review and task-owned loopback services"
+    },
+    {
+      "check": "Local application production build",
+      "command": "python3 production/luster-videos/demo/runtime.py build",
+      "evidence": "qa/build.log",
+      "priorFailure": "Initial demo seed TypeScript inference repaired before successful build"
+    },
+    {
+      "check": "Application type check",
+      "command": "npm run check-types (through guarded runtime environment)",
+      "evidence": "qa/typecheck.log"
+    },
+    {
+      "check": "Production tooling tests",
+      "command": "python3 -m unittest discover -s production/luster-videos/tests -v",
+      "testsPassed": 54,
+      "evidence": "qa/reference-tests.log"
+    },
+    {
+      "check": "Targeted ESLint",
+      "command": "node_modules/.bin/eslint production/luster-videos/demo/*.mjs production/luster-videos/demo/seed.ts",
+      "evidence": "qa/tooling-eslint.log"
+    },
+    {
+      "check": "Real guest booking then owner reschedule and saved note",
+      "evidence": [
+        "qa/hero-booking.json",
+        "qa/continuity-report.json",
+        "qa/rescheduled-calendar-reloaded.png",
+        "qa/client-note-reloaded.png"
+      ],
+      "appointmentId": "appt_a60f8bff-b3b7-4fc9-a3b9-7b080e788e4b"
+    },
+    {
+      "check": "Public old slot restored and new slot occupied",
+      "evidence": "qa/reschedule-slot-verification.json"
+    },
+    {
+      "check": "Chromium and WebKit 390x844 emulation",
+      "command": "node production/luster-videos/demo/verify-booking-ui.mjs",
+      "evidence": "qa/booking-ui-verification.json",
+      "limitations": "No second submission; required agreement enforced; real-device testing not performed"
+    },
+    {
+      "check": "FFmpeg encoders/filters and actual encode",
+      "tools": {
+        "ffmpeg": "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
+        "ffprobe": "/opt/homebrew/opt/ffmpeg-full/bin/ffprobe",
+        "version": "9.0.2"
+      }
+    },
+    {
+      "check": "Exact released filming base",
+      "evidence": "manifests/release.json",
+      "details": "Required base checks, successful exact Production deployment, matching deployment health SHA"
+    },
+    {
+      "check": "Internal silent edit technical decode",
+      "command": "ffmpeg -v error -i work/internal-drafts/tutorial-booking.silent.not-approval-ready.mp4 -f null -",
+      "result": "No decode errors; ffprobe confirms 66.100s, H.264/AAC, yuv420p, 1920x1080, 30/1 fps. This is not audiovisual creative acceptance."
+    },
+    {
+      "check": "Tracked-tree secret scan after staging demo tools",
+      "command": "npm run security:check-secrets",
+      "evidence": "qa/secret-scan-demo.log",
+      "result": "Historical checkpoint passed; current staged production revision scan recorded separately before commit."
+    },
+    {
+      "check": "Narration generation and pronunciation correction",
+      "evidence": [
+        "qa/audio-alignment.json",
+        "qa/audio-listening-ff0c5c1c5aae3fa8.json",
+        "qa/audio-listening-91688d621838598b.json"
+      ],
+      "result": "Nine final cached sections, ten speech requests including one explicit correction, two bounded automated full-audio listening reviews; human voice approval pending."
+    },
+    {
+      "check": "Reference MP4 decode, fast-start, audio levels and pair continuity",
+      "command": "python3 production/luster-videos/tools/qa_reference.py",
+      "evidence": "qa/reference-technical.json",
+      "result": "66.1s, 1983 constant-30-fps frames each, no decode errors or whole-frame black, -18.06 LUFS / -1.5dBTP, identical compressed AAC audio."
+    },
+    {
+      "check": "Landscape dimensions and codec properties",
+      "command": "python3 production/luster-videos/tools/video_pipeline.py qa --timeline timelines/tutorial-booking.json",
+      "evidence": "qa/tutorial-booking.json",
+      "result": "Both exports 1920x1080, H.264/AAC, yuv420p."
+    },
+    {
+      "check": "Complete visual sequence, captions and click targets",
+      "evidence": "qa/final-frames/contact-01.png through contact-11.png and individual press frames",
+      "result": "All 66 one-second sample frames reviewed without sound; active controls and captions occupy separate panels, seven real clicks mapped to source geometry. This is sampled visual review, not a human full-motion viewing claim."
+    },
+    {
+      "check": "Clean reference browser playback with sound enabled",
+      "evidence": "qa/browser-playback.json",
+      "result": "MP4 reached ended=true/currentTime=66.1 with no media error, muted=false; human creative listening remains pending."
+    },
+    {
+      "check": "Current staged production secret scan",
+      "command": "npm run security:check-secrets",
+      "evidence": "qa/reference-secret-scan.log",
+      "result": "Passed: 3311 tracked files, 526 generated files, five reviewed commits."
+    },
+    {
+      "check": "Captioned reference silent browser playback",
+      "evidence": "qa/browser-playback.json",
+      "result": "Reached ended=true/currentTime=66.1, muted=true, no media error."
+    }
+  ],
+  "blocked": [],
+  "pending": [
+    "Native 200% text scaling and visually sufficient keyboard focus indicators",
+    "Design draft isolation, immediate-save behavior, first publication when applicable, copied link destination",
+    "Team selection/schedules and eligible follow-up queue UI verification",
+    "Real-device browser coverage",
+    "Unfamiliar reviewer can repeat the tutorial",
+    "Current production tooling commit CI, preview and PR review; prior bef62647 checkpoint passed all checks",
+    "Human full audiovisual creative review and approval of voice, timing and pacing",
+    "Full-motion silent playback review by a human; sampled sequence review and full technical decode passed"
+  ],
+  "notRunLocally": [
+    {
+      "command": "npm run test:all",
+      "reason": "No application source changed; exact filmed base full suite passed CI. Tooling checkpoint bef62647 passed CI; new production revision CI reported separately."
+    },
+    {
+      "command": "npm run lint:all",
+      "reason": "Scoped tooling lint run; full branch gate pending."
+    },
+    {
+      "command": "npm run test:appointment-regression",
+      "reason": "No appointment implementation changed; real isolated owner reschedule verified separately."
+    },
+    {
+      "command": "npm run test:e2e:core:local",
+      "reason": "Used focused isolated capture and Chromium/WebKit journeys instead; no claim of full local suite pass."
+    }
+  ],
+  "internalVideo": {
+    "durationSeconds": 66.1,
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "fps": 30,
+    "status": "Preserved silent internal draft, superseded by narrated reference exports",
+    "sourceContainer": [
+      780,
+      1688
+    ],
+    "effectiveSourceContent": [
+      390,
+      844
+    ],
+    "sourceFps": 25,
+    "sourceDurationSeconds": 98.16,
+    "audio": "intentional silence only"
+  },
+  "finalOutputInventory": {
+    "cleanMP4": 1,
+    "captionedMP4": 1,
+    "finalSRT": 1,
+    "finalVTT": 1,
+    "finalThumbnails": 1,
+    "scope": "First-video reference only; seven videos await creative approval"
+  },
+  "deviations": "manifests/scene-evidence.json",
+  "cursorRevision": {
+    "date": "2026-09-30",
+    "requested": "Visible hand pointer for tutorial clicks",
+    "status": "Narrated reference rendered with all seven real click targets visually reviewed",
+    "sceneEvidence": "manifests/cursor-evidence.json",
+    "applicationChanges": false,
+    "additionalBookingCreated": false,
+    "testsPassed": 54,
+    "testCommand": "python3 -m unittest discover -s production/luster-videos/tests -v",
+    "testEvidence": "qa/reference-tests.log",
+    "secretScan": "Passed: 3301 tracked files, 526 generated files, 3 reviewed commits"
+  },
+  "branchCICheckpoint": {
+    "head": "bef62647b3cd67f14f181bfa77f51cf262242868",
+    "status": "All required checks passed at this checkpoint; latest production revision requires fresh CI",
+    "release": "Draft PR 338 remains unmerged; filmed application base already approved and released",
+    "latestProductionRevision": "Final narrated reference commit CI pending after push"
+  },
+  "referenceVideo": {
+    "durationSeconds": 66.1,
+    "dimensions": [
+      1920,
+      1080
+    ],
+    "fps": 30,
+    "sourceContent": [
+      390,
+      844
+    ],
+    "sourceFps": 25,
+    "status": "Complete reference awaiting user creative approval",
+    "clean": "exports/tutorial-booking.clean.mp4",
+    "captioned": "exports/tutorial-booking.captioned.mp4",
+    "subtitles": [
+      "subtitles/tutorial-booking.srt",
+      "subtitles/tutorial-booking.vtt",
+      "subtitles/tutorial-booking.ass"
+    ],
+    "thumbnail": "thumbnails/tutorial-booking.png",
+    "narration": "narration/tutorial-booking-aligned.wav"
+  }
+}
