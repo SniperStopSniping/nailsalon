@@ -1,0 +1,42 @@
+{
+  "applicationCommit": "0602dd19f55f2a97577c9ef36b30d8aaa3696c12",
+  "frameImplementationCommit": "2026f8e5",
+  "deploymentId": "dpl_HEeWvH3VwCcBwbaGuoHMoCxYccue",
+  "target": "preview",
+  "alias": "luster-ai-builder-test.vercel.app",
+  "identityAndRuntimeShaChecked": true,
+  "publicRendererHTTP": 200,
+  "rendererFrameAncestors": "https://luster-ai-builder-test.vercel.app",
+  "independentBrowser": {
+    "privateSavedDraftLoadedWithoutReload": true,
+    "privateRevision": 116,
+    "privateBookingDisabled": true,
+    "publishedCanvaLoadedWithoutReload": true,
+    "publishedRevision": 5,
+    "mobileViewport": {
+      "width": 390,
+      "height": 844
+    },
+    "publicFrameScrollWidth": 390,
+    "artwork": {
+      "naturalWidth": 1200,
+      "naturalHeight": 480,
+      "renderedWidth": 390,
+      "renderedHeight": 156
+    }
+  },
+  "affectedChrome": {
+    "ownerFirstLoadStillStalled": true,
+    "rawNetworkInspectionUnavailable": "Browser Use is resolving a paused document response",
+    "directNativeCheckPerformed": false,
+    "directNativeCheckBlocked": "Mac locked",
+    "rootCauseResolved": false,
+    "noSecurityControlsBypassed": true
+  },
+  "newAICalls": 0,
+  "globalAICallCount": 180,
+  "existingAppointmentsPreserved": 31,
+  "newPreviouslyVerifiedAppointmentUnchanged": true,
+  "canonicalPrivateAddressRetained": true,
+  "publicAddressNull": true
+}
