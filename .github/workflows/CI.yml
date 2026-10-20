@@ -1572,6 +1572,15 @@ jobs:
           grep -Fqx '# pass 2' release-plugin-lodash.tap
           grep -Fqx '# skipped 0' release-plugin-lodash.tap
 
+      - name: Verify patched semantic-release lodash-es with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/release-tooling-lodash-es.node-test.mjs | tee release-tooling-lodash-es.log
+          grep -Fqx '# tests 2' release-tooling-lodash-es.log
+          grep -Fqx '# pass 2' release-tooling-lodash-es.log
+          grep -Fqx '# skipped 0' release-tooling-lodash-es.log
+
       - name: Verify timezone rules and booking conversion on Node 24
         shell: bash
         run: |
