@@ -5,6 +5,8 @@ export type WelcomeAction = 'book' | 'prices' | 'consultation';
 type CustomerAssistantCopy = {
   launcher: string;
   title: string;
+  dataNotice: string;
+  privacy: string;
   close: string;
   continueManually: string;
   welcome: (salonName: string) => string;
@@ -43,6 +45,8 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
   en: {
     launcher: 'Help me choose & book',
     title: 'AI booking assistant',
+    dataNotice: 'Chat & times: OpenAI.',
+    privacy: 'Privacy policy',
     close: 'Close assistant',
     continueManually: 'Continue manually',
     welcome: salonName => `Hey! Welcome to ${salonName} 💅 I’m your AI receptionist. How can I help?`,
@@ -108,6 +112,8 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
   fr: {
     launcher: 'M’aider à choisir et réserver',
     title: 'Assistante de réservation IA',
+    dataNotice: 'Chat et créneaux : OpenAI.',
+    privacy: 'Politique de confidentialité',
     close: 'Fermer l’assistant',
     continueManually: 'Continuer manuellement',
     welcome: salonName => `Bonjour! Bienvenue chez ${salonName} 💅 Je suis votre réceptionniste IA. Comment puis-je vous aider?`,

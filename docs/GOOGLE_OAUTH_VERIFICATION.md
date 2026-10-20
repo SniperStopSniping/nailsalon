@@ -11,6 +11,20 @@ Rechecked against protected main `8a194effd6c8fbb20ec0209d47e79a3983f061e3`. Thi
 - `src/libs/googleCalendarInbound.ts` persists event details and extracted contact fields for review and linked-appointment synchronization.
 - `src/app/api/integrations/google/disconnect/route.ts` requests token revocation and deletes the connection record; it does not delete synchronized event or appointment records. A request to revoke is not a guarantee that the provider accepted it.
 
+## Optional AI processing review — 20 October 2026
+
+Reviewed the production source at `224a9ca7cac93de326ab61cfd1a1633b73115c1f` and read production feature configuration without changing it:
+
+- The owner assistant's configured tool list excludes `diagnose_day_availability`. Its dispatcher rejects tools outside that list. This blocks that particular availability-to-model path; it is not proof about other assistants.
+- Customer booking is an exact Isla pilot in `customerAssistant/access.server.ts`. `customerAssistant/slots.server.ts` uses the public availability authority, which includes Google calendar conflicts, and `customerAssistant/turn.server.ts` includes previously offered slots in model context.
+- `voiceReceptionist/authority.server.ts` uses those availability helpers, while `voiceReceptionist/coordinator.server.ts` sends authoritative offered-booking results to OpenAI. Phone answering also requires salon settings, configured credentials and number readiness; a global switch alone does not prove a salon is answering calls.
+- These availability results contain calculated booking times or availability summaries, not raw Google event titles, descriptions, locations, attendees or OAuth credentials. Calculated results still need an accurate data-use disclosure under Google's [Workspace user data policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy).
+- The signed-in OpenAI organization showed all three training-data-sharing controls disabled. Its voice project ID matched production configuration and showed standard retention. That observation does not establish zero retention or independently identify every deployed customer/owner API key.
+
+The policy and contextual notices describe optional OpenAI processing. The text-based Responses adapter sends `store: false`; this controls application state, not every provider security log. See [OpenAI's API data controls](https://developers.openai.com/api/docs/guides/your-data). Do not promise immediate provider erasure or a universal deletion deadline.
+
+Before the reviewer follow-up, verify the correction on the deployed privacy URL, the Connect/Reconnect notices, and the assistant notices. Coordinate this disclosure commit with the current release owner. Source/configuration evidence is distinct from an observed production assistant conversation, provider acceptance or Google's approval.
+
 ## Owner OAuth scopes
 
 The authorization request is defined in `src/app/api/integrations/google/connect/route.ts`:

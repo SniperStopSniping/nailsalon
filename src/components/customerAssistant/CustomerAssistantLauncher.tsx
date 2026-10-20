@@ -839,6 +839,11 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
           <button type="button" onClick={onClose} aria-label={copy.close} className="grid size-11 shrink-0 place-items-center rounded-full text-neutral-700 hover:bg-neutral-100"><X className="size-5" /></button>
         </div>
       </div>
+      <div className="shrink-0 border-b border-black/10 px-[16px] py-2 sm:px-5">
+        <p className="text-xs leading-5 text-neutral-600">
+          <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" aria-label={`${copy.dataNotice} ${copy.privacy}`} title={copy.privacy} className="font-medium underline underline-offset-4">{copy.dataNotice}</a>
+        </p>
+      </div>
       <div ref={transcriptRef} data-testid="customer-assistant-transcript" className="min-h-0 flex-1 space-y-[12px] overflow-y-auto overscroll-contain px-[16px] py-[12px] sm:px-5">
         {messages.map(message => message.role === 'user' && message.kind === 'quick_reply'
           ? (

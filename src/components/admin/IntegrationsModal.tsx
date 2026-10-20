@@ -136,6 +136,23 @@ const GOOGLE_READINESS_LABELS: Record<GoogleReadiness, string> = {
 
 type StatusTone = 'good' | 'warn' | 'muted' | 'error';
 
+function GoogleCalendarDataNotice() {
+  return (
+    <div className="mt-3 space-y-2 text-xs leading-5">
+      <p>
+        Luster reads your connected account email, calendar list and selected event details. Your connection
+        and synchronized event details are stored in your salon workspace for scheduling and two-way sync.
+      </p>
+      <p>
+        When an AI booking assistant or phone receptionist is enabled, OpenAI can process calculated
+        appointment openings to help with booking.
+        {' '}
+        <a href="/privacy" target="_blank" rel="noreferrer" className="font-medium underline underline-offset-4">Privacy policy</a>
+      </p>
+    </div>
+  );
+}
+
 function StatusPill({ label, tone }: { label: string; tone: StatusTone }) {
   const toneClass
     = tone === 'good'
@@ -515,6 +532,7 @@ export function IntegrationsModal({
                     {health?.google.lastError && (
                       <p className="mt-2 text-xs text-red-700">{health.google.lastError}</p>
                     )}
+                    <GoogleCalendarDataNotice />
                     <a
                       className="mt-3 inline-flex rounded-full bg-red-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition-colors hover:bg-red-800 focus-visible:ring-2 focus-visible:ring-red-400"
                       href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
@@ -676,12 +694,15 @@ export function IntegrationsModal({
                       </div>
                     )
                   : googleReadiness !== 'reconnect_required' && (
-                    <a
-                      className="mt-4 inline-flex rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-rose-400"
-                      href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
-                    >
-                      Connect Google Calendar
-                    </a>
+                    <>
+                      <GoogleCalendarDataNotice />
+                      <a
+                        className="mt-4 inline-flex rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-rose-400"
+                        href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
+                      >
+                        Connect Google Calendar
+                      </a>
+                    </>
                   )}
 
               {health?.google.lastError && googleReadiness !== 'reconnect_required' && (
