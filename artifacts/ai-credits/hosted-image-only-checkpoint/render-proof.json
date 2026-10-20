@@ -1,0 +1,208 @@
+{
+  "passed": true,
+  "hosted": true,
+  "sourceSha": "7390cc07e85651605c1c2e690227f858b12f5fd3",
+  "revision": 31,
+  "artifactId": "90d04ac8-2d99-4fa7-8bb8-c89cabf93941",
+  "manualSourceRepair": false,
+  "harnessCorrection": "Preview booking controls give a disabled notice; reset parent/frame scroll after clicking so screenshots show the page top",
+  "previewAppointmentPosts": 0,
+  "devices": [
+    {
+      "device": "desktop",
+      "layout": {
+        "width": 1440,
+        "content": 1440,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "booking": [
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        }
+      ],
+      "services": "BIAB\n$75.00\n75 min\nBook now\n↗\nGel manicure\n$50.00\n60 min\nBook now\n↗\nExpress natural-nail manicure\n\nShaping, cuticle care and regular polish; no extensions or removal.\n\n$35.00\n45 min\nBook now\n↗"
+    },
+    {
+      "device": "tablet",
+      "layout": {
+        "width": 768,
+        "content": 768,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "booking": [
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        }
+      ],
+      "services": "BIAB\n$75.00\n75 min\nBook now\n↗\nGel manicure\n$50.00\n60 min\nBook now\n↗\nExpress natural-nail manicure\n\nShaping, cuticle care and regular polish; no extensions or removal.\n\n$35.00\n45 min\nBook now\n↗"
+    },
+    {
+      "device": "mobile",
+      "layout": {
+        "width": 390,
+        "content": 390,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "booking": [
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        }
+      ],
+      "services": "BIAB\n$75.00\n75 min\nBook now\n↗\nGel manicure\n$50.00\n60 min\nBook now\n↗\nExpress natural-nail manicure\n\nShaping, cuticle care and regular polish; no extensions or removal.\n\n$35.00\n45 min\nBook now\n↗"
+    },
+    {
+      "device": "narrow-mobile",
+      "layout": {
+        "width": 320,
+        "content": 320,
+        "parentReadable": false,
+        "offscreenControls": []
+      },
+      "contacts": [
+        {
+          "type": "instagram",
+          "tag": "A",
+          "href": "https://www.instagram.com/luster_ai_test_only/"
+        },
+        {
+          "type": "email",
+          "tag": "A",
+          "href": "mailto:booking@example.test"
+        },
+        {
+          "type": "phone",
+          "tag": "A",
+          "href": "tel:+14165550109"
+        }
+      ],
+      "booking": [
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        },
+        {
+          "tag": "BUTTON",
+          "disabled": false,
+          "ariaDisabled": null
+        }
+      ],
+      "services": "BIAB\n$75.00\n75 min\nBook now\n↗\nGel manicure\n$50.00\n60 min\nBook now\n↗\nExpress natural-nail manicure\n\nShaping, cuticle care and regular polish; no extensions or removal.\n\n$35.00\n45 min\nBook now\n↗"
+    }
+  ]
+}

@@ -48,6 +48,12 @@ function renderActions(overrides: Partial<React.ComponentProps<typeof ClientComm
   return { onOpenNativeUrl };
 }
 
+async function settleFetchEffects() {
+  await act(async () => {
+    await Promise.all(fetchMock.mock.results.map(({ value }) => Promise.resolve(value)));
+  });
+}
+
 describe('ClientCommunicationActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -158,6 +164,7 @@ describe('ClientCommunicationActions', () => {
         email: 'ava@example.com',
       },
     });
+    await settleFetchEffects();
 
     for (const label of [
       'Text',
@@ -185,6 +192,7 @@ describe('ClientCommunicationActions', () => {
       primaryAction: { label: 'View appointment', onClick: onPrimaryAction },
       client: { id: 'client_1', fullName: 'Ava Nguyen', phone: '', email: null },
     });
+    await settleFetchEffects();
 
     fireEvent.click(screen.getByRole('button', { name: 'View appointment' }));
 
@@ -286,6 +294,7 @@ describe('ClientCommunicationActions', () => {
         email: 'ada@example.com',
       },
     });
+    await settleFetchEffects();
 
     expect(screen.getByRole('link', { name: 'Call' }))
       .toHaveAttribute('href', 'tel:4165550201');
@@ -302,6 +311,7 @@ describe('ClientCommunicationActions', () => {
         email: null,
       },
     });
+    await settleFetchEffects();
 
     const email = screen.getByTestId('client-email-action');
 
@@ -537,6 +547,17 @@ describe('ClientCommunicationActions', () => {
   });
 
   it('snoozes a due appointment reminder for the reminder-specific window', async () => {
+    let acknowledge!: (value: Response) => void;
+    const acknowledged = new Promise<Response>((resolve) => {
+      acknowledge = resolve;
+    });
+    const defaultFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/admin/retention' && init?.method === 'POST') {
+        return acknowledged;
+      }
+      return defaultFetch(input, init);
+    });
     retentionData = {
       retention: [],
       appointmentReminders: [{
@@ -568,7 +589,10 @@ describe('ClientCommunicationActions', () => {
       expect(requestBody).not.toHaveProperty('snoozeDays');
     });
 
-    expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('client-reminder-alert')).toBeInTheDocument();
+
+    await act(async () => acknowledge(jsonResponse({ data: { communication: { id: 'comm_1' } } })));
+    await waitFor(() => expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument());
   });
 
   it('allows a due appointment reminder to be skipped', async () => {
@@ -600,7 +624,7 @@ describe('ClientCommunicationActions', () => {
       });
     });
 
-    expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument());
   });
 
   it('prepares a secure configured win-back offer and shows honest history', async () => {

@@ -1,0 +1,28 @@
+{
+  "revision": 16,
+  "artifactId": "17a96960-0b4e-4997-a19a-413cdef3bfce",
+  "devices": [
+    {
+      "device": "desktop",
+      "sizes": {
+        "width": 1440,
+        "content": 1440,
+        "parentReadable": false
+      },
+      "services": "✳\n75 min\nBIAB\n$75.00\nBook now\n↗\n✳\n60 min\nGel manicure\n$50.00\nBook now\n↗",
+      "contacts": []
+    },
+    {
+      "device": "mobile",
+      "sizes": {
+        "width": 390,
+        "content": 390,
+        "parentReadable": false
+      },
+      "services": "✳\n75 min\nBIAB\n$75.00\nBook now\n↗\n✳\n60 min\nGel manicure\n$50.00\nBook now\n↗",
+      "contacts": []
+    }
+  ],
+  "hosted": true,
+  "manualSourceRepair": false
+}

@@ -1,0 +1,67 @@
+{
+  "sourceParent": "2357cb569bf7c82671446ac71e026cf61fc56558",
+  "baselineHttpsWebkitRegressions": {
+    "failed": 2,
+    "hostedFailureAlsoReproduced": true
+  },
+  "httpsBrowserMatrix": {
+    "passed": 18,
+    "failed": 0,
+    "skipped": 0,
+    "profiles": [
+      "desktop-chromium",
+      "phone-chromium",
+      "phone-webkit"
+    ],
+    "seconds": 12.2,
+    "scope": "Exact handler/CSP with synthetic HTTPS pages; no Production requests",
+    "explicitImportScriptsBlocked": true
+  },
+  "existingRendererBrowserMatrix": {
+    "passed": 27,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 32.9,
+    "profiles": [
+      "desktop",
+      "mobile",
+      "mobile-webkit"
+    ]
+  },
+  "focusedRendererUnitCases": {
+    "passed": 24,
+    "files": 6
+  },
+  "workflowFontOriginContracts": {
+    "passed": 43,
+    "failed": 0,
+    "skipped": 0
+  },
+  "fullTypecheck": "passed",
+  "scopedLint": "passed with zero errors or warnings",
+  "whitespace": "passed",
+  "opaqueOriginRetained": true,
+  "adminSessionOrStorageAccessGranted": false,
+  "outboundWorkerRequestsObserved": 0,
+  "forgedBookingEventsObserved": 0,
+  "canonicalPriceMutationSucceeded": false,
+  "newRequiredCiStep": "Verify HTTPS custom-site workers and opaque-origin isolation",
+  "applicationPackagesInstalled": false,
+  "savedGeneratedSourceEdited": false,
+  "modelCalls": 0,
+  "newApiCostCad": 0,
+  "productionRendererParentConfigStaged": true,
+  "productionParent": "https://www.lustergel.app",
+  "existingTestRendererBodyPreserved": true,
+  "productionDeployed": false,
+  "productionMigrationApplied": false,
+  "liveSalonDataChanged": false,
+  "newHeadCi": "required after commit; not yet claimed",
+  "fixedHostedRendererAcceptance": "required after qualified Preview deployment; not yet claimed",
+  "sourceSha256": {
+    "tools/custom-site-renderer/runtime.js": "b6ec974904dd69e77675117526504469784c9c2802dc20a76e8af2a872f3ae5e",
+    "tools/custom-site-renderer/handler.mjs": "3017c58a3c523a8e355a9a1a6ca5b8f6cc919f0a63d817211e0dd53d70d9146b",
+    "tests/browser/rendererIsolationHttps/renderer.spec.ts": "d405f166ca4b34ff602ff6bd608136a7286238ead2b84b19448e4bc405a54115",
+    "tests/browser/rendererIsolationHttps/playwright.config.ts": "d053538311a9b8ede74faa51901d47ba86c38f2dd44aa881f33cbece512ffd6e"
+  }
+}

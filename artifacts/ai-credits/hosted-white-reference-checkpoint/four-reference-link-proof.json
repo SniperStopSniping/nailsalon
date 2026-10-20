@@ -1,0 +1,31 @@
+{
+  "sourceSha": "aa99b1977eaecd4907434d5a3b5256f5c746552e",
+  "designs": [
+    {
+      "style": "sage-custom",
+      "revision": 50,
+      "headline": "Make time for\na little colour.",
+      "bookingDisabledNotice": true
+    },
+    {
+      "style": "pink-floral",
+      "revision": 55,
+      "headline": "Cobalt Nail Club",
+      "bookingDisabledNotice": true
+    },
+    {
+      "style": "burgundy-editorial",
+      "revision": 65,
+      "headline": "Cobalt Nail Club",
+      "bookingDisabledNotice": true
+    },
+    {
+      "style": "white-minimal",
+      "revision": 68,
+      "headline": "Good nails.\nA little time for you.",
+      "bookingDisabledNotice": true
+    }
+  ],
+  "capabilityUrlsKeptPrivate": true,
+  "productionTouched": false
+}

@@ -1,0 +1,44 @@
+{
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "name": "pink-touch-target",
+  "exactPrompt": "Make the little down-arrow a clearer, bigger button to tap on mobile. Keep everything else.",
+  "scope": "website",
+  "beforeRevision": 53,
+  "afterRevision": 54,
+  "status": "completed",
+  "elapsedMs": 59393,
+  "calls": [
+    {
+      "id": "71c805ee-51b8-45b1-ae2f-924a3a51a33e",
+      "operation_id": "5c43a244-ea6c-4115-b91e-955923fd8126",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 5895,
+      "output_tokens": 134,
+      "cost_micro_usd": 804,
+      "elapsed_ms": 3558,
+      "validation": "passed"
+    },
+    {
+      "id": "54447066-6f48-4d1a-94d0-949263c2f9ff",
+      "operation_id": "c4907a86-ccdf-4113-bde1-bd859685a1fc",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 8478,
+      "output_tokens": 5993,
+      "cost_micro_usd": 4057,
+      "elapsed_ms": 54152,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false,
+  "artifactId": "864bd04e-a47f-4b10-b96c-8615a7269eb8",
+  "sourceHash": "851d5f4d887aa7a917b3a4b7578187b3e58d8146fad4cd4dbdc35fb14da20351",
+  "businessAndHistoricalAppointmentsPreserved": true,
+  "historicalAppointments": 5
+}

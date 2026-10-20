@@ -6,7 +6,11 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 
-import { runClientLifecycleMigrationWithRetry } from '@/libs/clientLifecycleMigrationRetry';
+import {
+  clientLifecycleMigrationFailureMessage,
+  ClientLifecycleMigrationGuardError,
+  runClientLifecycleMigrationWithRetry,
+} from '@/libs/clientLifecycleMigrationRetry';
 import { CLIENT_LIFECYCLE_MIGRATION_SHA256 } from '@/libs/clientLifecycleSchemaCore';
 
 const { Client } = pg;
@@ -54,10 +58,10 @@ async function verifyRepositoryHistory(): Promise<void> {
     .update(migration0062Sql)
     .digest('hex');
   if (migration0061Hash !== EXPECTED_0061_HASH) {
-    throw new Error('Repository migration 0061 does not match Production history.');
+    throw new ClientLifecycleMigrationGuardError('Repository migration 0061 does not match Production history.');
   }
   if (migration0062Hash !== CLIENT_LIFECYCLE_MIGRATION_SHA256) {
-    throw new Error(
+    throw new ClientLifecycleMigrationGuardError(
       'Repository migration 0062 does not match the stabilization release.',
     );
   }
@@ -70,7 +74,7 @@ async function verifyRepositoryHistory(): Promise<void> {
     || entry0061.tag !== EXPECTED_0061_TAG
     || entry0061.breakpoints !== true
   ) {
-    throw new Error('Repository migration journal does not match Production 0061.');
+    throw new ClientLifecycleMigrationGuardError('Repository migration journal does not match Production 0061.');
   }
 
   const entry0062 = journal.entries?.find(candidate => candidate.idx === 62);
@@ -80,7 +84,7 @@ async function verifyRepositoryHistory(): Promise<void> {
     || entry0062.tag !== EXPECTED_0062_TAG
     || entry0062.breakpoints !== true
   ) {
-    throw new Error('Repository migration journal does not match stabilization 0062.');
+    throw new ClientLifecycleMigrationGuardError('Repository migration journal does not match stabilization 0062.');
   }
 }
 
@@ -154,7 +158,7 @@ async function verifyDatabase0061(handle: QueryHandle): Promise<void> {
   const objectCount = await lifecycle0061ObjectCount(handle);
   if (ledger.rows[0]?.exists !== true) {
     if (objectCount !== 0) {
-      throw new Error(
+      throw new ClientLifecycleMigrationGuardError(
         'Lifecycle schema objects exist without a journaled migration.',
       );
     }
@@ -170,7 +174,7 @@ async function verifyDatabase0061(handle: QueryHandle): Promise<void> {
   );
   if (migration.rowCount === 0) {
     if (objectCount !== 0) {
-      throw new Error(
+      throw new ClientLifecycleMigrationGuardError(
         'Lifecycle schema objects exist without the exact journaled 0061 migration.',
       );
     }
@@ -182,10 +186,10 @@ async function verifyDatabase0061(handle: QueryHandle): Promise<void> {
     || migration.rows[0]?.hash !== EXPECTED_0061_HASH
     || Number(migration.rows[0]?.created_at) !== EXPECTED_0061_CREATED_AT
   ) {
-    throw new Error('Database migration 0061 does not match Production history.');
+    throw new ClientLifecycleMigrationGuardError('Database migration 0061 does not match Production history.');
   }
   if (objectCount !== EXPECTED_0061_OBJECT_COUNT) {
-    throw new Error('Database migration 0061 schema objects are incomplete.');
+    throw new ClientLifecycleMigrationGuardError('Database migration 0061 schema objects are incomplete.');
   }
 }
 
@@ -222,7 +226,7 @@ async function verifyDatabase0062Ready(handle: QueryHandle): Promise<void> {
     || Number(result.rows[0]?.exact_migration_rows ?? 0) !== 1
     || Number(result.rows[0]?.ready_capability_rows ?? 0) !== 1
   ) {
-    throw new Error('Database stabilization capability is not ready.');
+    throw new ClientLifecycleMigrationGuardError('Database stabilization capability is not ready.');
   }
 }
 
@@ -295,7 +299,7 @@ async function runMigrationAttempt(
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL is required.');
+    throw new ClientLifecycleMigrationGuardError('DATABASE_URL is required.');
   }
 
   await verifyRepositoryHistory();
@@ -318,6 +322,6 @@ async function main(): Promise<void> {
 void main().catch((error: unknown) => {
   // Do not print nested database details that may contain SQL or identifiers.
 
-  console.error(error instanceof Error ? error.message : 'Migration failed.');
+  console.error(clientLifecycleMigrationFailureMessage(error));
   process.exitCode = 1;
 });

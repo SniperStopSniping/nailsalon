@@ -1,0 +1,32 @@
+{
+  "sourceBase": "930ed92531cc800bd30da75c8a3482a8fe75ce1a",
+  "ciRunWithFailure": 39376064366,
+  "failure": "WebKit test accumulated 24 layout navigations in one tab and exceeded its180-second test deadline.",
+  "fix": "One isolated test/browser context per layout, preserving exact Services markup comparisons and the original viewport matrix.",
+  "headerLayouts": 24,
+  "browserProjects": [
+    "desktop-chromium",
+    "mobile-chromium",
+    "mobile-webkit"
+  ],
+  "chromiumWidths": [
+    390,
+    1440
+  ],
+  "webkitWidths": [
+    390
+  ],
+  "unchangedServicesComparisonsBefore": 120,
+  "unchangedServicesComparisonsAfter": 120,
+  "browserCasesPassed": 72,
+  "browserCasesFailed": 0,
+  "elapsedSecondsApprox": 78,
+  "workers": 2,
+  "perCaseBudgetMilliseconds": 90000,
+  "priorAggregateBudgetMilliseconds": 180000,
+  "coverageReduced": false,
+  "assertionsRemoved": false,
+  "appOrBookingRuntimeChanged": false,
+  "noRealAppointmentsCreated": true,
+  "newExactHeadCi": "required"
+}

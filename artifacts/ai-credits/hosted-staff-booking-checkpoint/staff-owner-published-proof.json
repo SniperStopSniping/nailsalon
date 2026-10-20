@@ -1,0 +1,32 @@
+{
+  "sourceSha": "d7bdeaeb150b5ba6433501397c181db87bd43a30",
+  "phase": "published",
+  "revision": 72,
+  "status": "published",
+  "designPreserved": true,
+  "serviceRecordsPreserved": true,
+  "previousAppointmentsPreserved": 8,
+  "canonicalTechnicians": [
+    {
+      "id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "name": "AI Test Owner"
+    },
+    {
+      "id": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+      "name": "Morgan Test Artist"
+    }
+  ],
+  "publication": {
+    "id": "3614cae1-6986-487d-b098-92ba14e56645",
+    "revision": 72,
+    "media_finalized": true,
+    "approved_revision": 72,
+    "staff_ids": {
+      "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "draft_89eca824-f73d-4f30-83ab-3ddfebf5c5b6": "b93e963c-5771-4a8c-ac82-546a2e9f8183"
+    }
+  },
+  "addedAppointment": null,
+  "aiCalls": 39,
+  "productionTouched": false
+}

@@ -1371,7 +1371,7 @@ export function BookTimeClient({
                   Your service takes
                   {' '}
                   <strong>{totalDuration >= 60 ? `${Math.floor(totalDuration / 60)}h ${totalDuration % 60 ? `${totalDuration % 60}m` : ''}`.trim() : `${totalDuration}m`}</strong>
-                  {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes of preparation time` : ''}
+                  {availabilityBufferMinutes > 0 ? `. An extra ${availabilityBufferMinutes} minute${availabilityBufferMinutes === 1 ? '' : 's'} is reserved around your appointment` : ''}
                   .
                 </p>
               </div>

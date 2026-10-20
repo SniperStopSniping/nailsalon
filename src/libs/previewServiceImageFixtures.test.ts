@@ -432,7 +432,7 @@ describe('Preview service-image fixture target contract', () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   it('rejects wrong live identity, elevated roles, wrong migration count, and wrong final migration', async () => {
     const { client, database } = await migratedDatabase();
@@ -502,7 +502,7 @@ describe('Preview service-image fixture behavior', () => {
         has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'TRIGGER') AS can_trigger`);
 
       expect(privileges.rows[0]).toEqual({ can_select: true, can_insert: false, can_update: false, can_delete: false, can_truncate: false, can_reference: false, can_trigger: false });
-      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(97);
+      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(113);
 
       for (const statement of [
         'INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (\'denied\', 0)',
@@ -624,6 +624,9 @@ describe('Preview service-image fixture behavior', () => {
     }
   });
 
+  // These multi-operation rehearsals migrate the complete schema, then run
+  // several guarded resets/rollbacks; keep their budget bounded but distinct
+  // from the five-second limit used by ordinary unit cases.
   it('fails closed on one missing edge, same-count identity drift, and complete discovery suppression before a normal idempotent reset', async () => {
     const { client, database } = await migratedDatabase();
     try {
@@ -672,6 +675,44 @@ describe('Preview service-image fixture behavior', () => {
 
       expect(await countRows(client, 'SELECT count(*) FROM salon WHERE id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)])).toBe(0);
       expect(await countRows(client, 'SELECT count(*) FROM salon WHERE slug = $1', ['synthetic-discovery-survivor'])).toBe(1);
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
+  it.each([
+    ['business_setup_workspace', 'INSERT INTO business_setup_workspace(id,salon_id,head_revision,baseline_hash,baseline) VALUES (\'protected-ai\',$1,1,\'hash\',\'{}\')'],
+    ['custom_site_asset', 'INSERT INTO custom_site_asset(id,salon_id,actor_id,role,name,mime_type,pdf_base64,byte_size,hash) VALUES (\'protected-ai\',$1,\'owner\',\'reference\',\'reference.pdf\',\'application/pdf\',\'YQ==\',1,\'hash\')'],
+    ['custom_site_artifact', 'INSERT INTO custom_site_artifact(id,salon_id,actor_id,source,source_hash,asset_ids,operation_id) VALUES (\'protected-ai\',$1,\'owner\',\'{}\',\'hash\',\'[]\',\'operation\')'],
+    ['custom_site_generation', 'INSERT INTO custom_site_generation(id,salon_id,actor_id,request_hash,expected_revision,message,status,reserved_micro_usd) VALUES (\'protected-ai\',$1,\'owner\',\'hash\',1,\'design\',\'failed\',1)'],
+  ])('refuses reset when %s contains saved owner work or paid generation evidence', async (table, insert) => {
+    const { client, database } = await migratedDatabase();
+    try {
+      await runFixture('apply', fixtureEnvironment(), database);
+      await client.query(insert, [FIXTURE.salons[0]!.id]);
+      await expectCode(runFixture('reset', fixtureEnvironment(), database), 'COLLISION_REJECTED');
+
+      expect(await countRows(client, `SELECT count(*) FROM ${table} WHERE id = 'protected-ai'`)).toBe(1);
+      expect(await countRows(client, 'SELECT count(*) FROM service WHERE salon_id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)])).toBe(12);
+    } finally {
+      await client.close();
+    }
+  // Each case migrates the full schema, applies the fixture and exercises a
+  // refused reset. Give it the same bounded DDL budget as the other rehearsals.
+  }, 30_000);
+
+  it('preserves an AI wallet account instead of cascading it away during fixture reset', async () => {
+    const { client, database } = await migratedDatabase();
+    try {
+      await runFixture('apply', fixtureEnvironment(), database);
+      await client.query('INSERT INTO ai_credit_account(salon_id, plan_env) VALUES ($1, $2)', [FIXTURE.salons[0]!.id, 'test']);
+      const writesBefore = database.writes.length;
+
+      await expectCode(runFixture('reset', fixtureEnvironment(), database), 'COLLISION_REJECTED');
+
+      expect(database.writes).toHaveLength(writesBefore);
+      expect(await countRows(client, 'SELECT count(*) FROM ai_credit_account WHERE salon_id = $1', [FIXTURE.salons[0]!.id])).toBe(1);
+      expect(await countRows(client, 'SELECT count(*) FROM service WHERE salon_id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)])).toBe(12);
     } finally {
       await client.close();
     }
@@ -808,7 +849,7 @@ describe('Preview service-image fixture behavior', () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   it('rolls back partial writes and emits only bounded SQLSTATE or system diagnostics', async () => {
     const { client, database } = await migratedDatabase();
@@ -861,7 +902,7 @@ describe('Preview service-image fixture behavior', () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   it('contains only deterministic synthetic identities and fixture-owned static assets', () => {
     const entityIds = [...FIXTURE.salons, ...FIXTURE.locations, ...FIXTURE.services, ...FIXTURE.technicians, ...FIXTURE.addOns, ...FIXTURE.rules, FIXTURE.admin].map(row => row.id);

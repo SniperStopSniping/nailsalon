@@ -1,0 +1,46 @@
+{
+  "applicationSourceSha": "6584d6b421f5c059ac0ebbb292478e84a652754c",
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "b148846d02ef67839dfb5e16e90a069bc48b7d62143fd0a1e2ae7f0ec023a2e0"
+    },
+    {
+      "path": "attempt-notes.json",
+      "sha256": "3adb4a5654ff11c9c7719d208947fd1956f1211148a0d7423e60828e6e9c3568"
+    },
+    {
+      "path": "build-proof.json",
+      "sha256": "9ee2bec22e60bad3106a9fdfa1222e1ca3c18c47ff8d968c4c77f2b7fb7ac5db"
+    },
+    {
+      "path": "close-reload-mobile.png",
+      "sha256": "d318440ddce5ee4722a1fdd3b4f851ba47764e4199236d6fe61831a532b7e9e6"
+    },
+    {
+      "path": "close-reload-proof.json",
+      "sha256": "ad8223916b0d12a748871bbbf097138bc7efa109bc27c4ce147b51cdc4758935"
+    },
+    {
+      "path": "native-proof.json",
+      "sha256": "aaca43b83813ecaab01db8cb4c84ecbf92ebde280adba885a4a4ad7a4e5d562b"
+    },
+    {
+      "path": "small-mobile-editor.png",
+      "sha256": "3217c699e92764257ec165e0cb101f0a1c3487cddcbc7219390f908d838d8916"
+    },
+    {
+      "path": "small-mobile-preview.png",
+      "sha256": "5626987254c72ada7aa25d0502d09b1ddfcbb026105eae4b425d252fc8f04c55"
+    },
+    {
+      "path": "test-proof.json",
+      "sha256": "cc21d97adc68c2a65f25dbb23e5114552872f7b8891b49e29f0c9634dcb0e2cc"
+    },
+    {
+      "path": "wide-desktop-preview.png",
+      "sha256": "57ef5b0cffecc9fec9403adac7a5d9ee0bf80fac05e81e5772fc194330b9738c"
+    }
+  ]
+}

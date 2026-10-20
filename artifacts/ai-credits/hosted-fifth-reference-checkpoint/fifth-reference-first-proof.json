@@ -1,0 +1,54 @@
+{
+  "sourceSha": "1f10deb7de7cdee5a7b8044b4a41b9a6b4699cda",
+  "actualOwnerUi": true,
+  "exactPrompt": "Make my website look like this. Use my saved business details.",
+  "beforeRevision": 72,
+  "afterRevision": 76,
+  "job": {
+    "id": "71915f0c-be1a-4428-8f7b-01e65e96817b",
+    "status": "completed",
+    "phase": "completed",
+    "expected_revision": 75,
+    "artifact_id": "b31c6cb8-759e-4f82-939b-dcb2a97419f5"
+  },
+  "artifactId": "b31c6cb8-759e-4f82-939b-dcb2a97419f5",
+  "sourceHash": "22ac766d2eac41c16ffe69768ed52666febfab4eedc7d49acf954c1ea3f175e5",
+  "calls": [
+    {
+      "id": "41e33787-81c4-4857-aa27-30eca5b7543d",
+      "operation_id": "164c3310-ef33-485c-bb51-359ed998de19",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 5933,
+      "output_tokens": 308,
+      "cost_micro_usd": 896,
+      "elapsed_ms": 5299,
+      "validation": "passed"
+    },
+    {
+      "id": "17f6bcf2-3b2f-4326-a147-0857def370db",
+      "operation_id": "71915f0c-be1a-4428-8f7b-01e65e96817b",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "input_tokens": 2876,
+      "output_tokens": 6145,
+      "cost_micro_usd": 68639,
+      "elapsed_ms": 96757,
+      "validation": "passed"
+    }
+  ],
+  "providerMicroUsd": 69535,
+  "estimatedProviderCad": 0.09734899999999999,
+  "invoiceReconciled": false,
+  "canonicalBusinessAndStaffPreserved": true,
+  "publishedDraftStaffIdentifierResolvedToExistingCanonicalId": true,
+  "historicalAppointmentsUnchanged": 9,
+  "publishedWebsiteUnchanged": true,
+  "firstAndFinalOutputsRetainedPrivately": true,
+  "manualSourceRepair": false,
+  "productionTouched": false
+}

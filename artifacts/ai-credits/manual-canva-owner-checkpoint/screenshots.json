@@ -1,0 +1,62 @@
+[
+  {
+    "file": "booking-area.png",
+    "sha256": "2d606486fa044fab0bce127d110032ff08aa8a0f6350b8f2f71d20e3a6de74b5"
+  },
+  {
+    "file": "onboarding-review.png",
+    "sha256": "b0957247635b6f0e7a77f0f137ecfa7a814aa28df2cb4c59b4d1c17aa39c5d43"
+  },
+  {
+    "file": "private-mobile.png",
+    "sha256": "7d4f56887875dfe0764ac34f605286a44f820d3f52259208f8382cc84645bb04"
+  },
+  {
+    "file": "review-before.png",
+    "sha256": "46632e61a1d666934043fef4f5d6bc859a1678789f843d90e8b52a7e61b3cf87"
+  },
+  {
+    "file": "review-after.png",
+    "sha256": "1bcef662ea87def87e856292be3aa09cebb7474c649b9088057320d0facb232c"
+  },
+  {
+    "file": "published-owner.png",
+    "sha256": "be6a5dde7990458ca207dadacd7b5828655b43b6ef800e8fde892ebab4e2a2fe"
+  },
+  {
+    "file": "published-desktop.png",
+    "sha256": "1051447bc0b01dfbada0769f219da3a0bf11df80db215041e8013a1a66ce1b9d"
+  },
+  {
+    "file": "published-mobile.png",
+    "sha256": "031a00c0098e4f41c0b260d125adb87b7a54294b55af17934ae53b644e938587"
+  },
+  {
+    "file": "customer-review.png",
+    "sha256": "f465c085764e95ba41f5abccac5b73fbb89fe8983c7babbee44c015981329b30"
+  },
+  {
+    "file": "customer-confirmed.png",
+    "sha256": "69c4e0c1712c79dad0e52d0b0e68281d7439ff81343c8c8e4eca8b97f01fd8f3"
+  },
+  {
+    "file": "availability-after.png",
+    "sha256": "cbe6b2c7588243c272a11d213d19b2c40bde3c7294f9040d76c4ec2a8122b7c0"
+  },
+  {
+    "file": "private-first-load-stall.png",
+    "sha256": "58dd96e9dd6c9bc333bd3c6a0e51a68aa3146cfc6541f6ae2db0ea9be4655684"
+  },
+  {
+    "file": "public-first-load-stall.png",
+    "sha256": "5e6d27dbddc1a26d8a2a886353c5f51f085babc1a506dddb748988f75b7f5748"
+  },
+  {
+    "file": "public-recovered.png",
+    "sha256": "031a00c0098e4f41c0b260d125adb87b7a54294b55af17934ae53b644e938587"
+  },
+  {
+    "file": "other-owner-denied.png",
+    "sha256": "b1087bd516e10c88ce8ec5c72ddb41b461bc94cb3ff3448e737bd07ebc97e64a"
+  }
+]

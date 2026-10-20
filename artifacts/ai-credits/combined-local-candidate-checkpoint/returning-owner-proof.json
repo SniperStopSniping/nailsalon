@@ -1,0 +1,25 @@
+{
+  "passed": true,
+  "sourceSha": "f481debeaea9a1d6adf1352a061f723f4fdf5310",
+  "browserName": "webkit",
+  "entryPath": "more",
+  "newBrowserContext": true,
+  "noRestoredCookies": true,
+  "actualPasswordSignIn": true,
+  "sameOwner": true,
+  "savedWebsiteLoaded": true,
+  "refresh": true,
+  "providerResponsesUnmodified": true,
+  "nativeBrowserCookies": true,
+  "browserErrors": [],
+  "modelCalls": 0,
+  "realClerkAuthenticationCallsOccurred": true,
+  "credentialBoundary": {
+    "checkedTextResponses": 82,
+    "credentialLeaks": 0,
+    "unreadableTextResponses": 0,
+    "rawBodiesStored": false,
+    "documents": 6,
+    "actualPrivateCredentialValuesChecked": 4
+  }
+}

@@ -1,0 +1,182 @@
+[
+  {
+    "mode": "text-only",
+    "exactPrompt": "Create a completely original dark charcoal and ivory booking website for my saved Cobalt Nail Club business. Use big editorial typography, a strongly asymmetric split hero, floating service cards, a side-aligned oversized NAILS word, subtle hover and focus transitions, and a compact mobile layout with stacked cards. Do not use the previous pink inspiration or ask me to re-enter details. Keep my saved services, prices, hours and address privacy. Use a text logo and no borrowed photographs.",
+    "operationId": "d5a4e89d-8d52-43f0-8dfe-af1e4e494c63",
+    "terminal": "completed",
+    "beforeRevision": 14,
+    "afterRevision": 15,
+    "artifactId": "d731ed4a-03af-4424-b01d-0fa3869294df",
+    "elapsedMs": 94135,
+    "calls": [
+      {
+        "id": "ab439f5a-b7ce-4818-9105-caa6698a179c",
+        "operation_id": "d5a4e89d-8d52-43f0-8dfe-af1e4e494c63",
+        "ordinal": 0,
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5395,
+        "output_tokens": 262,
+        "cost_micro_usd": 806,
+        "credit_cost_micro_cad": "2257",
+        "charged_micro_cad": 1612,
+        "elapsed_ms": 3270,
+        "validation": "passed"
+      },
+      {
+        "id": "3b1858cf-2a81-4cb1-a659-314235cdfaf1",
+        "operation_id": "d277762f-e77a-46d1-9641-85e3a980fa04",
+        "ordinal": 0,
+        "model": "gpt-6.1-sol",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 1972,
+        "output_tokens": 4406,
+        "cost_micro_usd": 48989,
+        "credit_cost_micro_cad": "137170",
+        "charged_micro_cad": 97978,
+        "elapsed_ms": 87534,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  },
+  {
+    "mode": "overflow-refine",
+    "exactPrompt": "Fix the horizontal scrolling on desktop. The oversized decorative NAILS lettering extends beyond the page; contain that decoration inside its panel so nothing widens the page. Keep the charcoal and ivory design, split hero, floating cards and mobile layout. Do not change my business details, services, prices or booking settings.",
+    "operationId": "2f700571-3f7b-4695-b6a6-bc2c7155a6ef",
+    "terminal": "completed",
+    "beforeRevision": 15,
+    "afterRevision": 16,
+    "artifactId": "17a96960-0b4e-4997-a19a-413cdef3bfce",
+    "elapsedMs": 66211,
+    "calls": [
+      {
+        "id": "93594da1-ea24-4f4a-b9a9-f6be5d587eca",
+        "operation_id": "2f700571-3f7b-4695-b6a6-bc2c7155a6ef",
+        "ordinal": 0,
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5527,
+        "output_tokens": 166,
+        "cost_micro_usd": 774,
+        "credit_cost_micro_cad": "2168",
+        "charged_micro_cad": 1548,
+        "elapsed_ms": 2627,
+        "validation": "passed"
+      },
+      {
+        "id": "14623157-f406-4353-a4ea-89ed170c8c2d",
+        "operation_id": "934b9dba-239a-419c-a7b5-0903caaab58f",
+        "ordinal": 0,
+        "model": "gpt-6.1-sol",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5791,
+        "output_tokens": 3948,
+        "cost_micro_usd": 53956,
+        "credit_cost_micro_cad": "151077",
+        "charged_micro_cad": 107912,
+        "elapsed_ms": 60491,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  },
+  {
+    "mode": "own-image",
+    "exactPrompt": "Just get all the info from my image.",
+    "operationId": "dd597ebd-f627-4b77-babd-100adc5880d6",
+    "terminal": "completed",
+    "beforeRevision": 17,
+    "afterRevision": 19,
+    "artifactId": "1688260d-f62f-44a9-aba6-36fc5cb76e2d",
+    "elapsedMs": 102784,
+    "calls": [
+      {
+        "id": "33f72267-de61-4cd7-b676-9a9767a74c27",
+        "operation_id": "dd597ebd-f627-4b77-babd-100adc5880d6",
+        "ordinal": 0,
+        "model": "gpt-6.1-sol",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 6164,
+        "output_tokens": 798,
+        "cost_micro_usd": 23389,
+        "credit_cost_micro_cad": "65490",
+        "charged_micro_cad": 46778,
+        "elapsed_ms": 17471,
+        "validation": "passed"
+      },
+      {
+        "id": "991a91ea-e3bd-4ffc-8c2d-9a03a80287a7",
+        "operation_id": "d98f860c-78fd-4b48-9093-bbe48031f1b9",
+        "ordinal": 0,
+        "model": "gpt-6.1-sol",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 6424,
+        "output_tokens": 5194,
+        "cost_micro_usd": 67999,
+        "credit_cost_micro_cad": "190398",
+        "charged_micro_cad": 135998,
+        "elapsed_ms": 82439,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  },
+  {
+    "mode": "text-only-corrected",
+    "exactPrompt": "Create a completely original dark charcoal and ivory booking website for my saved Cobalt Nail Club business. Use big editorial typography, a strongly asymmetric split hero, floating service cards, a side-aligned oversized NAILS word, subtle hover and focus transitions, and a compact mobile layout with stacked cards. Do not use the previous pink inspiration or ask me to re-enter details. Keep my saved services, prices, hours and address privacy. Use a text logo and no borrowed photographs.",
+    "operationId": "129a8793-e72d-42a9-8bac-bb01dc8d7d71",
+    "terminal": "completed",
+    "beforeRevision": 20,
+    "afterRevision": 21,
+    "artifactId": "3e53ca96-24b4-4616-b7ff-028e7ad77cf9",
+    "elapsedMs": 98471,
+    "calls": [
+      {
+        "id": "cd739def-ce79-40c4-81cd-6424221596dd",
+        "operation_id": "129a8793-e72d-42a9-8bac-bb01dc8d7d71",
+        "ordinal": 0,
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 5436,
+        "output_tokens": 248,
+        "cost_micro_usd": 804,
+        "credit_cost_micro_cad": "2252",
+        "charged_micro_cad": 1608,
+        "elapsed_ms": 4178,
+        "validation": "passed"
+      },
+      {
+        "id": "d4492082-27b4-4799-aa2c-dd61b715b777",
+        "operation_id": "9f92913b-845a-4ece-9607-0450c050e11f",
+        "ordinal": 0,
+        "model": "gpt-6.1-sol",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 2145,
+        "output_tokens": 4724,
+        "cost_micro_usd": 52601,
+        "credit_cost_micro_cad": "147283",
+        "charged_micro_cad": 105202,
+        "elapsed_ms": 91135,
+        "validation": "passed"
+      }
+    ],
+    "manualSourceRepair": false,
+    "hosted": true,
+    "providerResponsesNotMocked": true
+  }
+]

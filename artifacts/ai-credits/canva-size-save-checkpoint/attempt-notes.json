@@ -1,0 +1,61 @@
+{
+  "initialPrivateRunnerSyntaxError": {
+    "executedBrowserCases": 0,
+    "applicationChanged": false,
+    "reason": "Temporary SQL string quoting was corrected before any browser or database operation ran."
+  },
+  "initialNativeRunner": {
+    "passed": false,
+    "reason": "Read the background setting before browser persistence completed; added an explicit wait."
+  },
+  "followupNativeRunner": {
+    "passed": false,
+    "completedCases": 1,
+    "reason": "Expected the size choice to persist before Done/Preview; source inspection confirmed the connected owner path staged this change."
+  },
+  "boundedPersistenceProbe": {
+    "passed": false,
+    "reason": "Waiting did not persist the staged size choice. This exposed the save inconsistency; no more unchanged-source retries were performed."
+  },
+  "applicationFix": {
+    "sourceSha": "6584d6b421f5c059ac0ebbb292478e84a652754c",
+    "connectedOwnerSizeSavedImmediately": true,
+    "standaloneExplicitSavePreserved": true
+  },
+  "freshOptimizedNativeResult": {
+    "passed": true,
+    "cases": 6,
+    "closeRefreshPassed": true
+  },
+  "cloudMediaOrPublicationClaim": false,
+  "manuallyAuthoredOrRepairedAiSource": false,
+  "ownedCacheCleanup": {
+    "entries": [
+      {
+        "build": "CuOtHX",
+        "sourceSha": "f481debeaea9a1d6adf1352a061f723f4fdf5310",
+        "removedOnlyRecomputableBuildCache": true,
+        "cacheKiB": 1686184,
+        "criticalFilesUnchanged": true,
+        "serverAndStaticPreserved": true
+      },
+      {
+        "build": "hD5Dnw",
+        "sourceSha": "195b57a7bed0cdd709e24c76678604ad9241c129",
+        "removedOnlyRecomputableBuildCache": true,
+        "cacheKiB": 1485160,
+        "criticalFilesUnchanged": true,
+        "serverAndStaticPreserved": true
+      },
+      {
+        "build": "a8T0Pp",
+        "sourceSha": "dd996fa9f718274b87596d708b640952154a23fd",
+        "removedOnlyRecomputableBuildCache": true,
+        "cacheKiB": 1623640,
+        "criticalFilesUnchanged": true,
+        "serverAndStaticPreserved": true
+      }
+    ],
+    "freeGiB": 6.161479949951172
+  }
+}

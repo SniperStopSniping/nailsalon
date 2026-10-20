@@ -1,0 +1,18 @@
+{
+  "responses": [
+    {
+      "path": "/api/appointments/availability",
+      "status": 200
+    },
+    {
+      "path": "/api/appointments/availability",
+      "status": 200
+    },
+    {
+      "path": "/api/appointments",
+      "status": 201
+    }
+  ],
+  "truncated": true,
+  "hasMore": false
+}

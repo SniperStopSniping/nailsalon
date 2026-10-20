@@ -5,7 +5,9 @@
 
 import type { BusinessProfileDraft } from '../model/types';
 
-export const labelForVisitMode = (profile: BusinessProfileDraft): string | null => {
+type ProfilePreferences = Pick<BusinessProfileDraft, 'bookingPreferences'>;
+
+export const labelForVisitMode = (profile: ProfilePreferences): string | null => {
   switch (profile.bookingPreferences.visitMode) {
     case 'appointment_only': return 'Appointment only';
     case 'walk_ins_only': return 'Walk-ins welcome';
@@ -14,7 +16,7 @@ export const labelForVisitMode = (profile: BusinessProfileDraft): string | null 
   }
 };
 
-export const labelForNewClients = (profile: BusinessProfileDraft): string | null => {
+export const labelForNewClients = (profile: ProfilePreferences): string | null => {
   switch (profile.bookingPreferences.newClientStatus) {
     case 'yes': return 'Accepting new clients';
     case 'no': return 'Returning clients';

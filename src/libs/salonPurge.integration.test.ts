@@ -680,6 +680,8 @@ describe('countSalonImpact', () => {
 });
 
 describe('SALON_PURGE_PLAN coverage guard', () => {
+  // These catalog joins inspect the fully migrated database. Give only the
+  // two schema-wide queries a bounded integration budget on shared CI CPUs.
   it('covers every restrict-style foreign key pointing at salon', async () => {
     const result = await db.execute(sql`
       select tc.table_name as child, kcu.column_name as col, rc.delete_rule as rule
@@ -703,7 +705,7 @@ describe('SALON_PURGE_PLAN coverage guard', () => {
     // If this fails, a migration added a restrict-style child of `salon` and
     // nobody added it to SALON_PURGE_PLAN. Add a step — do not weaken the test.
     expect([...new Set(uncovered)]).toEqual([]);
-  });
+  }, 30_000);
 
   it('leaves no restrict-style foreign key pointing at salon (migration 0059)', async () => {
     const result = await db.execute(sql`
@@ -727,7 +729,7 @@ describe('SALON_PURGE_PLAN coverage guard', () => {
     // one here means a migration added a foreign key without an ON DELETE rule,
     // which is how the database drifted into the original bug.
     expect(rows.map(r => `${r.child}.${r.col} (${r.name})`)).toEqual([]);
-  });
+  }, 30_000);
 
   it('lists each table exactly once', () => {
     const tables = SALON_PURGE_PLAN.map(s => s.table);

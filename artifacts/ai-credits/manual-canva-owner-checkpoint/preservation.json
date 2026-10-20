@@ -1,0 +1,15 @@
+{
+  "comparedBeforeRows": {
+    "salon": 19,
+    "service": 46,
+    "technician": 14,
+    "appointment": 31,
+    "custom_site_asset": 61
+  },
+  "allComparedRowsUnchanged": true,
+  "newBusinessCreatedThroughOwnerUI": true,
+  "newSyntheticAppointments": 1,
+  "newActiveServices": 1,
+  "inactiveStarterServicesRetained": 5,
+  "aiCalls": 0
+}

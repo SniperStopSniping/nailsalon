@@ -1,0 +1,50 @@
+{
+  "passed": true,
+  "sameMajorRestoreRehearsed": true,
+  "sourceDatabaseMajor": 17,
+  "targetServerVersion": "17.11",
+  "clientVersion": "PostgreSQL18.6",
+  "originalArchiveSha256": "8f9f29ab5f0e5c0e5fedece1255cbeccdb94e1456ad5105fbd800e70c39420e6",
+  "restoreStreamCompatibilityAdjustments": 0,
+  "archiveDataOrSchemaModified": false,
+  "restoreSections": [
+    "pre-data",
+    "data",
+    "post-data"
+  ],
+  "sourceExtensionPrerequisite": [
+    {
+      "extname": "btree_gist",
+      "nspname": "public"
+    }
+  ],
+  "bookingExclusionConstraintsValidated": [
+    {
+      "conname": "appointment_tech_active_no_overlap",
+      "convalidated": true
+    }
+  ],
+  "restoredPublicTables": 135,
+  "restoredRows": 1892,
+  "allBackupTableCountsAndDigestsMatch": true,
+  "exactRestoredMigrationLedgerEntries": 112,
+  "isolatedUpgrade": {
+    "runner": "Installed Drizzle migrator, pinned to the newly initialized private Unix socket; no application environment or hosted database connection",
+    "before": 112,
+    "after": 113,
+    "allExistingTableFingerprintsPreserved": true,
+    "newTableRows": 0,
+    "completeLedgerMatchesCommittedSql": true,
+    "secondRunNoOp": true
+  },
+  "tcpListening": false,
+  "privateSocketPermissions": "0700",
+  "applicationWorkersStarted": 0,
+  "providerCredentialsPassed": 0,
+  "hostedDatabaseConnections": 0,
+  "productionAccessed": false,
+  "modelCalls": 0,
+  "payments": 0,
+  "messages": 0,
+  "disposableClusterStopped": true
+}

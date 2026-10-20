@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "existingOriginalBookingReceipt": true,
+  "engine": "WebKit",
+  "synthetic": true,
+  "privateCapabilityNotExported": true,
+  "allFiveAppointmentsUnchanged": true,
+  "newAppointmentWrites": 0
+}

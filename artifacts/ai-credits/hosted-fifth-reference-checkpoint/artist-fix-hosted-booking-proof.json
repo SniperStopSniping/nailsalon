@@ -1,0 +1,31 @@
+{
+  "sourceSha": "081b5d8358f654e323c9712d9a1d4ad581fb29ff",
+  "revision": 77,
+  "accepted": true,
+  "appointment": {
+    "id": "appt_f7ac8e03-c266-465a-9f30-c5321aa7ca4d",
+    "technician_id": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+    "start_time": "2026-10-21T18:00:00.000Z",
+    "end_time": "2026-10-21T19:00:00.000Z",
+    "total_price": 5000,
+    "total_duration_minutes": 60,
+    "buffer_minutes": 10,
+    "status": "confirmed"
+  },
+  "serviceSnapshot": {
+    "service_id": "585573ae-827d-41cf-a0dc-625d1fa578ed",
+    "price_at_booking": 5000,
+    "duration_at_booking": 60,
+    "name_snapshot": "Gel manicure"
+  },
+  "policyAcknowledgment": {
+    "source": "public_booking",
+    "policy_title_snapshot": "Appointment agreement",
+    "policy_text_snapshot": "Please arrive on time. If you need to cancel, use your booking link or contact the salon as soon as possible."
+  },
+  "previousAppointmentsUnchanged": 10,
+  "liveServicesStaffAndSettingsUnchanged": true,
+  "aiCallsDuringBooking": 0,
+  "totalAiCalls": 43,
+  "productionTouched": false
+}

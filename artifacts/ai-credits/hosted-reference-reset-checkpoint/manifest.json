@@ -1,0 +1,117 @@
+[
+  {
+    "file": "fresh-owner-quota-proof.json",
+    "bytes": 790,
+    "sha256": "312e43e75c02b650c50928e280f7c8a68498d397bd1310acf850a7ed079eb05c"
+  },
+  {
+    "file": "hosted-burgundy-editorial-booking-confirmed.png",
+    "bytes": 78743,
+    "sha256": "ef6e3113692fa05ebba0821d17ec59f4ceaa748d4a70cde7b62fa7dbcd95d3d3"
+  },
+  {
+    "file": "hosted-burgundy-editorial-booking-proof.json",
+    "bytes": 1530,
+    "sha256": "55856102ffbd44a0257183e973b72fb2017ab9cd9e0434cf23d399654f8b90aa"
+  },
+  {
+    "file": "hosted-burgundy-editorial-desktop.png",
+    "bytes": 87221,
+    "sha256": "2d171f39d2b4f934976743b1bf9d539a8db902cc8cae1b807f0baaaa3e06f2d2"
+  },
+  {
+    "file": "hosted-burgundy-editorial-exact-review.png",
+    "bytes": 70717,
+    "sha256": "043de3d19f9438f11b9d1ab41b5a1d633d5800d9a667f42d6ff0e1ed1b557368"
+  },
+  {
+    "file": "hosted-burgundy-editorial-mobile-policy.png",
+    "bytes": 60718,
+    "sha256": "aa6bdf58bd5f618f1ee4ecd19e1ef66de58fdd5fcc459b90fb626ffca7ff1967"
+  },
+  {
+    "file": "hosted-burgundy-editorial-mobile.png",
+    "bytes": 57106,
+    "sha256": "c927ca8799945aca0d1e384bc3656e4eb5e12fede9a6e44ff7727af048c1837c"
+  },
+  {
+    "file": "hosted-burgundy-editorial-proof.json",
+    "bytes": 1411,
+    "sha256": "ccd02152b9c78608011c4fee22f065de869e7d8555bed40b1541219dcb4dc2fc"
+  },
+  {
+    "file": "hosted-burgundy-editorial-publication-proof.json",
+    "bytes": 598,
+    "sha256": "4cbc042f10066e54a1bcc71a2e48b9c98da5873fc0132e809188514c39504bad"
+  },
+  {
+    "file": "hosted-burgundy-editorial-reference-proof.json",
+    "bytes": 693,
+    "sha256": "659bb341775fb7582d721d4ae38b46a3110b00ada7787b231d1839a12d2fcfbe"
+  },
+  {
+    "file": "hosted-burgundy-editorial-render-proof.json",
+    "bytes": 3576,
+    "sha256": "3dba80902c83a345b2c247dc459e5e81b3451e2bdf074bf9964df3c1d7dbe467"
+  },
+  {
+    "file": "hosted-d0-reset-reopen-proof.json",
+    "bytes": 971,
+    "sha256": "16a22ea5c52dee010b60f779f4c76e4e9758d266b156926231c3698aafa2d9a4"
+  },
+  {
+    "file": "hosted-d0-reset-reopened-two-choices.png",
+    "bytes": 64065,
+    "sha256": "d64a6d50eb9ea87f26b7555691e9516a002fc9e927cb103f256bf610f33b354e"
+  },
+  {
+    "file": "hosted-d0-reset-restored.png",
+    "bytes": 56052,
+    "sha256": "22430108f88d1e70e83994f9803058ead856147cca9daf81e3d602175eb825c6"
+  },
+  {
+    "file": "hosted-pink-floral-booking-proof.json",
+    "bytes": 1426,
+    "sha256": "49f87d0f44c705b3d49a96690acbe6221d25fb1aa6d94193699f7eb0d26d201b"
+  },
+  {
+    "file": "hosted-pink-floral-desktop.png",
+    "bytes": 136953,
+    "sha256": "bbc2d7ed46419e52938210e86521b8eb5ed7299a45aee80420273782a6150983"
+  },
+  {
+    "file": "hosted-pink-floral-final-mobile.png",
+    "bytes": 66794,
+    "sha256": "9543ca5952ce9f38b8e06822f6941ffb03a8550dfc2614297a877c66d4d58bce"
+  },
+  {
+    "file": "hosted-pink-floral-final-render-proof.json",
+    "bytes": 3145,
+    "sha256": "8e2808b30450d5032573f453af74e6c01982933739c305c0e068d579e77851b5"
+  },
+  {
+    "file": "hosted-pink-floral-mobile.png",
+    "bytes": 65609,
+    "sha256": "4bf5f14ef041289fb09aa1900170ee8482a1cc75da00deab65eb88843286d25d"
+  },
+  {
+    "file": "hosted-pink-floral-proof.json",
+    "bytes": 1618,
+    "sha256": "e568e84afc9f4b691f0eae44371aad4757c48ff3e1c1bc46c1385549174baa4e"
+  },
+  {
+    "file": "hosted-pink-floral-publication-proof.json",
+    "bytes": 618,
+    "sha256": "29f9595bb9173c90a2dce628b59e329b6bcdbdc2bfde7ad9a9bd2ddbce15af04"
+  },
+  {
+    "file": "hosted-pink-floral-reference-proof.json",
+    "bytes": 740,
+    "sha256": "2880ed2a24775c1a2ce52e100b500a0cffcb9f7cd6b8a0f14d4a2676481f7726"
+  },
+  {
+    "file": "hosted-pink-touch-target-proof.json",
+    "bytes": 1365,
+    "sha256": "9d3524718ffda4f8601ab40d34d56d47fc4c253aef55fc3dd23dbde87dcd322c"
+  }
+]

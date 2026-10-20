@@ -1,0 +1,50 @@
+{
+  "testedCommit": "ae00b859c9430bea8017c9c71556f8ed8e23a880",
+  "dependencyCandidateCommit": "3c62319cc862f1f1db774de952b1f384d34fb3f8",
+  "dependencyVersions": {
+    "drizzle-orm": "0.45.4",
+    "next-intl": "4.14.9",
+    "next": "15.5.28",
+    "@sentry/nextjs": "10.76.2"
+  },
+  "packageLockSha256": "c38ced99aeba29cd9adc8b5436a9e46ea1158b7b5edd47c1db7461d752805cb1",
+  "ownedDependencyClone": true,
+  "originalDependencyTreesUnchanged": true,
+  "focusedTests": {
+    "files": 11,
+    "passed": 308,
+    "failed": 0,
+    "pending": 0,
+    "scope": "PGlite/unit tests for shared drafts, owner reference UI, generated source, credits, checkout, metering, database retries, identifier quoting and locale navigation; scripted providers"
+  },
+  "browserTests": {
+    "aiCreditsPricingAndTeam": 18,
+    "ownerEntry": 50,
+    "aiEntryAndManualChoices": 4,
+    "total": 72,
+    "allPassed": true,
+    "realAuthenticationProviderClaimed": false
+  },
+  "ciAndRendererContracts": {
+    "passed": 24,
+    "failed": 0,
+    "pending": 0
+  },
+  "typescript": {
+    "passed": true,
+    "runtime": "Node24.19.0"
+  },
+  "secretScan": {
+    "trackedFiles": 5012,
+    "reviewedCommitsSinceEb7327": 13,
+    "passed": true
+  },
+  "commitlint": {
+    "passed": true
+  },
+  "exactCombinedNativePostgresCi": "pending",
+  "exactCombinedProductionBuild": "pending",
+  "exactCombinedRealProviderAndHostedBooking": "pending",
+  "previousHostedEvidenceSource": "eb7327ce3913400195d9ff210690a60b8bd9dbde",
+  "productionTouched": false
+}

@@ -11,6 +11,8 @@ import { getClientProfileNextVisitOffer } from '@/libs/clientProfileOffer.server
 import { buildFinalTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
+import { nextVisitMutationFailure } from './nextVisitOffer';
+
 vi.mock('server-only', () => ({}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
@@ -455,7 +457,20 @@ describe('next visit offer durable lifecycle', () => {
       expect(after?.reservedAppointmentId).toBe(terminal === 'cancelled' ? null : appointmentId);
 
       if (terminal === 'cancelled') {
-        await expect(db.update(schema.appointmentSchema).set({ status: 'confirmed' }).where(eq(schema.appointmentSchema.id, appointmentId))).rejects.toThrow(/NEXT_VISIT_OFFER_CHANGED/);
+        const reactivationError = await db.update(schema.appointmentSchema).set({ status: 'confirmed' })
+          .where(eq(schema.appointmentSchema.id, appointmentId))
+          .then(() => null, error => error);
+
+        expect(nextVisitMutationFailure(reactivationError)).toMatchObject({ code: 'NEXT_VISIT_OFFER_CHANGED' });
+
+        const [appointmentAfterRejection] = await db.select({ status: schema.appointmentSchema.status })
+          .from(schema.appointmentSchema)
+          .where(eq(schema.appointmentSchema.id, appointmentId));
+        const [offerAfterRejection] = await db.select().from(schema.nextVisitOfferSchema)
+          .where(eq(schema.nextVisitOfferSchema.id, offer!.id));
+
+        expect(appointmentAfterRejection?.status).toBe('cancelled');
+        expect(offerAfterRejection).toMatchObject({ state: 'available', reservedAppointmentId: null });
       }
     }
   });

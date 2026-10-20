@@ -1,0 +1,37 @@
+{
+  "generationTestDeployment": {
+    "id": "dpl_2MGAqXxo656XQG8tzishC2TVg95e",
+    "url": "isla-nail-studio-a4awiwzwc-sniperstopsnipings-projects.vercel.app",
+    "readyState": "READY",
+    "target": null,
+    "gitSource": {
+      "type": "github",
+      "repoId": 1108169436,
+      "ref": "codex/ai-business-setup",
+      "sha": "23aa096adf882f2cfbb0a99dde157168e4a07882"
+    }
+  },
+  "testAlias": "https://luster-ai-builder-test.vercel.app",
+  "productionChanged": false,
+  "finalDeployment": {
+    "id": "dpl_D8UPCqcbzfLZ9bMrMzCgBVERNkeq",
+    "url": "isla-nail-studio-hl2ms23lf-sniperstopsnipings-projects.vercel.app",
+    "readyState": "READY",
+    "target": null,
+    "gitSource": {
+      "type": "github",
+      "repoId": 1108169436,
+      "ref": "codex/ai-business-setup",
+      "sha": "115da49edf1f83a7323dca691151218f878fd967"
+    }
+  },
+  "finalOwnerCheck": {
+    "testedAt": "2026-10-15T18:05:46.427Z",
+    "environment": "isolated Preview",
+    "beforeRevision": 17,
+    "realProvider": false,
+    "refreshResumes": true,
+    "desktopAndMobile": true,
+    "publicationNotRequested": true
+  }
+}

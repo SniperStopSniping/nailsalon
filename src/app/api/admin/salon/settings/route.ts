@@ -36,6 +36,7 @@ import {
   resolveSalonCommunicationSettings,
 } from '@/libs/communicationSettings';
 import { db } from '@/libs/DB';
+import { prepareDepositActivation } from '@/libs/depositActivation.server';
 import {
   DEPOSIT_COLLECTION_LIVE,
   DEPOSIT_ISO_CURRENCY,
@@ -67,7 +68,6 @@ import {
   readStoredSmartFitSettings,
   smartFitSettingsUpdateSchema,
 } from '@/libs/smartFitConfig';
-import { refreshAccountReadiness } from '@/libs/stripeConnect/readiness';
 import {
   mergePaymentsSettings,
   normalizeTaxSettingsForTimeZone,
@@ -921,46 +921,9 @@ export async function PATCH(request: Request): Promise<Response> {
         return rateLimitResponse(depositRateLimit.retryAfterMs);
       }
 
-      let readiness: Awaited<ReturnType<typeof refreshAccountReadiness>>;
-      try {
-        readiness = await refreshAccountReadiness(salon.id);
-      } catch {
-        // "We could not learn the truth" — retryable, and nothing is persisted.
-        return Response.json(
-          {
-            error: 'DEPOSIT_ENABLE_RETRY',
-            message: 'Could not confirm the payment account right now. Try again.',
-          },
-          { status: 503 },
-        );
-      }
-
-      if (
-        !readiness.binding
-        || readiness.binding.revokedAt !== null
-        || readiness.status === 'not_connected'
-        || readiness.status === 'revoked'
-      ) {
-        return Response.json(
-          {
-            error: 'STRIPE_ACCOUNT_NOT_CONNECTED',
-            message: 'Connect a payment account before switching deposits on.',
-          },
-          { status: 409 },
-        );
-      }
-      if (!readiness.chargeReady) {
-        return Response.json(
-          {
-            error: 'STRIPE_ACCOUNT_NOT_CHARGE_READY',
-            message: 'The payment account cannot accept charges yet.',
-            details: {
-              disabledReason: readiness.binding.disabledReason,
-              requirements: readiness.binding.requirements,
-            },
-          },
-          { status: 409 },
-        );
+      const activation = await prepareDepositActivation(salon.id);
+      if (!activation.ok) {
+        return Response.json(activation.body, { status: activation.status });
       }
 
       depositGateFired = true;

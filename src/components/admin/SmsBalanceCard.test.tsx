@@ -28,6 +28,12 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
 });
 
+async function settleFetchEffects() {
+  await act(async () => {
+    await Promise.all(fetchMock.mock.results.map(({ value }) => Promise.resolve(value)));
+  });
+}
+
 describe('owner SMS card and purchase UI', () => {
   it('starts the known salon allowance request alongside balance loading without exposing controls early', async () => {
     let resolveBalance!: (value: Response) => void;
@@ -237,6 +243,7 @@ describe('owner SMS card and purchase UI', () => {
     render(<SmsBalanceCard compact salonSlug="new-salon" onBuy={buy} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Claim 100 free texts' }));
+    await settleFetchEffects();
 
     expect(clerkMocks.openUserProfile).toHaveBeenCalledOnce();
     expect(screen.queryByText('0 texts remaining')).not.toBeInTheDocument();

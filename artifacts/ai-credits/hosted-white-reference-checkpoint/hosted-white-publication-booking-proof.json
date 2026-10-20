@@ -1,0 +1,41 @@
+{
+  "sourceSha": "f43270ffd1133bd3bd84cb38597a0eed0802bec9",
+  "exactRevision": 68,
+  "publications": [
+    {
+      "id": "cffaf428-29d6-4a5e-ac39-3046921b954b",
+      "revision": 68,
+      "approval_id": "39b1ad19-33c4-4b8e-903d-ea51e41793c2",
+      "approved_revision": 68,
+      "media_finalized": true,
+      "published_at": "2026-10-19T08:26:32.486Z"
+    }
+  ],
+  "servicesUnchanged": true,
+  "historicalAppointmentsPreserved": 7,
+  "added": [
+    {
+      "id": "appt_dd309a1f-dab6-4599-b398-0538b602e7e2",
+      "technician_id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "location_id": "b1165bb1-26dc-411f-8ec0-9b5f01886af5",
+      "start_time": "2026-10-21T15:00:00.000Z",
+      "end_time": "2026-10-21T16:00:00.000Z",
+      "total_price": 5000,
+      "total_duration_minutes": 60,
+      "buffer_minutes": 10,
+      "status": "confirmed"
+    }
+  ],
+  "policyAcknowledgments": [
+    {
+      "appointment_id": "appt_dd309a1f-dab6-4599-b398-0538b602e7e2",
+      "source": "public_booking",
+      "policy_title_snapshot": "Appointment agreement"
+    }
+  ],
+  "aiCalls": 39,
+  "publicationAndBookingAiCalls": 0,
+  "nativeUiSignOutConfirmed": true,
+  "testOnly": true,
+  "productionTouched": false
+}

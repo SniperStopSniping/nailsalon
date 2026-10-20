@@ -245,6 +245,14 @@ vi.mock('@/libs/SMS', () => ({
 }));
 
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
+import {
+  retentionCampaignSchema,
+  salonLocationSchema,
+  salonSchema,
+  serviceSchema,
+  technicianSchema,
+  technicianServicesSchema,
+} from '@/models/Schema';
 
 import { POST } from './route';
 
@@ -253,6 +261,11 @@ const REQUIRED_POLICY_TEXT
   = 'Please provide at least 24 hours’ notice when cancelling.';
 const REQUIRED_ACKNOWLEDGMENT_TEXT
   = 'I understand this appointment reserves the technician’s time.';
+let publicBookingRetentionCampaignRows: unknown[] = [];
+let publicBookingTechnicianRows: unknown[] = [];
+let publicBookingTechnicianServiceRows: unknown[] = [];
+let publicBookingSalonRows: unknown[] = [];
+let publicBookingLocationRows: unknown[] = [];
 
 function requiredPolicyVersion(input: {
   title?: string;
@@ -292,7 +305,16 @@ function requiredPolicyProjection() {
 const DEFAULT_LOCKED_SALON_FINANCIAL_CONFIGURATION = {
   plan: null,
   features: null,
-  settings: { bookingExperience: { policy: { enabled: false } } },
+  settings: {
+    booking: {
+      bufferMinutes: 10,
+      slotIntervalMinutes: 15,
+      currency: 'CAD',
+      timezone: 'America/Toronto',
+      introPriceDefaultLabel: null,
+    },
+    bookingExperience: { policy: { enabled: false } },
+  },
 };
 
 function isSalonFinancialConfigurationSelection(
@@ -306,16 +328,65 @@ function isSalonFinancialConfigurationSelection(
   );
 }
 
-function mockSelectRows(rows: unknown[]) {
+function publicBookingShareRows(source: unknown, selection?: Record<string, unknown>) {
+  if (source === salonSchema && selection && 'businessHours' in selection) {
+    return publicBookingSalonRows;
+  }
+  if (source === serviceSchema) {
+    return [{ id: 'srv_1', salonId: 'salon_1', name: 'BIAB', price: 6500, durationMinutes: 90, preparationBufferMinutes: 0, cleanupBufferMinutes: 0, isActive: true }];
+  }
+  if (source === technicianSchema) {
+    return publicBookingTechnicianRows;
+  }
+  if (source === technicianServicesSchema) {
+    return publicBookingTechnicianServiceRows;
+  }
+  if (source === salonLocationSchema) {
+    return publicBookingLocationRows;
+  }
+  if (source === retentionCampaignSchema) {
+    return publicBookingRetentionCampaignRows;
+  }
+  return [];
+}
+
+function mockSelectRows(rows: unknown[], selection?: Record<string, unknown>) {
+  let source: unknown;
+  let activeSelection = selection;
   return {
-    from: vi.fn(() => ({
-      where: vi.fn(() => Object.assign(Promise.resolve(rows), {
-        limit: vi.fn(async () => rows),
-        for: vi.fn(() => ({
-          limit: vi.fn(async () => rows),
+    setSelection: (nextSelection?: Record<string, unknown>) => {
+      activeSelection = nextSelection;
+    },
+    from: vi.fn((table: unknown) => {
+      source = table;
+      const selectedRows = source === retentionCampaignSchema
+        ? publicBookingRetentionCampaignRows
+        : rows;
+      const queryBuilder: {
+        innerJoin: ReturnType<typeof vi.fn>;
+        where: ReturnType<typeof vi.fn>;
+      } = {
+        innerJoin: vi.fn(() => queryBuilder),
+        where: vi.fn(() => Object.assign(Promise.resolve(selectedRows), {
+          limit: vi.fn(async () => selectedRows),
+          for: vi.fn(() => {
+            const authorityTables = source === salonSchema
+              || source === serviceSchema
+              || source === technicianSchema
+              || source === technicianServicesSchema
+              || source === salonLocationSchema
+              || source === retentionCampaignSchema;
+            const lockedRows = authorityTables
+              ? publicBookingShareRows(source, activeSelection)
+              : selectedRows;
+            return Object.assign(Promise.resolve(lockedRows), {
+              limit: vi.fn(async () => lockedRows),
+            });
+          }),
         })),
-      })),
-    })),
+      };
+      return queryBuilder;
+    }),
   };
 }
 
@@ -324,24 +395,51 @@ function selectionAwareSelect<T>(
   lockedSalonFinancialConfiguration: {
     plan: unknown;
     features: unknown;
-    settings: unknown;
+    settings: Record<string, unknown>;
   } = DEFAULT_LOCKED_SALON_FINANCIAL_CONFIGURATION,
 ) {
   return (selection?: Record<string, unknown>) => {
     if (selection && 'isBlocked' in selection) {
-      return mockSelectRows([{ isBlocked: false }]);
+      return mockSelectRows([{ isBlocked: false }], selection);
     }
     if (isSalonFinancialConfigurationSelection(selection)) {
-      return mockSelectRows([lockedSalonFinancialConfiguration]);
+      return mockSelectRows([{
+        ...lockedSalonFinancialConfiguration,
+        settings: {
+          ...DEFAULT_LOCKED_SALON_FINANCIAL_CONFIGURATION.settings,
+          ...lockedSalonFinancialConfiguration.settings,
+        },
+      }], selection);
     }
 
-    return fallback(selection);
+    return {
+      from: vi.fn((table: unknown) => {
+        const isFreshAuthorityRead = table === serviceSchema
+          || table === technicianSchema
+          || table === technicianServicesSchema
+          || table === salonLocationSchema
+          || table === retentionCampaignSchema
+          || (table === salonSchema && selection && 'businessHours' in selection);
+        if (isFreshAuthorityRead) {
+          return mockSelectRows([], selection).from(table);
+        }
+        const query = fallback(selection) as { from: (table: unknown) => unknown };
+        return query.from(table);
+      }),
+    };
   };
 }
 
 describe('POST /api/appointments booking policy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Rejected requests deliberately do not consume queued insert responses.
+    db.insert.mockReset();
+    publicBookingRetentionCampaignRows = [];
+    publicBookingTechnicianRows = [{ id: 'tech_1', salonId: 'salon_1', name: 'Taylor', isActive: true, specialties: [], primaryLocationId: null, weeklySchedule: { friday: { start: '09:00', end: '18:00' } } }];
+    publicBookingTechnicianServiceRows = [{ technicianId: 'tech_1', serviceId: 'srv_1', enabled: true }];
+    publicBookingSalonRows = [{ businessHours: null, isActive: true, publicationStatus: 'published', onlineBookingEnabled: true }];
+    publicBookingLocationRows = [{ id: 'loc_primary', salonId: 'salon_1', isActive: true, businessHours: null }];
 
     db.select.mockImplementation(selectionAwareSelect(() => mockSelectRows([])));
     getSalonBySlug.mockResolvedValue({
@@ -400,6 +498,8 @@ describe('POST /api/appointments booking policy', () => {
       name: 'BIAB',
       price: 6500,
       durationMinutes: 90,
+      preparationBufferMinutes: 0,
+      cleanupBufferMinutes: 0,
     }]);
     getTechnicianById.mockResolvedValue({
       id: 'tech_1',
@@ -550,6 +650,7 @@ describe('POST /api/appointments booking policy', () => {
     appointmentId: string;
     salonClientId: string;
     clientPhone: string;
+    technicianId?: string;
   }) {
     let appointmentValues: Record<string, unknown> | null = null;
     db.insert
@@ -561,7 +662,7 @@ describe('POST /api/appointments booking policy', () => {
               ...values,
               id: options.appointmentId,
               salonId: 'salon_1',
-              technicianId: 'tech_1',
+              technicianId: options.technicianId ?? 'tech_1',
               locationId: null,
               clientPhone: options.clientPhone,
               clientName: null,
@@ -608,6 +709,85 @@ describe('POST /api/appointments booking policy', () => {
       }),
     }));
   }
+
+  function enableFoundingSalonTeam() {
+    getSalonBySlug.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      name: 'Salon A',
+      freeSoloEnabled: true,
+      settings: { bookingExperience: { policy: { enabled: false } } },
+    });
+    const requested = {
+      id: 'tech_2',
+      salonId: 'salon_1',
+      name: 'Morgan',
+      avatarUrl: null,
+      isActive: true,
+      weeklySchedule: { friday: { start: '10:00', end: '17:00' } },
+      enabledServiceIds: ['srv_1'],
+      serviceIds: ['srv_1'],
+      specialties: [],
+      primaryLocationId: null,
+    };
+    getTechnicianById.mockResolvedValue(requested);
+    publicBookingTechnicianRows.push(requested);
+    publicBookingTechnicianServiceRows.push({ technicianId: 'tech_2', serviceId: 'srv_1', enabled: true });
+    return requested;
+  }
+
+  it('keeps an explicit artist on a founding salon when another eligible artist is free', async () => {
+    enableFoundingSalonTeam();
+    canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+    const state = mockSuccessfulAppointmentInserts({ appointmentId: 'appt_team', salonClientId: 'client_1', clientPhone: '1111111111', technicianId: 'tech_2' });
+
+    const response = await postBooking({ technicianId: 'tech_2' });
+
+    expect(response.status).toBe(201);
+    expect(state.appointmentValues).toMatchObject({ technicianId: 'tech_2' });
+    expect(getTechnicianById).toHaveBeenCalledWith('tech_2', 'salon_1');
+    await expect(response.json()).resolves.toMatchObject({ data: { technician: { id: 'tech_2', name: 'Morgan' } } });
+  });
+
+  it('rejects an unavailable requested artist instead of silently choosing a free artist on a founding salon', async () => {
+    enableFoundingSalonTeam();
+    canTechnicianTakeAppointment.mockImplementation(({ weeklySchedule }) => weeklySchedule?.friday?.start === '10:00'
+      ? { available: false, reason: 'outside_schedule' }
+      : { available: true, schedule: { start: '09:00', end: '18:00' } });
+    mockSuccessfulAppointmentInserts({ appointmentId: 'must_not_create_unavailable', salonClientId: 'client_1', clientPhone: '1111111111' });
+
+    const response = await postBooking({ technicianId: 'tech_2' });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'OUTSIDE_SCHEDULE' } });
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('validates a requested artist within the founding salon before any write', async () => {
+    enableFoundingSalonTeam();
+    getTechnicianById.mockResolvedValue(null);
+    canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+    mockSuccessfulAppointmentInserts({ appointmentId: 'must_not_create_foreign', salonClientId: 'client_1', clientPhone: '1111111111' });
+
+    const response = await postBooking({ technicianId: 'foreign_or_inactive_artist' });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'INVALID_TECHNICIAN' } });
+    expect(getTechnicianById).toHaveBeenCalledWith('foreign_or_inactive_artist', 'salon_1');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('still assigns any eligible artist when a founding salon visitor chooses no preference', async () => {
+    enableFoundingSalonTeam();
+    canTechnicianTakeAppointment.mockReturnValue({ available: true, schedule: { start: '09:00', end: '18:00' } });
+    const state = mockSuccessfulAppointmentInserts({ appointmentId: 'appt_any', salonClientId: 'client_1', clientPhone: '1111111111' });
+
+    const response = await postBooking({ technicianId: null });
+
+    expect(response.status).toBe(201);
+    expect(getTechnicianById).not.toHaveBeenCalled();
+    expect(state.appointmentValues).toMatchObject({ technicianId: 'tech_1' });
+  });
 
   it('rejects a booking inside the salon-configured minimum notice window', async () => {
     getSalonById.mockResolvedValue({
@@ -827,6 +1007,7 @@ describe('POST /api/appointments booking policy', () => {
     });
 
     it('books a single-location salon by resolving its primary location server-side', async () => {
+      publicBookingLocationRows = [{ id: 'loc_primary', salonId: 'salon_1', isActive: true, businessHours: CLOSED_SUNDAY }];
       getPrimaryLocation.mockResolvedValue({ id: 'loc_primary', businessHours: CLOSED_SUNDAY });
       const insertState = mockSuccessfulAppointmentInserts({
         appointmentId: 'appt_primary_location',
@@ -846,6 +1027,7 @@ describe('POST /api/appointments booking policy', () => {
     });
 
     it('books a salon with no location row and still enforces salon.business_hours', async () => {
+      publicBookingSalonRows = [{ businessHours: CLOSED_SUNDAY, isActive: true, publicationStatus: 'published', onlineBookingEnabled: true }];
       getPrimaryLocation.mockResolvedValue(null);
       getSalonBySlug.mockResolvedValue({
         id: 'salon_1',
@@ -1241,7 +1423,7 @@ describe('POST /api/appointments booking policy', () => {
         friday: { open: '09:00', close: '18:00' },
       },
     });
-    getTechniciansBySalonId.mockResolvedValue([
+    const availableTechnicians = [
       {
         id: 'tech_wrong_location',
         salonId: 'salon_1',
@@ -1268,7 +1450,23 @@ describe('POST /api/appointments booking policy', () => {
         specialties: [],
         primaryLocationId: 'loc_1',
       },
-    ]);
+    ];
+    getTechniciansBySalonId.mockResolvedValue(availableTechnicians);
+    publicBookingTechnicianRows = availableTechnicians.map(technician => ({
+      id: technician.id,
+      salonId: technician.salonId,
+      name: technician.name,
+      isActive: true,
+      weeklySchedule: technician.weeklySchedule,
+      specialties: technician.specialties,
+      primaryLocationId: technician.primaryLocationId,
+    }));
+    publicBookingTechnicianServiceRows = availableTechnicians.map(technician => ({
+      technicianId: technician.id,
+      serviceId: 'srv_1',
+      enabled: true,
+    }));
+    publicBookingLocationRows = [{ id: 'loc_1', salonId: 'salon_1', isActive: true, businessHours: { friday: { open: '09:00', close: '18:00' } } }];
     canTechnicianTakeAppointment.mockImplementation((args: {
       enabledServiceIds?: string[];
       requestedServices?: Array<{ id: string }>;
@@ -2486,6 +2684,7 @@ describe('POST /api/appointments booking policy', () => {
       createdAt: new Date('2099-03-01T00:00:00.000Z'),
       updatedAt: new Date('2099-03-01T00:00:00.000Z'),
     };
+    publicBookingRetentionCampaignRows = [campaign];
     canTechnicianTakeAppointment.mockReturnValue({
       available: true,
       schedule: { start: '09:00', end: '18:00' },
@@ -2493,11 +2692,7 @@ describe('POST /api/appointments booking policy', () => {
     const conversionError = new Error('timeline temporarily unavailable');
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     db.execute.mockRejectedValueOnce(conversionError);
-    db.select.mockImplementationOnce(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
-      })),
-    }));
+    db.select.mockImplementation(selectionAwareSelect(() => mockSelectRows([])));
 
     let appointmentValues: Record<string, unknown> | null = null;
     let redemptionValues: Record<string, unknown> | null = null;
@@ -2616,19 +2811,12 @@ describe('POST /api/appointments booking policy', () => {
       singleUse: true,
       redeemedAt: null,
     };
+    publicBookingRetentionCampaignRows = [campaign];
     canTechnicianTakeAppointment.mockReturnValue({
       available: true,
       schedule: { start: '09:00', end: '18:00' },
     });
-    db.select.mockImplementation(selectionAwareSelect(
-      vi.fn()
-        .mockImplementationOnce(() => mockSelectRows([campaign]))
-        .mockImplementationOnce(() => mockSelectRows([]))
-        // The intraday Block Time lookup follows the appointment overlap
-        // lookup inside the same booking transaction.
-        .mockImplementationOnce(() => mockSelectRows([]))
-        .mockImplementationOnce(() => mockSelectRows([campaign])),
-    ));
+    db.select.mockImplementation(selectionAwareSelect(() => mockSelectRows([])));
 
     const response = await POST(new Request('http://localhost/api/appointments', {
       method: 'POST',

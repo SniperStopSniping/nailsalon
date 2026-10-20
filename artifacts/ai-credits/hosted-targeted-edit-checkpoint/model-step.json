@@ -1,0 +1,45 @@
+{
+  "mode": "contrast-refine",
+  "exactPrompt": "Keep this charcoal and ivory design, but make the mobile version less crowded. The pale “A little time, well spent.” caption crosses the light side panel and is hard to read. Reposition it on mobile so it does not overlap the service-menu label and give it clear contrast. Keep my manual “YOUR NEXT FAVOURITE SET.” wording and every other design detail, service, price, booking rule and contact link unchanged.",
+  "operationId": "0283b918-48ae-4055-88f1-b384db8aab3e",
+  "terminal": "completed",
+  "beforeRevision": 23,
+  "afterRevision": 24,
+  "artifactId": "95e03ac8-2fd3-4c23-8d4a-305af5a49063",
+  "elapsedMs": 39982,
+  "calls": [
+    {
+      "id": "773ff5bb-741f-4ba7-92cc-7a5dd9dc7a38",
+      "operation_id": "0283b918-48ae-4055-88f1-b384db8aab3e",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5598,
+      "output_tokens": 204,
+      "cost_micro_usd": 802,
+      "credit_cost_micro_cad": "2246",
+      "charged_micro_cad": 1604,
+      "elapsed_ms": 3361,
+      "validation": "passed"
+    },
+    {
+      "id": "a4831083-a112-45eb-a4bc-5e9ebb1df03b",
+      "operation_id": "1e1e8430-5d13-433b-a3a1-f7bc315604a9",
+      "ordinal": 0,
+      "model": "gpt-6-luna",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 6465,
+      "output_tokens": 5046,
+      "cost_micro_usd": 3332,
+      "credit_cost_micro_cad": "9330",
+      "charged_micro_cad": 6664,
+      "elapsed_ms": 33933,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "hosted": true,
+  "providerResponsesNotMocked": true
+}

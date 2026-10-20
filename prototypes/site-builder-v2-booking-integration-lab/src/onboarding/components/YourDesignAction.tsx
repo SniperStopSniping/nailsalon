@@ -9,7 +9,7 @@ export function YourDesignAction({ hasDesign, onOpen }: YourDesignActionProps) {
   return (
     <button className="secondary-button onboarding-design-entry" type="button" onClick={onOpen}>
       <Images aria-hidden="true" size={18} />
-      {hasDesign ? 'Edit your design' : 'Add your design'}
+      {hasDesign ? 'Edit design & links' : 'Add your design'}
     </button>
   );
 }

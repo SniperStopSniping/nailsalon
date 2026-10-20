@@ -1,0 +1,45 @@
+# Real reference and original-design acceptance checkpoint
+
+This extends the first real-owner checkpoint. Everything below used the task-owned Development database, synthetic owners and test-funded credit accounts. No Stripe purchase, production deployment, production migration or live-salon change occurred. The AI test allowance was not increased or reset.
+
+## Three actual model-generated websites
+
+| Case | Actual input | Result and publication |
+| --- | --- | --- |
+| Petal | Supplied pink Dynasty inspiration, followed by owner chat revisions | Pink framed/split composition, editable source and original booking. Published revision 13. Prior checkpoint evidence remains intact. |
+| Garden | Supplied green Sets By Lina screenshot, after typed business/services/contact/policy intake | Centred botanical hero, rounded policy/contact cards and green service rows. First model artifact `bd31a2e1-c9b0-4331-b171-e6968d77c28e`, published unchanged at revision 7 after explicit manual-wording QA and restoration. |
+| Nocturne | Text-only request for an original black/cream editorial design, asymmetric hero, oversized type and animated detail | Custom nail-shaped SVG artwork, mixed type hierarchy, responsive worker-controlled navigation and CSS animation. First artifact `458f16fa-8711-48e5-b307-acef189aa06a`, published unchanged at revision 6, then reused for the approved service-price update at revision 9. |
+
+Both new designs came through the owner composer. There was no hand-authored frontend substitution or developer repair to generated source. First provider outputs remain privately stored, and immutable source artifacts/history are retained. The Garden and Nocturne word-edit tests changed only text through the actual manual editor, preserved CSS/JavaScript and business settings, and restored the untouched model artifact before publication.
+
+Garden's first draft included its supplied rescheduling wording, Instagram, email and phone. Desktop/phone anchors had the expected trusted destinations; a real phone-width browser click attempted the correct Instagram URL. External navigation was blocked by the test network guard, so this verifies clickability/destination, not an existing Instagram account or external-page load. The website policy is public wording and does not activate an automated cancellation rule.
+
+The references were explicitly third-party inspiration. Their photography, branding and policies were not copied. Garden preserves the green vertical direction, floral position and rounded-card treatment, but its botanical artwork is an original abstract SVG rather than the reference's flowers. Only the supplied owner policy was included. Fonts use system stacks. Nocturne has a genuinely different composition and typography, rather than a recoloured Garden/Petal preset. Photographic fidelity, owned Canva/PDF reconstruction and the remaining five-style coverage still need further acceptance work.
+
+## Issues found and application fixes
+
+- Normal wording edits required opening the code editor. **Edit website wording → Save wording** now uses the same validated source/draft action, without opening HTML/CSS or invoking AI. Bound business names, services, prices and booking controls stay protected. Wording and advanced source controls are held while generation or a newer preview is loading. AI-disabled manual editing still works.
+- The actual generated Nocturne controller assigned `className: 'main-nav is-open'`, while the renderer only understood single-class toggles. Its accessibility state changed but its mobile menu remained hidden on both Chromium and WebKit. The renderer now supports bounded plain class-list assignment and preserves explicit boolean single-class toggles. Malformed, oversized and excessive class lists are rejected. No binding, URL, ID, HTML or booking authority was added.
+- Clicks on child icons now reach the enclosing interactive control ID, including when an icon has its own decorative ID. Keyboard and pointer activation work through the trusted visual bridge. The original Nocturne source was not changed to work around the runtime bug.
+
+After the fix, phone-width WebKit opened/closed the real generated navigation with Enter, observed one active CSS animation, and observed no animation under reduced-motion preference. The same immutable generated source was used for publication and customer booking.
+
+## Existing-salon price integrity through the real UI
+
+Nocturne completed an original Luster booking at $65/75 minutes in WebKit. The owner returned through **Make more changes**, loading current canonical service identities, then sent “Keep the design, but change BIAB to $75.” Luna updated the shared service draft at revision 8 without regenerating the design or changing other services/settings. The owner preview showed $75 while an anonymous public browser still showed $65. Live service rows remained unchanged before approval.
+
+The owner accepted the displayed change, reviewed the exact revision and approved/published revision 9. A new original Chromium booking used $75/75 minutes. Database receipts and `appointment_services.price_at_booking` show the earlier $65 booking/snapshot unchanged and the later booking/snapshot at $75. Both reserve 85 minutes with the existing buffer and use an artist assigned to the selected service. Service identities were retained and no duplicate catalog records were created.
+
+Garden separately completed an original Chromium booking at $70/75 minutes. Every accepted booking traversed the model-generated service button, original service/time/confirmation screens and actual appointment API returning HTTP 201. The runner checks rendered names, prices, durations, tenant-scoped service identity, one new appointment per successful submission and staff assignment.
+
+## Evidence, usage and verification
+
+- `artifacts/ai-credits/real-style-matrix.json` contains all three cases, artifact hashes, provider call records, publication revisions and booking price/duration snapshots. It contains no keys, sessions or customer details.
+- `artifacts/ai-credits/real-provider/paid-ai-garden-69d151c3/` contains the green first draft, contact tap, manual wording test, restoration, exact review/publication and completed booking.
+- `artifacts/ai-credits/real-provider/paid-ai-nocturne-6e9e1783/` contains text intake/recommendations, the original desktop/mobile output, the new wording controls, failed and fixed navigation captures, WebKit receipt, later draft/public price comparison, exact review and $75 receipt.
+- Nineteen real OpenAI calls across all three cases completed and passed source/structured validation. Requested API models were `gpt-6-luna` and `gpt-6.1-sol`; no new provider repair call was needed. Combined provider-usage-based Standard-rate estimate is USD0.370734; conservative trial accounting is CAD0.741468. These are usage estimates/accounting, not a bank invoice or live FX rate. Current shared cap/retained-spend reconciliation is in the matrix.
+- 38 focused UI cases passed, including free wording saves, protected canonical bindings, escaping text and pending/stale edit controls. All 24 renderer browser cases passed across desktop Chromium, phone Chromium and iPhone WebKit, including isolation, forged booking/data attempts, runaway workers, contacts, class-list/toggle compatibility, child-icon clicks and mixed Canva image sizes. TypeScript, scoped ESLint and whitespace checks passed. Those deterministic fixtures are separate from the real-provider journeys.
+
+Some attempts failed and remain in evidence. A fresh-owner runner initially observed the header before the draft finished opening; it now waits for an enabled control. Two real Nocturne menu probes exposed the runtime mismatch above. Local cold compilation exceeded the initial public-read/booking-response observation limits, and Next's Development process restarted at its memory threshold; those attempts were not reported as successful bookings. The stopped attempts had no saved Nocturne appointment before the fresh successful journey. The isolated dev server was restarted intentionally with source maps disabled and a bounded 8-GiB heap on the 16-GiB host, preserving its DB, budget, feature flags and outbound guard. No package was upgraded. This is local test stabilization, not evidence of hosted performance. A detached-DOM assertion and Testing Library type errors in the new tests were corrected; no generated source was changed.
+
+The source-only local delivery is reviewable; push/PR deployment updates remain held. Optimized build/client secret scanning, remote CI/review, hosted isolation and production release checks remain open. Stripe sandbox purchase/signup acceptance still needs the owner's secure key configuration. Supported add-ons/settings prerequisites, additional Canva/photo/style cases, real account/cross-device acceptance and the onboarding walkthrough/friendly entry still need completion. This checkpoint does not declare the whole paid builder finished.

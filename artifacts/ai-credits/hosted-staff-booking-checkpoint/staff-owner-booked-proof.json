@@ -1,0 +1,52 @@
+{
+  "sourceSha": "d7bdeaeb150b5ba6433501397c181db87bd43a30",
+  "phase": "booked",
+  "revision": 72,
+  "status": "published",
+  "designPreserved": true,
+  "serviceRecordsPreserved": true,
+  "previousAppointmentsPreserved": 8,
+  "canonicalTechnicians": [
+    {
+      "id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "name": "AI Test Owner"
+    },
+    {
+      "id": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+      "name": "Morgan Test Artist"
+    }
+  ],
+  "publication": {
+    "id": "3614cae1-6986-487d-b098-92ba14e56645",
+    "revision": 72,
+    "media_finalized": true,
+    "approved_revision": 72,
+    "staff_ids": {
+      "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "draft_89eca824-f73d-4f30-83ab-3ddfebf5c5b6": "b93e963c-5771-4a8c-ac82-546a2e9f8183"
+    }
+  },
+  "addedAppointment": {
+    "id": "appt_1ed9dc07-5d7d-4374-8040-60f2c3d22bb0",
+    "technician_id": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+    "start_time": "2026-10-21T15:00:00.000Z",
+    "end_time": "2026-10-21T16:00:00.000Z",
+    "total_price": 5000,
+    "total_duration_minutes": 60,
+    "buffer_minutes": 10,
+    "status": "confirmed"
+  },
+  "serviceSnapshot": {
+    "service_id": "585573ae-827d-41cf-a0dc-625d1fa578ed",
+    "price_at_booking": 5000,
+    "duration_at_booking": 60,
+    "name_snapshot": "Gel manicure"
+  },
+  "policyAcknowledgment": {
+    "source": "public_booking",
+    "policy_title_snapshot": "Appointment agreement",
+    "policy_text_snapshot": "Please arrive on time. If you need to cancel, use your booking link or contact the salon as soon as possible."
+  },
+  "aiCalls": 39,
+  "productionTouched": false
+}

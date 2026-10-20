@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   boundary: vi.fn(),
   enabled: vi.fn(() => false),
 }));
+vi.mock('@/features/business-setup/access.server', () => ({ businessSetupSelfServeEnabled: () => false }));
 
 // next/font/google resolves font files at build time; under Vitest it never
 // settles, so stub the two faces the admin layout publishes as CSS variables.

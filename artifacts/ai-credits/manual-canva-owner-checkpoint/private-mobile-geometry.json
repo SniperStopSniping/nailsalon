@@ -1,0 +1,48 @@
+{
+  "bookingControls": [
+    {
+      "attributes": [
+        {
+          "name": "data-luster-book",
+          "value": ""
+        }
+      ],
+      "height": 55.3125,
+      "label": "Book appointment",
+      "width": 140.796875
+    },
+    {
+      "attributes": [
+        {
+          "name": "data-luster-book",
+          "value": ""
+        }
+      ],
+      "height": 44.796875,
+      "label": "Book appointment",
+      "width": 180.4375
+    },
+    {
+      "attributes": [
+        {
+          "name": "data-luster-book",
+          "value": "setup_preview_svc_244c14bb_60f9_4fb1_b2ff_5dfdc6e54e1f_gel-manicure"
+        }
+      ],
+      "height": 44,
+      "label": "Book this service",
+      "width": 156.9375
+    }
+  ],
+  "images": [
+    {
+      "complete": true,
+      "height": 140.796875,
+      "naturalHeight": 480,
+      "naturalWidth": 1200,
+      "width": 352
+    }
+  ],
+  "scrollWidth": 352,
+  "viewport": 352
+}

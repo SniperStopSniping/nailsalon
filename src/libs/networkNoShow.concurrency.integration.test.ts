@@ -31,6 +31,31 @@ let pool: pg.Pool;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 const now = new Date('2030-06-15T16:00:00.000Z');
 
+let completedTests = 0;
+
+function postgresCase(name: string, run: () => Promise<void>) {
+  it(name, async () => {
+    await run();
+    completedTests += 1;
+  });
+}
+
+async function expectWrappedQueryCancellation(operation: Promise<unknown>) {
+  const rejection = await operation.then(() => undefined, error => error);
+  let current = rejection;
+  let cancelled = false;
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth += 1) {
+    const candidate = current as { cause?: unknown; code?: unknown };
+    if (candidate.code === '57014') {
+      cancelled = true;
+      break;
+    }
+    current = candidate.cause;
+  }
+
+  expect(cancelled).toBe(true);
+}
+
 async function waitForDatabaseLock(pid: number): Promise<void> {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const { rows } = await pool.query<{ wait_event_type: string | null }>(
@@ -69,7 +94,7 @@ suite('network no-show PostgreSQL serialization', () => {
 
   afterAll(async () => pool?.end());
 
-  it('serializes a locked risk decision before source correction', async () => {
+  postgresCase('serializes a locked risk decision before source correction', async () => {
     const reader = await pool.connect();
     const writer = await pool.connect();
     try {
@@ -96,7 +121,7 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  it('erasure wins after immediate early publication releases its subject lock', async () => {
+  postgresCase('erasure wins after immediate early publication releases its subject lock', async () => {
     const first = await pool.connect();
     const second = await pool.connect();
     try {
@@ -109,7 +134,7 @@ suite('network no-show PostgreSQL serialization', () => {
       await second.query('BEGIN');
       await second.query('SET LOCAL statement_timeout=\'300ms\'');
 
-      await expect(eraseNetworkNoShowSubjectInTx(drizzle(second, { schema }), { subjectId: 'subject', operatorId: 'op', now })).rejects.toMatchObject({ code: '57014' });
+      await expectWrappedQueryCancellation(eraseNetworkNoShowSubjectInTx(drizzle(second, { schema }), { subjectId: 'subject', operatorId: 'op', now }));
 
       await first.query('COMMIT');
       await second.query('ROLLBACK');
@@ -124,7 +149,7 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  it('blocks publication during disable and preserves the original eligible cohort on re-enable', async () => {
+  postgresCase('blocks publication during disable and preserves the original eligible cohort on re-enable', async () => {
     const publisher = await pool.connect();
     const disabler = await pool.connect();
     try {
@@ -135,7 +160,7 @@ suite('network no-show PostgreSQL serialization', () => {
       await disabler.query('BEGIN');
       await disabler.query('SET LOCAL statement_timeout=\'300ms\'');
 
-      await expect(disableNetworkNoShowPlatformInTx(drizzle(disabler, { schema }), { operatorId: 'op', now })).rejects.toMatchObject({ code: '57014' });
+      await expectWrappedQueryCancellation(disableNetworkNoShowPlatformInTx(drizzle(disabler, { schema }), { operatorId: 'op', now }));
 
       await disabler.query('ROLLBACK');
       await publisher.query('COMMIT');
@@ -153,7 +178,7 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  it('orders risk read, disable, and same-booking registration through participation first', async () => {
+  postgresCase('orders risk read, disable, and same-booking registration through participation first', async () => {
     const booking = await pool.connect();
     const disabler = await pool.connect();
     try {
@@ -163,7 +188,7 @@ suite('network no-show PostgreSQL serialization', () => {
       await disabler.query('BEGIN');
       await disabler.query('SET LOCAL statement_timeout=\'300ms\'');
 
-      await expect(disableNetworkNoShowPlatformInTx(drizzle(disabler, { schema }), { operatorId: 'op', now })).rejects.toMatchObject({ code: '57014' });
+      await expectWrappedQueryCancellation(disableNetworkNoShowPlatformInTx(drizzle(disabler, { schema }), { operatorId: 'op', now }));
 
       await disabler.query('ROLLBACK');
       await registerNetworkBookingInTx(bookingDb, {
@@ -185,7 +210,7 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  it('does not let disable lock bindings ahead of an in-flight subject suppression', async () => {
+  postgresCase('does not let disable lock bindings ahead of an in-flight subject suppression', async () => {
     const suppressor = await pool.connect();
     const disabler = await pool.connect();
     try {
@@ -213,7 +238,7 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  it('does not publish a pending early no-show when its source correction wins the appointment lock', async () => {
+  postgresCase('does not publish a pending early no-show when its source correction wins the appointment lock', async () => {
     const correction = await pool.connect();
     const reconciler = await pool.connect();
     const reconcilerPid = (await reconciler.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
@@ -258,7 +283,7 @@ suite('network no-show PostgreSQL serialization', () => {
     }
   });
 
-  it('publishes concurrent early marks exactly once before the scheduled start', async () => {
+  postgresCase('publishes concurrent early marks exactly once before the scheduled start', async () => {
     await pool.query('DELETE FROM network_no_show_event WHERE id=\'event\'');
     const markedAt = new Date('2030-06-15T13:00:00.000Z');
     await db.transaction(tx => auditNoShowReportInTx(tx, { salonId: 'a', appointmentId: 'appt', previousStatus: 'confirmed', actorId: 'owner-one', actorRole: 'admin', report: { reason: 'confirmed_nonattendance' }, now: markedAt }));
@@ -278,9 +303,13 @@ suite('network no-show PostgreSQL serialization', () => {
     await expect(readNetworkNoShowRisk({ salonId: 'b', phone: '4165551000', email: 'x@example.com', handle: db, now: markedAt })).resolves.toEqual({ state: 'available', activeNoShowCount: 1, windowMonths: 12 });
   });
 
-  afterAll(() => process.stdout.write('NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=8 NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0\n'));
+  afterAll(() => {
+    expect(completedTests).toBe(8);
 
-  it('a committed customer review fences a waiting duplicate publisher', async () => {
+    process.stdout.write(`NETWORK_NO_SHOW_POSTGRES_TESTS_EXECUTED=${completedTests} NETWORK_NO_SHOW_POSTGRES_TESTS_SKIPPED=0\n`);
+  });
+
+  postgresCase('a committed customer review fences a waiting duplicate publisher', async () => {
     const reviewer = await pool.connect();
     const publisher = await pool.connect();
     try {

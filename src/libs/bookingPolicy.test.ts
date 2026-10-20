@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   canTechnicianTakeAppointment,
+  getDayNameForDate,
   hasBlockedSlotConflict,
   hasBufferedConflict,
   resolveBookingHoursCeiling,
@@ -15,6 +16,52 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 describe('bookingPolicy', () => {
+  it('uses the salon weekday and local hours across a Toronto day boundary', () => {
+    // Vancouver Monday 22:00 is Toronto Tuesday 01:00.
+    const input = {
+      startTime: new Date('2026-03-17T05:00:00Z'),
+      endTime: new Date('2026-03-17T06:00:00Z'),
+      weeklySchedule: { monday: { start: '20:00', end: '23:00' } },
+      locationBusinessHours: { monday: { open: '21:00', close: '23:00' } },
+      existingAppointments: [],
+    };
+
+    expect(getDayNameForDate(input.startTime)).toBe('tuesday');
+    expect(getDayNameForDate(input.startTime, 'America/Vancouver')).toBe('monday');
+    expect(canTechnicianTakeAppointment({ ...input, timeZone: 'America/Vancouver' }).available).toBe(true);
+    expect(canTechnicianTakeAppointment(input)).toEqual({ available: false, reason: 'day_off' });
+    expect(canTechnicianTakeAppointment({ ...input, timeZone: 'America/Vancouver', locationBusinessHours: { monday: { open: '20:00', close: '22:00' } } })).toEqual({ available: false, reason: 'location_unavailable' });
+  });
+
+  it('applies local lunch blocks in Vancouver while exact block instants stay unchanged', () => {
+    const input = {
+      startTime: new Date('2026-03-16T19:30:00Z'),
+      endTime: new Date('2026-03-16T20:30:00Z'),
+      weeklySchedule: { monday: { start: '09:00', end: '18:00' } },
+      blockedSlots: [{ startTime: '12:00', endTime: '13:00', label: 'Lunch' }],
+      existingAppointments: [],
+    };
+
+    expect(canTechnicianTakeAppointment({ ...input, timeZone: 'America/Vancouver' })).toEqual({ available: false, reason: 'blocked_slot' });
+    expect(canTechnicianTakeAppointment(input).available).toBe(true);
+
+    const exact = [{ ...input.blockedSlots[0]!, startsAt: new Date('2026-03-16T19:00:00Z'), endsAt: new Date('2026-03-16T20:00:00Z') }];
+
+    for (const timeZone of ['America/Toronto', 'America/Vancouver', 'Asia/Tokyo']) {
+      expect(hasBlockedSlotConflict({ ...input, blockedSlots: exact, timeZone })).toBe(true);
+    }
+  });
+
+  it('refuses a service whose occupied duration crosses the salon-local closing time', () => {
+    expect(canTechnicianTakeAppointment({
+      timeZone: 'Asia/Tokyo',
+      startTime: new Date('2026-03-16T08:30:00Z'),
+      endTime: new Date('2026-03-16T09:30:00Z'),
+      weeklySchedule: { monday: { start: '09:00', end: '18:00' } },
+      existingAppointments: [],
+    })).toEqual({ available: false, reason: 'outside_schedule' });
+  });
+
   it('treats cleanup time as a conflict in both directions', () => {
     const existingAppointments = [{
       id: 'appt_1',

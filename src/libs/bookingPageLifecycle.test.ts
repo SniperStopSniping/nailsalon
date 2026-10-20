@@ -7,8 +7,14 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as canonicalMedia from '@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.server';
+import { compileOnboardingToSiteDocument } from '@/features/onboarding-v1-integration/compiler';
+import { createPersistableOnboardingDraft } from '@/features/onboarding-v1-integration/snapshot';
 import * as schema from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
+
+import { createDefaultCustomDesignSettings } from '../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/settings';
+import { initializeStarter } from '../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
+import { createDefaultOnboardingState } from '../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 
 vi.mock('server-only', () => ({}));
 
@@ -114,6 +120,53 @@ async function readSettings(id: string): Promise<unknown> {
     .where(eq(schema.salonSchema.id, id));
 
   return row?.settings;
+}
+
+async function insertFirstLaunchCanva(id: string, mediaStatus: 'missing' | 'pending' | 'uploading' | 'failed' | 'ready', hidden = false) {
+  await insertSalon(id, lifecycleSettings());
+  await database.update(schema.salonSchema).set({ publicationStatus: 'draft', publishedAt: null, slugLockedAt: null }).where(eq(schema.salonSchema.id, id));
+  const adminId = `owner_${id}`;
+  const siteId = `site_${id}`;
+  const revisionId = `revision_${id}`;
+  const state = createDefaultOnboardingState();
+  state.profile.businessName = 'Canva Test Studio';
+  state.profile.ownerName = 'Test Owner';
+  state.profile.businessStructure = 'solo';
+  state.recipe.starter = 'your_design';
+  state.recipe.canvaEnabled = true;
+  state.canva.status = 'ready';
+  state.canva.images = [{ id: 'artwork-one', storageId: 'local-artwork', fileName: 'design.webp', mimeType: 'image/webp', source: 'indexed_db', width: 600, height: 1400 }];
+  const builder = initializeStarter('your_design', { siteId, siteName: state.profile.businessName });
+  const design = createDefaultCustomDesignSettings();
+  design.images = [{ id: 'artwork-one', assetId: 'local-artwork', fileName: 'design.webp', mimeType: 'image/webp', fileSize: 1024, width: 600, height: 1400, aspectRatio: 600 / 1400, altText: 'Owned booking artwork', decorative: false, interactiveAreas: [] }];
+  for (const page of builder.pages) {
+    for (const section of page.sections) {
+      if (section.sectionType === 'custom_design') {
+        section.settings = design;
+      }
+    }
+  }
+  const { snapshot } = createPersistableOnboardingDraft(state, 'luster_berry', design, builder);
+  const document = compileOnboardingToSiteDocument({ revision: 1, siteId, snapshot });
+
+  expect(document.pages.some(page => page.sections.some(section => section.type === 'custom_design' && section.customDesignSettings?.images.length === 1))).toBe(true);
+
+  if (hidden) {
+    for (const page of document.pages) {
+      for (const section of page.sections) {
+        if (section.type === 'custom_design') {
+          section.visible = false;
+        }
+      }
+    }
+  }
+  await database.insert(schema.adminUserSchema).values({ id: adminId });
+  await database.insert(schema.onboardingSiteSchema).values({ id: siteId, salonId: id, createdByAdminId: adminId, currentRevision: 1, stylePresetId: 'modern', palettePresetId: 'luster_berry' });
+  await database.insert(schema.onboardingSiteRevisionSchema).values({ id: revisionId, siteId, salonId: id, createdByAdminId: adminId, revision: 1, snapshotVersion: 1, snapshot, snapshotFingerprint: id, documentVersion: 1, document, documentFingerprint: id });
+  if (mediaStatus !== 'missing') {
+    await database.insert(schema.onboardingSiteMediaSchema).values({ id: `media_${id}`, siteId, salonId: id, revisionId, role: 'custom_design', localItemId: 'artwork-one', claimStatus: mediaStatus, uploadLeaseId: mediaStatus === 'uploading' ? 'active-test-upload' : null, fileName: 'design.webp', mimeType: 'image/webp', ...(mediaStatus === 'ready' ? { storageProvider: 'development_local', storageKey: 'private/design.webp', publicUrl: '/api/onboarding/v1/media/design', width: 600, height: 1400, fileSize: 1024 } : {}) });
+  }
+  return readSettings(id);
 }
 
 function lifecycleSettings(): SalonSettings {
@@ -676,6 +729,62 @@ describe('first website publication', () => {
 
   it('handles missing salons without publishing anything', async () => {
     expect(await publishWebsite('missing_first_launch')).toBeNull();
+  });
+});
+
+describe('first launch of saved Canva artwork', () => {
+  it.each(['missing', 'pending', 'uploading', 'failed'] as const)('keeps visibility, settings and permanent URL stamps unchanged when artwork is %s', async (status) => {
+    const id = `canva_launch_${status}`;
+    const before = await insertFirstLaunchCanva(id, status);
+
+    await expect(publishWebsite(id)).rejects.toMatchObject({ code: 'DESIGN_IMAGES_PENDING' });
+
+    const [after] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, id));
+
+    expect(after).toMatchObject({ publicationStatus: 'draft', publishedAt: null, slugLockedAt: null });
+    expect(after?.settings).toEqual(before);
+  });
+
+  it('refuses to substitute Quick Book when media is marked ready but the public design is not connected', async () => {
+    const id = 'canva_launch_unconnected';
+    const before = await insertFirstLaunchCanva(id, 'ready');
+
+    await expect(publishWebsite(id)).rejects.toMatchObject({ code: 'DESIGN_PUBLICATION_UNAVAILABLE' });
+
+    const [after] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, id));
+
+    expect(after).toMatchObject({ publicationStatus: 'draft', publishedAt: null, slugLockedAt: null });
+    expect(after?.settings).toEqual(before);
+  });
+
+  it('does not count another salon’s ready copy of the same logical image', async () => {
+    await insertFirstLaunchCanva('canva_other_owner_ready', 'ready');
+    await insertFirstLaunchCanva('canva_owner_missing', 'missing');
+
+    await expect(publishWebsite('canva_owner_missing')).rejects.toMatchObject({ code: 'DESIGN_IMAGES_PENDING' });
+  });
+
+  it('does not count ready media from an earlier revision', async () => {
+    const id = 'canva_older_media';
+    await insertFirstLaunchCanva(id, 'ready');
+    const [previous] = await database.select().from(schema.onboardingSiteRevisionSchema).where(eq(schema.onboardingSiteRevisionSchema.siteId, `site_${id}`));
+
+    expect(previous).toBeDefined();
+
+    await database.insert(schema.onboardingSiteRevisionSchema).values({ ...previous!, id: `revision_${id}_2`, revision: 2, document: { ...previous!.document, revision: 2 } });
+    await database.update(schema.onboardingSiteSchema).set({ currentRevision: 2 }).where(eq(schema.onboardingSiteSchema.id, `site_${id}`));
+
+    await expect(publishWebsite(id)).rejects.toMatchObject({ code: 'DESIGN_IMAGES_PENDING' });
+  });
+
+  it('does not block intentionally hidden artwork or a later replay of a completed launch', async () => {
+    const id = 'canva_launch_hidden';
+    await insertFirstLaunchCanva(id, 'failed', true);
+
+    const launched = await publishWebsite(id);
+
+    expect(launched?.applied).toBe(true);
+    expect((await publishWebsite(id))?.applied).toBe(false);
   });
 });
 

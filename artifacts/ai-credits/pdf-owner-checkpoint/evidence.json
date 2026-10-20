@@ -1,0 +1,365 @@
+{
+  "kind": "Real owner UI; owned PDF artwork retained with model-generated clickable areas",
+  "syntheticInput": "tests/browser/businessSetup/pdf-artwork-fixture.mjs",
+  "inputSha256": "9c0213cd57bff994a97e0740bd70598d213a3033290fc1d4d5becc2bdac694a8",
+  "developerFrontendRepair": false,
+  "manualContactOrServiceEntry": false,
+  "providerMicroUsd": 61063,
+  "modelCalls": [
+    {
+      "id": "382cb2d2-55cd-40f2-b2ab-e76a2bce0083",
+      "operation_id": "47fd2ca0-cdb8-4234-8560-d19b00b92841",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 9926,
+      "output_tokens": 1023,
+      "cost_micro_usd": 35044,
+      "charged_micro_cad": 70088,
+      "credit_cost_micro_cad": "98124",
+      "elapsed_ms": 16029,
+      "validation": "passed"
+    },
+    {
+      "id": "618fcecd-c6d8-4383-be7c-06d427a13e35",
+      "operation_id": "e1491fb8-2a60-44f3-be2c-9c4fb9828cd2",
+      "model": "gpt-6.1-sol",
+      "provider": "openai",
+      "status": "completed",
+      "input_tokens": 5988,
+      "output_tokens": 1105,
+      "cost_micro_usd": 26019,
+      "charged_micro_cad": 52038,
+      "credit_cost_micro_cad": "72854",
+      "elapsed_ms": 20439,
+      "validation": "passed"
+    }
+  ],
+  "runs": [
+    {
+      "step": "canva-upload",
+      "status": "passed",
+      "revision": 2,
+      "artifactId": null,
+      "bookingSubmissionCount": 0,
+      "appointments": [],
+      "interactionChecks": [],
+      "contactChecks": [],
+      "lostPublishResponse": false
+    },
+    {
+      "step": "message",
+      "status": "passed",
+      "revision": 4,
+      "artifactId": "6e27359c-b5f1-4314-a1cd-0cf642b431cc",
+      "bookingSubmissionCount": 0,
+      "appointments": [],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "preservedCanvaPages": 2,
+          "areaCount": 4
+        },
+        {
+          "device": "mobile",
+          "preservedCanvaPages": 2,
+          "areaCount": 4
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/lumen.test.studio/",
+          "targetWidth": 192,
+          "targetHeight": 73.328125,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 223.1875,
+          "targetHeight": 73.328125,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/lumen.test.studio/",
+          "targetWidth": 124.796875,
+          "targetHeight": 47.65625,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 145.078125,
+          "targetHeight": 47.65625,
+          "tapAttemptVerified": false
+        }
+      ],
+      "lostPublishResponse": false
+    },
+    {
+      "step": "preview",
+      "status": "passed",
+      "revision": 4,
+      "artifactId": "6e27359c-b5f1-4314-a1cd-0cf642b431cc",
+      "bookingSubmissionCount": 0,
+      "appointments": [],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "preservedCanvaPages": 2,
+          "areaCount": 4
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "instagram",
+          "areaId": "instagram",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "email",
+          "areaId": "email",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "service",
+          "serviceName": "BIAB",
+          "areaId": "book-biab",
+          "matched": true
+        },
+        {
+          "device": "desktop",
+          "referenceLandmark": "service",
+          "serviceName": "Gel Manicure",
+          "areaId": "book-gel",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "preservedCanvaPages": 2,
+          "areaCount": 4
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "instagram",
+          "areaId": "instagram",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "email",
+          "areaId": "email",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "service",
+          "serviceName": "BIAB",
+          "areaId": "book-biab",
+          "matched": true
+        },
+        {
+          "device": "mobile",
+          "referenceLandmark": "service",
+          "serviceName": "Gel Manicure",
+          "areaId": "book-gel",
+          "matched": true
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/lumen.test.studio/",
+          "targetWidth": 192,
+          "targetHeight": 73.328125,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 223.1875,
+          "targetHeight": 73.328125,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/lumen.test.studio/",
+          "targetWidth": 124.796875,
+          "targetHeight": 47.65625,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 145.078125,
+          "targetHeight": 47.65625,
+          "tapAttemptVerified": false
+        }
+      ],
+      "lostPublishResponse": false
+    },
+    {
+      "step": "canva-review",
+      "status": "passed",
+      "revision": 5,
+      "artifactId": "c2d1358b-ece0-4e66-992f-94bef11bc4a1",
+      "bookingSubmissionCount": 0,
+      "appointments": [],
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "preservedCanvaPages": 2,
+          "areaCount": 4
+        },
+        {
+          "device": "mobile",
+          "preservedCanvaPages": 2,
+          "areaCount": 4
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "contactChecks": [
+        {
+          "device": "desktop",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/lumen.test.studio/",
+          "targetWidth": 192,
+          "targetHeight": 73.328125,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "desktop",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 223.1875,
+          "targetHeight": 73.328125,
+          "tapAttemptVerified": false
+        },
+        {
+          "device": "mobile",
+          "kind": "instagram",
+          "href": "https://www.instagram.com/lumen.test.studio/",
+          "targetWidth": 124.796875,
+          "targetHeight": 47.65625,
+          "tapAttemptVerified": true
+        },
+        {
+          "device": "mobile",
+          "kind": "email",
+          "href": "mailto:hello@example.invalid",
+          "targetWidth": 145.078125,
+          "targetHeight": 47.65625,
+          "tapAttemptVerified": false
+        }
+      ],
+      "lostPublishResponse": false
+    },
+    {
+      "step": "publish",
+      "status": "passed",
+      "revision": 6,
+      "artifactId": "c2d1358b-ece0-4e66-992f-94bef11bc4a1",
+      "bookingSubmissionCount": 0,
+      "appointments": [],
+      "interactionChecks": [],
+      "contactChecks": [],
+      "lostPublishResponse": true
+    },
+    {
+      "step": "book",
+      "status": "passed",
+      "revision": 6,
+      "artifactId": "c2d1358b-ece0-4e66-992f-94bef11bc4a1",
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 1,
+      "appointments": [
+        {
+          "id": "appt_94b1b284-704a-41be-8872-111032a1c75a",
+          "total_price": 6500,
+          "total_duration_minutes": 75
+        }
+      ],
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": true,
+          "serviceId": "6520945c-9e61-46d9-a7b0-afd24f874cd6",
+          "serviceName": "BIAB",
+          "targetWidth": 97.5,
+          "targetHeight": 47.65625
+        }
+      ],
+      "contactChecks": [],
+      "lostPublishResponse": false
+    }
+  ],
+  "fidelity": [
+    {
+      "page": 1,
+      "original": {
+        "width": 1600,
+        "height": 2432
+      },
+      "prepared": {
+        "width": 1600,
+        "height": 2432
+      },
+      "meanAbsoluteRgbError": 1.6607503255208333,
+      "normalisedPercent": 0.6512746374591504
+    },
+    {
+      "page": 2,
+      "original": {
+        "width": 1600,
+        "height": 1000
+      },
+      "prepared": {
+        "width": 1600,
+        "height": 1000
+      },
+      "meanAbsoluteRgbError": 1.3686545833333332,
+      "normalisedPercent": 0.5367272875816993
+    }
+  ],
+  "limitations": [
+    "PDF input is rasterized; its original text/layout stays editable in Canva. AI and manual controls edit links.",
+    "Embedded low-resolution pictures cannot recover missing detail.",
+    "Wide pages retain their proportions and shrink on phones; owner guidance recommends a portrait export or editable redesign.",
+    "Legacy Development session was used. Real Clerk sign-up and Stripe purchases were not tested."
+  ],
+  "deployment": "Loopback Development only; no hosted or production deployment."
+}

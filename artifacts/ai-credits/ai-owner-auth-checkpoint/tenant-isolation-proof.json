@@ -1,0 +1,88 @@
+{
+  "passed": true,
+  "sourceSha": "0879b3b7ca62e2268c0c0d798b57e3d14acd2946",
+  "nativeProviderSessions": true,
+  "noManufacturedCookies": true,
+  "readOnlyApiChecks": true,
+  "checks": [
+    {
+      "actor": "new",
+      "role": "own",
+      "resource": "business-setup",
+      "status": 200,
+      "hasData": true,
+      "otherNameLeaked": false,
+      "containsSyntheticPrivateAddress": false
+    },
+    {
+      "actor": "new",
+      "role": "own",
+      "resource": "custom-sites",
+      "status": 200,
+      "hasData": false,
+      "otherNameLeaked": false,
+      "containsSyntheticPrivateAddress": false
+    },
+    {
+      "actor": "new",
+      "role": "other",
+      "resource": "business-setup",
+      "status": 403,
+      "otherNameLeaked": false,
+      "containsSyntheticPrivateAddress": false
+    },
+    {
+      "actor": "new",
+      "role": "other",
+      "resource": "custom-sites",
+      "status": 403,
+      "otherNameLeaked": false,
+      "containsSyntheticPrivateAddress": false
+    },
+    {
+      "actor": "existing",
+      "role": "own",
+      "resource": "business-setup",
+      "status": 200,
+      "hasData": true,
+      "otherNameLeaked": false,
+      "containsSyntheticPrivateAddress": true
+    },
+    {
+      "actor": "existing",
+      "role": "own",
+      "resource": "custom-sites",
+      "status": 200,
+      "hasData": false,
+      "otherNameLeaked": false,
+      "containsSyntheticPrivateAddress": true
+    },
+    {
+      "actor": "existing",
+      "role": "other",
+      "resource": "business-setup",
+      "status": 403,
+      "otherNameLeaked": false,
+      "containsSyntheticPrivateAddress": false
+    },
+    {
+      "actor": "existing",
+      "role": "other",
+      "resource": "custom-sites",
+      "status": 403,
+      "otherNameLeaked": false,
+      "containsSyntheticPrivateAddress": false
+    }
+  ],
+  "existingPublishedOwnerUnchanged": {
+    "head_revision": 8,
+    "status": "published",
+    "balance": "9775907",
+    "appointments": 1,
+    "calls": 7
+  },
+  "newProviderCalls": 0,
+  "browserErrors": [],
+  "productionChanged": false,
+  "hostedDeployment": false
+}

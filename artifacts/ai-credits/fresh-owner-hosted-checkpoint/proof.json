@@ -1,0 +1,430 @@
+{
+  "status": "fresh_owner_hosted_checkpoint_passed_with_disclosed_limits",
+  "sourceSha": "ae87edbe9bc59f61182d79f4414b71abe38bf491",
+  "previousSourceSha": "e8b04dfea81e14302b240a2d5018a42333a0d418",
+  "environment": "isolated Vercel Preview",
+  "appDeployment": "dpl_HM3vuc1W7fWwGvbYMQWTKqPS8tN1",
+  "publicTestWebsite": "https://luster-ai-builder-test.vercel.app/studio-cb31193c933c2182/book/service?publishedWebsite=1",
+  "ci": {
+    "run": 39418230583,
+    "passed": 26,
+    "failed": 0
+  },
+  "auth": {
+    "webkitNativePasswordAndTestCode": true,
+    "chromiumIndependentEmptyContextNativePassword": true,
+    "copiedAuthState": false,
+    "newRegistrationRepeatedOnCurrentHead": false,
+    "newOrganizationAndSalon": true,
+    "resumedRevisionOnSecondBrowser": 9
+  },
+  "funding": {
+    "oneRealSandboxCheckout": true,
+    "cad": 10,
+    "duplicatePayments": 0,
+    "livePayment": false
+  },
+  "journey": {
+    "businessAndServicesEnteredOnceInChat": true,
+    "initialDesign": "original text-only editorial brief; genuine OpenAI output",
+    "ownerManualWordingEdit": "Nails, beautifully considered.",
+    "canonicalPriceChangeInChat": {
+      "first": 7000,
+      "later": 7500
+    },
+    "incorrectVisualRevisionRetained": 6,
+    "restoredManualDesignAsNewRevision": 8,
+    "correctedRealModelVisualRevision": 9,
+    "originalOwnerVisualInstructionRepeated": true,
+    "refreshDuringGenerationResumedSameOperation": true,
+    "composerClearedOnSend": true,
+    "developerHtmlCssRepair": false,
+    "automatedRepairNeededInRetest": false,
+    "privatePreviewPriceBeforeLaterApproval": 7500,
+    "freshPublicPriceBeforeLaterApproval": 7000,
+    "firstExactPublicationRevision": 9,
+    "laterExactPublicationRevision": 12,
+    "publishedSourceUnchangedByPriceEdit": true
+  },
+  "publicationRecovery": {
+    "actualUiPublishResponseDroppedAfterCommit": true,
+    "uiRecoveredExactPublishedRevision": 9,
+    "capturedRequestBodyReplayedWithRequiredOrigin": true,
+    "sameReceipt": true,
+    "receiptId": "116d6f00-380a-4fed-a5a4-adaa351b52f2",
+    "serviceMap": {
+      "draft_gel": "aa662b16-2a64-4773-89b8-dae544bf1ca2",
+      "draft_biab": "3618abe2-a5eb-46f8-88a0-587ab365285a",
+      "draft_express_natural": "15ce75df-5b6f-4869-a32a-688b53de33dd"
+    },
+    "duplicates": 0
+  },
+  "render": {
+    "sameSeparateRenderer": true,
+    "opaqueOriginSandbox": true,
+    "desktopBrowser": "Chromium 1440 x 1000",
+    "mobileBrowser": "WebKit iPhone 13, 390 x 844 viewport",
+    "horizontalOverflow": false,
+    "instagramEmailPhoneHrefsCorrect": true,
+    "fullAddressAbsentFromPublicAndPrivateWebsiteMarkup": true,
+    "privatePreviewBookingClickDisabled": true,
+    "anonymousBeforePublishBookAndService404": true
+  },
+  "booking": {
+    "actualUiOriginalFlow": true,
+    "appointment": {
+      "id": "appt_f6111a99-0d5a-42d1-9efa-057a9b16296a",
+      "start_time": "2026-10-22T14:00:00.000Z",
+      "end_time": "2026-10-22T15:15:00.000Z",
+      "status": "confirmed",
+      "total_price": 7000,
+      "total_duration_minutes": 75,
+      "buffer_minutes": 10,
+      "blocked_duration_minutes": 85,
+      "technician_id": "046213d8-3e13-45aa-9e45-c0f1a4e53784",
+      "location_id": "46884720-9fbc-49ae-b4eb-e36a4e5adebb"
+    },
+    "serviceSnapshot": {
+      "appointment_id": "appt_f6111a99-0d5a-42d1-9efa-057a9b16296a",
+      "service_id": "3618abe2-a5eb-46f8-88a0-587ab365285a",
+      "price_at_booking": 7000,
+      "duration_at_booking": 75
+    },
+    "postStatus": 201,
+    "appointmentCreationPosts": 1,
+    "slotRemovedAfterAvailabilityLoaded": true,
+    "nextAvailableSlotOnChosenDay": "11:30 AM",
+    "futurePublicAndOriginalFlowPriceCents": 7500,
+    "earlierBookingPriceCents": 7000,
+    "all35AppointmentsAndBookedServiceSnapshotsUnchangedByLaterPricePublication": true,
+    "notificationProviderAccepted": 0,
+    "notificationRows": [
+      {
+        "channel": "email",
+        "status": "failed",
+        "count": 2,
+        "provider_accepted": 0
+      }
+    ],
+    "paymentCounts": {
+      "payments": 0,
+      "deposits": 0
+    },
+    "aiCallsForCustomerBooking": 0
+  },
+  "ai": {
+    "provider": "openai",
+    "calls": [
+      {
+        "id": "9950273d-f743-4927-a5c1-24fadb2886fa",
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 6024,
+        "output_tokens": 711,
+        "elapsed_ms": 10632,
+        "cost_micro_usd": 1109,
+        "charged_micro_cad": 2218,
+        "credit_cost_micro_cad": "3106",
+        "validation": "passed",
+        "created_at": "2026-10-20T11:21:52.760Z"
+      },
+      {
+        "id": "e23a1a6e-81b1-41a4-bf14-c006c89d3fe9",
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 6538,
+        "output_tokens": 292,
+        "elapsed_ms": 4206,
+        "cost_micro_usd": 964,
+        "charged_micro_cad": 1928,
+        "credit_cost_micro_cad": "2700",
+        "validation": "passed",
+        "created_at": "2026-10-20T11:22:49.520Z"
+      },
+      {
+        "id": "96865593-c15d-4094-90e8-45bbd5372d25",
+        "model": "gpt-6.1-sol",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 2491,
+        "output_tokens": 7282,
+        "elapsed_ms": 117821,
+        "cost_micro_usd": 79046,
+        "charged_micro_cad": 158092,
+        "credit_cost_micro_cad": "221329",
+        "validation": "passed",
+        "created_at": "2026-10-20T11:22:54.083Z"
+      },
+      {
+        "id": "49b2b173-f005-492b-8c3d-59631ce9d057",
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 6642,
+        "output_tokens": 197,
+        "elapsed_ms": 2877,
+        "cost_micro_usd": 929,
+        "charged_micro_cad": 1858,
+        "credit_cost_micro_cad": "2602",
+        "validation": "passed",
+        "created_at": "2026-10-20T11:29:19.256Z"
+      },
+      {
+        "id": "6e807c0e-1a94-405a-b78f-aa7c2b55bba0",
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 6721,
+        "output_tokens": 174,
+        "elapsed_ms": 3590,
+        "cost_micro_usd": 928,
+        "charged_micro_cad": 1856,
+        "credit_cost_micro_cad": "2599",
+        "validation": "passed",
+        "created_at": "2026-10-20T11:29:55.265Z"
+      },
+      {
+        "id": "a791cbcd-6a36-4ee1-9443-59f4784cba2b",
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 9224,
+        "output_tokens": 8515,
+        "elapsed_ms": 71567,
+        "cost_micro_usd": 5411,
+        "charged_micro_cad": 10822,
+        "credit_cost_micro_cad": "15151",
+        "validation": "passed",
+        "created_at": "2026-10-20T11:29:59.180Z"
+      },
+      {
+        "id": "8ed16940-9647-408b-9c6f-9a77fcdc96c8",
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 7541,
+        "output_tokens": 177,
+        "elapsed_ms": 9303,
+        "cost_micro_usd": 1032,
+        "charged_micro_cad": 2064,
+        "credit_cost_micro_cad": "2890",
+        "validation": "passed",
+        "created_at": "2026-10-20T12:01:45.714Z"
+      },
+      {
+        "id": "80ae9a05-985e-478c-af0d-76c69fd58b03",
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 9274,
+        "output_tokens": 8050,
+        "elapsed_ms": 83744,
+        "cost_micro_usd": 5185,
+        "charged_micro_cad": 10370,
+        "credit_cost_micro_cad": "14518",
+        "validation": "passed",
+        "created_at": "2026-10-20T12:01:55.357Z"
+      },
+      {
+        "id": "f05775b0-cc09-4741-8b00-f0699e3dc64e",
+        "model": "gpt-6-luna",
+        "provider": "openai",
+        "status": "completed",
+        "input_tokens": 7842,
+        "output_tokens": 261,
+        "elapsed_ms": 4764,
+        "cost_micro_usd": 1111,
+        "charged_micro_cad": 2222,
+        "credit_cost_micro_cad": "3111",
+        "validation": "passed",
+        "created_at": "2026-10-20T12:18:49.637Z"
+      }
+    ],
+    "providerEstimatedUsd": 0.095715,
+    "conservativeOperatorCad": 0.19143,
+    "sandboxCreditUsageCad": 0.268006,
+    "invoiceOrSpotFxReconciled": false,
+    "hardCombinedTestingCapCad": 80,
+    "hostedAllocation": [
+      {
+        "id": "initial-custom-website-trial",
+        "cap_micro_cad": 68615594,
+        "used_micro_cad": "36512466",
+        "pending_calls": 0
+      }
+    ],
+    "retainedArtifacts": [
+      {
+        "id": "32d70c04-116f-4fa2-8dae-2431ebe53e62",
+        "parent_id": null,
+        "source_hash": "905f755d50b888e241a0ee07196671a261e6891039e0a4d741a913250de8a4af",
+        "operation_id": "64581a0b-7eb5-42f3-9a1b-d352ec654468",
+        "created_at": "2026-10-20T11:24:52.034Z"
+      },
+      {
+        "id": "ee8d57da-e797-4418-9a2c-607a3b4c548c",
+        "parent_id": "32d70c04-116f-4fa2-8dae-2431ebe53e62",
+        "source_hash": "4d355d413974e788c9e88bed8632dc98bc985a2606d7f0697292e8db796dbb52",
+        "operation_id": "5ac9dde2-a6d6-4051-b248-678a04907432",
+        "created_at": "2026-10-20T11:28:43.330Z"
+      },
+      {
+        "id": "c2518218-2736-46c1-a25b-99daa0c01bdd",
+        "parent_id": "ee8d57da-e797-4418-9a2c-607a3b4c548c",
+        "source_hash": "a64773b5be56786e2020f91d4ac4bd8762f5f1dd479a52e9d3294087dd2baac9",
+        "operation_id": "ee5bf783-4f31-4ee6-a8ff-c8113be7b803",
+        "created_at": "2026-10-20T11:31:10.834Z"
+      },
+      {
+        "id": "0006de6c-e35c-44f2-82e3-35b998c0f5f3",
+        "parent_id": "ee8d57da-e797-4418-9a2c-607a3b4c548c",
+        "source_hash": "49870d8c18a7e79f1c94498600ad4a8d6f023f21dfb01d110ae0dacca24c1646",
+        "operation_id": "7139dfb0-9f05-4105-9500-6cab2b643a5a",
+        "created_at": "2026-10-20T12:03:19.193Z"
+      }
+    ],
+    "latestPriceEditDidNotGenerateAnotherArtifact": true
+  },
+  "canonicalPreservationBeforeFirstPublication": {
+    "appointment": {
+      "allEarlierRowsUnchanged": true,
+      "before": 34,
+      "after": 35,
+      "new": 1
+    },
+    "appointment_services": {
+      "allEarlierRowsUnchanged": true,
+      "before": 34,
+      "after": 35,
+      "new": 1
+    },
+    "service": {
+      "allEarlierRowsUnchanged": true,
+      "before": 52,
+      "after": 55,
+      "new": 3
+    },
+    "technician": {
+      "allEarlierRowsUnchanged": true,
+      "before": 15,
+      "after": 16,
+      "new": 1
+    },
+    "technician_services": {
+      "allEarlierRowsUnchanged": true,
+      "before": 52,
+      "after": 55,
+      "new": 3
+    },
+    "admin_salon_membership": {
+      "allEarlierRowsUnchanged": true,
+      "before": 17,
+      "after": 17,
+      "new": 0
+    }
+  },
+  "screenshots": [
+    {
+      "path": "business-intake.png",
+      "sha256": "ee5a291a049eacb15449f20c0ca38bd239a3ca93a848aab1269a777df385940b",
+      "source": "e8-fresh-owner-business-intake-loading.png"
+    },
+    {
+      "path": "manual-wording.png",
+      "sha256": "f6e57a59189172bb190a994132d2cd8e5ea3ce6fedfcf91380d9b8f513ab7329",
+      "source": "e8-fresh-owner-manual-wording-saved.png"
+    },
+    {
+      "path": "visual-revision-loading.png",
+      "sha256": "b7974bb902848045242d4c8edf7f9957e137e89cbc0414dc48a743c952bd707c",
+      "source": "ae87-fresh-owner-visual-retest-loading.png"
+    },
+    {
+      "path": "desktop.png",
+      "sha256": "0952024a6292274dec53aa856f61ec9a3afde79c461a4ab8779d0d4a47f82160",
+      "source": "ae87-fresh-owner-generated-desktop-r9.png"
+    },
+    {
+      "path": "mobile-services.png",
+      "sha256": "7688d2108faa143445eb85e231fc9fb83db333d2321a71fe2c814ec8958222f1",
+      "source": "ae87-fresh-owner-revised-mobile-services-r9.png"
+    },
+    {
+      "path": "review.png",
+      "sha256": "df485947a1ea359b78be7e55946e3f7a7a4c1948fff5e6d827b8e18d6372a6f8",
+      "source": "ae87-fresh-owner-exact-review-r9.png"
+    },
+    {
+      "path": "publication-recovery.png",
+      "sha256": "8d5ca7c95ce3ec9f99906a2317e7df20f6e14427b8bd62062791cbe492020d6f",
+      "source": "ae87-fresh-owner-publication-response-recovery.png"
+    },
+    {
+      "path": "booking-complete.png",
+      "sha256": "5ea39712b98c6300a627f18569a2ef2a983b8c730710f6c4dde7bd8efb84a434",
+      "source": "ae87-fresh-owner-original-booking-complete.png"
+    },
+    {
+      "path": "later-price-review.png",
+      "sha256": "51979b0ce7231afe667a4190d0b975ac07db77c6a7ca14963fd8b011c775fc28",
+      "source": "ae87-fresh-owner-future-price-review-r12.png"
+    },
+    {
+      "path": "original-flow-new-price.png",
+      "sha256": "2f849fc8d8de08f473317356e2d7e463b3353e77bb45362a8691bf4a98aa50f9",
+      "source": "ae87-fresh-owner-original-flow-new-price75.png"
+    },
+    {
+      "path": "restoration-feedback.png",
+      "sha256": "ecd1ad6037764f0adcfaf7b2890a9ec32c5aa330e6ef7b1a7e1a485b19c7f326",
+      "source": "45fb-owner-restoration-visible-feedback.png"
+    }
+  ],
+  "remaining": [
+    "Full exact-head CI after the test-only reminder acknowledgement correction.",
+    "Production release gates remain open; this is a Preview acceptance checkpoint."
+  ],
+  "disclosures": [
+    "This fresh-owner generation was text-only, not a new upload/reference-fidelity test.",
+    "Initial generation and manual wording ran on e8; corrected visual generation and both publications/booking ran on ae87.",
+    "Manual editing used the owner-facing wording editor; no generated HTML/CSS was secretly repaired.",
+    "The first incorrect model result and subsequent correct source are retained as separate server artifacts.",
+    "An early automation locator included decorative hidden arrow text, and another exact policy label omitted Required. No booking reached the server from those failed selectors. A pre-created submission guard was retained as not-submitted after read-only verification of zero appointments.",
+    "The first direct API publication replay lacked the required Origin header and received403; the browser-origin replay returned the original receipt.",
+    "An initial slot-removal screenshot was captured during loading; the passing check waited for21 live times and11:30 AM as the first slot.",
+    "Stripe return lost Clerk Development authentication in WebKit; ordinary sign-in recovered the same paid sandbox wallet and draft.",
+    "The generated editorial illustration has a large overlapping copper shape; this test does not claim pixel-perfect image reproduction.",
+    "A small gap is missing between two generated supporting-copy fragments; no developer source intervention was used to conceal it."
+  ],
+  "productionChanged": false,
+  "hostedFeedbackFollowup": {
+    "sourceSha": "45fba1da49e8a4a27e63045a35d37e227d3ffbd9",
+    "deploymentId": "dpl_7x63jjejqU7KDtS11bqXQSsgixsr",
+    "confirmationVisibleOutsideCollapsedPanels": true,
+    "currentDesignBadgeVisible": true,
+    "privateRestoredRevision": 14,
+    "privateRestoredArtifact": "ee8d57da-e797-4418-9a2c-607a3b4c548c",
+    "privateRestoredDesignPriceCents": 7500,
+    "publicDesignStillPublishedRevision": 12,
+    "canonicalServicesAndBookingSnapshotsUnchanged": true,
+    "additionalModelCalls": 0,
+    "componentEditorFrameTestsPassed": 83,
+    "typecheckLintPassed": true,
+    "fullCi": {
+      "run": 39422419164,
+      "status": "failed_in_reminder_test; other jobs still completing",
+      "failedTest": "ClientCommunicationActions > snoozes a due appointment reminder for the reminder-specific window",
+      "cause": "Test waited for fetch invocation, then checked DOM before the asynchronous response acknowledgement completed.",
+      "deterministicDelayedAcknowledgementReproductionFailedBeforeCorrection": true,
+      "correction": "Test keeps the alert before acknowledgement, explicitly resolves the response and waits for its disappearance; skip also waits for completion. No reminder application code changed.",
+      "correctedReminderTestsPassed": 24,
+      "correctedAppointmentRegression": {
+        "files": 8,
+        "testsPassed": 119,
+        "skipped": 0
+      }
+    }
+  }
+}

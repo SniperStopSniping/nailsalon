@@ -1,0 +1,9 @@
+{
+  "environment": "preview",
+  "smsEnabled": false,
+  "billingEnabled": false,
+  "depositWebhooks": false,
+  "outboundCredentials": [],
+  "aiKeyConfigured": true,
+  "trialCapCAD": 33.61
+}

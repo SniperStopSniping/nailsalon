@@ -1,0 +1,29 @@
+{
+  "passed": true,
+  "mode": "--apply",
+  "providerWrites": 6,
+  "sandboxAccountVerified": true,
+  "liveMode": false,
+  "plan": [
+    {
+      "packKey": "ai_10_cad_v1",
+      "amountCad": 10,
+      "existingProduct": false,
+      "existingPrice": false
+    },
+    {
+      "packKey": "ai_20_cad_v1",
+      "amountCad": 20,
+      "existingProduct": false,
+      "existingPrice": false
+    },
+    {
+      "packKey": "ai_50_cad_v1",
+      "amountCad": 50,
+      "existingProduct": false,
+      "existingPrice": false
+    }
+  ],
+  "localCarrierUpdated": true,
+  "productionChanged": false
+}

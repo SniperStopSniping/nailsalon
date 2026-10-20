@@ -1124,6 +1124,7 @@ describe('ClientsModal', () => {
   });
 
   it('separates deposit, refund, other payments, paid amount, and balance', async () => {
+    const detail = deferredResponse();
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith('/api/admin/settings/modules?')) {
@@ -1138,7 +1139,7 @@ describe('ClientsModal', () => {
         return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
       }
       if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
-        return new Response(JSON.stringify(buildDetailResponse()), { status: 200 });
+        return detail.promise;
       }
       return new Response(JSON.stringify({ data: {} }), { status: 200 });
     });
@@ -1151,7 +1152,11 @@ describe('ClientsModal', () => {
     expect(await screen.findByText('Paid service value')).toBeInTheDocument();
     expect(screen.getByText('Paid service value this month')).toBeInTheDocument();
     expect(screen.getByText('Completed outstanding')).toBeInTheDocument();
-    expect(screen.getAllByText('$100.00').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('$100.00')).toHaveLength(0);
+
+    detail.resolve(new Response(JSON.stringify(buildDetailResponse()), { status: 200 }));
+
+    expect((await screen.findAllByText('$100.00')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('$60.00').length).toBeGreaterThan(0);
 
     expect(await screen.findByText(/Completed appointment value and recorded payments are separate/)).toBeInTheDocument();

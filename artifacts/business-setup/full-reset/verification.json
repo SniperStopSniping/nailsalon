@@ -1,0 +1,49 @@
+{
+  "sourceCommit": "c95aa4cc75ad4b51aa4185ff0f3af27f895e70e1",
+  "origin": "https://luster-ai-builder-test.vercel.app",
+  "fixture": "synthetic salon",
+  "reference": "hand-authored synthetic upload fixture, not model-generated output",
+  "modelGenerationTested": false,
+  "results": [
+    {
+      "browser": "mobile",
+      "resetConfirmed": true,
+      "cancelPreservesDraft": true,
+      "clearedConversation": true,
+      "clearedSourceAndSelections": true,
+      "clearedUnsentText": true,
+      "newImageUploadedThroughOwnerControls": true,
+      "newReferenceOnly": true,
+      "thumbnailDecoded": true,
+      "imageOnlySendEnabled": true,
+      "refreshResumed": true,
+      "secondTabResumed": true,
+      "earlierDraftRestored": true,
+      "canonicalBusinessServicesUnchanged": true,
+      "paidCalls": 0
+    },
+    {
+      "browser": "desktop",
+      "resetConfirmed": true,
+      "cancelPreservesDraft": true,
+      "clearedConversation": true,
+      "clearedSourceAndSelections": true,
+      "clearedUnsentText": true,
+      "newImageUploadedThroughOwnerControls": true,
+      "newReferenceOnly": true,
+      "thumbnailDecoded": true,
+      "imageOnlySendEnabled": true,
+      "refreshResumed": true,
+      "secondTabResumed": true,
+      "earlierDraftRestored": true,
+      "canonicalBusinessServicesUnchanged": true,
+      "paidCalls": 0
+    }
+  ],
+  "deploymentId": "dpl_EU4QjdduVzuPaN5kCLyUEd4B79RG",
+  "testEnvironment": "Vercel Preview with attested isolated preview database and synthetic owner",
+  "limitations": [
+    "Hosted checks exercised reset/upload/recovery without pressing Send or invoking a real model. The image-only request itself was verified in component tests with mocked responses.",
+    "Mobile browser checks used Chromium; no new Safari login/owner-journey pass is claimed."
+  ]
+}

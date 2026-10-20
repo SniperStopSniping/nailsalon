@@ -1,0 +1,32 @@
+{
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "name": "flower-overlap",
+  "exactPrompt": "Make the images larger and overlap them.",
+  "scope": "website",
+  "beforeRevision": 40,
+  "afterRevision": 41,
+  "status": "completed",
+  "elapsedMs": 61768,
+  "calls": [
+    {
+      "id": "e5a4ad24-257c-4f05-9d07-2b09662d208b",
+      "operation_id": "721f642f-40fd-4748-8b51-f765ceded0a1",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 14072,
+      "output_tokens": 6613,
+      "cost_micro_usd": 5066,
+      "elapsed_ms": 57452,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false,
+  "artifactId": "16d8bfab-cc8d-4463-a4b0-92091c37ca00",
+  "sourceHash": "ee21af9722fb1e048ae1e26311e4428a3151d19813f034c8f693216d04aeed3e",
+  "businessAndHistoricalAppointmentsPreserved": true,
+  "historicalAppointments": 4,
+  "bothPhotosUsed": true
+}

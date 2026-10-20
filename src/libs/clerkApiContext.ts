@@ -25,6 +25,8 @@ const CLERK_CONTEXT_API_PREFIXES = [
   // Trailing slash so a future /api/salons is not swallowed by accident.
   '/api/salon/',
   '/api/onboarding',
+  // Native website photo reads allow guests, exact shares and authenticated owners.
+  '/api/custom-sites/',
   '/api/integrations',
   '/api/appointments',
   // checkout + portal both call requireAdmin.

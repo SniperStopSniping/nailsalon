@@ -1,0 +1,685 @@
+{
+  "runtimeCommit": "ab4474b2f3a44e7e59a05c6926b33ab78f281506",
+  "deploymentId": "dpl_34FTPnfxK6iNiqzzFaPxyZfq984L",
+  "environment": "isolated Preview",
+  "realProvider": true,
+  "sourceManuallyAuthoredOrRepaired": false,
+  "cases": [
+    {
+      "referenceNumber": 1,
+      "name": "Pink Lily Studio",
+      "finalRevision": 43,
+      "finalArtifactId": "90d799b9-f029-4698-bc3e-8eea01671d16",
+      "sourceManuallyEdited": false,
+      "serviceCount": 4,
+      "photoAssetsUsed": 0,
+      "limitations": [
+        "The reference is inspiration-only. Its branding, photographs, exact copy, and decorative artwork have not been reused.",
+        "No owner photographs or logo assets were supplied. Original illustrations replace the portrait, nail photographs, and studio photograph; owner-uploaded originals would be needed for a photographic version.",
+        "The reference\u2019s elaborate calligraphic font is unavailable. System serif italics provide a similar hierarchy, but not its exact lettering or flourishes.",
+        "The saved menu contains only one appointment. The draft renders that real entry rather than inventing additional nail services, prices, or appointment lengths.",
+        "No saved contact details, directions, or policy sections were supplied. The booking notes are neutral guidance, not invented cancellation, deposit, or lateness policies.",
+        "The saved business name and city are still \u201cYour salon\u201d and \u201cYour area.\u201d Bound business text follows those saved values at runtime, although the authored fallback text reflects Pink Lily Studio and Toronto as requested."
+      ],
+      "analysis": "The reference\u2019s defining landmarks are a small centered brand area, stacked rounded blush panels, oversized calligraphic headings, floral corner details, an artist introduction with a left-hand portrait, four-column booking policies, a small image mosaic beside a services heading, a split information/image section, appointment preparation notes, repeated split service tiers, and a pink thank-you panel. This draft preserves that overall progression and the white-and-pink editorial rhythm, while using original wording and hand-authored lily and nail illustrations instead of third-party imagery. Service cards bind to the saved service menu, including price and duration; hours bind to the business record. On mobile, the booking notes become two columns while the image/text pairings remain recognizable. Booking and management buttons use the supported runtime; the navigation uses an accessible native disclosure.",
+      "ownerRefreshResumes": true,
+      "anonymousViewingWorks": true,
+      "anonymousReloadWorks": true,
+      "bookingDisabled": true,
+      "viewports": {
+        "desktop": {
+          "width": 1440,
+          "scrollWidth": 1440,
+          "scrollHeight": 4153,
+          "headings": [
+            "Pink LilySTUDIO",
+            "ARTIST",
+            "Booking notes",
+            "Explore",
+            "Make time",
+            "Find your slot",
+            "Already booked?",
+            "LittleWORKS OF ART",
+            "Your visit",
+            "Studio hours",
+            "BEFORE your appointment",
+            "Find your inspiration",
+            "Choose your appointment",
+            "Keep it handy",
+            "Made for you",
+            "Signature appointment",
+            "Gel Manicure",
+            "BIAB",
+            "Nail Art",
+            "FOR CHOOSING MY LITTLE STUDIO"
+          ],
+          "images": 0,
+          "bookButtons": 7
+        },
+        "mobile": {
+          "width": 390,
+          "scrollWidth": 390,
+          "scrollHeight": 4017,
+          "headings": [
+            "Pink LilySTUDIO",
+            "ARTIST",
+            "Booking notes",
+            "Explore",
+            "Make time",
+            "Find your slot",
+            "Already booked?",
+            "LittleWORKS OF ART",
+            "Your visit",
+            "Studio hours",
+            "BEFORE your appointment",
+            "Find your inspiration",
+            "Choose your appointment",
+            "Keep it handy",
+            "Made for you",
+            "Signature appointment",
+            "Gel Manicure",
+            "BIAB",
+            "Nail Art",
+            "FOR CHOOSING MY LITTLE STUDIO"
+          ],
+          "images": 0,
+          "bookButtons": 7
+        }
+      }
+    },
+    {
+      "referenceNumber": 2,
+      "name": "Sage Bloom Nails",
+      "finalRevision": 48,
+      "finalArtifactId": "ebf9cb3c-f192-4ac2-8e90-1d66385333e0",
+      "sourceManuallyEdited": false,
+      "serviceCount": 3,
+      "photoAssetsUsed": 0,
+      "limitations": [
+        "No owner photography or logo assets were supplied; the botanical illustration is original vector artwork, not the reference\u2019s floral imagery.",
+        "System serif and sans-serif fonts replace the reference\u2019s specific typefaces.",
+        "No business policies or public contact details were supplied, so none are invented. The reference\u2019s policy layout is adapted to general booking guidance.",
+        "Booking, availability and existing-booking management rely on the trusted runtime; this source does not implement those systems."
+      ],
+      "analysis": "The reference\u2019s key landmarks are a continuous sage-green background, a centered botanical masthead and italic wordmark, four rounded information capsules arranged around a large serif heading, a second rounded information panel, short introductory paragraphs, and a stacked appointment menu. This design retains that vertical arrangement and soft green/peach palette while introducing original botanical SVG artwork and Sage Bloom Nails branding. The saved brief specifies inspiration fidelity. Because no owner policies were supplied, the capsule arrangement contains booking guidance rather than invented deposit, cancellation or arrival rules. Real services, opening hours and booking actions use runtime bindings. Mobile preserves the two-column capsules and full-width service rows; wider screens use a restrained centered column.",
+      "ownerRefreshResumes": true,
+      "anonymousViewingWorks": true,
+      "anonymousReloadWorks": true,
+      "bookingDisabled": true,
+      "viewports": {
+        "desktop": {
+          "width": 1440,
+          "scrollWidth": 1440,
+          "scrollHeight": 1774,
+          "headings": [
+            "Sage Bloom Nails",
+            "Choose your service",
+            "Find your time",
+            "A little booking guide",
+            "Before you book",
+            "Already booked?",
+            "The appointment details",
+            "Location",
+            "Opening hours",
+            "Choose your appointment",
+            "Gel Manicure",
+            "Gel-X Full Set",
+            "Removal"
+          ],
+          "images": 0,
+          "bookButtons": 4
+        },
+        "mobile": {
+          "width": 390,
+          "scrollWidth": 390,
+          "scrollHeight": 1540,
+          "headings": [
+            "Sage Bloom Nails",
+            "Choose your service",
+            "Find your time",
+            "A little booking guide",
+            "Before you book",
+            "Already booked?",
+            "The appointment details",
+            "Location",
+            "Opening hours",
+            "Choose your appointment",
+            "Gel Manicure",
+            "Gel-X Full Set",
+            "Removal"
+          ],
+          "images": 0,
+          "bookButtons": 4
+        }
+      }
+    },
+    {
+      "referenceNumber": 3,
+      "name": "Maison Rouge Nails",
+      "finalRevision": 54,
+      "finalArtifactId": "042e5021-7e99-4170-a01b-30c9d7a5d27e",
+      "sourceManuallyEdited": false,
+      "serviceCount": 2,
+      "photoAssetsUsed": 0,
+      "limitations": [
+        "Opening hours are still supplied through the existing business.hoursLabel binding; their exact presentation depends on the runtime text provided.",
+        "The spacing adjustment applies only at mobile widths. Desktop layout and spacing remain unchanged."
+      ],
+      "analysis": "Kept the existing page structure, burgundy palette, section order, copy, and business-data bindings intact. At mobile widths, opening-hours text is now 12px with comfortable line spacing instead of 10px. Reduced the preparation section\u2019s bottom padding and removed the invitation\u2019s extra top padding on mobile, bringing the burgundy thank-you card closer without removing the preparation content.",
+      "ownerRefreshResumes": true,
+      "anonymousViewingWorks": true,
+      "anonymousReloadWorks": true,
+      "bookingDisabled": true,
+      "viewports": {
+        "desktop": {
+          "width": 1440,
+          "scrollWidth": 1440,
+          "scrollHeight": 2133,
+          "headings": [
+            "Maison Rouge Nails",
+            "Services",
+            "Meet Maison Rouge",
+            "Visit us",
+            "Find your appointment",
+            "Bring your inspiration",
+            "Make a little space",
+            "The basics",
+            "Your nextlittle ritual.",
+            "The service menu",
+            "Acrylic Nails",
+            "Russian Manicure"
+          ],
+          "images": 0,
+          "bookButtons": 2
+        },
+        "mobile": {
+          "width": 390,
+          "scrollWidth": 390,
+          "scrollHeight": 1885,
+          "headings": [
+            "Maison Rouge Nails",
+            "Services",
+            "Meet Maison Rouge",
+            "Visit us",
+            "Find your appointment",
+            "Bring your inspiration",
+            "Make a little space",
+            "The basics",
+            "Your nextlittle ritual.",
+            "The service menu",
+            "Acrylic Nails",
+            "Russian Manicure"
+          ],
+          "images": 0,
+          "bookButtons": 2
+        }
+      }
+    },
+    {
+      "referenceNumber": 4,
+      "name": "Soft Set Studio",
+      "finalRevision": 58,
+      "finalArtifactId": "4175a2e5-cde3-4184-99d3-29b0039c7ad9",
+      "sourceManuallyEdited": false,
+      "serviceCount": 2,
+      "photoAssetsUsed": 0,
+      "limitations": [
+        "No owner photography or logo assets were supplied. The reference photograph is not reused; the main visual is original SVG artwork.",
+        "The reference font is unavailable, so system serif and sans-serif fonts are used.",
+        "Suggested service values and hours come from the supplied records. Confirmation labels and review instructions are intentionally excluded from the customer-facing site; owner review must occur in the private preview/editor.",
+        "Website source cannot set privacy, publish the site, or change service records or opening hours. Keeping the draft private requires the hosting platform\u2019s preview and publishing controls."
+      ],
+      "analysis": "The reference\u2019s main landmarks are its compact wordmark-and-booking header, inset pale hero with a rounded mauve CTA, tall rounded visual, personal introduction, two oversized stacked service panels, and sparse centered footer. This design retains that narrow, vertical section flow, generous pauses, serif hierarchy, muted pink palette, and rounded service blocks. Because this is third-party inspiration and no owner photography was supplied, the photo is replaced with an original abstract nail illustration. The service template displays the supplied Gel-X and BIAB records with bound prices and appointment lengths; hours also use live bindings. Native navigation, section links, and runtime-connected booking and management buttons provide the interactions. Ordinary authored text includes editing hooks.",
+      "ownerRefreshResumes": true,
+      "anonymousViewingWorks": true,
+      "anonymousReloadWorks": true,
+      "bookingDisabled": true,
+      "viewports": {
+        "desktop": {
+          "width": 1440,
+          "scrollWidth": 1440,
+          "scrollHeight": 2941,
+          "headings": [
+            "A fresh set.A softer moment.",
+            "Welcome to yournew nail ritual.",
+            "Choose your set",
+            "Gel-X",
+            "BIAB",
+            "See you at the studio.",
+            "Studio hours"
+          ],
+          "images": 0,
+          "bookButtons": 4
+        },
+        "mobile": {
+          "width": 390,
+          "scrollWidth": 390,
+          "scrollHeight": 2646,
+          "headings": [
+            "A fresh set.A softer moment.",
+            "Welcome to yournew nail ritual.",
+            "Choose your set",
+            "Gel-X",
+            "BIAB",
+            "See you at the studio.",
+            "Studio hours"
+          ],
+          "images": 0,
+          "bookButtons": 4
+        }
+      },
+      "namedServicesCapturedInFirstMessage": true
+    }
+  ],
+  "access": {
+    "ownerAccessRemainsProtected": true,
+    "priorLinksSurviveLaterReset": true,
+    "results": [
+      {
+        "path": "/api/admin/custom-sites",
+        "anonymousStatus": 401
+      },
+      {
+        "path": "/api/admin/business-setup",
+        "anonymousStatus": 401
+      },
+      {
+        "writeAnonymousStatus": 401
+      },
+      {
+        "reference": 1,
+        "savedNameStillCorrect": true
+      },
+      {
+        "reference": 2,
+        "savedNameStillCorrect": true
+      },
+      {
+        "reference": 3,
+        "savedNameStillCorrect": true
+      },
+      {
+        "reference": 4,
+        "savedNameStillCorrect": true
+      }
+    ]
+  },
+  "iteration": {
+    "beforeRevision": 53,
+    "afterRevision": 54,
+    "servicesPreservedExactly": true,
+    "hoursPreservedExactly": true,
+    "businessPreservedExactly": true,
+    "bookingRulesPreservedExactly": true,
+    "newSourceRevision": true,
+    "rendering": [
+      {
+        "label": "before",
+        "fontSize": "10px",
+        "lineHeight": "17px",
+        "text": "Monday: Closed \u00b7 Tuesday: 10:00\u201318:00 \u00b7 Wednesday: 10:00\u201318:00 \u00b7 Thursday: 10:00\u201318:00 \u00b7 Friday: 10:00\u201318:00 \u00b7 Saturday: 10:00\u201318:00 \u00b7 Sunday: Closed"
+      },
+      {
+        "label": "after",
+        "fontSize": "12px",
+        "lineHeight": "20.4px",
+        "text": "Monday: Closed \u00b7 Tuesday: 10:00\u201318:00 \u00b7 Wednesday: 10:00\u201318:00 \u00b7 Thursday: 10:00\u201318:00 \u00b7 Friday: 10:00\u201318:00 \u00b7 Saturday: 10:00\u201318:00 \u00b7 Sunday: Closed"
+      }
+    ],
+    "mobileHoursTextLarger": true
+  },
+  "usage": {
+    "checkedAt": "2026-10-16T04:17:46.736Z",
+    "realProvider": true,
+    "totalEstimatedUsd": 0.301668,
+    "trialConservativeCad": 0.603336,
+    "cumulativeConservativeCad": 40.23354,
+    "frozenHistoricalLocalCad": 6.384406,
+    "approvedCumulativeCapCad": 80,
+    "globalCalls": 109,
+    "globalUnknownUsageRetained": 1,
+    "cadAllowancePerUsd": 2,
+    "invoiceReconciled": false,
+    "cases": [
+      {
+        "referenceNumber": 1,
+        "name": "Pink Lily Studio",
+        "revision": 43,
+        "artifactId": "90d799b9-f029-4698-bc3e-8eea01671d16",
+        "sourceHash": "bfde40c934954f1ad5e64de3e50b10cf1637d7d4610f0a6222580cce072def1b",
+        "business": "Pink Lily Studio",
+        "serviceNames": [
+          "Signature appointment",
+          "Gel Manicure",
+          "BIAB",
+          "Nail Art"
+        ],
+        "requests": [
+          {
+            "prompt": "Create my booking website like this image for Pink Lily Studio. I work solo in Toronto. Use suggested nail services, prices, appointment lengths and opening hours for now. Match the overall look and section arrangement as closely as you can, with original wording and graphics.",
+            "operationId": "e3ecfc58-a900-4a52-b06d-7962eb1bbb79",
+            "revision": 42,
+            "artifactId": "90d799b9-f029-4698-bc3e-8eea01671d16",
+            "elapsedMs": 130286,
+            "calls": [
+              {
+                "ordinal": 0,
+                "operation_id": "ae1c2c0a-1cec-4b30-bd60-3c7914e6cb98",
+                "provider": "openai",
+                "model": "gpt-6.1-sol",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 2175,
+                "output_tokens": 8108,
+                "cost_micro_usd": 86516,
+                "charged_micro_cad": 173032,
+                "elapsed_ms": 128283,
+                "retained_output_characters": 24890
+              }
+            ],
+            "estimatedUsd": 0.086516,
+            "conservativeCad": 0.173032
+          },
+          {
+            "prompt": "My business name is Pink Lily Studio. I work solo in Toronto. Keep the design and add suggested Gel Manicure, BIAB and Nail Art appointments, with prices and lengths I can review.",
+            "operationId": "1c0b5530-22f8-4213-9e03-0e4f3b150ad6",
+            "revision": 43,
+            "artifactId": "90d799b9-f029-4698-bc3e-8eea01671d16",
+            "elapsedMs": 9030,
+            "calls": [
+              {
+                "ordinal": 0,
+                "operation_id": "1c0b5530-22f8-4213-9e03-0e4f3b150ad6",
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 3413,
+                "output_tokens": 700,
+                "cost_micro_usd": 777,
+                "charged_micro_cad": 1554,
+                "elapsed_ms": 6565,
+                "retained_output_characters": 1240
+              }
+            ],
+            "estimatedUsd": 0.000777,
+            "conservativeCad": 0.001554
+          }
+        ]
+      },
+      {
+        "referenceNumber": 2,
+        "name": "Sage Bloom Nails",
+        "revision": 48,
+        "artifactId": "ebf9cb3c-f192-4ac2-8e90-1d66385333e0",
+        "sourceHash": "e8bfb7e05aae70f4a60f1eba44089b0f7c72149d262030925844a62027d85105",
+        "business": "Sage Bloom Nails",
+        "serviceNames": [
+          "Gel Manicure",
+          "Gel-X Full Set",
+          "Removal"
+        ],
+        "requests": [
+          {
+            "prompt": "Create my booking website like this image for Sage Bloom Nails. I work solo in Toronto. Use suggested nail services, prices, appointment lengths and opening hours for now. Match the overall look and section arrangement as closely as you can, with original wording and graphics.",
+            "operationId": "1d679214-1e80-43eb-a301-47b7e99fd363",
+            "revision": 47,
+            "artifactId": "ebf9cb3c-f192-4ac2-8e90-1d66385333e0",
+            "elapsedMs": 77330,
+            "calls": [
+              {
+                "ordinal": 0,
+                "operation_id": "1d679214-1e80-43eb-a301-47b7e99fd363",
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 3160,
+                "output_tokens": 391,
+                "cost_micro_usd": 591,
+                "charged_micro_cad": 1182,
+                "elapsed_ms": 4884,
+                "retained_output_characters": 798
+              },
+              {
+                "ordinal": 0,
+                "operation_id": "20a65189-d513-4197-b189-87e66ac3cc4c",
+                "provider": "openai",
+                "model": "gpt-6.1-sol",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 2346,
+                "output_tokens": 4410,
+                "cost_micro_usd": 49964,
+                "charged_micro_cad": 99928,
+                "elapsed_ms": 70181,
+                "retained_output_characters": 13718
+              }
+            ],
+            "estimatedUsd": 0.050555,
+            "conservativeCad": 0.10111
+          },
+          {
+            "prompt": "Keep the design. Use three suggested appointments: Gel Manicure, Gel-X Full Set and Removal. Rename the placeholder Signature appointment to Gel Manicure and suggest prices and appointment lengths for all three.",
+            "operationId": "18be1bd4-25f1-4785-9398-e73961262636",
+            "revision": 48,
+            "artifactId": "ebf9cb3c-f192-4ac2-8e90-1d66385333e0",
+            "elapsedMs": 6874,
+            "calls": [
+              {
+                "ordinal": 0,
+                "operation_id": "18be1bd4-25f1-4785-9398-e73961262636",
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 3433,
+                "output_tokens": 535,
+                "cost_micro_usd": 697,
+                "charged_micro_cad": 1394,
+                "elapsed_ms": 5347,
+                "retained_output_characters": 1179
+              }
+            ],
+            "estimatedUsd": 0.000697,
+            "conservativeCad": 0.001394
+          }
+        ]
+      },
+      {
+        "referenceNumber": 3,
+        "name": "Maison Rouge Nails",
+        "revision": 54,
+        "artifactId": "042e5021-7e99-4170-a01b-30c9d7a5d27e",
+        "sourceHash": "696fa790bc478d76e19ea791e7a10f0903335d541bd88bb16946f67108992942",
+        "business": "Maison Rouge Nails",
+        "serviceNames": [
+          "Acrylic Nails",
+          "Russian Manicure"
+        ],
+        "requests": [
+          {
+            "prompt": "Create my booking website like this image for Maison Rouge Nails. I work solo in Toronto. Use suggested nail services, prices, appointment lengths and opening hours for now. Match the overall look and section arrangement as closely as you can, with original wording and graphics. My service menu should include Acrylic Nails and Russian Manicure, with suggested prices and appointment lengths.",
+            "operationId": "583f363c-ee2e-46d2-9918-b51b1d827184",
+            "revision": 52,
+            "artifactId": "c52f77d5-7e12-4fb7-a2c9-5d0ccdae50fa",
+            "elapsedMs": 133879,
+            "calls": [
+              {
+                "ordinal": 0,
+                "operation_id": "583f363c-ee2e-46d2-9918-b51b1d827184",
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 3181,
+                "output_tokens": 451,
+                "cost_micro_usd": 624,
+                "charged_micro_cad": 1248,
+                "elapsed_ms": 4318,
+                "retained_output_characters": 966
+              },
+              {
+                "ordinal": 0,
+                "operation_id": "74f33b95-c7c9-4519-b1f9-52aff58f1b10",
+                "provider": "openai",
+                "model": "gpt-6.1-sol",
+                "status": "completed",
+                "validation": "The design contains an unsupported attribute: preserveAspectRatio.",
+                "input_tokens": 2317,
+                "output_tokens": 4831,
+                "cost_micro_usd": 54101,
+                "charged_micro_cad": 108202,
+                "elapsed_ms": 76681,
+                "retained_output_characters": 16130
+              },
+              {
+                "ordinal": 1,
+                "operation_id": "74f33b95-c7c9-4519-b1f9-52aff58f1b10",
+                "provider": "openai",
+                "model": "gpt-6.1-sol",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 6874,
+                "output_tokens": 4507,
+                "cost_micro_usd": 56700,
+                "charged_micro_cad": 113400,
+                "elapsed_ms": 50628,
+                "retained_output_characters": 16017
+              }
+            ],
+            "estimatedUsd": 0.111425,
+            "conservativeCad": 0.22285
+          },
+          {
+            "prompt": "Keep this design. Replace the sample Signature appointment with Acrylic Nails and add Russian Manicure. Suggest editable CAD prices and appointment lengths for these two services.",
+            "operationId": "a204d319-98b9-4bc5-be45-d90d09916b55",
+            "revision": 53,
+            "artifactId": "c52f77d5-7e12-4fb7-a2c9-5d0ccdae50fa",
+            "elapsedMs": 6512,
+            "calls": [
+              {
+                "ordinal": 0,
+                "operation_id": "a204d319-98b9-4bc5-be45-d90d09916b55",
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 3446,
+                "output_tokens": 427,
+                "cost_micro_usd": 645,
+                "charged_micro_cad": 1290,
+                "elapsed_ms": 5066,
+                "retained_output_characters": 858
+              }
+            ],
+            "estimatedUsd": 0.000645,
+            "conservativeCad": 0.00129
+          },
+          {
+            "prompt": "Keep my services and opening hours exactly as they are. Make the opening-hours text larger and easier to read on mobile, and reduce the spacing between the burgundy information panel and the thank-you card.",
+            "operationId": "c5eb909d-b243-4e35-a8bc-0005195dd2f1",
+            "revision": 54,
+            "artifactId": "042e5021-7e99-4170-a01b-30c9d7a5d27e",
+            "elapsedMs": 33735,
+            "calls": [
+              {
+                "ordinal": 0,
+                "operation_id": "c5eb909d-b243-4e35-a8bc-0005195dd2f1",
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 3602,
+                "output_tokens": 166,
+                "cost_micro_usd": 534,
+                "charged_micro_cad": 1068,
+                "elapsed_ms": 2692,
+                "retained_output_characters": 570
+              },
+              {
+                "ordinal": 0,
+                "operation_id": "494180cc-dcfc-415e-8443-f661eb5b5d2d",
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 6774,
+                "output_tokens": 4697,
+                "cost_micro_usd": 3196,
+                "charged_micro_cad": 6392,
+                "elapsed_ms": 29409,
+                "retained_output_characters": 14749
+              }
+            ],
+            "estimatedUsd": 0.00373,
+            "conservativeCad": 0.00746
+          }
+        ]
+      },
+      {
+        "referenceNumber": 4,
+        "name": "Soft Set Studio",
+        "revision": 58,
+        "artifactId": "4175a2e5-cde3-4184-99d3-29b0039c7ad9",
+        "sourceHash": "39e9e345d0de3dd63ec1a68408716baef3a7f85745312a1cd48b2117b7f2c543",
+        "business": "Soft Set Studio",
+        "serviceNames": [
+          "Gel-X",
+          "BIAB"
+        ],
+        "requests": [
+          {
+            "prompt": "Create my booking website like this image for Soft Set Studio. I work solo in Toronto. Use suggested nail services, prices, appointment lengths and opening hours for now. Match the overall look and section arrangement as closely as you can, with original wording and graphics. My service menu should include Gel-X and BIAB, with suggested prices and appointment lengths.",
+            "operationId": "c51b7a94-d50e-477f-abc6-5379e55aefae",
+            "revision": 58,
+            "artifactId": "4175a2e5-cde3-4184-99d3-29b0039c7ad9",
+            "elapsedMs": 74315,
+            "calls": [
+              {
+                "ordinal": 0,
+                "operation_id": "c51b7a94-d50e-477f-abc6-5379e55aefae",
+                "provider": "openai",
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 3372,
+                "output_tokens": 610,
+                "cost_micro_usd": 727,
+                "charged_micro_cad": 1454,
+                "elapsed_ms": 6540,
+                "retained_output_characters": 1521
+              },
+              {
+                "ordinal": 0,
+                "operation_id": "6921b2bb-b34d-4597-8899-327825acc73f",
+                "provider": "openai",
+                "model": "gpt-6.1-sol",
+                "status": "completed",
+                "validation": "passed",
+                "input_tokens": 2079,
+                "output_tokens": 4140,
+                "cost_micro_usd": 46596,
+                "charged_micro_cad": 93192,
+                "elapsed_ms": 66185,
+                "retained_output_characters": 13733
+              }
+            ],
+            "estimatedUsd": 0.047323,
+            "conservativeCad": 0.094646
+          }
+        ]
+      }
+    ]
+  },
+  "tests": {
+    "focusedPassed": 226,
+    "typescriptPassed": true,
+    "scopedEslintPassed": true,
+    "widerPrCiGreen": false
+  },
+  "publicationPerformed": false,
+  "appointmentsCreated": 0,
+  "photosAndLogosReused": false,
+  "shareTokensIncluded": false
+}

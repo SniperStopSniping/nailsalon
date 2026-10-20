@@ -1,0 +1,46 @@
+{
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "name": "pink-floral",
+  "exactPrompt": "Make my website look like this. Use my saved business details.",
+  "scope": "website",
+  "beforeRevision": 52,
+  "afterRevision": 53,
+  "status": "completed",
+  "elapsedMs": 129718,
+  "calls": [
+    {
+      "id": "ae022d83-09cf-4db7-8050-24d1f36e82bb",
+      "operation_id": "a8663178-4c98-426a-b93d-dd6ade16212b",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 5806,
+      "output_tokens": 252,
+      "cost_micro_usd": 852,
+      "elapsed_ms": 6084,
+      "validation": "passed"
+    },
+    {
+      "id": "fb75aa60-c776-4e7c-ab69-59423013b053",
+      "operation_id": "e2630c1b-556a-4ccf-a770-8fe51cfb2fd0",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "input_tokens": 2890,
+      "output_tokens": 5852,
+      "cost_micro_usd": 65744,
+      "elapsed_ms": 119391,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false,
+  "artifactId": "612845ca-a8ee-4566-8a09-30f4dd7ac511",
+  "sourceHash": "21a5d6e9141796fdcc1d7f0a35dddeb05e554aec28633acd984451180472fe0b",
+  "businessAndHistoricalAppointmentsPreserved": true,
+  "historicalAppointments": 5,
+  "firstResultAutoOpened": true,
+  "autoOpenEvidence": "The completed screenshot was captured before the helper clicked Preview again. Preview is a toggle, so that unnecessary helper click returned to chat; the helper navigation was corrected without app or generated-source edits."
+}

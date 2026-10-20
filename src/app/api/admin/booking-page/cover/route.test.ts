@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from './route';
 
+vi.mock('@/features/business-setup/manual-website.server', () => ({ editSharedSetupWebsite: vi.fn(async () => false) }));
+
 const {
   requireAdmin,
   getSalonBySlug,

@@ -158,6 +158,50 @@ describe('POST /api/onboarding/v1/organization', () => {
     });
   });
 
+  it('reports organization quota exhaustion without exposing the provider response or retrying', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.createOrganization.mockRejectedValueOnce({
+      status: 403,
+      errors: [{ code: 'organization_quota_exceeded', message: 'private-provider-detail' }],
+      requestId: 'private-request-id',
+    });
+    try {
+      const response = await POST(organizationRequest({ businessName: 'Pending Studio' }));
+      const body = await response.json();
+
+      expect(response.status).toBe(503);
+      expect(body.error.code).toBe('ORGANIZATION_SETUP_UNAVAILABLE');
+      expect(body.error.message).toContain('contact Luster support');
+      expect(JSON.stringify(body)).not.toMatch(/private-provider-detail|private-request-id/);
+      expect(mocks.createOrganization).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith('[onboarding-v1] organization setup unavailable', {
+        operation: 'organization-create',
+        providerStatus: 403,
+        providerCode: 'organization_quota_exceeded',
+      });
+      expect(JSON.stringify(log.mock.calls)).not.toMatch(/private-provider-detail|private-request-id/);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([
+    { status: 401, errors: [{ code: 'organization_quota_exceeded' }] },
+    { status: 403, errors: [{ code: 'other_provider_error' }] },
+  ])('does not misclassify unrelated provider errors: %j', async (error) => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.createOrganization.mockRejectedValueOnce(error);
+    try {
+      const response = await POST(organizationRequest({}));
+
+      expect(response.status).toBe(500);
+      expect((await response.json()).error.code).toBe('SAVE_FAILED');
+      expect(mocks.createOrganization).toHaveBeenCalledTimes(1);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('is dark when the integration flag is off', async () => {
     const { OnboardingIntegrationDisabledError } = await import(
       '@/features/onboarding-v1-integration/config.server'

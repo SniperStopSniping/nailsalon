@@ -1,0 +1,10 @@
+{
+  "passed": true,
+  "exitCode": 0,
+  "candidateHead": "78d07b23b33de1a4e0e2213635dc5db866741118",
+  "base": "8265697f041e1f6e3adc6462dabef8ba3523384c",
+  "unmodifiedWorkflowStep": "Deposits ladder protected surfaces",
+  "lineCount": 902,
+  "providersBlocked": true,
+  "productionOrHostedWrite": false
+}

@@ -1,0 +1,121 @@
+{
+  "passed": true,
+  "ownerMessage": "Completely redesign the hero with a more editorial layout. Make the photos bigger and overlap them on desktop, and give the mobile version more breathing room. Keep my business details, services, prices, hours and the rest of the website unchanged.",
+  "operationId": "9ace793a-9e8e-47f5-ac42-e52c32eb3d97",
+  "beforeRevision": 17,
+  "afterRevision": 18,
+  "beforeArtifact": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+  "afterArtifact": "18b8cff0-bcb3-4e95-aefd-53502f7821d0",
+  "recoveredCompletedOperation": true,
+  "originalOutput": "/tmp/luster-paid-owner-ai-yTuxWR/funded-edit-JAlrl0",
+  "originalHarnessFailure": "The original harness hashed the entire salon row, including its legitimate draft compatibility projection. No new model request was sent for this verification.",
+  "calls": [
+    {
+      "id": "1d2a4406-4f07-437e-b47f-fbb2988ec141",
+      "operation_id": "9ace793a-9e8e-47f5-ac42-e52c32eb3d97",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "cost_micro_usd": 818,
+      "charged_micro_cad": 1636,
+      "credit_cost_micro_cad": "2291",
+      "input_tokens": 5771,
+      "output_tokens": 192,
+      "elapsed_ms": 3375
+    },
+    {
+      "id": "8b33f4c0-0a6c-43bc-8e3c-1cf0ded42151",
+      "operation_id": "addc9614-1b98-482c-aa17-f549edf21808",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "validation": "passed",
+      "cost_micro_usd": 78006,
+      "charged_micro_cad": 156012,
+      "credit_cost_micro_cad": "218417",
+      "input_tokens": 7091,
+      "output_tokens": 6028,
+      "elapsed_ms": 84923
+    }
+  ],
+  "settled": [
+    {
+      "operation_id": "9ace793a-9e8e-47f5-ac42-e52c32eb3d97",
+      "status": "settled",
+      "settled_micro_cad": "220708",
+      "reserved_micro_cad": "2000000",
+      "resolution": "completed"
+    }
+  ],
+  "usage": [
+    {
+      "operation_id": "9ace793a-9e8e-47f5-ac42-e52c32eb3d97",
+      "amount_micro_cad": "-220708"
+    }
+  ],
+  "priorWallet": {
+    "balance": "64825241",
+    "purchases": 3,
+    "recoverygrants": 1
+  },
+  "nextWallet": {
+    "balance": "64604533",
+    "purchases": 3,
+    "recoverygrants": 1
+  },
+  "priorBudget": {
+    "capMicroCad": 11384406,
+    "chargedMicroCad": 9578990,
+    "pending": 0,
+    "cap_micro_cad": 11384406,
+    "charged": 9578990
+  },
+  "nextBudget": {
+    "cap_micro_cad": 11384406,
+    "charged": "9736638",
+    "pending": 0
+  },
+  "businessAndAppointmentsUnchanged": true,
+  "refreshResumed": true,
+  "manualSourceRepair": false,
+  "browserErrors": [],
+  "deniedHosts": [],
+  "funding": "Same genuine Development owner: 3 confirmed Stripe sandbox purchases and a historical synthetic recovery grant. Retail balance is mixed; no new grant or payment in this run.",
+  "publication": false,
+  "acceptanceRecoveryElapsedMs": 190692,
+  "ownerRequestToCreditSettlementMs": 91370,
+  "rawOutputEvidence": [
+    {
+      "callId": "1d2a4406-4f07-437e-b47f-fbb2988ec141",
+      "rawOutputRetainedPrivately": true,
+      "sha256": "9f16a7b2344c2d57343c5c2b70c2147e20c2bfaacee212a82a6e9fc093cd75e2"
+    },
+    {
+      "callId": "8b33f4c0-0a6c-43bc-8e3c-1cf0ded42151",
+      "rawOutputRetainedPrivately": true,
+      "sha256": "3811150814bb0e043a0c1178afde5a183a634b6b15978c885edd6b0cde391e72"
+    }
+  ],
+  "lineage": [
+    {
+      "id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "parent_id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+      "source_hash": "e4ef9bed379bc5972c63fb76ffd43322897516e4de5b2134dbd5754291adee85"
+    },
+    {
+      "id": "18b8cff0-bcb3-4e95-aefd-53502f7821d0",
+      "parent_id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+      "source_hash": "dd378204553e728a38142827f076dc17f81ff500fa6d5719397586d54edc847d"
+    }
+  ],
+  "selectedInputLimitations": "The saved design has inspiration artwork but no owner photographs. The model generated overlapping floral illustrations, not larger real salon photos. No stock or another salon photography was inserted.",
+  "tenantAssetRoleCounts": [
+    {
+      "role": "reference",
+      "count": 1
+    }
+  ]
+}

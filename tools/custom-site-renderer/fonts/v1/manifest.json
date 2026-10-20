@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "retrievedAt": "2026-10-18",
+  "cssSource": "https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300..700;1,300..700&family=DM+Sans:opsz,wght@9..40,100..1000&family=Pinyon+Script&display=swap",
+  "fonts": [
+    {
+      "family": "Luster Serif v1",
+      "originalFamily": "Cormorant",
+      "style": "italic",
+      "weight": "300 700",
+      "unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+      "file": "cormorant-italic-latin-ext.woff2",
+      "bytes": 31264,
+      "sha256": "15d9251683e2c0797b6ebf4669d1b5f8b5c2cd7f80b857aaeac1d33304186fe3",
+      "source": "https://fonts.gstatic.com/s/cormorant/v24/H4cjBXOCl9bbnla_nHIq6quxoqOcaThrLtg.woff2"
+    },
+    {
+      "family": "Luster Serif v1",
+      "originalFamily": "Cormorant",
+      "style": "italic",
+      "weight": "300 700",
+      "unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+      "file": "cormorant-italic-latin.woff2",
+      "bytes": 38076,
+      "sha256": "813edad70495bdd649f4d6676c0533b10001145ff592fc5bed785ea26f3be041",
+      "source": "https://fonts.gstatic.com/s/cormorant/v24/H4cjBXOCl9bbnla_nHIq6qu_oqOcaThr.woff2"
+    },
+    {
+      "family": "Luster Serif v1",
+      "originalFamily": "Cormorant",
+      "style": "normal",
+      "weight": "300 700",
+      "unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+      "file": "cormorant-normal-latin-ext.woff2",
+      "bytes": 30304,
+      "sha256": "d0b78842597f7bfbebbb301a1f350337d3e35c66ad7b7a1f0eecf1c325a58d4b",
+      "source": "https://fonts.gstatic.com/s/cormorant/v24/H4clBXOCl9bbnla_nHIq4Zu9qKS-awhq.woff2"
+    },
+    {
+      "family": "Luster Serif v1",
+      "originalFamily": "Cormorant",
+      "style": "normal",
+      "weight": "300 700",
+      "unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+      "file": "cormorant-normal-latin.woff2",
+      "bytes": 35280,
+      "sha256": "c27d01380ad1595adba884ee5a63c5475999ff2bf01d0a2a45c6caa9d75f301d",
+      "source": "https://fonts.gstatic.com/s/cormorant/v24/H4clBXOCl9bbnla_nHIq75u9qKS-aw.woff2"
+    },
+    {
+      "family": "Luster Sans v1",
+      "originalFamily": "DM Sans",
+      "style": "normal",
+      "weight": "100 1000",
+      "unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+      "file": "dm-sans-normal-latin-ext.woff2",
+      "bytes": 31312,
+      "sha256": "0d0609aee778d21b40bda1d27b7e6b5b3cb1a3e96b90b8831c681aca097c2219",
+      "source": "https://fonts.gstatic.com/s/dmsans/v17/rP2Hp2ywxg089UriCZ2IHTWEBlwu8Q.woff2"
+    },
+    {
+      "family": "Luster Sans v1",
+      "originalFamily": "DM Sans",
+      "style": "normal",
+      "weight": "100 1000",
+      "unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+      "file": "dm-sans-normal-latin.woff2",
+      "bytes": 62556,
+      "sha256": "aa530716b0d351866af7dbfa3eee4120fb36f2d071baff8c234185141865c7ff",
+      "source": "https://fonts.gstatic.com/s/dmsans/v17/rP2Hp2ywxg089UriCZOIHTWEBlw.woff2"
+    },
+    {
+      "family": "Luster Script v1",
+      "originalFamily": "Pinyon Script",
+      "style": "normal",
+      "weight": "400",
+      "unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+      "file": "pinyon-script-normal-latin-ext.woff2",
+      "bytes": 26580,
+      "sha256": "193f7fbbc9a177570cbbba70e60d404f385f1eb54ac32b1113fe66ff4fcb6884",
+      "source": "https://fonts.gstatic.com/s/pinyonscript/v24/6xKpdSJbL9-e9LuoeQiDRQR8WOvaOqTimDdT9g.woff2"
+    },
+    {
+      "family": "Luster Script v1",
+      "originalFamily": "Pinyon Script",
+      "style": "normal",
+      "weight": "400",
+      "unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+      "file": "pinyon-script-normal-latin.woff2",
+      "bytes": 28072,
+      "sha256": "4bf65668f8b1772d7cecbef85ea6f8c126913b8a307607a8d44e5f2c8f371150",
+      "source": "https://fonts.gstatic.com/s/pinyonscript/v24/6xKpdSJbL9-e9LuoeQiDRQR8WOXaOqTimDc.woff2"
+    }
+  ],
+  "licenses": [
+    {
+      "family": "Luster Serif v1",
+      "file": "cormorant-OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/cormorant/OFL.txt",
+      "sha256": "60700d351cac4650c51f3f9db318d2a420f8b45052dba2715eb5fec41f0f6956"
+    },
+    {
+      "family": "Luster Sans v1",
+      "file": "dm-sans-OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/dmsans/OFL.txt",
+      "sha256": "9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1"
+    },
+    {
+      "family": "Luster Script v1",
+      "file": "pinyon-script-OFL.txt",
+      "source": "https://raw.githubusercontent.com/google/fonts/main/ofl/pinyonscript/OFL.txt",
+      "sha256": "61d07cb0eaa943943648df2b11d0c2210e772053c192871e13f680b53fe0b77e"
+    }
+  ]
+}

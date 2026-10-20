@@ -1,0 +1,19 @@
+{
+  "sourceSha": "f43270ffd1133bd3bd84cb38597a0eed0802bec9",
+  "deploymentId": "dpl_3AnVAmzo2n1VQwc8PHuBpsy4B5Hz",
+  "projectId": "prj_G7i795a439CUZOr9W2gD2DT0E2AO",
+  "target": null,
+  "ready": true,
+  "buildCompiled": true,
+  "typesCheckedWithoutSkip": true,
+  "staticPages": 164,
+  "runtimeGitSha": "f43270f",
+  "runtimeDbAndRedis": true,
+  "runtimeSchemaReady": true,
+  "genericHealth": "degraded - intentionally unconfigured non-required test integrations",
+  "productionDeployed": false,
+  "localPinnedRecoveryStoppedAtReserve": true,
+  "localRecoveryDidNotChangeDependencyLink": true,
+  "localTypecheckNotSubstitutedForHostedResult": true,
+  "fullSourceCi": "pending,39218092318"
+}

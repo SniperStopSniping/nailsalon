@@ -1,0 +1,17 @@
+{
+  "testedAt": "2026-10-15T03:16:40.679Z",
+  "publicationRetrySameReceipt": true,
+  "receipts": [
+    {
+      "id": "42be37a5-29ea-4e78-a070-72e1d8dea535",
+      "revision": 14
+    }
+  ],
+  "appointments": [
+    {
+      "id": "appt_c1b623fb-b097-4b4a-b156-5690c150ff93",
+      "total_price": 6500,
+      "total_duration_minutes": 75
+    }
+  ]
+}

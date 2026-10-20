@@ -48,6 +48,16 @@ describe('serviceImageClient', () => {
   beforeEach(() => {
     createImageBitmapMock.mockReset();
     vi.stubGlobal('createImageBitmap', createImageBitmapMock);
+    // jsdom never decodes blob image URLs. Explicitly select the bitmap
+    // fallback here; the image-element cases below supply their own decoder.
+    // A per-test subclass also prevents their URL overrides leaking out.
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL(): never {
+        throw new DOMException('Image-element decoder unavailable in this fixture');
+      }
+
+      static revokeObjectURL = vi.fn();
+    });
   });
 
   afterEach(() => {

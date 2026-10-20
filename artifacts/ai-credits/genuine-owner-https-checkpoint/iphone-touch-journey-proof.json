@@ -1,0 +1,496 @@
+{
+  "editing": {
+    "step": "start-editing",
+    "status": "passed",
+    "browserName": "webkit",
+    "initialOwnerDevice": {
+      "width": 390,
+      "height": 844,
+      "devicePixelRatio": 3,
+      "maxTouchPoints": 0,
+      "configuredTouch": true
+    },
+    "touchActions": true,
+    "ownerAuthentication": "clerk-development",
+    "optimizedHttps": true,
+    "beforeRevision": 14,
+    "afterRevision": 15,
+    "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+    "artifacts": [
+      {
+        "id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "parent_id": null,
+        "source_hash": "20cc59a7125a123e05e3a0ec2accce12336d79ae09b73b5ead761907665685c8"
+      },
+      {
+        "id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "parent_id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "source_hash": "e4ef9bed379bc5972c63fb76ffd43322897516e4de5b2134dbd5754291adee85"
+      },
+      {
+        "id": "f4ca6bcb-8c3c-486d-933c-e56507695419",
+        "parent_id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "source_hash": "95ee3b75fcb3c34c528577445c0f703c27c53895826fdafd837dea2788be753a"
+      }
+    ],
+    "calls": [],
+    "elapsedMs": 2594,
+    "lostPublishResponse": false,
+    "bookingSubmissionCount": 0,
+    "serverProbes": [],
+    "historicalBefore": [
+      {
+        "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+        "fingerprint": "8b53a6b8cf3ab6911e31b13296ef50a7"
+      },
+      {
+        "id": "appt_08f9a454-223d-4f8c-b110-c59436b138be",
+        "fingerprint": "afe039180c44a8daa3d40b93ff571d92"
+      },
+      {
+        "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+        "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+      }
+    ],
+    "liveServicePricesBefore": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 7500,
+        "duration_minutes": 60
+      }
+    ],
+    "liveServicePricesAfter": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 7500,
+        "duration_minutes": 60
+      }
+    ],
+    "interactionChecks": [],
+    "browserErrors": [],
+    "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+  },
+  "price": {
+    "step": "service-price",
+    "status": "passed",
+    "browserName": "webkit",
+    "initialOwnerDevice": {
+      "width": 390,
+      "height": 844,
+      "devicePixelRatio": 3,
+      "maxTouchPoints": 0,
+      "configuredTouch": true
+    },
+    "touchActions": true,
+    "ownerAuthentication": "clerk-development",
+    "optimizedHttps": true,
+    "beforeRevision": 15,
+    "afterRevision": 16,
+    "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+    "artifacts": [
+      {
+        "id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "parent_id": null,
+        "source_hash": "20cc59a7125a123e05e3a0ec2accce12336d79ae09b73b5ead761907665685c8"
+      },
+      {
+        "id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "parent_id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "source_hash": "e4ef9bed379bc5972c63fb76ffd43322897516e4de5b2134dbd5754291adee85"
+      },
+      {
+        "id": "f4ca6bcb-8c3c-486d-933c-e56507695419",
+        "parent_id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "source_hash": "95ee3b75fcb3c34c528577445c0f703c27c53895826fdafd837dea2788be753a"
+      }
+    ],
+    "calls": [],
+    "elapsedMs": 5791,
+    "lostPublishResponse": false,
+    "bookingSubmissionCount": 0,
+    "serverProbes": [],
+    "historicalBefore": [
+      {
+        "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+        "fingerprint": "8b53a6b8cf3ab6911e31b13296ef50a7"
+      },
+      {
+        "id": "appt_08f9a454-223d-4f8c-b110-c59436b138be",
+        "fingerprint": "afe039180c44a8daa3d40b93ff571d92"
+      },
+      {
+        "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+        "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+      }
+    ],
+    "liveServicePricesBefore": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 7500,
+        "duration_minutes": 60
+      }
+    ],
+    "liveServicePricesAfter": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 7500,
+        "duration_minutes": 60
+      }
+    ],
+    "interactionChecks": [
+      {
+        "paidAiSending": "disabled"
+      },
+      {
+        "device": "desktop",
+        "heroGeometry": {
+          "width": 1440,
+          "height": 695
+        }
+      },
+      {
+        "device": "desktop",
+        "secureContext": true,
+        "parentCookies": "blocked",
+        "frameStorage": "blocked",
+        "connectSrcViolation": true
+      },
+      {
+        "device": "mobile",
+        "heroGeometry": {
+          "width": 390,
+          "height": 523
+        }
+      },
+      {
+        "device": "mobile",
+        "secureContext": true,
+        "parentCookies": "blocked",
+        "frameStorage": "blocked",
+        "connectSrcViolation": true
+      },
+      {
+        "browserName": "webkit",
+        "animatedElements": 0
+      },
+      {
+        "browserName": "webkit",
+        "reducedMotion": "passed"
+      }
+    ],
+    "browserErrors": [],
+    "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+  },
+  "public": {
+    "step": "public-preview",
+    "status": "passed",
+    "browserName": "webkit",
+    "initialOwnerDevice": {
+      "width": 390,
+      "height": 844,
+      "devicePixelRatio": 3,
+      "maxTouchPoints": 0,
+      "configuredTouch": true
+    },
+    "touchActions": true,
+    "ownerAuthentication": "clerk-development",
+    "optimizedHttps": true,
+    "beforeRevision": 16,
+    "afterRevision": 16,
+    "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+    "artifacts": [
+      {
+        "id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "parent_id": null,
+        "source_hash": "20cc59a7125a123e05e3a0ec2accce12336d79ae09b73b5ead761907665685c8"
+      },
+      {
+        "id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "parent_id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "source_hash": "e4ef9bed379bc5972c63fb76ffd43322897516e4de5b2134dbd5754291adee85"
+      },
+      {
+        "id": "f4ca6bcb-8c3c-486d-933c-e56507695419",
+        "parent_id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "source_hash": "95ee3b75fcb3c34c528577445c0f703c27c53895826fdafd837dea2788be753a"
+      }
+    ],
+    "calls": [],
+    "elapsedMs": 4036,
+    "lostPublishResponse": false,
+    "bookingSubmissionCount": 0,
+    "serverProbes": [],
+    "historicalBefore": [
+      {
+        "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+        "fingerprint": "8b53a6b8cf3ab6911e31b13296ef50a7"
+      },
+      {
+        "id": "appt_08f9a454-223d-4f8c-b110-c59436b138be",
+        "fingerprint": "afe039180c44a8daa3d40b93ff571d92"
+      },
+      {
+        "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+        "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+      }
+    ],
+    "liveServicePricesBefore": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 7500,
+        "duration_minutes": 60
+      }
+    ],
+    "liveServicePricesAfter": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 7500,
+        "duration_minutes": 60
+      }
+    ],
+    "interactionChecks": [
+      {
+        "paidAiSending": "disabled"
+      }
+    ],
+    "browserErrors": [],
+    "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+  },
+  "publish": {
+    "step": "publish",
+    "status": "passed",
+    "browserName": "webkit",
+    "initialOwnerDevice": {
+      "width": 390,
+      "height": 844,
+      "devicePixelRatio": 3,
+      "maxTouchPoints": 0,
+      "configuredTouch": true
+    },
+    "touchActions": true,
+    "ownerAuthentication": "clerk-development",
+    "optimizedHttps": true,
+    "beforeRevision": 16,
+    "afterRevision": 16,
+    "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+    "artifacts": [
+      {
+        "id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "parent_id": null,
+        "source_hash": "20cc59a7125a123e05e3a0ec2accce12336d79ae09b73b5ead761907665685c8"
+      },
+      {
+        "id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "parent_id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "source_hash": "e4ef9bed379bc5972c63fb76ffd43322897516e4de5b2134dbd5754291adee85"
+      },
+      {
+        "id": "f4ca6bcb-8c3c-486d-933c-e56507695419",
+        "parent_id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "source_hash": "95ee3b75fcb3c34c528577445c0f703c27c53895826fdafd837dea2788be753a"
+      }
+    ],
+    "calls": [],
+    "elapsedMs": 6637,
+    "lostPublishResponse": true,
+    "bookingSubmissionCount": 0,
+    "serverProbes": [],
+    "historicalBefore": [
+      {
+        "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+        "fingerprint": "8b53a6b8cf3ab6911e31b13296ef50a7"
+      },
+      {
+        "id": "appt_08f9a454-223d-4f8c-b110-c59436b138be",
+        "fingerprint": "afe039180c44a8daa3d40b93ff571d92"
+      },
+      {
+        "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+        "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+      }
+    ],
+    "liveServicePricesBefore": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 7500,
+        "duration_minutes": 60
+      }
+    ],
+    "liveServicePricesAfter": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 8000,
+        "duration_minutes": 60
+      }
+    ],
+    "interactionChecks": [
+      {
+        "paidAiSending": "disabled"
+      }
+    ],
+    "browserErrors": [],
+    "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+  },
+  "booking": {
+    "step": "book",
+    "status": "passed",
+    "browserName": "webkit",
+    "initialOwnerDevice": {
+      "width": 390,
+      "height": 844,
+      "devicePixelRatio": 3,
+      "maxTouchPoints": 0,
+      "configuredTouch": true
+    },
+    "touchActions": true,
+    "ownerAuthentication": "clerk-development",
+    "optimizedHttps": true,
+    "beforeRevision": 16,
+    "afterRevision": 16,
+    "artifactId": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+    "artifacts": [
+      {
+        "id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "parent_id": null,
+        "source_hash": "20cc59a7125a123e05e3a0ec2accce12336d79ae09b73b5ead761907665685c8"
+      },
+      {
+        "id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "parent_id": "fc22462f-b7e9-4a4b-be51-f09cd352aab0",
+        "source_hash": "e4ef9bed379bc5972c63fb76ffd43322897516e4de5b2134dbd5754291adee85"
+      },
+      {
+        "id": "f4ca6bcb-8c3c-486d-933c-e56507695419",
+        "parent_id": "3b71fdf8-ee30-426f-bbd9-c9598c546ee0",
+        "source_hash": "95ee3b75fcb3c34c528577445c0f703c27c53895826fdafd837dea2788be753a"
+      }
+    ],
+    "calls": [],
+    "elapsedMs": 8285,
+    "lostPublishResponse": false,
+    "bookingResponseStatus": 201,
+    "bookingSubmissionCount": 2,
+    "serverProbes": [
+      {
+        "kind": "virtual-preview-service-rejected",
+        "status": 400,
+        "code": "INVALID_SELECTION"
+      }
+    ],
+    "historicalBefore": [
+      {
+        "id": "appt_088d9d7b-0a9f-4b0f-af74-ced4a7fa8538",
+        "fingerprint": "8b53a6b8cf3ab6911e31b13296ef50a7"
+      },
+      {
+        "id": "appt_08f9a454-223d-4f8c-b110-c59436b138be",
+        "fingerprint": "afe039180c44a8daa3d40b93ff571d92"
+      },
+      {
+        "id": "appt_ab33596e-cc52-42a3-8d4c-afeeb8183d04",
+        "fingerprint": "94d64705d06b5c209ef7801bf3c61993"
+      }
+    ],
+    "liveServicePricesBefore": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 8000,
+        "duration_minutes": 60
+      }
+    ],
+    "liveServicePricesAfter": [
+      {
+        "id": "0a3de8e2-5b0b-4106-8d5b-83126872044c",
+        "name": "Gel Manicure",
+        "price": 4500,
+        "duration_minutes": 45
+      },
+      {
+        "id": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "name": "BIAB",
+        "price": 8000,
+        "duration_minutes": 60
+      }
+    ],
+    "interactionChecks": [
+      {
+        "originalBooking": true,
+        "preservedCanva": false,
+        "serviceId": "9fcd8cb6-f07c-45cc-8f4b-90366923ced0",
+        "serviceName": "BIAB",
+        "targetWidth": 86.078125,
+        "targetHeight": 35
+      },
+      {
+        "originalBooking": true,
+        "selectedStaff": "Synthetic AI Owner",
+        "staffEligibilityVerified": true
+      }
+    ],
+    "browserErrors": [],
+    "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+  }
+}

@@ -29,6 +29,6 @@ test('photo and preserved-edit notices remain available on the offer', async ({ 
   await page.goto('/?warnings=1');
 
   await expect(page.getByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
-  await expect(page.getByText(/photos listed earlier remain only on this device/)).toBeVisible();
+  await expect(page.getByText(/images listed earlier are still only on this device/)).toBeVisible();
   await expect(page.getByTestId('onboarding-preserved-edits')).toContainText('opening hours, service prices');
 });

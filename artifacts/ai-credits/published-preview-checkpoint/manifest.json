@@ -1,0 +1,78 @@
+{
+  "applicationSourceSha": "70af527e58e960cbff137c81bcd79249e3a90792",
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "2fc8ec5977d8c595a5e2783c4076612a5ad5892c63e892baa3fa98997f7be080"
+    },
+    {
+      "path": "attempt-notes.json",
+      "sha256": "6f09776691eaa51b1ab666e7213f47132b324d5ddd7bc28ab8c2c2b610f1000f"
+    },
+    {
+      "path": "candidate-secret-scan-proof.json",
+      "sha256": "d6dafc61f4bbde5fab155c4d8cd3ab00e0355145c8958f4ae48e7d90dafceb4d"
+    },
+    {
+      "path": "deterministic-proof.json",
+      "sha256": "8344ba39bc16250b1e066056acc4835de9402e2bd58c1f8d3e50ea2d11211a3f"
+    },
+    {
+      "path": "draft-builder.png",
+      "sha256": "8907597ea366110a5a15ec69fec411f6278ffc6e50df5badab5f8868ce9fbeb5"
+    },
+    {
+      "path": "exact-review.png",
+      "sha256": "4689c3942266c27e2218baa2b7775a5d17059ef57225c9ad3fdda34bfdbcfaf4"
+    },
+    {
+      "path": "lifecycle-proof.json",
+      "sha256": "fd91fe59b5599789c652114bb66769e50f3500b7f4276c8aff50e4be4aee8774"
+    },
+    {
+      "path": "optimized-build-proof.json",
+      "sha256": "f53e42e8fc8de1b5d674325af8825431170677e08492941153c346cc49c4b73a"
+    },
+    {
+      "path": "original-availability-mobile.png",
+      "sha256": "b471ed93d846516705b30abd4d3e944a26239df5be0b2afaffe01127d2449ec5"
+    },
+    {
+      "path": "original-calendar-mobile.png",
+      "sha256": "74663b3c5f515a92a3c1ae201a243183102d230e0eccddea20cfc9a3275f1d73"
+    },
+    {
+      "path": "private-booking-disabled.png",
+      "sha256": "b0aa6214287b2e39166ec7d7955abc63d15ca0ec33706169097455b45f1aa147"
+    },
+    {
+      "path": "public-booking-proof.json",
+      "sha256": "a4f3074a0999ce44939665d6d371c043856c5da10722d5ab196e9447073cfd30"
+    },
+    {
+      "path": "public-service-mobile.png",
+      "sha256": "c9bd4f2651bd0c3b59bb6ccbc8f6ec3820ebb4c5e03f35762f3eb3064d89a651"
+    },
+    {
+      "path": "published-builder.png",
+      "sha256": "48ab2159ec97ed7796564ff8e26959380a1392246381d7f15fb7c8844c29e853"
+    },
+    {
+      "path": "published-desktop.png",
+      "sha256": "5f33558dcb686de8e926aaacc00de4caab7585b1afbb0775a6c0abebcb8aed66"
+    },
+    {
+      "path": "published-mobile.png",
+      "sha256": "187fbfb3d8c9ae8717cf10a502baac632d6ed2653ba81d3b0645c5a43160ed83"
+    },
+    {
+      "path": "returning-owner-proof.json",
+      "sha256": "7acf5e747420eba6729df7b9af9c667a42d1ff1a185401955952dc28c99d8ea3"
+    },
+    {
+      "path": "standard-published-preview.png",
+      "sha256": "68f16aa761ee03ea3a17f8689c8c0159dc1a2f35019151a6015abd0a20d00536"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "step": "restore",
+  "status": "failed",
+  "failure": "expect(locator).toBeVisible() failed\n\nLocator:  locator('iframe[src=\"http://127.0.0.1:3198/renderer\"]')\nExpected: visible\nReceived: hidden\nTimeout:  45000ms\n\nCall log:\n\u001b[2m  - Expect \"to.be.visible\" with timeout 45000ms\u001b[22m\n\u001b[2m  - waiting for locator('iframe[src=\"http://127.0.0.1:3198/renderer\"]')\u001b[22m\n\u001b[2m    4 × locator resolved to <iframe referrerpolicy=\"no-referrer\" src=\"http://127.0.0.1:3198/renderer\" title=\"Petal Studio — Airier mobile layout\" sandbox=\"allow-scripts allow-popups allow-popups-to-escape-sandbox\"></iframe>\u001b[22m\n\u001b[2m      - unexpected value \"hidden\"\u001b[22m\n\u001b[2m    44 × locat",
+  "startedAt": "2026-10-17T23:15:11.732Z",
+  "elapsedMs": 51065,
+  "beforeRevision": 10,
+  "afterRevision": 11,
+  "artifactId": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+  "calls": [],
+  "artifacts": [
+    {
+      "id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "parent_id": null,
+      "source_hash": "b3921231228c69956d0421f9837026ef6a4354383eac0fc9c24f93f2cff6a76b"
+    },
+    {
+      "id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+      "parent_id": "6a14805b-0c6a-4972-862e-a2043c7d8407",
+      "source_hash": "fe535fc03bf2c749283357087fc25bbfd0ae10f7034d007078dcb31c2ac5fa81"
+    },
+    {
+      "id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+      "parent_id": "d8319243-9b42-4a14-ac19-00b77dce4255",
+      "source_hash": "97149190987a7f9764350ab43fabec16ae4c1b0435b99514e0bc1289dcf75e5a"
+    },
+    {
+      "id": "dfda0819-4646-4de8-af16-917114ffa583",
+      "parent_id": "d312c65d-9961-458b-9bd0-cd895a4d184a",
+      "source_hash": "195baa87185b4a399963165cb19da03eee9dd6b3843d5bf66b39dd956f20e8fb"
+    },
+    {
+      "id": "b8e59455-53da-4a37-baff-baf4fde64756",
+      "parent_id": "dfda0819-4646-4de8-af16-917114ffa583",
+      "source_hash": "e4e3c9e3f4107bcbba06509b29777addd5b2f5f8c73e5e82c697f3ce7280b94a"
+    }
+  ],
+  "appointments": [],
+  "browserErrors": [
+    "Clerk: Failed to load Clerk, failed to load script: https://clerk-dev.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js\n\n(code=\"failed_to_load_clerk_js\")\n\n"
+  ],
+  "funding": "Synthetic CAD10 recovery grant; no Stripe payment or purchase is claimed."
+}

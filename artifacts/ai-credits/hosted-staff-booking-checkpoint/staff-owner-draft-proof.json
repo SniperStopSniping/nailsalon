@@ -1,0 +1,19 @@
+{
+  "sourceSha": "d7bdeaeb150b5ba6433501397c181db87bd43a30",
+  "phase": "draft",
+  "revision": 72,
+  "status": "editing",
+  "designPreserved": true,
+  "serviceRecordsPreserved": true,
+  "previousAppointmentsPreserved": 8,
+  "canonicalTechnicians": [
+    {
+      "id": "2e0d48dd-b163-4fc1-9b56-4ffaed1ff0af",
+      "name": "AI Test Owner"
+    }
+  ],
+  "publication": null,
+  "addedAppointment": null,
+  "aiCalls": 39,
+  "productionTouched": false
+}

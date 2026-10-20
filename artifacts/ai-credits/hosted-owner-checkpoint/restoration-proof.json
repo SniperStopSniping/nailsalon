@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "startedFromPublishedBusiness": true,
+  "initialRevision": 9,
+  "restoredEarlierRevision": 10,
+  "restoredCurrentRevision": 11,
+  "restoredEarlierDesign": true,
+  "pricesAndServicesPreserved": true,
+  "publicWebsiteUnchanged": true,
+  "appointmentUnchanged": true,
+  "newModelCalls": 0,
+  "refreshResumed": true
+}

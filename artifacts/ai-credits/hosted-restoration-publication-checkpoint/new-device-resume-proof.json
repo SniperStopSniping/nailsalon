@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "browser": "WebKit",
+  "device": "iPhone13 emulation",
+  "playwright": "1.55.1",
+  "newBrowserContext": true,
+  "noCopiedCookiesOrStorage": true,
+  "nativePasswordSignIn": true,
+  "officialClerkBotTestingTokenOnly": true,
+  "noManufacturedSession": true,
+  "noLegacyAdminCookie": true,
+  "sameExistingOwnerAndSalon": true,
+  "draftRevision": 48,
+  "unconfirmedPrice65Retained": true,
+  "manualWordingAndSourceRetained": true,
+  "refreshRetainsExactDraft": true,
+  "additionalAiCalls": 0,
+  "newCustomerAppointments": 0,
+  "doesNotProveFreshRegistrationOrOrgCreation": true
+}

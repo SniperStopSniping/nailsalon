@@ -1,0 +1,51 @@
+{
+  "passed": true,
+  "previewOnly": true,
+  "servedSourceSha": "df269cfe0b5278cac8c92e0e35696bb4f24fb713",
+  "currentSourceSha": "3b7baeffb411943aeba226abc8ba6a26af7982ce",
+  "runtimeUnchangedBetweenTheseHeads": true,
+  "actualOwnerChat": true,
+  "request": "Make the mobile version less crowded.",
+  "scope": "website",
+  "requestCount": 1,
+  "fromRevision": 127,
+  "toRevision": 128,
+  "oldArtifactId": "4c5a3b96-8d6e-4ca3-972c-7129512a3d1d",
+  "newArtifactId": "667cb6d5-ee46-4b07-a3e9-f1c5fd3c8d7a",
+  "oldSourceRetained": true,
+  "parentRevisionLinked": true,
+  "generatedSourceManuallyEdited": false,
+  "unrelatedDraftSettingsPreserved": true,
+  "allLiveBusinessServicesStaffAppointmentsAndAssetsPreserved": true,
+  "expectedSalonDraftProjection": [
+    "settings.bookingPage.draft.customFrontendId",
+    "updated_at"
+  ],
+  "appointmentCount": 34,
+  "publicationsUnchanged": true,
+  "publishedRevision": 98,
+  "modelCalls": [
+    {
+      "id": "28bfcf6b-8bbc-444d-adfa-0ac7e2c6df84",
+      "operation_id": "0805824c-7701-44bd-91c6-6eb790b6bcf1",
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "input_tokens": 8753,
+      "output_tokens": 7352,
+      "elapsed_ms": 62544,
+      "cost_micro_usd": 4771,
+      "charged_micro_cad": 9542,
+      "credit_cost_micro_cad": "13359",
+      "validation": "passed"
+    }
+  ],
+  "providerCostUsd": 0.004771,
+  "conservativeTrialExpenseCad": 0.009542,
+  "syntheticRetailCreditsCad": 0.013359,
+  "trialBudgetCapCad": 68.615594,
+  "trialBudgetUsedCad": 36.321036,
+  "combinedTestingCapCad": 80,
+  "productionChanged": false,
+  "qualification": "Actual owner-facing model test on served df269cfe; runtime modules unchanged through3b7. Later test-only commits require their own CI."
+}

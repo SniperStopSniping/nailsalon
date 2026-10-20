@@ -1,0 +1,32 @@
+{
+  "sourceCommit": "c50206875a2c83589c20747c3fd66cebd33ba15d",
+  "integratedSourceCommit": "c2d7234cf9564b1d5f92b1ce4f32c2faf66e8428",
+  "integratedGuardCommit": "a9e0cfe18132ba39ff43a0338865713d9757bc66",
+  "manifestBlob": "e54cedc2954e844cd209b29008f1173848d3dcd1",
+  "lockBlob": "7f5a9efb7172d716423849f868d04f752498c992",
+  "localNode": "v22.23.2",
+  "localWebpack": "5.111.1",
+  "localNext": "15.5.28",
+  "manifestComparedToQualifiedGraph": "identical except root release version1.143.3",
+  "workflowTests": {
+    "passed": 22,
+    "failed": 0,
+    "skipped": 0
+  },
+  "storybookBuild": "passed",
+  "storybookChromium": {
+    "suitesPassed": 2,
+    "testsPassed": 6,
+    "failed": 0
+  },
+  "secretScan": {
+    "trackedFiles": 5389,
+    "generatedFiles": 0,
+    "reviewedCommits": 5,
+    "passed": true
+  },
+  "localPackageInstall": false,
+  "realProviderCredentialsSuppliedToBuild": false,
+  "temporaryLocalServerStopped": true,
+  "productionChanges": false
+}

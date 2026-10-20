@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "provider": "Stripe sandbox",
+  "hosted": true,
+  "webhookDeliveryVerified": true,
+  "events": [
+    {
+      "eventId": "evt_1US6LsAR5ZNVuHaHshWIPRR9",
+      "type": "checkout.session.completed",
+      "status": "processed",
+      "livemode": false,
+      "attempts": 1,
+      "actualStripeEventVerified": true
+    }
+  ],
+  "locallyForgedForThisProof": false,
+  "productionTouched": false
+}

@@ -1,0 +1,32 @@
+{
+  "applicationSourceSha": "70af527e58e960cbff137c81bcd79249e3a90792",
+  "retainedPrivateEvidence": true,
+  "initialDeterministicRun": {
+    "testsPassed": 48,
+    "testsFailed": 5,
+    "passed": false,
+    "notes": "Includes published-versus-draft regressions and an initially over-exact text assertion; not all failures represent distinct defects."
+  },
+  "intermediateDeterministicRun": {
+    "testsPassed": 59,
+    "passed": false,
+    "notes": "The new summary fixture imported server-only/environment-bound code and failed to load; passing assertions did not make this run successful. The final fixture uses pure typed data and components accept the fields they actually read."
+  },
+  "nativeReturnFirstAttempt": {
+    "passed": false,
+    "reason": "Global Published text locator matched both the header and correctly relabeled studio. Authentication succeeded. The harness now qualifies the current header status."
+  },
+  "publicScreenshotRecapture": {
+    "originalAssertionsPassed": true,
+    "originalFullPageImageUsable": false,
+    "reason": "The full-page image captured the calendar during its entrance transition. A second read-only public walkthrough scrolled the actual slot into view, waited for ancestor opacity, and captured viewport images. No source/data repair, model call, or new appointment."
+  },
+  "paidGenerationTrialRerun": false,
+  "paidTrialSelectorChange": "Qualified the header Saved as draft assertion using the same current status element exercised in the native draft lifecycle; no paid generation was rerun for this observation-only fix.",
+  "workingTreeSecretScan": {
+    "passed": false,
+    "credentialMatchesReported": 0,
+    "oversizedExistingDevelopmentChunks": 4,
+    "followUp": "Scan current staged candidate with exact verified optimized build client output; preserve existing development output and scanner limits."
+  }
+}

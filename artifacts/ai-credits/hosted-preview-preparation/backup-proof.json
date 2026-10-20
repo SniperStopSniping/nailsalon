@@ -1,0 +1,10 @@
+{
+  "format": "PostgreSQL custom archive",
+  "clientVersion": "18.6",
+  "serverMajor": 17,
+  "bytes": 3466261,
+  "sha256": "91457d3c388e7343ff6198775307f559b5a98fe68955bf8f6666a8a63389bfd8",
+  "archiveListValidated": true,
+  "restorationPerformed": false,
+  "privateMode": 600
+}

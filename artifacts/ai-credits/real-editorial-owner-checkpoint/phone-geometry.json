@@ -1,0 +1,62 @@
+{
+  "before": {
+    "hero": {
+      "fontSize": "65px",
+      "height": 118.296875,
+      "lineHeight": "59.15px",
+      "width": 343.203125
+    },
+    "scrollWidth": 390,
+    "serviceCards": [
+      {
+        "className": "service-card",
+        "height": 260,
+        "padding": "24px",
+        "width": 342.203125
+      },
+      {
+        "className": "service-card",
+        "height": 260,
+        "padding": "24px",
+        "width": 342.203125
+      },
+      {
+        "className": "service-card",
+        "height": 298.9375,
+        "padding": "24px",
+        "width": 342.203125
+      }
+    ],
+    "width": 390
+  },
+  "after": {
+    "hero": {
+      "fontSize": "65px",
+      "height": 128.6875,
+      "lineHeight": "64.35px",
+      "width": 343.203125
+    },
+    "scrollWidth": 390,
+    "serviceCards": [
+      {
+        "className": "service-card",
+        "height": 292,
+        "padding": "30px 25px",
+        "width": 342.203125
+      },
+      {
+        "className": "service-card",
+        "height": 292,
+        "padding": "30px 25px",
+        "width": 342.203125
+      },
+      {
+        "className": "service-card",
+        "height": 321.9375,
+        "padding": "30px 25px",
+        "width": 342.203125
+      }
+    ],
+    "width": 390
+  }
+}

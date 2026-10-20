@@ -1,0 +1,308 @@
+{
+  "status": "passed",
+  "scope": "Actual owner-facing local workflow with real OpenAI models; text-only original design. Synthetic account/credit grant, no real Stripe purchase. No hand-authored or manually repaired frontend.",
+  "codeCommit": "69b744e7",
+  "steps": [
+    {
+      "step": "message",
+      "startedAt": "2026-10-18T07:54:25.587Z",
+      "beforeRevision": 1,
+      "afterRevision": 3,
+      "artifactId": "381a8eba-adb2-4148-9253-307d046491e6",
+      "calls": [
+        {
+          "id": "e69d9adb-3796-4ce7-a81b-ac519260abd1",
+          "operation_id": "b45581f4-92c5-43a0-8a04-804012a28979",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 4933,
+          "output_tokens": 492,
+          "cost_micro_usd": 863,
+          "charged_micro_cad": 1726,
+          "credit_cost_micro_cad": "2417",
+          "elapsed_ms": 5404,
+          "validation": "passed"
+        },
+        {
+          "id": "3bcc4715-3f01-4eb8-bafd-aef96d8745a5",
+          "operation_id": "17a63de5-04aa-4185-961c-3ed03753bf76",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 1878,
+          "output_tokens": 5268,
+          "cost_micro_usd": 57374,
+          "charged_micro_cad": 114748,
+          "credit_cost_micro_cad": "160648",
+          "elapsed_ms": 100160,
+          "validation": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 682
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 860.953125
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ]
+    },
+    {
+      "step": "publish",
+      "startedAt": "2026-10-18T07:56:46.964Z",
+      "beforeRevision": 3,
+      "afterRevision": 4,
+      "artifactId": "381a8eba-adb2-4148-9253-307d046491e6",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": []
+    },
+    {
+      "step": "book",
+      "startedAt": "2026-10-18T07:57:05.986Z",
+      "beforeRevision": 4,
+      "afterRevision": 4,
+      "artifactId": "381a8eba-adb2-4148-9253-307d046491e6",
+      "calls": [],
+      "bookingSubmissionCount": 1,
+      "bookingResponseStatus": 201,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "af17a6f9-41df-42a4-864b-8de486b37758",
+          "serviceName": "BIAB",
+          "targetWidth": 129.890625,
+          "targetHeight": 42
+        }
+      ]
+    },
+    {
+      "step": "start-editing",
+      "startedAt": "2026-10-18T07:57:58.636Z",
+      "beforeRevision": 4,
+      "afterRevision": 5,
+      "artifactId": "381a8eba-adb2-4148-9253-307d046491e6",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": []
+    },
+    {
+      "step": "message",
+      "startedAt": "2026-10-18T07:58:14.695Z",
+      "beforeRevision": 5,
+      "afterRevision": 6,
+      "artifactId": "0e7026e6-5eed-4244-88a6-def0b2b652dc",
+      "calls": [
+        {
+          "id": "ea9c3acc-ecab-4725-bae2-7465d200ffcd",
+          "operation_id": "475cf69a-a38f-472e-9db7-1542fccce71c",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5544,
+          "output_tokens": 130,
+          "cost_micro_usd": 758,
+          "charged_micro_cad": 1516,
+          "credit_cost_micro_cad": "2123",
+          "elapsed_ms": 2445,
+          "validation": "passed"
+        },
+        {
+          "id": "3332ec01-5b62-466a-95aa-f3cc596f913d",
+          "operation_id": "4b3f89d2-22fd-4ce8-a47e-a3d63f1e626a",
+          "model": "gpt-6.1-sol",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 6712,
+          "output_tokens": 4858,
+          "cost_micro_usd": 65359,
+          "charged_micro_cad": 130718,
+          "credit_cost_micro_cad": "183006",
+          "elapsed_ms": 61539,
+          "validation": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 682
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 746.953125
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ]
+    },
+    {
+      "step": "message",
+      "startedAt": "2026-10-18T07:59:47.389Z",
+      "beforeRevision": 6,
+      "afterRevision": 7,
+      "artifactId": "0e7026e6-5eed-4244-88a6-def0b2b652dc",
+      "calls": [
+        {
+          "id": "5f71b1f8-e296-4189-9023-868d0a83f31f",
+          "operation_id": "3ba3e6c7-db4e-4f80-ac54-00a6dbc40c06",
+          "model": "gpt-6-luna",
+          "provider": "openai",
+          "status": "completed",
+          "input_tokens": 5615,
+          "output_tokens": 181,
+          "cost_micro_usd": 793,
+          "charged_micro_cad": 1586,
+          "credit_cost_micro_cad": "2221",
+          "elapsed_ms": 2491,
+          "validation": "passed"
+        }
+      ],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 682
+          }
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 746.953125
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ]
+    },
+    {
+      "step": "publish",
+      "startedAt": "2026-10-18T08:00:08.561Z",
+      "beforeRevision": 7,
+      "afterRevision": 8,
+      "artifactId": "0e7026e6-5eed-4244-88a6-def0b2b652dc",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": []
+    },
+    {
+      "step": "book",
+      "startedAt": "2026-10-18T08:00:31.788Z",
+      "beforeRevision": 8,
+      "afterRevision": 8,
+      "artifactId": "0e7026e6-5eed-4244-88a6-def0b2b652dc",
+      "calls": [],
+      "bookingSubmissionCount": 1,
+      "bookingResponseStatus": 201,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "af17a6f9-41df-42a4-864b-8de486b37758",
+          "serviceName": "BIAB",
+          "targetWidth": 129.890625,
+          "targetHeight": 42
+        }
+      ]
+    },
+    {
+      "step": "start-editing",
+      "startedAt": "2026-10-18T08:01:07.267Z",
+      "beforeRevision": 8,
+      "afterRevision": 9,
+      "artifactId": "0e7026e6-5eed-4244-88a6-def0b2b652dc",
+      "calls": [],
+      "bookingSubmissionCount": 0,
+      "interactionChecks": []
+    }
+  ],
+  "services": [
+    {
+      "id": "8c8dea04-9140-4dcf-8d8c-7fc987450b5f",
+      "name": "Zen pedicure",
+      "price": 6000,
+      "duration_minutes": 60,
+      "sort_order": 0
+    },
+    {
+      "id": "7b82fa92-5527-4ad2-9443-1106d426f32f",
+      "name": "Acrylic overlay",
+      "price": 8000,
+      "duration_minutes": 90,
+      "sort_order": 1
+    },
+    {
+      "id": "af17a6f9-41df-42a4-864b-8de486b37758",
+      "name": "BIAB",
+      "price": 7000,
+      "duration_minutes": 75,
+      "sort_order": 2
+    }
+  ],
+  "appointments": [
+    {
+      "id": "appt_b114cf2f-3fde-43f6-86fb-5afccc67b5db",
+      "total_price": 6500,
+      "total_duration_minutes": 75
+    },
+    {
+      "id": "appt_a9dc1078-b75a-4cde-89f6-796727bbb9fe",
+      "total_price": 7000,
+      "total_duration_minutes": 75
+    }
+  ],
+  "sourcePreservedOnPriceEdit": true,
+  "serviceOrderPreservedOnPublishAndReopen": true,
+  "measuredCostMicroUsd": 125147,
+  "budget": {
+    "cap_micro_cad": 11384406,
+    "charged_micro_cad": "9438672",
+    "pending": "0"
+  },
+  "limitations": [
+    "Text-only brief; no uploaded-reference fidelity claim for this cohort.",
+    "The first heading was too tightly spaced. The owner chat refined it; both outputs retained.",
+    "Configured Development Clerk public host remains a placeholder; browser Clerk errors are retained privately. Legacy synthetic owner authentication was used; real signup is not claimed.",
+    "HTTP Chromium journey only in this checkpoint; HTTPS/WebKit saved-output verification will be recorded separately."
+  ]
+}

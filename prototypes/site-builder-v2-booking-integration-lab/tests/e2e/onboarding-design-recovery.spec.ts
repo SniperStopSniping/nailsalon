@@ -27,7 +27,8 @@ test('Your Design can reopen after cancellation, save a clickable image and reop
   await page.getByRole('button', { name: 'Start with Your Design' }).click();
   const design = page.getByRole('dialog', { name: 'Upload a Canva design' });
 
-  await expect(design.getByRole('button', { name: 'Save Canva design' })).toBeVisible();
+  await expect(design.getByLabel('Choose images')).toBeVisible();
+  await expect(design.getByRole('button', { name: 'Save Canva design' })).toHaveCount(0);
 
   await design.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expectFittedAction(page, 'Add your design');
@@ -40,15 +41,15 @@ test('Your Design can reopen after cancellation, save a clickable image and reop
   await editor.getByLabel('Accessible label').fill('Book from this test design');
   await editor.getByLabel('I confirm this label explains the action').check();
   await editor.getByRole('button', { name: 'Done', exact: true }).click();
-  await design.getByRole('button', { name: 'Save Canva design' }).click();
+  await design.getByRole('button', { name: 'Done', exact: true }).click();
 
   await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
 
-  await expectFittedAction(page, 'Edit your design');
+  await expectFittedAction(page, 'Edit design & links');
 
   const saved = await page.evaluate(key => JSON.parse(localStorage.getItem(key)!), storageKey);
   await page.reload();
-  await page.getByRole('button', { name: 'Edit your design', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit design & links', exact: true }).click();
 
   await expect(design.locator('[data-image-item-id]')).toHaveCount(1);
 
@@ -70,7 +71,7 @@ for (const starter of ['Full Website', 'Quick Book']) {
     await page.getByRole('dialog', { name: 'Switch to Your Design?' }).getByRole('button', { name: 'Switch to Your Design', exact: true }).click();
     const design = page.getByRole('dialog', { name: 'Upload a Canva design' });
 
-    await expect(design.getByRole('button', { name: 'Save Canva design' })).toBeVisible();
+    await expect(design.getByLabel('Choose images')).toBeVisible();
     await expect(design.getByText('Choose Canva pages', { exact: true })).toHaveCount(0);
 
     await design.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -78,6 +79,6 @@ for (const starter of ['Full Website', 'Quick Book']) {
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await page.getByRole('button', { name: /Current starting point.*Your Design/u }).click();
 
-    await expect(design.getByRole('button', { name: 'Save Canva design' })).toBeVisible();
+    await expect(design.getByLabel('Choose images')).toBeVisible();
   });
 }

@@ -1,0 +1,45 @@
+{
+  "environment": "isolated_preview",
+  "appointment": {
+    "id": "appt_62dd6448-8837-48e3-9897-ee4979141b8b",
+    "start_time": "2026-10-21T19:45:00.000Z",
+    "end_time": "2026-10-21T20:45:00.000Z",
+    "status": "confirmed",
+    "technician_id": "b93e963c-5771-4a8c-ac82-546a2e9f8183",
+    "total_price": 5000,
+    "total_duration_minutes": 60,
+    "buffer_minutes": 10,
+    "blocked_duration_minutes": 70
+  },
+  "services": [
+    {
+      "service_id": "585573ae-827d-41cf-a0dc-625d1fa578ed",
+      "price_at_booking": 5000,
+      "duration_at_booking": 60
+    }
+  ],
+  "communications": [
+    {
+      "channel": "email",
+      "status": "pending",
+      "attempts": 0,
+      "blocked_reason": null
+    }
+  ],
+  "delivery": [
+    {
+      "channel": "email",
+      "status": "failed",
+      "error_code": "RESEND_NOT_CONFIGURED",
+      "provider_accepted": false
+    },
+    {
+      "channel": "email",
+      "status": "failed",
+      "error_code": "RESEND_NOT_CONFIGURED",
+      "provider_accepted": false
+    }
+  ],
+  "existingAppointmentsPreserved": 11,
+  "newSyntheticAppointments": 1
+}

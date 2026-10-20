@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   cpSync,
   mkdirSync,
@@ -752,6 +753,42 @@ test('fixture allowlist is bound to exact path, key, and value', () => {
       `SCANNER_FIXTURE_SECRET=${fixtureValue}\nADJACENT_VALUE=${adjacent}\n`,
     );
     expectFinding(scan(repository), 'STRIPE_WEBHOOK_SIGNING_SECRET', adjacent);
+  });
+});
+
+test('historical evidence checksum exception cannot hide moved, changed or adjacent secrets', () => {
+  const exactPath = 'artifacts/ai-credits/published-preview-checkpoint/manifest.json';
+  const key = 'candidate-secret-scan-proof.json';
+  const digest = createHash('sha256').update(readFileSync(join(
+    REPOSITORY_ROOT,
+    'artifacts/ai-credits/published-preview-checkpoint',
+    key,
+  ))).digest('hex');
+
+  withRepository((repository) => {
+    const base = git(repository, ['rev-parse', 'HEAD']);
+    write(repository, exactPath, JSON.stringify({ files: { [key]: digest } }));
+    expectPass(scan(repository));
+    commit(repository);
+    write(repository, exactPath, JSON.stringify({ files: [{ path: key, sha256: digest }] }));
+    const head = commit(repository);
+    expectPass(scan(repository, ['--base', base, '--head', head]));
+
+    const changed = `${digest.slice(0, -1)}${digest.endsWith('a') ? 'b' : 'a'}`;
+    write(repository, exactPath, JSON.stringify({ files: { [key]: changed } }));
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', changed);
+
+    write(repository, exactPath, JSON.stringify({ files: { UNRELATED_SECRET: digest } }));
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', digest);
+
+    rmSync(join(repository, exactPath));
+    write(repository, 'artifacts/moved-manifest.json', JSON.stringify({ files: { [key]: digest } }));
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', digest);
+
+    rmSync(join(repository, 'artifacts/moved-manifest.json'));
+    const secret = providerSecret(['whsec', ''].join('_'));
+    write(repository, exactPath, JSON.stringify({ files: { [key]: digest }, adjacent: secret }));
+    expectFinding(scan(repository), 'STRIPE_WEBHOOK_SIGNING_SECRET', secret);
   });
 });
 

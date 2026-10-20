@@ -1,0 +1,62 @@
+{
+  "desktop": {
+    "buttons": [
+      {
+        "height": 44,
+        "id": "",
+        "width": 159.828125
+      },
+      {
+        "height": 49,
+        "id": "",
+        "width": 241.0234375
+      },
+      {
+        "height": 44,
+        "id": "774fd1cd-1e6c-4396-abbd-757613f3328c",
+        "width": 115.875
+      },
+      {
+        "height": 44,
+        "id": "585573ae-827d-41cf-a0dc-625d1fa578ed",
+        "width": 115.875
+      },
+      {
+        "height": 44,
+        "id": "22fa1c6c-e5c7-4cd7-a39f-be5ce17d606e",
+        "width": 115.875
+      },
+      {
+        "height": 49,
+        "id": "",
+        "width": 236.8046875
+      }
+    ],
+    "cards": [
+      {
+        "height": 385,
+        "width": 398.6640625,
+        "x": 108
+      },
+      {
+        "height": 385,
+        "width": 398.6640625,
+        "x": 520.6640625
+      },
+      {
+        "height": 385,
+        "width": 398.6640625,
+        "x": 933.328125
+      }
+    ],
+    "contentWidth": 1440,
+    "width": 1440
+  },
+  "mobile": {
+    "contentWidth": 390,
+    "width": 390
+  },
+  "initialBlankAttemptRetained": true,
+  "normalReloadRecovered": true,
+  "manualSourceRepair": false
+}

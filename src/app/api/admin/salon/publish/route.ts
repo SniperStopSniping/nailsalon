@@ -1,3 +1,5 @@
+import { hasEditingSetup } from '@/features/business-setup/manual-website.server';
+import { WebsitePublishReadinessError } from '@/features/onboarding-v1-integration/publication-readiness.server';
 import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { hasUnpublishedBookingPageChanges, resolveBookingPageConfig } from '@/libs/bookingPageConfig';
@@ -63,10 +65,16 @@ export async function POST(request: Request) {
 
   // One locked transaction publishes the saved draft and makes it public.
   // Repeated requests leave subsequent unpublished edits and timestamps alone.
+  if (await hasEditingSetup(salon.id)) {
+    return Response.json({ error: { code: 'SETUP_REVIEW_REQUIRED', message: 'Review your website and business setup together before publishing.' } }, { status: 409 });
+  }
   let result;
   try {
     result = await publishWebsite(salon.id);
-  } catch {
+  } catch (error) {
+    if (error instanceof WebsitePublishReadinessError) {
+      return Response.json({ error: { code: error.code, message: error.message } }, { status: 409 });
+    }
     return Response.json(
       { error: { code: 'PUBLISH_FAILED', message: 'Your website could not be published. Your saved setup is safe. Please try again.' } },
       { status: 503 },

@@ -158,4 +158,66 @@ describe('onboarding image transport preparation', () => {
     expect(encode).not.toHaveBeenCalled();
     expect(browser.close).toHaveBeenCalledOnce();
   });
+
+  it('preserves every native pixel of tall artwork instead of applying the photo maximum edge', async () => {
+    browser.decode.mockResolvedValue({ close: browser.close, height: 8_000, orientationApplied: true, source: {} as CanvasImageSource, width: 1_200 });
+    const prepared = await prepareOnboardingMediaUpload(png(8_000_000), 'canva.png', 'artwork');
+
+    expect(canvases[0]).toMatchObject({ width: 1_200, height: 8_000 });
+    expect(encode.mock.calls[0]?.[1]).toBe('image/png');
+    expect(prepared.size).toBeLessThanOrEqual(ONBOARDING_MEDIA_MAX_FILE_BYTES);
+    expect(browser.close).toHaveBeenCalledOnce();
+  });
+
+  it('keeps artwork dimensions for all bounded compression attempts', async () => {
+    browser.decode.mockResolvedValue({ close: browser.close, height: 6_000, orientationApplied: true, source: {} as CanvasImageSource, width: 1_600 });
+    encode.mockImplementationOnce((callback: BlobCallback) => callback(png(4_000_000)));
+    const prepared = await prepareOnboardingMediaUpload(png(8_000_000), 'canva.png', 'artwork');
+
+    expect(canvases).toHaveLength(2);
+    expect(canvases.every(canvas => canvas.width === 1_600 && canvas.height === 6_000)).toBe(true);
+    expect(prepared.type).toBe('image/webp');
+    expect(encode.mock.calls.map(call => call[1])).toEqual(['image/png', 'image/webp']);
+  });
+
+  it('retains transparent artwork when the browser only encodes PNG', async () => {
+    encode.mockImplementation((callback: BlobCallback) => callback(png(1_000_000)));
+    browser.decode.mockResolvedValue({ close: browser.close, height: 4_000, orientationApplied: true, source: {} as CanvasImageSource, width: 1_200 });
+
+    const prepared = await prepareOnboardingMediaUpload(png(8_000_000), 'transparent.png', 'artwork');
+
+    expect(prepared.type).toBe('image/png');
+    expect(canvases[0]).toMatchObject({ width: 1_200, height: 4_000 });
+    expect(encode).toHaveBeenCalledOnce();
+  });
+
+  it('applies EXIF once while preserving full-resolution artwork geometry', async () => {
+    browser.decode.mockResolvedValue({ close: browser.close, height: 1_200, orientationApplied: false, source: {} as CanvasImageSource, width: 6_000 });
+    browser.orientation.mockResolvedValue(6);
+
+    await prepareOnboardingMediaUpload(png(8_000_000), 'rotated.png', 'artwork');
+
+    expect(canvases[0]).toMatchObject({ width: 1_200, height: 6_000 });
+    expect(context.transform).toHaveBeenCalledOnce();
+  });
+
+  it('asks to split an oversized page instead of silently blurring it', async () => {
+    browser.decode.mockResolvedValue({ close: browser.close, height: 8_000, orientationApplied: true, source: {} as CanvasImageSource, width: 1_200 });
+    encode.mockImplementation((callback: BlobCallback) => callback(png(4_000_000)));
+    const original = png(8_000_000);
+
+    await expect(prepareOnboardingMediaUpload(original, 'canva.png', 'artwork')).rejects.toThrow('Export it as separate PNG pages');
+    expect(encode).toHaveBeenCalledTimes(5);
+    expect(canvases.every(canvas => canvas.width === 1_200 && canvas.height === 8_000)).toBe(true);
+    expect(original.size).toBe(8_000_000);
+    expect(browser.close).toHaveBeenCalledOnce();
+  });
+
+  it('rejects artwork over the server pixel bound before attempting full-resolution encoding', async () => {
+    browser.decode.mockResolvedValue({ close: browser.close, height: 7_000, orientationApplied: true, source: {} as CanvasImageSource, width: 6_000 });
+
+    await expect(prepareOnboardingMediaUpload(png(8_000_000), 'canva.png', 'artwork')).rejects.toMatchObject({ code: 'dimensions_too_large' });
+    expect(encode).not.toHaveBeenCalled();
+    expect(browser.close).toHaveBeenCalledOnce();
+  });
 });

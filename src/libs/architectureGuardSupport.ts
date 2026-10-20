@@ -70,18 +70,43 @@ function parse(sourceText: string, repoRelativePath: string): ts.SourceFile {
   return ts.createSourceFile(repoRelativePath, sourceText, ts.ScriptTarget.Latest, true, kind);
 }
 
+type ModuleSyntax = {
+  sourceText: string;
+  useClient: boolean;
+  valueImports: readonly string[];
+};
+
+// Keep only small derived facts, never compiler ASTs. Several guards ask both
+// questions repeatedly for the same immutable source snapshot; reparsing the
+// complete repository for each question dominated the shared CI CPU budget.
+const moduleSyntax = new Map<string, ModuleSyntax>();
+
+function analyzeModule(sourceText: string, repoRelativePath: string): ModuleSyntax {
+  const cached = moduleSyntax.get(repoRelativePath);
+  if (cached?.sourceText === sourceText) {
+    return cached;
+  }
+  const sourceFile = parse(sourceText, repoRelativePath);
+  const first = sourceFile.statements[0];
+  const analysis: ModuleSyntax = {
+    sourceText,
+    useClient: !!first
+      && ts.isExpressionStatement(first)
+      && ts.isStringLiteral(first.expression)
+      && first.expression.text === 'use client',
+    valueImports: collectValueImportSpecifiers(sourceFile),
+  };
+  moduleSyntax.set(repoRelativePath, analysis);
+  return analysis;
+}
+
 /**
  * True when the file's FIRST statement is exactly the `'use client'` (or
  * `"use client"`) directive prologue — the same rule Next.js itself uses to
  * decide a module is client-bundled.
  */
 export function hasUseClientDirective(sourceText: string, repoRelativePath: string): boolean {
-  const sourceFile = parse(sourceText, repoRelativePath);
-  const first = sourceFile.statements[0];
-  return !!first
-    && ts.isExpressionStatement(first)
-    && ts.isStringLiteral(first.expression)
-    && first.expression.text === 'use client';
+  return analyzeModule(sourceText, repoRelativePath).useClient;
 }
 
 /**
@@ -94,7 +119,12 @@ export function hasUseClientDirective(sourceText: string, repoRelativePath: stri
  * Deliberately does not attempt to resolve or dedupe — callers do that.
  */
 export function getValueImportSpecifiers(sourceText: string, repoRelativePath: string): string[] {
-  const sourceFile = parse(sourceText, repoRelativePath);
+  // Preserve the caller-owned array contract so one guard cannot mutate the
+  // cached evidence consumed by another guard.
+  return [...analyzeModule(sourceText, repoRelativePath).valueImports];
+}
+
+function collectValueImportSpecifiers(sourceFile: ts.SourceFile): string[] {
   const specifiers: string[] = [];
 
   for (const statement of sourceFile.statements) {

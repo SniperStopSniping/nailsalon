@@ -1,0 +1,57 @@
+{
+  "status": "local_fix_not_yet_hosted",
+  "regressionSourceSha": "e8b04dfea81e14302b240a2d5018a42333a0d418",
+  "environment": "isolated Preview",
+  "manualOwnerEdit": "Nails, beautifully considered.",
+  "ownerVisualInstruction": "Make the hero illustration larger and let the copper circles overlap it. Make the mobile hero less crowded with more space around the headline. Keep my edited headline, service prices and everything else.",
+  "observedIncorrectGeneratedHeadline": "Nails, quietly confident.",
+  "cause": "The planner quoted older transcript wording instead of the current saved manual edit.",
+  "artifacts": [
+    {
+      "id": "32d70c04-116f-4fa2-8dae-2431ebe53e62",
+      "parentId": null,
+      "sourceHash": "905f755d50b888e241a0ee07196671a261e6891039e0a4d741a913250de8a4af"
+    },
+    {
+      "id": "ee8d57da-e797-4418-9a2c-607a3b4c548c",
+      "parentId": "32d70c04-116f-4fa2-8dae-2431ebe53e62",
+      "sourceHash": "4d355d413974e788c9e88bed8632dc98bc985a2606d7f0697292e8db796dbb52"
+    },
+    {
+      "id": "c2518218-2736-46c1-a25b-99daa0c01bdd",
+      "parentId": "ee8d57da-e797-4418-9a2c-607a3b4c548c",
+      "sourceHash": "a64773b5be56786e2020f91d4ac4bd8762f5f1dd479a52e9d3294087dd2baac9"
+    }
+  ],
+  "firstAndIncorrectModelResultsRetained": true,
+  "badRevisionPublished": false,
+  "manualDeveloperSourceRepair": false,
+  "localRegressionBeforeFix": {
+    "tests": 2,
+    "failed": 2
+  },
+  "localRegressionAfterFix": {
+    "files": 3,
+    "tests": 228,
+    "passed": 228,
+    "skipped": 0,
+    "testLogSha256": "b8d1f36d5a10428a473c08a86dde01a6477baa3bd245d742738515416370ceeb",
+    "realProvider": false
+  },
+  "enforcement": "Current saved editable wording is supplied to the planner; the original owner instruction reaches the designer; an explicit preservation violation enters existing bounded AI repair before any new artifact is saved.",
+  "limitations": [
+    "Real-provider verification of this fix is pending.",
+    "Checks inspect structured static editable text and headings, not arbitrary runtime visual equivalence.",
+    "Earlier original design was text-only; this is not another reference-fidelity trial.",
+    "Native owner manual wording edits are disclosed separately from model output."
+  ],
+  "productionChanged": false,
+  "localChecks": {
+    "typecheck": "passed",
+    "scopedEslint": "passed",
+    "diffCheck": "passed",
+    "productionBuildWithCiPlaceholders": "passed",
+    "realCredentialsInLocalBuild": false,
+    "initialLocalBuildAttempt": "Environment isolation rejected missing runtime marker; corrected to explicit CI with approved synthetic placeholders; guard unchanged."
+  }
+}

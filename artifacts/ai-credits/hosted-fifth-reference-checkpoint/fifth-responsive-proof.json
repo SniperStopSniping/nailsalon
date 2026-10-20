@@ -1,0 +1,114 @@
+{
+  "sourceSha": "1f10deb7de7cdee5a7b8044b4a41b9a6b4699cda",
+  "revision": 77,
+  "checks": [
+    {
+      "bookingControls": [
+        {
+          "height": 48,
+          "width": 206
+        },
+        {
+          "height": 48,
+          "width": 248
+        },
+        {
+          "height": 48,
+          "width": 248
+        },
+        {
+          "height": 48,
+          "width": 248
+        }
+      ],
+      "mobileHoursVisible": true,
+      "mobileMenuHeight": 45,
+      "scrollWidth": 320,
+      "width": 320
+    },
+    {
+      "bookingControls": [
+        {
+          "height": 48,
+          "width": 276
+        },
+        {
+          "height": 48,
+          "width": 318
+        },
+        {
+          "height": 48,
+          "width": 318
+        },
+        {
+          "height": 48,
+          "width": 318
+        }
+      ],
+      "mobileHoursVisible": true,
+      "mobileMenuHeight": 45,
+      "scrollWidth": 390,
+      "width": 390
+    },
+    {
+      "bookingControls": [
+        {
+          "height": 48,
+          "width": 249
+        },
+        {
+          "height": 48,
+          "width": 133
+        },
+        {
+          "height": 48,
+          "width": 133
+        },
+        {
+          "height": 48,
+          "width": 133
+        }
+      ],
+      "mobileHoursVisible": false,
+      "mobileMenuHeight": 0,
+      "scrollWidth": 768,
+      "width": 768
+    },
+    {
+      "bookingControls": [
+        {
+          "height": 48,
+          "width": 384
+        },
+        {
+          "height": 48,
+          "width": 133
+        },
+        {
+          "height": 48,
+          "width": 133
+        },
+        {
+          "height": 48,
+          "width": 133
+        }
+      ],
+      "mobileHoursVisible": false,
+      "mobileMenuHeight": 0,
+      "scrollWidth": 1440,
+      "width": 1440
+    }
+  ],
+  "menuExpandedAfterClick": true,
+  "canonicalContactLinks": [
+    "https://www.instagram.com/luster_ai_test_only/",
+    "mailto:booking@example.test",
+    "tel:+14165550109"
+  ],
+  "privateBookingClickStayedInPreview": true,
+  "firstFinalModelSourcesRetainedPrivately": true,
+  "manualSourceRepair": false,
+  "chromePausedDocumentAttemptRetained": true,
+  "freshChromeTabLoaded": true,
+  "viewportReset": true
+}

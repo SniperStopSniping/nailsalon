@@ -1,0 +1,32 @@
+{
+  "sourceSha": "844ef5e684ca76fe63eddc0971391b546054ef09",
+  "name": "hero-redesign",
+  "exactPrompt": "Completely redesign the hero. Keep my services, gallery and contact details.",
+  "scope": "website",
+  "beforeRevision": 43,
+  "afterRevision": 44,
+  "status": "completed",
+  "elapsedMs": 97994,
+  "calls": [
+    {
+      "id": "7d87bf1e-7d4c-4dfc-aad1-1969e3226e6b",
+      "operation_id": "63c5aace-0145-48c9-b166-79575bc4cbaf",
+      "ordinal": 0,
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "input_tokens": 14212,
+      "output_tokens": 5394,
+      "cost_micro_usd": 89469,
+      "elapsed_ms": 94941,
+      "validation": "passed"
+    }
+  ],
+  "manualSourceRepair": false,
+  "published": false,
+  "artifactId": "61949172-38d5-4b2a-856b-5842e7e852a8",
+  "sourceHash": "a845735790fdfcdb733b2078da3be6863b950e8ac9783ca5fcc49260937e7381",
+  "businessAndHistoricalAppointmentsPreserved": true,
+  "historicalAppointments": 4,
+  "bothPhotosUsed": true
+}

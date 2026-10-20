@@ -1,0 +1,976 @@
+{
+  "calls": [
+    {
+      "id": "dd71916b-5ba4-4e35-be50-0c6c55aab7b1",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 4906,
+      "output_tokens": 618,
+      "elapsed_ms": 6757,
+      "cost_micro_usd": 923,
+      "reserved_micro_usd": 2325,
+      "charged_micro_cad": 1846,
+      "created_at": "2026-10-18T06:39:00.213Z"
+    },
+    {
+      "id": "c841a336-c8b4-4cfc-80fb-13ee91c0eefa",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 5459,
+      "output_tokens": 420,
+      "elapsed_ms": 4892,
+      "cost_micro_usd": 893,
+      "reserved_micro_usd": 2401,
+      "charged_micro_cad": 1786,
+      "created_at": "2026-10-18T06:57:38.894Z"
+    },
+    {
+      "id": "19b28b8c-f333-41fc-b70f-c637b67009de",
+      "model": "gpt-6.1-sol",
+      "status": "pending",
+      "validation": "unchecked",
+      "input_tokens": null,
+      "output_tokens": null,
+      "elapsed_ms": null,
+      "cost_micro_usd": null,
+      "reserved_micro_usd": 159311,
+      "charged_micro_cad": 318622,
+      "created_at": "2026-10-18T06:57:44.066Z"
+    },
+    {
+      "id": "fa343fb9-2ac3-4e09-8b8d-9ab8dec1b14d",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 5597,
+      "output_tokens": 364,
+      "elapsed_ms": 4942,
+      "cost_micro_usd": 255,
+      "reserved_micro_usd": 2420,
+      "charged_micro_cad": 510,
+      "created_at": "2026-10-18T07:03:55.264Z"
+    },
+    {
+      "id": "e8f7e2fc-65e5-49ae-b02a-04e8f5ede011",
+      "model": "gpt-6.1-sol",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 1916,
+      "output_tokens": 5741,
+      "elapsed_ms": 103418,
+      "cost_micro_usd": 57869,
+      "reserved_micro_usd": 159269,
+      "charged_micro_cad": 115738,
+      "created_at": "2026-10-18T07:04:00.514Z"
+    },
+    {
+      "id": "364d308c-b640-444d-97c3-a3ebcdbffea7",
+      "model": "gpt-6-luna",
+      "status": "completed",
+      "validation": "passed",
+      "input_tokens": 5968,
+      "output_tokens": 748,
+      "elapsed_ms": 8503,
+      "cost_micro_usd": 1120,
+      "reserved_micro_usd": 2471,
+      "charged_micro_cad": 2240,
+      "created_at": "2026-10-18T07:11:45.452Z"
+    }
+  ],
+  "appointments": [
+    {
+      "id": "appt_51eb6dcb-0cf4-4e18-bf9f-3e8f616dd140",
+      "total_price": 7500,
+      "total_duration_minutes": 90,
+      "artist": "Synthetic Owner",
+      "local_start": "2026-10-21 10:00",
+      "local_end": "2026-10-21 11:30",
+      "local_day": 3
+    },
+    {
+      "id": "appt_a6d6d829-e345-4a53-b62d-c07d3091054e",
+      "total_price": 7500,
+      "total_duration_minutes": 90,
+      "artist": "Ava",
+      "local_start": "2026-10-23 11:00",
+      "local_end": "2026-10-23 12:30",
+      "local_day": 5
+    }
+  ],
+  "staff": [
+    {
+      "id": "552ae26f-deac-4121-9527-be99f0b37c2a",
+      "name": "Ava",
+      "service": "BIAB",
+      "enabled": true
+    },
+    {
+      "id": "552ae26f-deac-4121-9527-be99f0b37c2a",
+      "name": "Ava",
+      "service": "Gel Manicure",
+      "enabled": false
+    },
+    {
+      "id": "25e59877-2ae4-48fc-b607-ff0998acf4a5",
+      "name": "Synthetic Owner",
+      "service": "BIAB",
+      "enabled": true
+    },
+    {
+      "id": "25e59877-2ae4-48fc-b607-ff0998acf4a5",
+      "name": "Synthetic Owner",
+      "service": "Gel Manicure",
+      "enabled": true
+    }
+  ],
+  "budget": {
+    "cap_micro_cad": 11384406,
+    "charged_micro_cad": "9188378",
+    "pending": "1"
+  },
+  "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+  "revisions": {
+    "generated": 3,
+    "firstPublished": 5,
+    "editCurrentBusiness": 6,
+    "teamAndRulesPublished": 7
+  },
+  "provider": "OpenAI",
+  "funding": "Synthetic CAD10 recovery credits; no real Stripe purchase.",
+  "manualGeneratedSourceRepair": false,
+  "rawOutputsAndRecordings": "Private local retention outside Git.",
+  "buildProofs": [
+    {
+      "sha": "108a44da8425fe49f1d71d6f64a29dcac8981201",
+      "nodeVersion": "v22.23.2",
+      "build": {
+        "code": 0,
+        "signal": null,
+        "completedAt": "2026-10-18T07:04:07.843Z"
+      },
+      "secretScan": {
+        "exitCode": 0,
+        "summary": "Secret leak scan passed (4640 tracked files, 599 generated files, 0 reviewed commits).",
+        "trackedFiles": 4640,
+        "generatedFiles": 599,
+        "publicFiles": 617,
+        "publicBytes": 8988353,
+        "serverCanaryMatches": 0,
+        "invocationValidated": true
+      }
+    },
+    {
+      "sha": "6a3cbb08267a1d3f85651f072d2bd6999b08cb85",
+      "nodeVersion": "v22.23.2",
+      "build": {
+        "code": 0,
+        "signal": null,
+        "completedAt": "2026-10-18T07:14:43.146Z"
+      },
+      "secretScan": {
+        "exitCode": 0,
+        "summary": "Secret leak scan passed (4642 tracked files, 599 generated files, 0 reviewed commits).",
+        "trackedFiles": 4642,
+        "generatedFiles": 599,
+        "publicFiles": 617,
+        "publicBytes": 8991076,
+        "serverCanaryMatches": 0,
+        "invocationValidated": true
+      }
+    }
+  ],
+  "runs": [
+    {
+      "run": "2026-10-18T06-56-47-758Z-message",
+      "step": "message",
+      "status": "failed",
+      "browser": "chromium",
+      "optimizedHttps": false,
+      "beforeRevision": 2,
+      "afterRevision": 2,
+      "artifactId": null,
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "serverProbes": [],
+      "failure": "Owner request did not finish. Inspect retained evidence; do not blindly re-send a paid request."
+    },
+    {
+      "run": "2026-10-18T07-03-05-192Z-message",
+      "step": "message",
+      "status": "failed",
+      "browser": "chromium",
+      "optimizedHttps": false,
+      "beforeRevision": 2,
+      "afterRevision": 3,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 553
+          }
+        },
+        {
+          "device": "mobile",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 509.46875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        }
+      ],
+      "serverProbes": [],
+      "failure": "expect(locator).toHaveAttribute(expected) failed"
+    },
+    {
+      "run": "2026-10-18T07-07-07-971Z-preview",
+      "step": "preview",
+      "status": "passed",
+      "browser": "webkit",
+      "optimizedHttps": true,
+      "beforeRevision": 3,
+      "afterRevision": 3,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "paidAiSending": "disabled"
+        },
+        {
+          "device": "desktop",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 553
+          }
+        },
+        {
+          "device": "desktop",
+          "secureContext": true,
+          "parentCookies": "blocked",
+          "frameStorage": "blocked",
+          "connectSrcViolation": true
+        },
+        {
+          "device": "mobile",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 507
+          }
+        },
+        {
+          "device": "mobile",
+          "secureContext": true,
+          "parentCookies": "blocked",
+          "frameStorage": "blocked",
+          "connectSrcViolation": true
+        },
+        {
+          "browserName": "webkit",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "webkit",
+          "keyboardMenu": "passed"
+        },
+        {
+          "browserName": "webkit",
+          "reducedMotion": "passed"
+        }
+      ],
+      "serverProbes": [],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-07-07-977Z-preview",
+      "step": "preview",
+      "status": "passed",
+      "browser": "chromium",
+      "optimizedHttps": false,
+      "beforeRevision": 3,
+      "afterRevision": 3,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 553
+          }
+        },
+        {
+          "device": "mobile",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 509.46875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "keyboardMenu": "passed"
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "serverProbes": [],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-07-43-113Z-publish",
+      "step": "publish",
+      "status": "passed",
+      "browser": "chromium",
+      "optimizedHttps": true,
+      "beforeRevision": 3,
+      "afterRevision": 5,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "paidAiSending": "disabled"
+        }
+      ],
+      "serverProbes": [],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-08-06-512Z-book",
+      "step": "book",
+      "status": "passed",
+      "browser": "webkit",
+      "optimizedHttps": true,
+      "beforeRevision": 5,
+      "afterRevision": 5,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 2,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "ee62b21b-6f29-46d4-968d-29348255e3c4",
+          "serviceName": "BIAB",
+          "targetWidth": 95.5,
+          "targetHeight": 35
+        }
+      ],
+      "serverProbes": [
+        {
+          "kind": "virtual-preview-service-rejected",
+          "status": 400,
+          "code": "INVALID_SELECTION"
+        }
+      ],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-08-35-686Z-start-editing",
+      "step": "start-editing",
+      "status": "passed",
+      "browser": "chromium",
+      "optimizedHttps": true,
+      "beforeRevision": 5,
+      "afterRevision": 6,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "serverProbes": [],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-11-29-945Z-message",
+      "step": "message",
+      "status": "failed",
+      "browser": "chromium",
+      "optimizedHttps": false,
+      "beforeRevision": 6,
+      "afterRevision": 7,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "serverProbes": [],
+      "failure": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "run": "2026-10-18T07-13-57-590Z-preview",
+      "step": "preview",
+      "status": "passed",
+      "browser": "chromium",
+      "optimizedHttps": false,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "proposedStaffAssignments": true,
+          "proposedBookingRules": true,
+          "availabilityExplicitlySimulated": true
+        },
+        {
+          "device": "desktop",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 553
+          }
+        },
+        {
+          "device": "mobile",
+          "proposedStaffAssignments": true,
+          "proposedBookingRules": true,
+          "availabilityExplicitlySimulated": true
+        },
+        {
+          "device": "mobile",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 509.46875
+          }
+        },
+        {
+          "browserName": "chromium",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "chromium",
+          "keyboardMenu": "passed"
+        },
+        {
+          "browserName": "chromium",
+          "reducedMotion": "passed"
+        }
+      ],
+      "serverProbes": [],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-14-42-957Z-publish",
+      "step": "publish",
+      "status": "passed",
+      "browser": "chromium",
+      "optimizedHttps": false,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "serverProbes": [],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-15-15-976Z-preview",
+      "step": "preview",
+      "status": "passed",
+      "browser": "webkit",
+      "optimizedHttps": true,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "device": "desktop",
+          "proposedStaffAssignments": true,
+          "proposedBookingRules": true,
+          "availabilityExplicitlySimulated": true
+        },
+        {
+          "device": "desktop",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "desktop",
+          "heroGeometry": {
+            "width": 1440,
+            "height": 553
+          }
+        },
+        {
+          "device": "desktop",
+          "secureContext": true,
+          "parentCookies": "blocked",
+          "frameStorage": "blocked",
+          "connectSrcViolation": true
+        },
+        {
+          "device": "mobile",
+          "proposedStaffAssignments": true,
+          "proposedBookingRules": true,
+          "availabilityExplicitlySimulated": true
+        },
+        {
+          "device": "mobile",
+          "realGeneratedTypography": [
+            {
+              "family": "Luster Sans v1",
+              "faces": [
+                {
+                  "family": "Luster Sans v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Serif v1",
+              "faces": [
+                {
+                  "family": "Luster Serif v1",
+                  "status": "loaded"
+                }
+              ]
+            },
+            {
+              "family": "Luster Script v1",
+              "faces": [
+                {
+                  "family": "Luster Script v1",
+                  "status": "loaded"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "device": "mobile",
+          "heroGeometry": {
+            "width": 390,
+            "height": 507
+          }
+        },
+        {
+          "device": "mobile",
+          "secureContext": true,
+          "parentCookies": "blocked",
+          "frameStorage": "blocked",
+          "connectSrcViolation": true
+        },
+        {
+          "browserName": "webkit",
+          "animatedElements": 0
+        },
+        {
+          "browserName": "webkit",
+          "keyboardMenu": "passed"
+        },
+        {
+          "browserName": "webkit",
+          "reducedMotion": "passed"
+        }
+      ],
+      "serverProbes": [],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-15-15-976Z-staff-eligibility",
+      "step": "staff-eligibility",
+      "status": "failed",
+      "browser": "webkit",
+      "optimizedHttps": true,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [],
+      "serverProbes": [],
+      "failure": "expect(page).toHaveURL(expected) failed"
+    },
+    {
+      "run": "2026-10-18T07-16-12-445Z-staff-eligibility",
+      "step": "staff-eligibility",
+      "status": "passed",
+      "browser": "webkit",
+      "optimizedHttps": true,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "service": "Gel Manicure",
+          "eligibleStaff": "Synthetic Owner",
+          "excludedStaff": "Ava",
+          "autoSelectedSoleEligibleArtist": true,
+          "noAppointmentSubmitted": true
+        }
+      ],
+      "serverProbes": [],
+      "failure": null
+    },
+    {
+      "run": "2026-10-18T07-16-44-151Z-book",
+      "step": "book",
+      "status": "failed",
+      "browser": "webkit",
+      "optimizedHttps": true,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingSubmissionCount": 0,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "ee62b21b-6f29-46d4-968d-29348255e3c4",
+          "serviceName": "BIAB",
+          "targetWidth": 95.5,
+          "targetHeight": 35
+        }
+      ],
+      "serverProbes": [],
+      "failure": "locator.click: Error: strict mode violation: getByRole('button', { name: 'Ava' }) resolved to 2 elements:"
+    },
+    {
+      "run": "2026-10-18T07-17-44-601Z-book",
+      "step": "book",
+      "status": "passed",
+      "browser": "webkit",
+      "optimizedHttps": true,
+      "beforeRevision": 7,
+      "afterRevision": 7,
+      "artifactId": "b6c0b811-6095-4866-8174-a5d32298c60c",
+      "bookingResponseStatus": 201,
+      "bookingSubmissionCount": 2,
+      "interactionChecks": [
+        {
+          "originalBooking": true,
+          "preservedCanva": false,
+          "serviceId": "ee62b21b-6f29-46d4-968d-29348255e3c4",
+          "serviceName": "BIAB",
+          "targetWidth": 95.5,
+          "targetHeight": 35
+        },
+        {
+          "originalBooking": true,
+          "selectedStaff": "Ava",
+          "staffEligibilityVerified": true
+        }
+      ],
+      "serverProbes": [
+        {
+          "kind": "virtual-preview-service-rejected",
+          "status": 400,
+          "code": "INVALID_SELECTION"
+        }
+      ],
+      "failure": null
+    }
+  ],
+  "policyAcknowledgments": [
+    {
+      "appointment_id": "appt_51eb6dcb-0cf4-4e18-bf9f-3e8f616dd140",
+      "policy_title_snapshot": "Appointment agreement",
+      "policy_text_snapshot": "Please arrive on time. If you need to cancel, use your booking link or contact the salon as soon as possible.",
+      "acknowledgment_text_snapshot": "I agree to arrive on time and cancel promptly if I can’t attend.",
+      "source": "public_booking"
+    },
+    {
+      "appointment_id": "appt_a6d6d829-e345-4a53-b62d-c07d3091054e",
+      "policy_title_snapshot": "Visit agreement",
+      "policy_text_snapshot": "Please come alone.",
+      "acknowledgment_text_snapshot": "I agree to the Visit agreement.",
+      "source": "public_booking"
+    }
+  ],
+  "verificationNotes": [
+    "The first SQL observer wrongly expected no earlier agreement row. The original booking had accepted Luster’s existing default agreement; that snapshot remains intact. The later booking accepted the newly approved Visit agreement. No database data was repaired."
+  ]
+}

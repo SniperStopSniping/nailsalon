@@ -5,6 +5,7 @@ import type { BookingEmailFinancialSummary } from './bookingEmailFinancialSummar
 
 const { create, isSmsEnabled, twilio, db, queueSelectResults, enqueue, eligible } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
+  const create = vi.fn(async (_input: { body: string }) => ({ sid: 'SM_referral' }));
   const query = {
     from: vi.fn(() => query),
     where: vi.fn(() => query),
@@ -14,12 +15,12 @@ const { create, isSmsEnabled, twilio, db, queueSelectResults, enqueue, eligible 
 
   return {
     enqueue: vi.fn(async () => ({ intentId: 'ci_test', created: true })),
-    create: vi.fn(async (_input: { body: string }) => ({ sid: 'SM_referral' })),
+    create,
     isSmsEnabled: vi.fn(),
     eligible: vi.fn(),
     twilio: vi.fn(() => ({
       messages: {
-        create: vi.fn(async () => ({ sid: 'SM_referral' })),
+        create,
       },
     })),
     db: {

@@ -1,3 +1,5 @@
+import type { EventEmitter } from 'node:events';
+
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
@@ -53,6 +55,7 @@ const mocks = vi.hoisted(() => ({
   },
   savePlan: vi.fn(),
   publish: vi.fn(),
+  prepareArtwork: vi.fn(),
   status: vi.fn(),
   signIn: { authenticateWithRedirect: vi.fn(), create: vi.fn() },
   signUp: { create: vi.fn(), prepareEmailAddressVerification: vi.fn() },
@@ -106,6 +109,7 @@ vi.mock('./client', async (importOriginal) => {
   return {
     ...actual,
     claimOnboardingDraft: (...args: unknown[]) => mocks.claim(...args),
+    prepareOnboardingCanva: (...args: unknown[]) => mocks.prepareArtwork(...args),
     getOnboardingDraftClaimStatus: (...args: unknown[]) => mocks.status(...args),
     resolveOnboardingOrganization: vi.fn(),
     saveOnboardingPlanIntent: (...args: unknown[]) => mocks.savePlan(...args),
@@ -208,6 +212,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.claimMedia.mockReset();
     mocks.cleanupMedia.mockReset();
     mocks.savePlan.mockReset();
+    mocks.prepareArtwork.mockReset();
     mocks.publish.mockReset().mockResolvedValue({ publicationStatus: 'published' });
     mocks.status.mockReset().mockResolvedValue({ claim: null });
     mocks.signIn.create.mockReset();
@@ -917,7 +922,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.userState.user = verifiedClerkUser();
     mocks.status.mockResolvedValue({ claim: savedSite });
     mocks.savePlan.mockResolvedValue({ intent: 'founding_interest', siteId: savedSite.siteId });
-    mocks.publish.mockRejectedValueOnce(new Error('Your website could not be published. Your saved setup is safe. Please try again.'));
+    mocks.publish.mockRejectedValueOnce(new Error('We could not confirm that your website is live. Your saved setup is safe. Please try again.'));
     const flow = { ...createOnboardingIntegrationFlow(), phase: 'plans' as const, savedSite, savedSiteOwnerId: 'user-owner' };
     saveOnboardingIntegrationFlow(flow);
     const originalToken = loadOnboardingState().state.anonymousDraftId;
@@ -925,7 +930,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
 
-    expect(await screen.findByText('Your website could not be published. Your saved setup is safe. Please try again.')).toBeVisible();
+    expect(await screen.findByText('Your free lifetime plan is saved. We could not confirm that your website is live. Your saved setup is safe. Please try again.')).toBeVisible();
     expect(loadOnboardingState().state.anonymousDraftId).toBe(originalToken);
     expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
     expect(navigationErrors).not.toHaveBeenCalled();
@@ -940,10 +945,52 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claim).not.toHaveBeenCalled();
   });
 
+  it('does not claim a plan was saved when its request failed before publication', async () => {
+    const user = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    mocks.savePlan.mockRejectedValueOnce(new Error('Your plan choice could not be saved.'));
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite, savedSiteOwnerId: 'user-owner' });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Publish my website & open dashboard' }));
+
+    expect(await screen.findByText('Your plan choice could not be saved.')).toBeVisible();
+    expect(screen.queryByText(/Your free lifetime plan is saved/u)).not.toBeInTheDocument();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
+  });
+
   it('retains the same saved site and plan retry key when dashboard navigation is interrupted', async () => {
     const user = userEvent.setup();
-    const navigationErrors = vi.spyOn(console, 'error').mockImplementation(() => {});
-    onTestFinished(() => navigationErrors.mockRestore());
+    // Observe jsdom's error event directly: its console forwarding may retain
+    // the original console method before Vitest installs this test's spy.
+    const navigationErrors: Error[] = [];
+    const expectedNavigationError = 'Error: Not implemented: navigation (except hash changes)';
+    const originalConsoleError = console.error;
+    // Older jsdom forwards through the current console.error; newer versions
+    // may retain the original method. Allow only this test's expected warning
+    // on either graph. Unexpected console errors still reach fail-on-console.
+    const forwardedNavigationErrors: unknown[][] = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+      if (args.length <= 2 && args.slice(1).every(value => value === undefined) && String(args[0]).split('\n')[0] === expectedNavigationError) {
+        forwardedNavigationErrors.push(args);
+        return;
+      }
+      originalConsoleError(...args);
+    });
+    onTestFinished(() => {
+      errorSpy.mockRestore();
+    });
+    const virtualConsole = (globalThis as typeof globalThis & {
+      jsdom: { virtualConsole: EventEmitter };
+    }).jsdom.virtualConsole;
+    const recordNavigationError = (error: Error) => navigationErrors.push(error);
+    virtualConsole.on('jsdomError', recordNavigationError);
+    onTestFinished(() => {
+      virtualConsole.off('jsdomError', recordNavigationError);
+    });
     mocks.auth.isSignedIn = true;
     mocks.userState.user = verifiedClerkUser();
     mocks.status.mockResolvedValue({ claim: savedSite });
@@ -992,11 +1039,12 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
       siteId: savedSite.siteId,
     });
     expect(mocks.claim).not.toHaveBeenCalled();
-    expect(navigationErrors).toHaveBeenCalledTimes(2);
-    expect(navigationErrors.mock.calls.map(([error]) => String(error).split('\n')[0])).toEqual([
-      'Error: Not implemented: navigation (except hash changes)',
-      'Error: Not implemented: navigation (except hash changes)',
+    expect(navigationErrors).toHaveLength(2);
+    expect(navigationErrors.map(error => String(error).split('\n')[0])).toEqual([
+      expectedNavigationError,
+      expectedNavigationError,
     ]);
+    expect([0, 2]).toContain(forwardedNavigationErrors.length);
   });
 
   it('continues past a failed cover upload without retrying or losing the saved site', async () => {
@@ -1016,10 +1064,10 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     });
 
     const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
-    await user.click(await screen.findByRole('button', { name: 'Continue with my site saved' }));
+    await user.click(await screen.findByRole('button', { name: 'Continue with saved details' }));
 
     expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
-    expect(screen.getByText(/photos listed earlier remain only on this device/u)).toBeVisible();
+    expect(screen.getByText(/images listed earlier are still only on this device/u)).toBeVisible();
 
     view.unmount();
     render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
@@ -1049,11 +1097,11 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(await screen.findByRole('heading', {
       level: 1,
-      name: 'Some photos still need attention',
+      name: 'Some images still need saving',
     })).toBeVisible();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole('button', { name: 'Retry photos' }));
+    await user.click(screen.getByRole('button', { name: 'Retry images' }));
 
     expect(await screen.findByRole('heading', {
       level: 1,
@@ -1061,5 +1109,90 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     })).toBeVisible();
     expect(mocks.claim).toHaveBeenCalledTimes(1);
     expect(mocks.claimMedia).toHaveBeenCalledTimes(2);
+  });
+
+  it('resumes and retries an unsaved Canva image without reclaiming or publishing the saved draft', async () => {
+    const user = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    mocks.claimMedia.mockResolvedValue({
+      failures: [{
+        assetId: 'canva-page',
+        fileName: 'my-design.png',
+        message: 'One Canva page could not be saved. Your local copy is still safe.',
+        role: 'custom_design',
+      }],
+      verifiedRevision: 1,
+    });
+
+    const firstView = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { name: 'Some images still need saving' })).toBeVisible();
+    expect(screen.getByText(/saved as a private draft/u)).toBeVisible();
+    expect(screen.getByText('my-design.png')).toBeVisible();
+
+    const firstMediaInput = mocks.claimMedia.mock.calls[0]?.[0];
+
+    firstView.unmount();
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await user.click(await screen.findByRole('button', { name: 'Retry images' }));
+
+    expect(await screen.findByRole('heading', { name: 'Some images still need saving' })).toBeVisible();
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(mocks.claimMedia).toHaveBeenCalledTimes(2);
+    expect(mocks.claimMedia.mock.calls[1]?.[0]).toMatchObject({
+      idempotencyKey: firstMediaInput.idempotencyKey,
+      siteId: savedSite.siteId,
+      siteRevision: savedSite.revision,
+    });
+    expect(loadOnboardingIntegrationFlow()).toMatchObject({
+      mediaComplete: false,
+      mediaFailures: [expect.objectContaining({ assetId: 'canva-page', role: 'custom_design' })],
+      phase: 'media_failure',
+      savedSite: { siteId: savedSite.siteId },
+    });
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.savePlan).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with saved details' }));
+
+    expect(await screen.findByRole('heading', { name: 'Lock in Luster free for life' })).toBeVisible();
+    expect(screen.getByText(/images listed earlier are still only on this device/u)).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Publish my website & open dashboard' }));
+
+    expect(await screen.findByText('Your images have not finished saving. Select Edit my site and save them before publishing.')).toBeVisible();
+    expect(mocks.savePlan).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('sends a saved Canva design to exact review rather than publishing it through the basic page path', async () => {
+    const user = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const canvaSite = { ...savedSite, requiresArtworkReview: true };
+    mocks.status.mockResolvedValue({ claim: canvaSite });
+    mocks.savePlan.mockResolvedValue({ intent: 'founding_interest', siteId: savedSite.siteId });
+    let reject!: (error: Error) => void;
+    mocks.prepareArtwork.mockImplementationOnce(() => new Promise((_, fail) => {
+      reject = fail;
+    }));
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite: canvaSite, savedSiteOwnerId: 'user-owner' });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await user.click(await screen.findByRole('button', { name: 'Review & publish my Canva website' }));
+
+    expect(await screen.findByRole('button', { name: 'Preparing your Canva design…' })).toBeDisabled();
+    expect(mocks.prepareArtwork).toHaveBeenCalledWith({ siteId: savedSite.siteId, expectedRevision: savedSite.revision });
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    await act(async () => {
+      reject(new Error('Check your design links before continuing.'));
+    });
+
+    expect(await screen.findByText('Your free lifetime plan is saved. Check your design links before continuing.')).toBeVisible();
+    expect(loadOnboardingIntegrationFlow().savedSite!.siteId).toBe(savedSite.siteId);
+    expect(mocks.publish).not.toHaveBeenCalled();
   });
 });

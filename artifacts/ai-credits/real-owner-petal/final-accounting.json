@@ -1,0 +1,30 @@
+{
+  "reservations": [
+    {
+      "status": "settled",
+      "count": 7
+    }
+  ],
+  "localCapMicroCad": 11384406,
+  "localChargedOrReservedMicroCad": 6891168,
+  "appointments": [
+    {
+      "id": "appt_1aa7068e-3f4a-45d0-928c-75374ed0111c",
+      "total_price": 6500,
+      "total_duration_minutes": 75,
+      "blocked_duration_minutes": 85,
+      "technician_id": "4082fb28-60a7-4c6a-8080-ab0985180a48"
+    },
+    {
+      "id": "appt_0ee7eb26-0bf6-48ae-a8ef-2a578441173e",
+      "total_price": 6500,
+      "total_duration_minutes": 75,
+      "blocked_duration_minutes": 85,
+      "technician_id": "4082fb28-60a7-4c6a-8080-ab0985180a48"
+    }
+  ],
+  "remoteChargedOrReservedMicroCad": 33877748,
+  "remoteCapMicroCad": 68615594,
+  "combinedCapMicroCad": 80000000,
+  "combinedChargedOrReservedMicroCad": 40768916
+}

@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { createRequire } from 'node:module';
 import net from 'node:net';
-import path from 'node:path';
 import test from 'node:test';
 import { setImmediate } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
-import { compileFunction } from 'node:vm';
 
 import { getPublicSentryRuntimeConfig } from '../src/libs/sentry/runtime.ts';
 
@@ -46,46 +42,41 @@ test('Node 24 monitoring parses request URLs and preserves private-data scrubbin
   });
 
   // Resolve through the app SDK, including a nested dependency if npm puts it
-  // there. A separate top-level instrumentation copy is not sufficient proof.
+  // there. Sentry 10 owns HTTP instrumentation and URL parsing through its
+  // supported SDK APIs; it no longer ships OTel's instrumentation-http module.
   const require = createRequire(import.meta.url);
   const nextRequire = createRequire(require.resolve('@sentry/nextjs'));
   const nodeRequire = createRequire(nextRequire.resolve('@sentry/node'));
-  const httpRequire = createRequire(nodeRequire.resolve('@opentelemetry/instrumentation-http'));
-  const utilityPath = httpRequire.resolve('./utils.js');
-  const utilityModule = { exports: {} };
-  // Node 24 excludes code inside node_modules from application deprecations,
-  // even with --pending-deprecation. Execute the exact installed utility with
-  // its real dependency resolution but an application-bundle source location.
-  // No source is rewritten and the installed package is never modified.
-  compileFunction(readFileSync(utilityPath, 'utf8'), ['exports', 'require', 'module', '__filename', '__dirname'], {
-    filename: fileURLToPath(new URL('./monitoring-http-fixture.cjs', import.meta.url)),
-  })(utilityModule.exports, createRequire(utilityPath), utilityModule, utilityPath, path.dirname(utilityPath));
-  const { getIncomingRequestAttributes } = utilityModule.exports;
-  const logger = { verbose() {}, debug() {}, warn() {}, error() {}, info() {} };
+  sentry = nextRequire('@sentry/node');
+  const core = nodeRequire('@sentry/core');
+  const defaultIntegrations = sentry.getDefaultIntegrations({});
+  assert.ok(defaultIntegrations.some(integration => integration.name === 'Http'), 'Sentry HTTP instrumentation must be enabled');
+  assert.equal(typeof core.parseStringToURLObject, 'function', 'Sentry must expose its current URL parser');
   const paths = ['/', '/api/health', '/api/public/customer-booking/check?token=synthetic-only', '/salon/menu?category=gel&extra=1', '/set%20care'];
 
-  for (const component of ['http', 'https']) {
+  for (const protocol of ['http', 'https']) {
     for (const url of paths) {
-      await t.test(`${component} request ${url}`, () => {
-        const attributes = getIncomingRequestAttributes({
-          headers: { 'host': 'example.invalid', 'user-agent': 'synthetic-review' },
-          method: 'GET',
+      await t.test(`Sentry normalizes ${protocol} request URL ${url}`, () => {
+        const request = core.httpRequestToRequestData({
           url,
-          httpVersion: '1.1',
-          socket: { remoteAddress: '127.0.0.1', remotePort: 12345, localAddress: '127.0.0.1', localPort: component === 'http' ? 80 : 443 },
-        }, { component }, logger);
-
-        assert.equal(attributes['http.target'], url);
-        assert.equal(attributes['http.url'], `${component}://example.invalid${url}`);
-        assert.equal(attributes['http.method'], 'GET');
+          method: 'GET',
+          headers: { host: 'example.invalid' },
+          socket: { encrypted: protocol === 'https' },
+        });
+        assert.equal(request.url, `${protocol}://example.invalid${url}`);
+        assert.equal(request.method, 'GET');
+        for (const input of [url, request.url]) {
+          const parsed = core.parseStringToURLObject(input);
+          assert.ok(parsed);
+          assert.equal(parsed.pathname, url.split(/[?#]/, 1)[0]);
+          assert.equal(parsed.search, url.includes('?') ? `?${url.split('?')[1].split('#')[0]}` : '');
+        }
       });
     }
   }
   await setImmediate();
   assert.ok(!warnings.includes('DEP0169'), 'The installed monitoring dependency still calls deprecated URL parsing');
 
-  sentry = nextRequire('@sentry/node');
-  const core = nodeRequire('@sentry/core');
   const envelopes = [];
   let pendingCheckInDelivery;
   sentry.init({

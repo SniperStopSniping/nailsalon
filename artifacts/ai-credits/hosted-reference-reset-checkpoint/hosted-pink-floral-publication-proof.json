@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "sourceSha": "f7389730d3daf4ee7898fb767a76bf6eb3437ada",
+  "name": "pink-floral",
+  "actualOwnerUi": true,
+  "revision": 54,
+  "artifactId": "864bd04e-a47f-4b10-b96c-8615a7269eb8",
+  "exactRevisionApproved": true,
+  "receipts": [
+    {
+      "revision": 54,
+      "approved_revision": 54,
+      "media_finalized": true
+    }
+  ],
+  "publishReplayStatus": 200,
+  "old49ReplayStatus": 200,
+  "newerLiveRevisionPreservedAfterOldRetry": true,
+  "allCanonicalServicesPricesDurationsAndSettingsUnchanged": true,
+  "historicalAppointmentsPreserved": 5,
+  "newAiCalls": 0,
+  "productionTouched": false
+}
