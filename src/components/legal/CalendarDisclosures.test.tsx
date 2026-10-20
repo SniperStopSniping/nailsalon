@@ -33,7 +33,7 @@ describe('public Calendar disclosures', () => {
   });
 
   it.each([
-    { Page: PrivacyPage, reviewDate: 'October 19, 2026' },
+    { Page: PrivacyPage, reviewDate: 'October 20, 2026' },
     { Page: TermsPage, reviewDate: 'October 10, 2026' },
   ])('retains public navigation, support and the review date', ({ Page, reviewDate }) => {
     render(<Page />);

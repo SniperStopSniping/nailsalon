@@ -11,7 +11,7 @@ export default function PrivacyPage() {
   return (
     <LusterLegalPage
       title="Privacy Policy"
-      updated="October 19, 2026"
+      updated="October 20, 2026"
       intro="Luster provides free salon booking and CRM tools for nail professionals. This policy explains the information we process to operate booking pages, owner workspaces, appointment communications, and optional integrations."
       sections={[
         {
@@ -53,6 +53,15 @@ export default function PrivacyPage() {
           ],
         },
         {
+          title: 'Optional AI assistants',
+          paragraphs: [
+            'Where a salon enables an AI booking assistant or AI phone receptionist, Luster uses OpenAI to process the conversation, relevant booking context, and offered appointment times so the assistant can answer questions and help arrange a booking. For phone conversations, this includes processing call audio and transcripts.',
+            'Available appointment times are calculated from salon schedules and bookings, including conflicts on connected Google Calendars. Those calculated times may be included in the AI conversation context or responses. These availability results do not include Google event titles, descriptions, locations, attendee details, or OAuth credentials.',
+            'Luster does not use Google user data to train generalized artificial intelligence or machine learning models. For text-based assistants, Luster requests that OpenAI not store responses as application state. This does not disable the provider’s separate security and abuse-prevention retention, which follows its applicable API data controls. Disconnecting Google does not itself erase previous conversations or provider records; deletion requests can be sent to support@lustergel.app.',
+            'Customers can use the standard online booking flow without starting an AI assistant.',
+          ],
+        },
+        {
           title: 'How information is used',
           paragraphs: [
             'Information is used to provide bookings, salon CRM tools, reminders, appointment management links, security, support, and integration health. Luster product marketing to owners requires separate consent.',
@@ -61,7 +70,7 @@ export default function PrivacyPage() {
         {
           title: 'Service providers and retention',
           paragraphs: [
-            'Luster uses infrastructure and account, email, Calendar, and optional messaging providers only as needed to operate the service. Access tokens, passwords, session cookies, and appointment capability tokens are never exposed through public salon APIs.',
+            'Luster uses infrastructure and account, email, Calendar, and optional messaging, telephony, and AI providers only as needed to operate the service. Access tokens, passwords, session cookies, and appointment capability tokens are never exposed through public salon APIs.',
             'Information is retained only as long as needed for the service, legal obligations, security, and legitimate salon records. Owners may disconnect Google Calendar at any time from their Luster workspace.',
           ],
         },

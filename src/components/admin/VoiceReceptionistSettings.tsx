@@ -20,6 +20,8 @@ const COPY = {
   en: {
     title: 'AI phone receptionist',
     description: 'Answers inbound calls as an AI receptionist and can book after a caller confirms.',
+    dataNotice: 'OpenAI processes call audio, conversation and booking context, including offered times calculated using connected calendars. Twilio connects phone calls.',
+    privacy: 'Privacy policy',
     readiness: 'A provisioned phone number and required configuration are needed before this can answer calls.',
     answer: 'Answer incoming calls',
     booking: 'Allow appointment booking',
@@ -52,6 +54,8 @@ const COPY = {
   es: {
     title: 'Recepcionista telefónica con IA',
     description: 'Responde llamadas entrantes como recepcionista con IA y puede reservar después de la confirmación.',
+    dataNotice: 'OpenAI procesa el audio, la conversación y el contexto de la reserva, incluidos los horarios calculados con los calendarios conectados. Twilio conecta las llamadas.',
+    privacy: 'Política de privacidad',
     readiness: 'Se necesita un número de teléfono configurado y la configuración requerida antes de responder llamadas.',
     answer: 'Responder llamadas entrantes',
     booking: 'Permitir reservas por teléfono',
@@ -84,6 +88,8 @@ const COPY = {
   fr: {
     title: 'Réceptionniste téléphonique IA',
     description: 'Répond aux appels entrants et peut réserver après la confirmation du client.',
+    dataNotice: 'OpenAI traite l’audio, la conversation et le contexte de réservation, y compris les créneaux calculés à partir des calendriers connectés. Twilio relie les appels.',
+    privacy: 'Politique de confidentialité',
     readiness: 'Un numéro de téléphone configuré et la configuration requise sont nécessaires avant de répondre aux appels.',
     answer: 'Répondre aux appels entrants',
     booking: 'Autoriser les réservations par téléphone',
@@ -179,6 +185,11 @@ export function VoiceReceptionistSettings({ salonSlug, locale = 'en' }: { salonS
       <section className="rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <p className="text-sm font-semibold text-[var(--owner-ink)]">{copy.title}</p>
         <p className="mt-1 text-sm text-[var(--owner-muted)]">{copy.description}</p>
+        <p className="mt-3 text-xs leading-5 text-[var(--owner-muted)]">
+          {copy.dataNotice}
+          {' '}
+          <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-4">{copy.privacy}</a>
+        </p>
         {!data.readiness.configured && <p className="mt-3 text-sm text-amber-800" role="status">{copy.readiness}</p>}
         <label className="mt-4 flex items-center justify-between gap-3 text-sm text-[var(--owner-ink)]">
           <span>{copy.answer}</span>
