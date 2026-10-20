@@ -113,6 +113,20 @@ test('the required aggregate includes Node 24 monitoring evidence with zero skip
   assert.match(jobs.test.steps[0].run, /test "\$MONITORING_RESULT" = success/);
 });
 
+test('the required Node 24 monitoring job runs Checkly Axios compatibility without bypasses', () => {
+  const job = jobs['monitoring-node24'];
+  const step = job.steps.find(candidate => candidate.name === 'Verify Checkly Axios request compatibility with zero skips');
+  assert.ok(step);
+  assert.equal(step.if, undefined);
+  assert.equal(step['continue-on-error'], undefined);
+  assert.match(step.run, /set -euo pipefail/);
+  assert.match(step.run, /npm run test:checkly-axios:node24/);
+  assert.ok(step.run.includes("grep -Fqx '# tests 1' checkly-axios-node24.log"));
+  assert.ok(step.run.includes("grep -Fqx '# pass 1' checkly-axios-node24.log"));
+  assert.ok(step.run.includes("grep -Fqx '# skipped 0' checkly-axios-node24.log"));
+  assert.doesNotMatch(step.run, /\|\|\s*(true|:)/);
+});
+
 test('the required Node 24 job also exercises the bundled Redis URL parser', () => {
   const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify Redis URL compatibility with zero skips');
   assert.match(step.run, /set -euo pipefail/);
@@ -172,6 +186,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['68378a97e8f7292264e15565a299b4b5c04e47b3', '5467895180e9024f1227adf9b47b9c42ce7c4d4c'],
     ['72714ec554388ba617898e14c78a0556f475bc65', '547a7f34a8855333a1cfbdebbdd32393b8be31c3'],
     ['95a5d51e3c9fd0bde85d21fc288077db849ef5a0', 'ac97375ebeff51fd225f1e1831243e131a5c50ef'],
+    ['3cc539f334674ad5cda30baee1946c80824b0124', '2179262aa781bdc2f978daa7cc6cc04fd171c5d7'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
