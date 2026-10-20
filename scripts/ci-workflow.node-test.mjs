@@ -329,6 +329,15 @@ test('the required Node 24 job exercises the installed patched SMS and image dep
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
 });
 
+test('the required Node 24 job exercises patched semantic-release lodash-es with zero skips', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched semantic-release lodash-es with zero skips');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('node --test --test-reporter=tap scripts/release-tooling-lodash-es.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 2\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 2\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
 test('all execution checkouts use the reviewed head and shards cannot fail fast', () => {
   for (const job of Object.values(jobs)) {
     for (const step of job.steps ?? []) {
