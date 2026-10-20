@@ -1,7 +1,9 @@
 /* eslint-disable no-template-curly-in-string -- GitHub expressions are literal workflow contracts. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -163,9 +165,12 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b', '8e1b8a6010053efb7bd0fb883f4674537829cdd0'],
     ['8c510528ccff7fa01b70bb29cb42dd6a32452ac2', 'f9473055446d79e1ccce710cd0924b3a677c5844'],
     ['415d1c90eb42ea7230692a3f241d6febe7e872d6', 'c7bb0015690ce967afed8f1776d28ced92d5f116'],
-    ['f672f9951f0de6f8229cca3fde5981a4bdc8522a', 'af4bf5fe330d46ebb4dbd1947d0b326a9b70fa35'],
+    ['415d1c90eb42ea7230692a3f241d6febe7e872d6', 'f0c9aa4940a835250395d2098565f07802bb950e'],
+    ['2c85781c86ede9f53b02c36bd36751a0bae4e5e4', '960fa1603f11ff1a10084331ff43b95d8ea68a9e'],
     ['cf9ee4410133e7254924abfee7a7a70e0592a25b', 'c7279e61b579800514e86c260774a902c25b26b4'],
-    ['e54cedc2954e844cd209b29008f1173848d3dcd1', '7f5a9efb7172d716423849f868d04f752498c992'],
+    ['fcf749d8a0e3a531756b221ed60848df2b540355', '1a0d21a18e49f9d77dcecde059cdbf20a788a621'],
+    ['68378a97e8f7292264e15565a299b4b5c04e47b3', '5467895180e9024f1227adf9b47b9c42ce7c4d4c'],
+    ['72714ec554388ba617898e14c78a0556f475bc65', '547a7f34a8855333a1cfbdebbdd32393b8be31c3'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
@@ -173,17 +178,78 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   const run = (manifest, lock) => spawnSync('bash', ['-eu', '-c', statement], {
     env: { dependency_manifest_blob: manifest, dependency_lock_blob: lock },
   }).status;
+  const currentPair = ['package.json', 'package-lock.json'].map((file) => {
+    const contents = readFileSync(new URL(`../${file}`, import.meta.url));
+    return createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex');
+  });
+  assert.equal(run(...currentPair), 0, 'The current manifest and lock contents must be a reviewed pair');
   for (const [manifest, lock] of reviewed) {
     assert.equal(run(manifest, lock), 0);
     assert.notEqual(run('0'.repeat(40), lock), 0);
     assert.notEqual(run(manifest, '0'.repeat(40)), 0);
-    for (const [, otherLock] of reviewed) {
-      if (otherLock !== lock) {
+    // Several separately reviewed lock refreshes intentionally share one manifest.
+    // Reject cross-pairing only when both sides come from different reviewed pairs.
+    for (const [otherManifest, otherLock] of reviewed) {
+      if (otherManifest !== manifest && otherLock !== lock) {
         assert.notEqual(run(manifest, otherLock), 0);
       }
     }
   }
   assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+});
+
+test('installed compiler helpers satisfy Next and Intl distinct requirements', () => {
+  const graphCheck = jobs['test-core'].steps.find(step => step.name === 'Verify installed dependency graph');
+  assert.ok(graphCheck);
+  assert.match(graphCheck.run, /set -euo pipefail/);
+  assert.match(graphCheck.run, /npm ls --all --json/);
+  assert.match(graphCheck.run, /INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1/);
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const rootRequire = createRequire(new URL('../package.json', import.meta.url));
+  const nextRequire = createRequire(rootRequire.resolve('next/package.json'));
+  const intlRequire = createRequire(rootRequire.resolve('next-intl'));
+  const compilerRequire = createRequire(intlRequire.resolve('@swc/core'));
+
+  assert.equal(manifest.dependencies['@swc/helpers'], '0.5.23');
+  assert.equal(rootRequire('@swc/helpers/package.json').version, '0.5.23');
+  assert.equal(nextRequire('./package.json').dependencies['@swc/helpers'], '0.5.15');
+  assert.equal(nextRequire('@swc/helpers/package.json').version, '0.5.15');
+  assert.equal(compilerRequire('./package.json').peerDependencies['@swc/helpers'], '>=0.5.17');
+  assert.equal(compilerRequire('@swc/helpers/package.json').version, '0.5.23');
+});
+
+test('npm CLI owner chain stays on the patched compatible 10.x bundle', () => {
+  const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const packageLock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  const lockPackages = packageLock.packages;
+  assert.equal(packageJson.devDependencies.npm, '10.9.9');
+
+  const npm = lockPackages['node_modules/npm'];
+  assert.ok(npm, 'the existing CLI owner chain must resolve npm');
+  assert.equal(npm.version, '10.9.9');
+  assert.ok(npm.bundleDependencies.includes('tar'));
+  assert.equal(npm.dependencies.tar, '^7.5.22');
+
+  const ownerRanges = [
+    ['node_modules/@oclif/plugin-plugins', '^10.8.2'],
+    ['node_modules/@semantic-release/npm', '^10.5.0'],
+  ];
+  for (const [path, range] of ownerRanges) {
+    const owner = lockPackages[path];
+    assert.ok(owner, `expected existing owner ${path}`);
+    assert.equal(owner.dependencies.npm, range);
+  }
+
+  const bundledTarEntries = Object.entries(lockPackages).filter(([path, entry]) => (
+    path.startsWith('node_modules/npm/') && /(?:^|\/)node_modules\/tar$/.test(path) && entry.inBundle === true
+  ));
+  assert.ok(bundledTarEntries.length > 0, 'inspect every tar bundled beneath npm');
+  for (const [path, entry] of bundledTarEntries) {
+    const match = entry.version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+    assert.ok(match, `${path} must resolve to a stable tar release`);
+    const version = match.slice(1).map(Number);
+    assert.ok(version[0] > 7 || (version[0] === 7 && (version[1] > 5 || (version[1] === 5 && version[2] >= 21))), `${path} is below the tar security floor`);
+  }
 });
 
 test('AI migration pins accept the new packet and reject changed or already-shipped SQL', () => {
@@ -303,13 +369,36 @@ test('commitlint checks only commits introduced beyond the current PR base branc
 });
 
 test('native Vitest shard selection covers every discovered test file exactly once', async () => {
-  // Vitest 2 list --filesOnly ignores --shard; use the installed run sequencer.
-  const files = execFileSync(process.execPath, [
+  // Vitest 4 prefixes --filesOnly rows with the project name; strip that
+  // display label before passing real file paths to BaseSequencer.
+  const listedFiles = execFileSync(process.execPath, [
     'node_modules/vitest/vitest.mjs',
     'list',
     '--filesOnly',
-  ], { encoding: 'utf8' }).split('\n').filter(file => file.startsWith('src/') && file.includes('.test.'));
+  ], { encoding: 'utf8' }).split('\n')
+    .map(file => file.replace(/^\[[^\]]+\]\s*/, '').trim())
+    .filter(Boolean);
+  const files = listedFiles;
   assert.ok(files.length > 0);
+  const sourceTestPath = /^src\/.+\.test\.(?:js|jsx|ts|tsx)$/;
+  const scriptTestPath = /^scripts\/.+\.test\.(?:js|ts)$/;
+  const isConfiguredTestPath = file => sourceTestPath.test(file) || scriptTestPath.test(file);
+  assert.ok(files.every(isConfiguredTestPath), 'Every discovered test file must match a configured source or script test glob');
+  assert.equal(new Set(files).size, files.length, 'Each test file must be assigned to exactly one project');
+  assert.ok(files.some(file => file.startsWith('scripts/')), 'Script tests must be included in the shard inventory');
+
+  // Compare discovery with Git's complete tracked inventory, not the current
+  // sparse checkout's materialized files. Otherwise a sparse runner could
+  // silently report a successful but incomplete shard plan.
+  const configuredGlobs = readFileSync(new URL('../vitest.config.mts', import.meta.url), 'utf8');
+  assert.ok(configuredGlobs.includes('\'src/**/*.test.{js,jsx,ts,tsx}\''));
+  assert.ok(configuredGlobs.includes('\'scripts/**/*.test.{js,ts}\''));
+  const trackedFiles = execFileSync('git', ['ls-files', '--cached', '-z'], { encoding: 'utf8' })
+    .split('\0')
+    .filter(file => file && isConfiguredTestPath(file))
+    .sort();
+  assert.deepEqual([...files].sort(), trackedFiles, 'Vitest discovery must match the complete tracked test-glob inventory');
+
   const specs = files.map(moduleId => ({ moduleId }));
   const indices = jobs['full-vitest-shards'].strategy.matrix.shard;
   const shards = await Promise.all(indices.map(index => new BaseSequencer({

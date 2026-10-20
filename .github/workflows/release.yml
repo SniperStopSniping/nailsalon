@@ -10,6 +10,16 @@ on:
 
 jobs:
   release:
+    if: >-
+      github.repository == 'SniperStopSniping/nailsalon' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.name == 'CI' &&
+      github.event.workflow_run.workflow_id == 212119716
+
     strategy:
       matrix:
         node-version: [24.x]
@@ -17,12 +27,12 @@ jobs:
     name: Create a new release
     runs-on: ubuntu-latest
 
-    # workflow_run fires on every completed CI run, pass or fail. Without this
-    # guard a red main still cut a version and published a GitHub release --
-    # v1.24.0 shipped ten minutes after CI failed on the same commit.
-    if: github.event.workflow_run.conclusion == 'success'
+    concurrency:
+      group: semantic-release-main
+      cancel-in-progress: false
 
     permissions:
+      actions: read # to verify the exact upstream CI workflow run
       contents: write # to be able to publish a GitHub release
       issues: write # to be able to comment on released issues
       pull-requests: write # to be able to comment on released pull requests
@@ -30,19 +40,80 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
-          # main rejects every direct human/token push. This repository-only
-          # deploy key is stored exclusively as an Actions secret and is the
-          # sole ruleset bypass used by semantic-release.
-          ssh-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
+          persist-credentials: false
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+      - name: Verify exact successful main-push checkout before install
+        env:
+          UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          UPSTREAM_EVENT: ${{ github.event.workflow_run.event }}
+          UPSTREAM_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          UPSTREAM_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          UPSTREAM_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          UPSTREAM_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          UPSTREAM_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          UPSTREAM_WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+        run: node scripts/release-provenance.mjs --verify-checkout
+      - name: Test release provenance guard
+        run: node --test scripts/release-provenance.node-test.mjs
       - run: HUSKY=0 npm ci
+
+      - name: Revalidate main before exposing the release key
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          UPSTREAM_EVENT: ${{ github.event.workflow_run.event }}
+          UPSTREAM_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          UPSTREAM_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          UPSTREAM_RUN_REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+          UPSTREAM_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          UPSTREAM_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          UPSTREAM_WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          UPSTREAM_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: node scripts/release-provenance.mjs --verify-latest-main
+
+      - name: Configure the protected release push credential
+        env:
+          SEMANTIC_RELEASE_DEPLOY_KEY: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          eval "$(ssh-agent -s)"
+          cleanup_on_failure() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              ssh-add -D >/dev/null 2>&1 || true
+              ssh-agent -k >/dev/null 2>&1 || true
+            fi
+            return "$status"
+          }
+          trap cleanup_on_failure EXIT
+          printf '%s\n' "$SEMANTIC_RELEASE_DEPLOY_KEY" | ssh-add -
+          unset SEMANTIC_RELEASE_DEPLOY_KEY
+
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$RUNNER_TEMP/github_known_hosts"
+          chmod 600 "$RUNNER_TEMP/github_known_hosts"
+          {
+            printf 'SSH_AUTH_SOCK=%s\n' "$SSH_AUTH_SOCK"
+            printf 'SSH_AGENT_PID=%s\n' "$SSH_AGENT_PID"
+            printf 'GIT_SSH_COMMAND=ssh -o UserKnownHostsFile=%s/github_known_hosts -o StrictHostKeyChecking=yes\n' "$RUNNER_TEMP"
+          } >> "$GITHUB_ENV"
+          trap - EXIT
 
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+        run: |
+          set -euo pipefail
+          git remote set-url origin "git@github.com:${GITHUB_REPOSITORY}.git"
+          npx semantic-release
+
+      - name: Stop the release SSH agent
+        if: always()
+        run: |
+          if [ -n "${SSH_AUTH_SOCK:-}" ]; then ssh-add -D >/dev/null 2>&1 || true; fi
+          if [ -n "${SSH_AGENT_PID:-}" ]; then ssh-agent -k >/dev/null 2>&1 || true; fi

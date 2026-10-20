@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import type { Mock } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SectionId } from '@/libs/bookingPageConfig';
@@ -69,7 +70,9 @@ function content(overrides: Partial<SalonContent> = {}): SalonContent {
   };
 }
 
-function makeRenderers(spies: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}): SectionVariantRenderers {
+type SectionRenderSpy = Mock<(variant: string) => unknown>;
+
+function makeRenderers(spies: Partial<Record<string, SectionRenderSpy>> = {}): SectionVariantRenderers {
   const render = (id: string, variant: string) => {
     spies[id]?.(variant);
     return <div data-testid={`section-${id}`} data-variant={variant}>{id}</div>;
@@ -169,7 +172,7 @@ describe('SectionOrderRenderer canonical dispatch', () => {
       'featuredServices',
       'policies',
       'socialLinks',
-    ].map(id => [id, vi.fn()]));
+    ].map(id => [id, vi.fn<(variant: string) => unknown>()]));
 
     // The helper has no raw `order` route into the component itself, only
     // into Stage 2 plan construction.
