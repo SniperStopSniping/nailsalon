@@ -419,6 +419,7 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
           <button type="button" onClick={() => void action('Loading saved design…', load)}>Reload saved design</button>
         </p>
       )}
+      {reply && <p role="status" className="setup-notice">{reply}</p>}
       {(busy || pending) && (
         <p role="status">
           {state?.attempts[0]?.phase === 'repairing' ? 'Correcting the design after its automatic checks…' : busy || 'Your design is still being created…'}
@@ -429,7 +430,6 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       {state?.payload && (
         <div className="studio-preview">
           {state.payload.source.canva && <CanvaArtworkQuality key={`quality-${state.head.revision.document.website.config.customFrontendId}`} pages={state.payload.source.canva.pages} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onReplace={replaceArtwork} onSaveLayout={saveArtworkLayout} />}
-          {state.payload.source.canva && reply && <p role="status">{reply}</p>}
           {state.payload.source.canva && !state.payload.source.canva.ownerReviewed && (
             <label>
               <input type="checkbox" checked={artworkPreviewAcknowledged} disabled={disabled || Boolean(busy || pending) || !previewIsCurrent} onChange={event => setArtworkPreviewAcknowledged(event.target.checked)} />
@@ -605,7 +605,6 @@ export function CustomDesignStudio({ salonSlug, revision, artifactId, disabled, 
       {!state?.payload?.source.canva && (
         <details className="studio-media-controls">
           <summary>Photos & design settings</summary>
-          {reply && <p role="status" className="setup-notice">{reply}</p>}
           {state && (
             <WebsitePhotoLibrary
               assets={state.assets.filter(asset => asset.role !== 'reference')}

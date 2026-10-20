@@ -85,6 +85,7 @@ it('distinguishes same-named designs by their request and date and restores the 
   await waitFor(() => expect(posts).toHaveLength(1));
 
   expect(posts[0]).toMatchObject({ action: 'restore', input: { expectedRevision: 7, artifactId: 'overlap', operationId: expect.any(String) } });
+  expect(await screen.findByText('This saved design is restored as a draft. Review its wording and photos before publishing.', { exact: true })).toBeVisible();
 });
 
 it.each([{ pending: true, revision: 7 }, { pending: false, revision: 8 }])('holds design restoration while generation or newer saved data is loading: %j', async ({ pending, revision }) => {
