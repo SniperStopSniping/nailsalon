@@ -121,9 +121,9 @@ test('the required Node 24 monitoring job runs Checkly Axios compatibility witho
   assert.equal(step['continue-on-error'], undefined);
   assert.match(step.run, /set -euo pipefail/);
   assert.match(step.run, /npm run test:checkly-axios:node24/);
-  assert.ok(step.run.includes("grep -Fqx '# tests 1' checkly-axios-node24.log"));
-  assert.ok(step.run.includes("grep -Fqx '# pass 1' checkly-axios-node24.log"));
-  assert.ok(step.run.includes("grep -Fqx '# skipped 0' checkly-axios-node24.log"));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 1\' checkly-axios-node24.log'));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 1\' checkly-axios-node24.log'));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\' checkly-axios-node24.log'));
   assert.doesNotMatch(step.run, /\|\|\s*(true|:)/);
 });
 
