@@ -1,8 +1,7 @@
 /* eslint-disable no-template-curly-in-string -- GitHub expressions are literal workflow contracts. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -145,10 +144,9 @@ test('the required Node 24 aggregate verifies application timezone rules with ze
 
 test('dependency protection accepts reviewed pairs and rejects changed or mixed manifests', () => {
   const step = jobs['test-core'].steps.find(candidate => candidate.name === 'Deposits ladder protected surfaces');
-  assert.ok(step.run.includes('if ! git diff --quiet "$base" -- package.json package-lock.json; then'));
-  const statement = step.run.match(/case "\$dependency_manifest_blob:\$dependency_lock_blob" in[\s\S]*?esac/)?.[0];
-  assert.ok(statement);
-  const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
+  assert.ok(step.run.includes('node scripts/verify-dependency-pair.mjs'));
+  const registry = JSON.parse(readFileSync(new URL('./reviewed-dependency-pairs.json', import.meta.url), 'utf8'));
+  const reviewed = registry.pairs.map(pair => [pair.packageJson, pair.packageLock]);
   const monitoringPairs = [
     ['e8611651650ec97880c8a67e05b795a26efaa6cb', '8f5742e82fcd36ec2185235d4bfa08bd383a7966'],
     ['b7e4591c8df9d94b82b281587cec8f98b0f5439e', '9576667ec691e6f5aba41486cfbbcf8e32d6b3ee'],
@@ -176,27 +174,18 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
   }
-  const run = (manifest, lock) => spawnSync('bash', ['-eu', '-c', statement], {
-    env: { dependency_manifest_blob: manifest, dependency_lock_blob: lock },
-  }).status;
-  const currentPair = ['package.json', 'package-lock.json'].map((file) => {
-    const contents = readFileSync(new URL(`../${file}`, import.meta.url));
-    return createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex');
-  });
-  assert.equal(run(...currentPair), 0, 'The current manifest and lock contents must be a reviewed pair');
-  for (const [manifest, lock] of reviewed) {
-    assert.equal(run(manifest, lock), 0);
-    assert.notEqual(run('0'.repeat(40), lock), 0);
-    assert.notEqual(run(manifest, '0'.repeat(40)), 0);
-    // Several separately reviewed lock refreshes intentionally share one manifest.
-    // Reject cross-pairing only when both sides come from different reviewed pairs.
-    for (const [otherManifest, otherLock] of reviewed) {
-      if (otherManifest !== manifest && otherLock !== lock) {
-        assert.notEqual(run(manifest, otherLock), 0);
-      }
-    }
-  }
-  assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+  const validation = spawnSync(process.execPath, ['scripts/verify-dependency-pair.mjs'], { encoding: 'utf8' });
+  assert.equal(validation.status, 0, validation.stderr);
+  const tests = jobs['test-core'].steps.find(candidate => candidate.name === 'Verify release dependency registration with zero skips');
+  assert.ok(tests.run.includes('scripts/dependency-pair.node-test.mjs'));
+  assert.ok(tests.run.includes('scripts/release-pair-registration.node-test.mjs'));
+  assert.equal(tests.if, undefined);
+  assert.equal(tests['continue-on-error'], undefined);
+  assert.match(tests.run, /set -euo pipefail/);
+  assert.ok(tests.run.includes('grep -Fqx \'# tests 22\''));
+  assert.ok(tests.run.includes('grep -Fqx \'# pass 22\''));
+  assert.ok(tests.run.includes('grep -Fqx \'# skipped 0\''));
+  assert.doesNotMatch(step.run, /if false/);
 });
 
 test('installed compiler helpers satisfy Next and Intl distinct requirements', () => {
@@ -549,4 +538,113 @@ test('all browser evidence runs exactly once across required independent groups'
   assert.equal(dashboardStartup.run, 'node node_modules/playwright/cli.js test --config tests/browser/dashboardStartup/playwright.config.ts --output=test-results/dashboard-startup-components');
   assert.ok(jobs.test.needs.includes('test-components'));
   assert.equal(jobs.test.steps[0].env.COMPONENTS_RESULT, '${{ needs.test-components.result }}');
+});
+
+test('the required Node 24 monitoring job runs Checkly Axios compatibility without bypasses', () => {
+  const job = jobs['monitoring-node24'];
+  const step = job.steps.find(candidate => candidate.name === 'Verify Checkly Axios request compatibility with zero skips');
+  assert.ok(step);
+  assert.equal(step.if, undefined);
+  assert.equal(step['continue-on-error'], undefined);
+  assert.match(step.run, /set -euo pipefail/);
+  assert.match(step.run, /npm run test:checkly-axios:node24/);
+  assert.ok(step.run.includes('grep -Fqx \'# tests 1\' checkly-axios-node24.log'));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 1\' checkly-axios-node24.log'));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\' checkly-axios-node24.log'));
+  assert.doesNotMatch(step.run, /\|\|\s*(true|:)/);
+});
+
+test('trusted-main Percy coverage requires a verified Playwright executable and a no-provider Core override contract', () => {
+  const job = jobs['test-core'];
+  const browserContract = job.steps.find(candidate => candidate.name === 'Verify Percy discovery browser override without provider traffic');
+  assert.ok(browserContract);
+  assert.match(browserContract.run, /set -euo pipefail/);
+  assert.match(browserContract.run, /node --test --test-reporter=tap scripts\/percy-browser-override\.node-test\.mjs/);
+  assert.match(browserContract.run, /# tests 3/);
+  assert.match(browserContract.run, /# pass 3/);
+  assert.match(browserContract.run, /# skipped 0/);
+
+  const coverage = job.steps.find(candidate => candidate.name === 'Run E2E with trusted-main Percy coverage');
+  assert.ok(coverage);
+  assert.match(coverage.run, /set -euo pipefail/);
+  assert.match(coverage.run, /PERCY_BROWSER_EXECUTABLE=.*playwright.*chromium\.executablePath/);
+  assert.match(coverage.run, /export PERCY_BROWSER_EXECUTABLE/);
+  assert.match(coverage.run, /test -n "\$PERCY_BROWSER_EXECUTABLE"/);
+  assert.match(coverage.run, /test -f "\$PERCY_BROWSER_EXECUTABLE"/);
+  assert.match(coverage.run, /test -x "\$PERCY_BROWSER_EXECUTABLE"/);
+  assert.ok(coverage.run.indexOf('test -x "$PERCY_BROWSER_EXECUTABLE"') < coverage.run.indexOf('npx percy exec'));
+});
+
+test('trusted-main Percy coverage fails closed before npx when Playwright Chromium is missing or not executable', () => {
+  const coverage = jobs['test-core'].steps.find(candidate => candidate.name === 'Run E2E with trusted-main Percy coverage');
+  const fixture = mkdtempSync(path.join(tmpdir(), 'percy-ci-preflight-'));
+  const bin = path.join(fixture, 'bin');
+  const marker = path.join(fixture, 'npx-ran');
+  const executable = path.join(fixture, 'chromium');
+  mkdirSync(bin);
+  writeFileSync(path.join(bin, 'node'), '#!/bin/sh\nif [ "${PERCY_CI_TEST_NODE_EXIT:-0}" -ne 0 ]; then exit 19; fi\nprintf %s "${PERCY_CI_TEST_EXECUTABLE:-}"\n');
+  writeFileSync(path.join(bin, 'npx'), '#!/bin/sh\nprintf reached > "$PERCY_CI_TEST_NPX_MARKER"\n');
+  chmodSync(path.join(bin, 'node'), 0o755);
+  chmodSync(path.join(bin, 'npx'), 0o755);
+
+  const run = (executablePath, nodeExit = 0) => {
+    const result = spawnSync('/bin/bash', ['-eu', '-o', 'pipefail', '-c', coverage.run], {
+      encoding: 'utf8',
+      env: {
+        PATH: bin,
+        PERCY_CI_TEST_EXECUTABLE: executablePath,
+        PERCY_CI_TEST_NODE_EXIT: String(nodeExit),
+        PERCY_CI_TEST_NPX_MARKER: marker,
+        PERCY_TOKEN: 'synthetic-test-token',
+      },
+    });
+    const npxReached = (() => {
+      try {
+        return readFileSync(marker, 'utf8') === 'reached';
+      } catch {
+        return false;
+      }
+    })();
+    rmSync(marker, { force: true });
+    return { result, npxReached };
+  };
+
+  try {
+    const missing = run('');
+    assert.notEqual(missing.result.status, 0);
+    assert.equal(missing.npxReached, false);
+
+    const absent = run(path.join(fixture, 'missing-browser'));
+    assert.notEqual(absent.result.status, 0);
+    assert.equal(absent.npxReached, false);
+
+    writeFileSync(executable, '#!/bin/sh\nexit 0\n');
+    chmodSync(executable, 0o644);
+    const nonExecutable = run(executable);
+    assert.notEqual(nonExecutable.result.status, 0);
+    assert.equal(nonExecutable.npxReached, false);
+
+    const directory = run(bin);
+    assert.notEqual(directory.result.status, 0);
+    assert.equal(directory.npxReached, false);
+
+    chmodSync(executable, 0o755);
+    const resolverFailure = run(executable, 19);
+    assert.notEqual(resolverFailure.result.status, 0);
+    assert.equal(resolverFailure.npxReached, false);
+    const valid = run(executable);
+    assert.equal(valid.result.status, 0, valid.result.stderr);
+    assert.equal(valid.npxReached, true);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('the required Node 24 job exercises the patched release-tooling dependency contracts', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched release tooling dependencies with zero skips');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('node --test --test-reporter=tap scripts/tooling-dependency-security.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 3\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 3\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
 });
