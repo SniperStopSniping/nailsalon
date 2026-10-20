@@ -8,7 +8,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SETUP_AI_PRODUCTION_BUDGET_ID } from '@/features/business-setup/ai-budget.server';
-import { runSetupModel } from '@/features/business-setup/ai-trial.server';
+import { runSetupModel, setupAiExpenseAvailable } from '@/features/business-setup/ai-trial.server';
 import { runSetupConversation } from '@/features/business-setup/conversation.server';
 import { editSetup, openSetup } from '@/features/business-setup/drafts.server';
 import { applyOwnUpload, readOwnUpload } from '@/features/business-setup/read-upload.server';
@@ -23,7 +23,7 @@ import { AI_REQUEST_CREDIT_LIMIT } from './catalog';
 import * as configuration from './config.server';
 import { currentAiCreditExecution, withAiCreditExecution } from './context.server';
 import { reconcileAiCreditRequests, runWithAiCredits } from './request-metering.server';
-import { aiCreditOverview, beginAiCreditPurchase, fulfillAiCreditPurchase, settleAiCredits } from './wallet.server';
+import { aiCreditOverview, beginAiCreditPurchase, fulfillAiCreditPurchase, reverseAiCreditPurchase, settleAiCredits } from './wallet.server';
 
 // Deterministic provider doubles exercise the real saved-draft and metering
 // pipeline. These are not real-provider design or payment acceptance claims.
@@ -55,6 +55,7 @@ beforeEach(() => {
   vi.stubEnv('AI_CREDIT_USD_TO_CAD_MILLIONTHS', '1400000');
   vi.stubEnv('AI_CREDIT_PRICING_VERSION', 'metering-test-v1');
   vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '1');
+  vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', '');
 });
 
 afterEach(() => {
@@ -478,6 +479,89 @@ describe('owner-request metering with real draft persistence', () => {
     expect((await calls(f.actor))[0]).toMatchObject({ budgetId: SETUP_AI_PRODUCTION_BUDGET_ID, creditCostMicroCad: 98 });
     expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ balanceMicroCad: 9_999_902 });
     expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 0 });
+  });
+
+  function paidFunding() {
+    vi.spyOn(configuration, 'aiCreditPlanEnv').mockReturnValue('prod');
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', 'paid_credits');
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '');
+  }
+
+  it('funds production from verified payments without a lifetime fixed ceiling or a new trial allowance', async () => {
+    paidFunding();
+
+    expect(await setupAiExpenseAvailable(true)).toBe(true);
+
+    const f = await fixture(true, false, 'prod');
+    await execute(f);
+
+    expect((await calls(f.actor))[0]).toMatchObject({ budgetId: null, creditCostMicroCad: 98, chargedMicroCad: 49 });
+    expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ balanceMicroCad: 9_999_902, reservedMicroCad: 0 });
+    expect(await aiCreditOverview(f.actor, 'test')).toMatchObject({ balanceMicroCad: 0 });
+  });
+
+  it('does not turn recovery grants, sandbox purchases or another salon payment into production funding', async () => {
+    paidFunding();
+    const f = await fixture(true, false, 'test');
+    await fixture(true, false, 'prod');
+    await database.insert(schema.aiCreditAccountSchema).values({ salonId: f.actor.salonId, planEnv: 'prod' });
+    await database.insert(schema.aiCreditLedgerSchema).values({ id: randomUUID(), salonId: f.actor.salonId, planEnv: 'prod', entryKey: 'synthetic-recovery', kind: 'recovery', amountMicroCad: 10_000_000 });
+
+    await expect(execute(f)).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect(f.model.createResponse).not.toHaveBeenCalled();
+    expect(await calls(f.actor)).toHaveLength(0);
+    expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+  });
+
+  it('retains unknown provider costs after returning credits and uses the frozen production conversion', async () => {
+    paidFunding();
+    const f = await fixture(true, false, 'prod');
+    f.model.createResponse.mockRejectedValue(new ModelProviderError('provider_error', 502, null));
+
+    await expect(execute(f)).rejects.toThrow();
+
+    const [call] = await calls(f.actor);
+
+    expect(call).toMatchObject({ budgetId: null, costMicroUsd: null, status: 'failed' });
+    expect(call!.chargedMicroCad).toBe(Math.ceil(call!.reservedMicroUsd * 1.4));
+    expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ balanceMicroCad: 10_000_000, reservedMicroCad: 0 });
+  });
+
+  it('allows new verified purchases to fund further work without erasing earlier unknown costs', async () => {
+    paidFunding();
+    const f = await fixture(true, false, 'prod');
+    const old = { id: randomUUID(), budgetId: null, creditReservationId: randomUUID(), salonId: f.actor.salonId, actorId: f.actor.adminId, operationId: randomUUID(), ordinal: 0, model: 'gpt-6-luna', provider: 'test-double', requestHash: 'synthetic-unknown', reservedMicroUsd: 1, chargedMicroCad: 4_999_999, status: 'failed' as const };
+    await database.insert(schema.setupAiCallSchema).values(old);
+    try {
+      await expect(execute(f)).rejects.toMatchObject({ code: 'NOT_READY' });
+      expect(f.model.createResponse).not.toHaveBeenCalled();
+
+      const purchase = await beginAiCreditPurchase(f.actor, { planEnv: 'prod', operationId: randomUUID(), packKey: 'ai_10_cad_v1', stripePriceId: 'price_more_synthetic', stripeCustomerId: 'cus_more_synthetic' });
+      await fulfillAiCreditPurchase({ purchaseId: purchase.id, salonId: f.actor.salonId, planEnv: 'prod', packKey: purchase.packKey, sessionId: `cs_${randomUUID()}`, paymentIntentId: `pi_${randomUUID()}`, customerId: purchase.stripeCustomerId, priceId: purchase.stripePriceId, amountSubtotal: 1000, amountTotal: 1000, taxCents: 0, quantity: 1, currency: 'cad', paymentStatus: 'paid', livemode: true, amountRefundedCents: 0, disputed: false });
+      f.input.operationId = randomUUID();
+      await execute(f);
+
+      expect(f.model.createResponse).toHaveBeenCalledTimes(1);
+      expect((await calls(f.actor)).find(row => row.id === old.id)?.chargedMicroCad).toBe(4_999_999);
+      expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ balanceMicroCad: 19_999_902, reservedMicroCad: 0 });
+    } finally {
+      // Remove this test's large synthetic history only; otherwise the legacy
+      // shared-cap scenarios below inherit a deliberately exhausted allowance.
+      await database.delete(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.id, old.id));
+    }
+  });
+
+  it.each([false, true])('removes refunded/disputed payments from funding without letting a recovery credit bypass it: disputed=%s', async (disputed) => {
+    paidFunding();
+    const f = await fixture(true, false, 'prod');
+    const [purchase] = await database.select().from(schema.aiCreditPurchaseSchema).where(eq(schema.aiCreditPurchaseSchema.salonId, f.actor.salonId));
+    await reverseAiCreditPurchase({ paymentIntentId: purchase!.stripePaymentIntentId!, planEnv: 'prod', amountRefundedCents: disputed ? 0 : 1000, disputed });
+    await database.insert(schema.aiCreditLedgerSchema).values({ id: randomUUID(), salonId: f.actor.salonId, planEnv: 'prod', entryKey: 'synthetic-recovery', kind: 'recovery', amountMicroCad: 10_000_000 });
+
+    await expect(execute(f)).rejects.toMatchObject({ code: 'NOT_READY' });
+    expect(f.model.createResponse).not.toHaveBeenCalled();
+    expect(await calls(f.actor)).toHaveLength(0);
+    expect(await aiCreditOverview(f.actor, 'prod')).toMatchObject({ reservedMicroCad: 0 });
   });
 
   it('fails closed without a production expense cap before sending a paid call or charging the owner', async () => {

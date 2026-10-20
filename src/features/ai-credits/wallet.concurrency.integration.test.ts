@@ -63,6 +63,7 @@ describe.skipIf(!target)('metered owner requests on attested PostgreSQL', () => 
     vi.stubEnv('AI_CREDIT_USD_TO_CAD_MILLIONTHS', '1400000');
     vi.stubEnv('AI_CREDIT_PRICING_VERSION', 'concurrency-v1');
     vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '1');
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', '');
   });
 
   afterEach(() => {
@@ -116,6 +117,33 @@ describe.skipIf(!target)('metered owner requests on attested PostgreSQL', () => 
     } finally {
       await database.update(schema.setupAiBudgetSchema).set({ capMicroCad: 1_000_000 }).where(eq(schema.setupAiBudgetSchema.id, SETUP_AI_PRODUCTION_BUDGET_ID));
     }
+  });
+
+  it('checks a verified refund before admitting a paused call without stopping another funded salon', async () => {
+    vi.spyOn(configuration, 'aiCreditPlanEnv').mockReturnValue('prod');
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', 'paid_credits');
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '');
+    const first = await meteredFixture('prod');
+    const second = await meteredFixture('prod');
+    let finishCounting!: (value: number) => void;
+    first.model.countInputTokens.mockImplementationOnce(() => new Promise<number>((resolve) => {
+      finishCounting = resolve;
+    }));
+    const running = first.execute();
+    const rejected = expect(running).rejects.toThrow();
+    await vi.waitFor(() => expect(first.model.countInputTokens).toHaveBeenCalledTimes(1));
+    try {
+      await reverseAiCreditPurchase({ paymentIntentId: first.evidence.paymentIntentId, planEnv: 'prod', amountRefundedCents: 1000, disputed: false });
+      await second.execute();
+    } finally {
+      finishCounting(1000);
+      await rejected;
+    }
+
+    expect(first.model.createResponse).not.toHaveBeenCalled();
+    expect(second.model.createResponse).toHaveBeenCalledTimes(1);
+    expect(await aiCreditOverview(first.actor, 'prod')).toMatchObject({ balanceMicroCad: 0, reservedMicroCad: 0 });
+    expect(await aiCreditOverview(second.actor, 'prod')).toMatchObject({ balanceMicroCad: 9_999_902, reservedMicroCad: 0 });
   });
 
   it('does not refund or rerun a duplicate request while its original provider call is active', async () => {

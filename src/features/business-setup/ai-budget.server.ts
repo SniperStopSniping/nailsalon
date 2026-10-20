@@ -22,6 +22,17 @@ export function productionAiBudgetMicroCad() {
 
 export function setupAiExpensePolicy(production: boolean, testOverride = false) {
   if (production) {
+    const funding = process.env.CUSTOM_SITE_PRODUCTION_FUNDING_MODE ?? '';
+    if (funding === 'paid_credits') {
+      // This explicitly chosen mode uses verified payments, never trial funds
+      // or recovery grants. Do not silently discard an existing fixed ceiling.
+      return process.env.CUSTOM_SITE_PRODUCTION_BUDGET_CAD
+        ? null
+        : { id: SETUP_AI_PRODUCTION_BUDGET_ID, capMicroCad: null, production: true as const, funding: 'paid_credits' as const };
+    }
+    if (funding && funding !== 'fixed') {
+      return null;
+    }
     const capMicroCad = productionAiBudgetMicroCad();
     return capMicroCad === null ? null : { id: SETUP_AI_PRODUCTION_BUDGET_ID, capMicroCad, production: true };
   }

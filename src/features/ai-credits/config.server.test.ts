@@ -20,9 +20,10 @@ beforeEach(() => {
   vi.stubEnv('AI_CREDIT_PRICING_VERSION', 'cad-policy-v1');
   vi.stubEnv('OPENAI_API_KEY_CUSTOM_SITES', 'synthetic-provider-key');
   vi.stubEnv('CUSTOM_SITE_TRIAL_BUDGET_CAD', '40');
+  vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', '');
 });
 
-it('does not advertise production packs without an explicit production provider cap', () => {
+it('requires explicit production funding and supports the first paid purchase without a fixed cap', () => {
   vi.stubEnv('APP_ENV', 'production');
   vi.stubEnv('VERCEL_ENV', 'production');
   vi.stubEnv('VERCEL', '1');
@@ -37,7 +38,15 @@ it('does not advertise production packs without an explicit production provider 
 
   expect(aiCreditPurchasesEnabled()).toBe(false);
 
+  vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', 'paid_credits');
+
+  expect(aiCreditPurchasesEnabled()).toBe(true);
+
   vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '50');
+
+  expect(aiCreditPurchasesEnabled()).toBe(false);
+
+  vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', 'fixed');
 
   expect(aiCreditPurchasesEnabled()).toBe(true);
 

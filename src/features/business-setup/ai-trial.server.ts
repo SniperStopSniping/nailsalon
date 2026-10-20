@@ -15,7 +15,7 @@ import type { ModelProviderRequest, ModelProviderResponse, ModelProviderUsage, O
 import { ModelProviderError } from '@/libs/ai/provider';
 import { db } from '@/libs/DB';
 import { resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
-import { setupAiBudgetSchema as budgets, setupAiCallSchema as calls } from '@/models/Schema';
+import { aiCreditPurchaseSchema as purchases, setupAiBudgetSchema as budgets, setupAiCallSchema as calls } from '@/models/Schema';
 
 import { setupAiExpensePolicy, setupAiProviderConfigured } from './ai-budget.server';
 import type { SetupModel } from './ai-models';
@@ -40,11 +40,11 @@ export function setupAiConfigured() {
   return setupAiProviderConfigured();
 }
 
-async function expenseUsed(tx: SetupTransaction | typeof db, policy: NonNullable<ReturnType<typeof setupAiExpensePolicy>>) {
-  // Older production calls had no budget ID. Count their measured/unknown
-  // expense too; deploying this safeguard must not create a fresh allowance.
+async function expenseUsed(tx: SetupTransaction | typeof db, policy: NonNullable<ReturnType<typeof setupAiExpensePolicy>>, salonId?: string) {
+  // Paid-credit funding and older production calls have no fixed-budget ID.
+  // Include their measured/unknown costs; switching policy never erases spend.
   const condition = policy.production ? or(eq(calls.budgetId, policy.id), isNull(calls.budgetId)) : eq(calls.budgetId, policy.id);
-  const [row] = await tx.select({ amount: sql<string>`coalesce(sum(${calls.chargedMicroCad}), 0)` }).from(calls).where(condition);
+  const [row] = await tx.select({ amount: sql<string>`coalesce(sum(${calls.chargedMicroCad}), 0)` }).from(calls).where(salonId ? and(condition, eq(calls.salonId, salonId)) : condition);
   const used = Number(row?.amount ?? 0);
   if (!Number.isSafeInteger(used) || used < 0) {
     throw new SetupError('NOT_READY', 'AI is temporarily unavailable. Your saved draft and credits are safe.');
@@ -52,11 +52,28 @@ async function expenseUsed(tx: SetupTransaction | typeof db, policy: NonNullable
   return used;
 }
 
+/** Caller holds the salon/account locks shared with verified payment refunds. */
+async function assertPaidFunding(tx: SetupTransaction, actor: SetupActor, policy: NonNullable<ReturnType<typeof setupAiExpensePolicy>>, requiredMicroCad: number) {
+  const [paid] = await tx.select({
+    amount: sql<string>`coalesce(sum(case when ${purchases.disputed} then 0 else greatest(${purchases.creditMicroCad} - ${purchases.reversedMicroCad}, 0) end), 0)`,
+  }).from(purchases).where(and(eq(purchases.salonId, actor.salonId), eq(purchases.planEnv, 'prod'), eq(purchases.status, 'paid'), sql`${purchases.stripePaymentIntentId} IS NOT NULL`));
+  const netPaid = Number(paid?.amount ?? 0);
+  if (!Number.isSafeInteger(netPaid) || netPaid < 0
+    || await expenseUsed(tx, policy, actor.salonId) + requiredMicroCad > Math.floor(netPaid / 2)) {
+    throw new SetupError('NOT_READY', 'AI is temporarily paused for your business. Your saved draft and credits are safe. Please contact support.');
+  }
+}
+
 /** Read-only purchase readiness; generation separately locks and reserves. */
 export async function setupAiExpenseAvailable(production: boolean) {
   const policy = setupAiExpensePolicy(production);
   if (!policy) {
     return false;
+  }
+  // The first verified purchase funds this mode. Requiring an existing balance
+  // here would prevent the first customer from buying credits at all.
+  if (policy.funding === 'paid_credits') {
+    return true;
   }
   const [budget] = await db.select().from(budgets).where(eq(budgets.id, policy.id));
   return await expenseUsed(db, policy) < Math.min(budget?.capMicroCad ?? policy.capMicroCad, policy.capMicroCad);
@@ -120,6 +137,9 @@ export async function runSetupModel(actor: SetupActor, input: {
   if (!policy) {
     throw new SetupError('NOT_READY', 'AI is temporarily unavailable. Your saved draft and credits are safe.');
   }
+  const expenseCharge = (microUsd: number) => policy.funding === 'paid_credits' && creditContext
+    ? Math.ceil(retailAiCredits(microUsd, creditContext.pricing.usdToCadMillionths) / 2)
+    : microUsd * TRIAL_CAD_PER_USD;
   const call = await db.transaction(async (tx) => {
     await lockSetupSalon(tx, actor);
     const head = await loadSetupHead(tx, actor.salonId);
@@ -132,17 +152,24 @@ export async function runSetupModel(actor: SetupActor, input: {
       // Never replay a paid call after an ambiguous network/process failure.
       throw new SetupError('NOT_READY', 'This AI request was already sent. Reload the saved result before trying again.');
     }
-    // Customer refunds/unknown usage remain operator expenses. Both budgets
-    // are serialized across salons and cannot be reset/raised by an env edit.
-    const budgetId = policy.id;
-    await tx.insert(budgets).values({ id: budgetId, capMicroCad: policy.capMicroCad }).onConflictDoNothing();
-    const [budget] = await tx.select().from(budgets).where(eq(budgets.id, budgetId)).for('update');
-    if (await expenseUsed(tx, policy) + reserved * TRIAL_CAD_PER_USD > Math.min(budget!.capMicroCad, policy.capMicroCad)) {
-      throw new SetupError('NOT_READY', policy.production
-        ? 'AI is temporarily unavailable. Your saved draft and credits are safe. Please try again later.'
-        : 'This request would exceed the approved AI trial budget. Your saved draft is unchanged.');
+    // Production can be funded by each salon's verified net purchases. Its
+    // existing salon lock serializes admissions and refunds without pooling
+    // another business's money or resetting historical/unknown expense.
+    let budgetId: string | null = null;
+    if (policy.funding === 'paid_credits') {
+      await assertPaidFunding(tx, actor, policy, expenseCharge(reserved));
+    } else {
+      // Preserve the original fixed trial/optional fixed production ceilings.
+      budgetId = policy.id;
+      await tx.insert(budgets).values({ id: budgetId, capMicroCad: policy.capMicroCad }).onConflictDoNothing();
+      const [budget] = await tx.select().from(budgets).where(eq(budgets.id, budgetId)).for('update');
+      if (await expenseUsed(tx, policy) + expenseCharge(reserved) > Math.min(budget!.capMicroCad, policy.capMicroCad)) {
+        throw new SetupError('NOT_READY', policy.production
+          ? 'AI is temporarily unavailable. Your saved draft and credits are safe. Please try again later.'
+          : 'This request would exceed the approved AI trial budget. Your saved draft is unchanged.');
+      }
     }
-    const [row] = await tx.insert(calls).values({ id: randomUUID(), budgetId, ...credits, salonId: actor.salonId, actorId: actor.adminId, operationId: input.operationId, ordinal: input.ordinal, model, provider: override ? 'test-double' : 'openai', requestHash, reservedMicroUsd: reserved, chargedMicroCad: reserved * TRIAL_CAD_PER_USD, status: 'pending' }).returning();
+    const [row] = await tx.insert(calls).values({ id: randomUUID(), budgetId, ...credits, salonId: actor.salonId, actorId: actor.adminId, operationId: input.operationId, ordinal: input.ordinal, model, provider: override ? 'test-double' : 'openai', requestHash, reservedMicroUsd: reserved, chargedMicroCad: expenseCharge(reserved), status: 'pending' }).returning();
     return row!;
   });
   const started = Date.now();
@@ -153,12 +180,12 @@ export async function runSetupModel(actor: SetupActor, input: {
     const rawOutput = result.partialText ?? result.items.filter(i => i.type === 'message').map(i => i.type === 'message' ? i.text : '').join('');
     // Raw output stays private in the DB, never in diagnostic logs or a frame.
     // Even invalid first output is retained for honest trial evaluation.
-    await db.update(calls).set({ status: result.status, rawOutput: rawOutput.slice(0, 200000), elapsedMs: Date.now() - started, inputTokens: result.usage?.inputTokens, outputTokens: result.usage?.outputTokens, costMicroUsd, creditCostMicroCad, chargedMicroCad: (costMicroUsd ?? reserved) * TRIAL_CAD_PER_USD }).where(eq(calls.id, call.id));
+    await db.update(calls).set({ status: result.status, rawOutput: rawOutput.slice(0, 200000), elapsedMs: Date.now() - started, inputTokens: result.usage?.inputTokens, outputTokens: result.usage?.outputTokens, costMicroUsd, creditCostMicroCad, chargedMicroCad: expenseCharge(costMicroUsd ?? reserved) }).where(eq(calls.id, call.id));
     return { result, callId: call.id };
   } catch (error) {
     const costMicroUsd = error instanceof ModelProviderError ? measuredAiCost(error.usage, rates) : null;
     const creditCostMicroCad = creditContext && costMicroUsd !== null ? retailAiCredits(costMicroUsd, creditContext.pricing.usdToCadMillionths) : null;
-    await db.update(calls).set({ status: 'failed', elapsedMs: Date.now() - started, costMicroUsd, creditCostMicroCad, chargedMicroCad: (costMicroUsd ?? reserved) * TRIAL_CAD_PER_USD }).where(eq(calls.id, call.id));
+    await db.update(calls).set({ status: 'failed', elapsedMs: Date.now() - started, costMicroUsd, creditCostMicroCad, chargedMicroCad: expenseCharge(costMicroUsd ?? reserved) }).where(eq(calls.id, call.id));
     throw error;
   }
 }

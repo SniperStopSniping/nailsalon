@@ -14,12 +14,32 @@ beforeEach(() => {
   vi.stubEnv('CI', 'false');
   vi.stubEnv('OPENAI_API_KEY_CUSTOM_SITES', 'synthetic-provider-key');
   vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '');
+  vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', '');
   vi.stubEnv('CUSTOM_SITE_TRIAL_BUDGET_CAD', '80');
 });
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe('explicit operator expense configuration', () => {
+  it('allows explicitly selected paid-credit funding without inventing an operator allowance', () => {
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', 'paid_credits');
+
+    expect(setupAiExpensePolicy(true)).toEqual({ id: SETUP_AI_PRODUCTION_BUDGET_ID, capMicroCad: null, production: true, funding: 'paid_credits' });
+    expect(setupAiProviderConfigured()).toBe(true);
+
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '50');
+
+    expect(setupAiExpensePolicy(true)).toBeNull();
+    expect(setupAiProviderConfigured()).toBe(false);
+  });
+
+  it.each(['unlimited', 'prepaid', ' paid_credits '])('rejects unknown production funding modes: %s', (value) => {
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_FUNDING_MODE', value);
+    vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', '50');
+
+    expect(setupAiExpensePolicy(true)).toBeNull();
+  });
+
   it.each(['', '0', '-1', 'Infinity', 'NaN', '1e3', '1.0000001', '2147.483648', '9999', ' 50 '])('rejects an absent/invalid production cap without borrowing trial funds: %s', (value) => {
     vi.stubEnv('CUSTOM_SITE_PRODUCTION_BUDGET_CAD', value);
 

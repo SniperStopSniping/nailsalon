@@ -1,0 +1,33 @@
+{
+  "sourceParent": "d9e344f77a0d368b3e45daf97ecd0d6e2c99bbd4",
+  "fundingMode": "paid_credits",
+  "productionConfigured": false,
+  "deployed": false,
+  "modelCalls": 0,
+  "additionalApiExpense": 0,
+  "focusedTests": {
+    "passed": 63,
+    "failed": 0,
+    "skipped": 0
+  },
+  "workflowContracts": {
+    "passed": 22,
+    "failed": 0,
+    "skipped": 0
+  },
+  "scopedTypecheck": "passed",
+  "fullLocalTypecheck": "not qualified: shared local graph uses Vitest4; branch requires Vitest2; fresh exact-head CI is required",
+  "nativePostgres": "not qualified locally: existing loopback PostgreSQL reports missing global/pg_filenode.map; required CI count raised from 8 to 9 with zero skips",
+  "sourceSha256": {
+    "src/features/business-setup/ai-budget.server.ts": "8eacf4755edfee2f59ce5dbcccf745772afc416b34d55c9bc833f220f621a7db",
+    "src/features/business-setup/ai-trial.server.ts": "6c47ad483cb355ed071e88f125d1994832cbbfd21d26efb6cc5ac50f53719dbd",
+    "src/features/business-setup/ai-budget.server.test.ts": "17e226d599881beaff55fad0f28f8228683711a7a0dbd84d51b533b733cebe09",
+    "src/features/ai-credits/config.server.test.ts": "16448f5b4496353993f484cd5a756d875d804f0f0e94722d704b2a860a2d5b6e",
+    "src/features/ai-credits/request-metering.integration.test.ts": "f3d8d3f6dcb3e8ac1123ad917406c7abff3f17173ead46288d1980bda700b927",
+    "src/features/ai-credits/wallet.concurrency.integration.test.ts": "4df0060b3d67f6b1802a2128a6e2d4315ed4c4a69b6bf73636ed151976b3954b",
+    ".github/workflows/CI.yml": "9d16d79bdd8fbbc3f1ab503c55d9e4b5d6b2b8a9fa15937ab2fcfb78328d75f7",
+    "scripts/ci-workflow.node-test.mjs": "a840cba6a0863f84b9d55fdad3b252706497b090653195687c1e8e422f682910"
+  },
+  "trialBudget": "unchanged CAD80 combined ceiling; production cannot borrow it",
+  "scope": "Production provider expense is bounded by half each salon verified net paid credits and existing per-request credit/failure guards; optional fixed-cap mode retained."
+}
