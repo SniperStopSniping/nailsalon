@@ -375,10 +375,15 @@
       "path": "original-flow-new-price.png",
       "sha256": "2f849fc8d8de08f473317356e2d7e463b3353e77bb45362a8691bf4a98aa50f9",
       "source": "ae87-fresh-owner-original-flow-new-price75.png"
+    },
+    {
+      "path": "restoration-feedback.png",
+      "sha256": "ecd1ad6037764f0adcfaf7b2890a9ec32c5aa330e6ef7b1a7e1a485b19c7f326",
+      "source": "45fb-owner-restoration-visible-feedback.png"
     }
   ],
   "remaining": [
-    "New source fix for visible restoration confirmation has21 passing component tests but is not deployed in this evidence.",
+    "Full exact-head CI after the test-only reminder acknowledgement correction.",
     "Production release gates remain open; this is a Preview acceptance checkpoint."
   ],
   "disclosures": [
@@ -393,5 +398,33 @@
     "The generated editorial illustration has a large overlapping copper shape; this test does not claim pixel-perfect image reproduction.",
     "A small gap is missing between two generated supporting-copy fragments; no developer source intervention was used to conceal it."
   ],
-  "productionChanged": false
+  "productionChanged": false,
+  "hostedFeedbackFollowup": {
+    "sourceSha": "45fba1da49e8a4a27e63045a35d37e227d3ffbd9",
+    "deploymentId": "dpl_7x63jjejqU7KDtS11bqXQSsgixsr",
+    "confirmationVisibleOutsideCollapsedPanels": true,
+    "currentDesignBadgeVisible": true,
+    "privateRestoredRevision": 14,
+    "privateRestoredArtifact": "ee8d57da-e797-4418-9a2c-607a3b4c548c",
+    "privateRestoredDesignPriceCents": 7500,
+    "publicDesignStillPublishedRevision": 12,
+    "canonicalServicesAndBookingSnapshotsUnchanged": true,
+    "additionalModelCalls": 0,
+    "componentEditorFrameTestsPassed": 83,
+    "typecheckLintPassed": true,
+    "fullCi": {
+      "run": 39422419164,
+      "status": "failed_in_reminder_test; other jobs still completing",
+      "failedTest": "ClientCommunicationActions > snoozes a due appointment reminder for the reminder-specific window",
+      "cause": "Test waited for fetch invocation, then checked DOM before the asynchronous response acknowledgement completed.",
+      "deterministicDelayedAcknowledgementReproductionFailedBeforeCorrection": true,
+      "correction": "Test keeps the alert before acknowledgement, explicitly resolves the response and waits for its disappearance; skip also waits for completion. No reminder application code changed.",
+      "correctedReminderTestsPassed": 24,
+      "correctedAppointmentRegression": {
+        "files": 8,
+        "testsPassed": 119,
+        "skipped": 0
+      }
+    }
+  }
 }

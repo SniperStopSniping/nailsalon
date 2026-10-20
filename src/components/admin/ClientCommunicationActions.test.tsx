@@ -547,6 +547,17 @@ describe('ClientCommunicationActions', () => {
   });
 
   it('snoozes a due appointment reminder for the reminder-specific window', async () => {
+    let acknowledge!: (value: Response) => void;
+    const acknowledged = new Promise<Response>((resolve) => {
+      acknowledge = resolve;
+    });
+    const defaultFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/admin/retention' && init?.method === 'POST') {
+        return acknowledged;
+      }
+      return defaultFetch(input, init);
+    });
     retentionData = {
       retention: [],
       appointmentReminders: [{
@@ -578,7 +589,10 @@ describe('ClientCommunicationActions', () => {
       expect(requestBody).not.toHaveProperty('snoozeDays');
     });
 
-    expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('client-reminder-alert')).toBeInTheDocument();
+
+    await act(async () => acknowledge(jsonResponse({ data: { communication: { id: 'comm_1' } } })));
+    await waitFor(() => expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument());
   });
 
   it('allows a due appointment reminder to be skipped', async () => {
@@ -610,7 +624,7 @@ describe('ClientCommunicationActions', () => {
       });
     });
 
-    expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument());
   });
 
   it('prepares a secure configured win-back offer and shows honest history', async () => {
