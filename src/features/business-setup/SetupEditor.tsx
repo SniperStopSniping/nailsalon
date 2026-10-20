@@ -123,7 +123,10 @@ function reviewValue(value: unknown): string {
   }
   return String(value);
 }
-function designReviewValue(value: unknown): string {
+function designReviewValue(value: unknown, path?: string): string {
+  if (path === 'designBrief.mode' && (value === null || value === undefined)) {
+    return 'Use the design shown in Preview';
+  }
   if (value === 'keep_design') {
     return 'Keep my original artwork and make it clickable';
   }
@@ -1145,12 +1148,12 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
                 <p className="setup-review-value">
                   <strong>Before:</strong>
                   {' '}
-                  {change.path === 'addOns' ? addOnReviewValue(change.before, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.before, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before) : bookingExtraReviewValue(change.path, change.before)}
+                  {change.path === 'addOns' ? addOnReviewValue(change.before, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.before, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? change.before ? 'Your current website design' : 'No custom website design' : change.path.startsWith('designBrief') ? designReviewValue(change.before, change.path) : bookingExtraReviewValue(change.path, change.before)}
                 </p>
                 <p className="setup-review-value">
                   <strong>After:</strong>
                   {' '}
-                  {change.path === 'addOns' ? addOnReviewValue(change.after, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.after, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after) : bookingExtraReviewValue(change.path, change.after)}
+                  {change.path === 'addOns' ? addOnReviewValue(change.after, draft?.services ?? [], draft?.booking.currency ?? 'CAD') : change.path === 'staff' ? teamReviewValue(change.after, draft?.services ?? []) : change.path === 'website.config.customFrontendId' ? 'The saved design shown in your preview' : change.path.startsWith('designBrief') ? designReviewValue(change.after, change.path) : bookingExtraReviewValue(change.path, change.after)}
                 </p>
               </div>
             ))}

@@ -83,9 +83,12 @@ resubmission, stale composer text or another provider call. The exact review
 showed the design/reference changes and existing booking agreement; no price,
 duration, schedule, staff or policy changes were proposed.
 [Review for119](exact-review-119.png). One minor presentation issue remains in
-this runtime: a cleared optional design-mode value is described as “Not set,”
-even though the generated custom design is visible. This did not change booking
-settings or publication readiness.
+this captured runtime: a cleared optional design-mode value is described as
+“Not set,” even though the generated custom design is visible. The following
+source fix describes that case as “Use the design shown in Preview” and retains
+“Not set” for genuinely missing contact values. Its owner UI regression also
+checks that opening Review does not approve or publish. Neither the issue nor
+the copy fix changes booking settings, approval hashes or publication readiness.
 
 Using Previous designs → Restore as draft restored the first model source into
 revision120. [Restored design](restored-first-design.png). Restore earlier draft

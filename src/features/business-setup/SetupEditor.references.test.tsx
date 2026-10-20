@@ -132,6 +132,26 @@ it('keeps Preview open when saved conversation history finishes loading after na
   expect(screen.getByRole('region', { name: 'Website preview' })).toBeVisible();
 });
 
+it('describes a cleared design option using the saved preview without disguising missing contact information', async () => {
+  const baseFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+    const request = typeof options?.body === 'string' ? JSON.parse(options.body) : null;
+    if (request?.action === 'review') {
+      return { ok: true, json: async () => ({ data: { revision, hash: 'exact-hash', changes: [{ path: 'designBrief.mode', before: 'rebuild', after: null }, { path: 'website.content.websiteDetails.phone', before: '+1 416 555 0109', after: null }], blockers: [] } }) };
+    }
+    return baseFetch(url, options);
+  }));
+  render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled />);
+  await screen.findByText('Saved as draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+
+  const review = await screen.findByRole('region', { name: 'Review your changes' });
+
+  expect(within(review).getByRole('heading', { name: 'How to use your design' }).parentElement).toHaveTextContent('After: Use the design shown in Preview');
+  expect(within(review).getByRole('heading', { name: 'Public phone number' }).parentElement).toHaveTextContent('After: Not set');
+  expect(requests.some(request => ['approve', 'publish'].includes(request.action))).toBe(false);
+});
+
 it('resumes saved generation progress without asking the owner to submit again', async () => {
   messages = [{ id: crypto.randomUUID(), message: 'Create my website', reply: null, status: 'pending', progress: 'Checking your design and booking links…' }];
   render(<SetupEditor salonSlug="test" locale="en" existingSalon aiEnabled />);
