@@ -46,7 +46,10 @@ test('fonts are embedded in the hashed trusted boot, with no remote font or netw
   });
   const boot = html.match(/<script>([\s\S]+)<\/script>/u)[1];
   const digest = createHash('sha256').update(boot).digest('base64');
-  assert(headers['Content-Security-Policy'].includes(`script-src 'sha256-${digest}' blob:`));
+  assert(headers['Content-Security-Policy'].includes(`script-src 'sha256-${digest}';`));
+  assert(headers['Content-Security-Policy'].includes('worker-src data:;'));
+  assert(!headers['Content-Security-Policy'].includes('blob:'));
+  assert(!headers['Content-Security-Policy'].includes('unsafe-eval'));
   assert(headers['Content-Security-Policy'].includes('font-src data:;'));
   for (const capability of ['connect-src', 'frame-src', 'object-src', 'form-action', 'base-uri']) {
     assert(headers['Content-Security-Policy'].includes(`${capability} 'none'`));

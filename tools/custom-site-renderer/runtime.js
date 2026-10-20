@@ -286,31 +286,28 @@
       // No navigation API or document in the worker. Browser CSP blocks network
       // and imports. Nested workers are removed before untrusted code runs.
       const workerSource = `'use strict';\nconst send = self.postMessage.bind(self);\nconst handlers = [];\nObject.defineProperty(self, 'Worker', {value:undefined,writable:false,configurable:false});\nObject.defineProperty(self, 'SharedWorker', {value:undefined,writable:false,configurable:false});\nObject.defineProperty(self, 'BroadcastChannel', {value:undefined,writable:false,configurable:false});\nconst Luster = Object.freeze({data:${JSON.stringify(data)},on: fn=>{if(typeof fn==='function' && handlers.length<20)handlers.push(fn)},update: op=>send({type:'update',op})});\nsetInterval(()=>send({type:'heartbeat'}),200);\nself.addEventListener('message',event=>{for(const handler of handlers)handler(event.data)});\n${source.javascript}`;
-      const url = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
-      worker = new Worker(url);
-      // WebKit loads worker blobs asynchronously. Keep the URL until the first
-      // heartbeat (or termination), otherwise valid interactions can fail to load.
-      let released = false;
-      const release = () => {
-        if (!released) {
-          URL.revokeObjectURL(url);
-          released = true;
-        }
-      };
+      // HTTPS WebKit cannot reliably load blob:null workers from an opaque
+      // sandbox. A data worker retains an opaque origin and inherits the same
+      // network-denying CSP without granting allow-same-origin. Encode UTF-8
+      // explicitly (including non-ASCII source) and bound spread arguments.
+      const bytes = new TextEncoder().encode(workerSource);
+      let binary = '';
+      for (let start = 0; start < bytes.length; start += 8192) {
+        binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
+      }
+      worker = new Worker(`data:application/javascript;base64,${btoa(binary)}`);
       let heartbeat = Date.now();
       let count = 0;
       const watchdog = setInterval(() => {
         count = 0;
         if (Date.now() - heartbeat > 1500) {
           worker.terminate();
-          release();
           clearInterval(watchdog);
           send({ type: 'interaction-stopped', reason: 'watchdog' });
         }
       }, 500);
       worker.onmessage = ({ data: message }) => {
         if (message?.type === 'heartbeat') {
-          release();
           heartbeat = Date.now();
           return;
         }
@@ -353,7 +350,6 @@
       };
       worker.onerror = () => {
         worker.terminate();
-        release();
         clearInterval(watchdog);
         send({ type: 'interaction-stopped', reason: 'error' });
       };

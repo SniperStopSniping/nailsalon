@@ -1376,6 +1376,11 @@ jobs:
         working-directory: prototypes/site-builder-v2-booking-integration-lab
         run: npm ci
 
+      - name: Verify HTTPS custom-site workers and opaque-origin isolation
+        if: matrix.suite == 'onboarding-owner'
+        timeout-minutes: 3
+        run: node node_modules/@playwright/test/cli.js test --config tests/browser/rendererIsolationHttps/playwright.config.ts --output=test-results/renderer-https-isolation
+
       - name: Verify onboarding confirmation and booking notice
         if: matrix.suite == 'onboarding-owner'
         working-directory: prototypes/site-builder-v2-booking-integration-lab

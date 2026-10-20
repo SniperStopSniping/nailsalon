@@ -473,6 +473,7 @@ test('all browser evidence runs exactly once across required independent groups'
   assert.equal(job['timeout-minutes'], 55);
   const expected = {
     'onboarding-owner': [
+      'Verify HTTPS custom-site workers and opaque-origin isolation',
       'Verify onboarding confirmation and booking notice',
       'Verify SMS components and plan access in desktop and mobile browsers',
       'Verify review previews and delivery states in mobile browsers',
@@ -517,6 +518,10 @@ test('all browser evidence runs exactly once across required independent groups'
   const evidence = job.steps.filter(step => step.name?.startsWith('Verify ') || step.name === 'Run storybook tests');
   assert.equal(evidence.length, Object.values(expected).flat().length);
   assert.equal(new Set(evidence.map(step => step.name)).size, evidence.length);
+  const renderer = evidence.find(step => step.name === 'Verify HTTPS custom-site workers and opaque-origin isolation');
+  assert.equal(renderer['timeout-minutes'], 3);
+  assert.equal(renderer.run, 'node node_modules/@playwright/test/cli.js test --config tests/browser/rendererIsolationHttps/playwright.config.ts --output=test-results/renderer-https-isolation');
+  assert.equal(renderer.env, undefined);
   const deletion = evidence.find(step => step.name === 'Verify deletion recovery and keyboard review in desktop and mobile browsers');
   assert.equal(deletion['timeout-minutes'], 5);
   assert.equal(deletion.run, 'node node_modules/@playwright/test/cli.js test --config tests/browser/salonDeletion/playwright.config.ts --output=test-results/salon-deletion-review');

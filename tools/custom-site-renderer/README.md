@@ -2,8 +2,8 @@
 
 This small static server is a separate deployable, not a Next.js route. It must
 run on a different registrable site from Luster administration, without Luster
-cookies, credentials, application packages, database or API access. Nothing here
-has been deployed.
+cookies, credentials, application packages, database or API access. Verify the
+actual deployment and parent origin before enabling it in an application.
 
 Local proof environment:
 
@@ -21,6 +21,10 @@ verified parent-origin allowlist before rollout; do not use wildcard ancestors.
 The frame has an opaque sandbox origin (no allow-same-origin), in addition to
 using a separate site. Its dedicated worker cannot use persistent origin storage;
 BroadcastChannel and nested workers are also removed before generated code runs.
+The interaction worker uses an opaque data URL: HTTPS WebKit can reject
+blob:null workers from an opaque frame. UTF-8 source is encoded without changing
+the saved design. Worker CSP still blocks network/imports; the parent script
+policy permits only the hashed trusted boot, without blob scripts or eval.
 The parent checks the exact frame WindowProxy, null origin and random channel.
 Initialization targets that frame with "*" because opaque origins cannot be
 named as a postMessage target. The renderer accepts only its configured parent.
@@ -48,6 +52,10 @@ outage cannot remove access to the original booking journey.
 Browser contracts: [iframe sandbox](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe),
 [postMessage](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage),
 [worker CSP inheritance](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers).
+The deterministic `tests/browser/rendererIsolationHttps` suite exercises the
+actual handler/CSP with synthetic HTTPS parents in desktop/mobile Chromium and
+WebKit, including hostile and runaway code, navigation and rejected origins.
+It performs no Production requests or provider/database operations.
 
 Source revisions are immutable database records, referenced by the existing
 shared setup draft. Restoring creates a new draft; it never reverses bookings.
