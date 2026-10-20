@@ -1,3 +1,10 @@
+## [1.144.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.144.0...v1.144.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **ai:** isolate Calendar data and retire voice receptionist ([#470](https://github.com/SniperStopSniping/nailsalon/issues/470)) ([4afffb0](https://github.com/SniperStopSniping/nailsalon/commit/4afffb05c3acfb91406e024231177d9a6e3351c0))
+
 # [1.144.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.143.3...v1.144.0) (2026-10-20)
 
 
