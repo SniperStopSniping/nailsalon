@@ -52,7 +52,7 @@ test('scopes patched CommonJS lodash to semantic-release Git and changelog paren
   assert.deepEqual(manifest.overrides['@semantic-release/changelog'], { lodash: '4.18.1' });
   assert.equal(manifest.overrides.lodash, undefined);
   assert.equal(lock.packages['node_modules/lodash'].version, '4.17.21');
-  assert.equal(lock.packages['node_modules/lodash-es'].version, '4.17.21');
+  assert.equal(lock.packages['node_modules/lodash-es'].version, '4.18.1');
 
   for (const parent of ['git', 'changelog']) {
     const parentPath = `node_modules/@semantic-release/${parent}`;
