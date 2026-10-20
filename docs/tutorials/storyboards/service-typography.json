@@ -1,0 +1,181 @@
+{
+  "revision": 5,
+  "sourceVideo": "videos/luster-how-to-add-service-v4.mp4",
+  "sourceEditTimeline": "versions/service-v4/edit-timeline.json",
+  "outputVideo": "videos/luster-how-to-add-service-v5.mp4",
+  "steps": [
+    {
+      "label": "SERVICE MENU  /  STEP 01",
+      "heading": "Open your services",
+      "benefit": "Tap Services to manage your booking menu.",
+      "sourceStart": 0,
+      "sourceEnd": 4.4,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 1.3482764765975803,
+          "x": 269,
+          "y": 808
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 02",
+      "heading": "Add a new service",
+      "benefit": "Tap + Service to add a treatment to your menu.",
+      "sourceStart": 4.4,
+      "sourceEnd": 8.8,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 5.78039680232037,
+          "x": 337.4140625,
+          "y": 66.75
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 03",
+      "heading": "Set the service essentials",
+      "benefit": "Add a clear name, price and appointment length.",
+      "sourceStart": 8.8,
+      "sourceEnd": 16.4,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 9.700777851021755,
+          "x": 195,
+          "y": 191.375
+        },
+        {
+          "actualClickTimeSeconds": 11.592511535926164,
+          "x": 111,
+          "y": 285.375
+        },
+        {
+          "actualClickTimeSeconds": 13.493263019116679,
+          "x": 279,
+          "y": 285.375
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 04",
+      "heading": "Save your new service",
+      "benefit": "Tap Save Service to add it to your menu.",
+      "sourceStart": 16.4,
+      "sourceEnd": 20.799999999999997,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 17.54313606235787,
+          "x": 263.3984375,
+          "y": 790.75
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 05",
+      "heading": "Keep your prices current",
+      "benefit": "Tap Edit and enter your updated price.",
+      "sourceStart": 20.799999999999997,
+      "sourceEnd": 25.4,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 21.69734088927638,
+          "x": 352.1640625,
+          "y": 62
+        },
+        {
+          "actualClickTimeSeconds": 22.99572798605057,
+          "x": 111,
+          "y": 309.75
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 06",
+      "heading": "Confirm your new price",
+      "benefit": "Tap Update Service to save the change.",
+      "sourceStart": 25.4,
+      "sourceEnd": 29.799999999999997,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 26.518303279996513,
+          "x": 263.3984375,
+          "y": 790.75
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 07",
+      "heading": "Choose your add-ons",
+      "benefit": "Let clients choose extras with their manicure.",
+      "sourceStart": 29.799999999999997,
+      "sourceEnd": 34.199999999999996,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 31.189227498228206,
+          "x": 116.125,
+          "y": 642.5
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 08",
+      "heading": "French tips & chrome",
+      "benefit": "Select finishes with clear extra prices and time.",
+      "sourceStart": 34.199999999999996,
+      "sourceEnd": 38.599999999999994,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 35.12566330124442,
+          "x": 195,
+          "y": 416.5
+        },
+        {
+          "actualClickTimeSeconds": 36.4501056586053,
+          "x": 195,
+          "y": 484.5
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 09",
+      "heading": "Add glitter & removal",
+      "benefit": "Add removal from another salon when needed.",
+      "sourceStart": 38.599999999999994,
+      "sourceEnd": 42.99999999999999,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 39.49823404756299,
+          "x": 195,
+          "y": 552.5
+        },
+        {
+          "actualClickTimeSeconds": 40.82849069931717,
+          "x": 195,
+          "y": 620.5
+        }
+      ]
+    },
+    {
+      "label": "SERVICE MENU  /  STEP 10",
+      "heading": "Save your chosen extras",
+      "benefit": "Tap Done to save the extras for this service.",
+      "sourceStart": 42.99999999999999,
+      "sourceEnd": 47.39999999999999,
+      "synchronizedClicks": [
+        {
+          "actualClickTimeSeconds": 44.24461587913854,
+          "x": 279,
+          "y": 787
+        }
+      ]
+    },
+    {
+      "label": "YOUR SERVICE MENU",
+      "heading": "Your menu, clearly booked",
+      "benefit": "Help clients choose the right appointment.",
+      "sourceStart": 47.39999999999999,
+      "sourceEnd": 51.79999999999999,
+      "synchronizedClicks": []
+    }
+  ]
+}

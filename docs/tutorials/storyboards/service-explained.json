@@ -1,0 +1,245 @@
+{
+  "revision": 4,
+  "sourceVideo": "videos/luster-how-to-add-service-v3.mp4",
+  "sourceEditTimeline": "versions/service-v3/edit-timeline.json",
+  "outputVideo": "videos/luster-how-to-add-service-v4.mp4",
+  "minimumStepSeconds": 4.4,
+  "steps": [
+    {
+      "heading": "01  Open Services",
+      "benefit": "Keep your booking menu organized.",
+      "sourceStart": 0,
+      "sourceEnd": 3.2666666666666666,
+      "sourceClicks": [
+        {
+          "t": 60.356,
+          "x": 269,
+          "y": 808
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          59.484,
+          62.737
+        ]
+      ]
+    },
+    {
+      "heading": "02  Tap + Service",
+      "benefit": "Give each treatment a clear listing.",
+      "sourceStart": 3.2666666666666666,
+      "sourceEnd": 6.5,
+      "sourceClicks": [
+        {
+          "t": 63.734,
+          "x": 337.4140625,
+          "y": 66.75
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          62.833,
+          66.063
+        ]
+      ]
+    },
+    {
+      "heading": "03  Set name, price & time",
+      "benefit": "Help clients know what they\u2019re booking.",
+      "sourceStart": 6.5,
+      "sourceEnd": 14.1,
+      "sourceClicks": [
+        {
+          "t": 67.072,
+          "x": 195,
+          "y": 191.375
+        },
+        {
+          "t": 68.96,
+          "x": 111,
+          "y": 285.375
+        },
+        {
+          "t": 70.857,
+          "x": 279,
+          "y": 285.375
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          66.173,
+          73.758
+        ]
+      ]
+    },
+    {
+      "heading": "04  Tap Save Service",
+      "benefit": "Add the treatment to your salon\u2019s menu.",
+      "sourceStart": 14.1,
+      "sourceEnd": 17.933333333333334,
+      "sourceClicks": [
+        {
+          "t": 74.752,
+          "x": 263.3984375,
+          "y": 790.75
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          73.849,
+          77.666
+        ]
+      ]
+    },
+    {
+      "heading": "05  Update your service price",
+      "benefit": "Keep your menu current as prices change.",
+      "sourceStart": 17.933333333333334,
+      "sourceEnd": 22.53333333333333,
+      "sourceClicks": [
+        {
+          "t": 78.617,
+          "x": 352.1640625,
+          "y": 62
+        },
+        {
+          "t": 79.912,
+          "x": 111,
+          "y": 309.75
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          77.722,
+          82.31
+        ]
+      ]
+    },
+    {
+      "heading": "06  Tap Update Service",
+      "benefit": "Save the new price in your service menu.",
+      "sourceStart": 22.53333333333333,
+      "sourceEnd": 26.333333333333332,
+      "sourceClicks": [
+        {
+          "t": 83.255,
+          "x": 263.3984375,
+          "y": 790.75
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          82.379,
+          86.16
+        ]
+      ]
+    },
+    {
+      "heading": "07  Tap Choose add-ons",
+      "benefit": "Let clients personalize their manicure.",
+      "sourceStart": 26.333333333333332,
+      "sourceEnd": 29.53333333333333,
+      "sourceClicks": [
+        {
+          "t": 62.235,
+          "x": 116.125,
+          "y": 642.5
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          61.344,
+          62.265
+        ],
+        [
+          62.619,
+          64.52
+        ]
+      ]
+    },
+    {
+      "heading": "08  Select French Tips & Chrome",
+      "benefit": "Show each finish\u2019s extra price and time.",
+      "sourceStart": 29.53333333333333,
+      "sourceEnd": 33.8,
+      "sourceClicks": [
+        {
+          "t": 65.47,
+          "x": 195,
+          "y": 416.5
+        },
+        {
+          "t": 66.752,
+          "x": 195,
+          "y": 484.5
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          64.574,
+          68.833
+        ]
+      ]
+    },
+    {
+      "heading": "09  Add Glitter & Outside Removal",
+      "benefit": "Help clients plan for removal before their manicure.",
+      "sourceStart": 33.8,
+      "sourceEnd": 38.06666666666666,
+      "sourceClicks": [
+        {
+          "t": 69.753,
+          "x": 195,
+          "y": 552.5
+        },
+        {
+          "t": 71.037,
+          "x": 195,
+          "y": 620.5
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          68.886,
+          73.133
+        ]
+      ]
+    },
+    {
+      "heading": "10  Tap Done to save",
+      "benefit": "Keep your chosen extras linked to this service.",
+      "sourceStart": 38.06666666666666,
+      "sourceEnd": 41.266666666666666,
+      "sourceClicks": [
+        {
+          "t": 74.069,
+          "x": 279,
+          "y": 787
+        }
+      ],
+      "priorSourceRanges": [
+        [
+          73.189,
+          74.099
+        ],
+        [
+          74.456,
+          76.657
+        ]
+      ]
+    },
+    {
+      "heading": "Your services. Your extras.",
+      "benefit": "Help clients choose the right appointment.",
+      "sourceStart": 41.266666666666666,
+      "sourceEnd": 44.46666666666667,
+      "sourceClicks": [],
+      "priorSourceRanges": [
+        [
+          76.723,
+          79.243
+        ]
+      ]
+    }
+  ]
+}

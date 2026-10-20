@@ -1,0 +1,39 @@
+{
+  "evidenceScope": "Historical remote CI. Read current PR checks for the final branch head; corrected browser fixtures are awaiting a new push.",
+  "passedRun": {
+    "runId": 38853203767,
+    "conclusion": "success",
+    "headSha": "657d9d1308745702386af133f9c0565a707dae50",
+    "status": "completed"
+  },
+  "catalogFixRun": {
+    "runId": 38856795618,
+    "headSha": "46e47c0c74bd9a0fbdb1a765884e2d2f112586cb",
+    "status": "completed",
+    "conclusion": "failure",
+    "failures": [
+      {
+        "name": "Component and onboarding browsers (onboarding-owner)",
+        "url": "https://github.com/SniperStopSniping/nailsalon/actions/runs/38856795618/job/116830118924"
+      },
+      {
+        "name": "Component and onboarding browsers (customer-booking)",
+        "url": "https://github.com/SniperStopSniping/nailsalon/actions/runs/38856795618/job/116830119047"
+      },
+      {
+        "name": "Run all tests (20.x)",
+        "url": "https://github.com/SniperStopSniping/nailsalon/actions/runs/38856795618/job/116836913386"
+      },
+      {
+        "name": "UIQI release conditions",
+        "url": "https://github.com/SniperStopSniping/nailsalon/actions/runs/38856795618/job/116836935568"
+      }
+    ],
+    "failureAssessment": {
+      "ownerNavigation": "Outdated catalog-ready fixture; corrected with explicit l1 and legacy coverage. Eight affected local cases pass.",
+      "customerBooking": "WebKit internal page.goto navigation error in booking-theme/media-layouts.spec.ts, unrelated to the changed catalog controls. Recheck fresh CI."
+    }
+  },
+  "localBrowserFixtureCorrection": "Eight affected owner-navigation cases passed across Chromium/WebKit at 320 and 1280 pixels.",
+  "recipeValidation": "84 JavaScript/TypeScript modules passed scoped ESLint. JavaScript syntax and Python compilation passed."
+}

@@ -313,6 +313,16 @@ describe('salon services route', () => {
     expect(body.data.services[0].assignedTechnicianCount).toBe(1);
     expect(body.data.services[1].assignedTechnicianCount).toBe(0);
     expect(body.data.activeTechnicianCount).toBe(1);
+    expect(body.data.catalogDomainView).toBe('legacy');
+  });
+
+  it('reports catalog readiness from the authorized salon rather than client input', async () => {
+    requireAdminSalon.mockResolvedValueOnce({ salon: { id: 'enabled-salon', features: { catalog: { bookingModesV1: true } } }, error: null });
+    selectWhere.mockResolvedValue([]);
+    const response = await GET(new Request('http://localhost/api/salon/services?salonSlug=enabled-salon&catalogDomainView=legacy'));
+
+    expect((await response.json()).data.catalogDomainView).toBe('l1');
+    expect(getServicesBySalonIdIncludingInactive).toHaveBeenCalledWith('enabled-salon');
   });
 
   it('reports the technician assignment count on the create response', async () => {

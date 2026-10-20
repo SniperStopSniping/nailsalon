@@ -60,6 +60,7 @@ type MockRoutes = {
   ownedTemplateKeys?: string[];
   addOns?: unknown[];
   activeTechnicianCount?: number;
+  catalogDomainView?: 'legacy' | 'l1';
   templateAddResult?: Record<string, unknown>;
   /** Non-2xx forces the service PATCH to fail with this status/message. */
   patchFailure?: { status: number; message: string };
@@ -84,7 +85,7 @@ type MockRoutes = {
   imageDeleteFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, bookingConfig = { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true }, settingsGetStatus = 200, settingsGetResponse, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, reorderFailure, serviceAddOnsFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, bookingConfig = { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true }, settingsGetStatus = 200, settingsGetResponse, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, catalogDomainView = 'legacy', templateAddResult, patchFailure, reorderFailure, serviceAddOnsFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
   let addOnListCalls = 0;
   let serviceListCalls = 0;
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -339,7 +340,7 @@ function mockRoutes({ services = [], merchandising = {}, bookingConfig = { intro
           : services;
 
       return new Response(
-        JSON.stringify({ data: { services: servicePayload, activeTechnicianCount } }),
+        JSON.stringify({ data: { services: servicePayload, activeTechnicianCount, catalogDomainView } }),
         { status: 200 },
       );
     }
@@ -383,8 +384,20 @@ describe('ServicesModal', () => {
     vi.stubGlobal('fetch', fetchMock);
   });
 
+  it('opens the working salon-wide approval settings when service-level modes are inactive', async () => {
+    const openBookingRules = vi.fn();
+    mockRoutes({ services: [{ id: 'legacy-mode', name: 'Saved legacy treatment', price: 50, durationMinutes: 60, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }] });
+    render(<ServicesModal onClose={vi.fn()} salonSlug="salon-a" onOpenBookingRules={openBookingRules} />);
+    await screen.findByText('Saved legacy treatment');
+    fireEvent.click(screen.getByRole('tab', { name: 'Booking approval' }));
+
+    expect(openBookingRules).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId('catalog-confirmation-panel')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false);
+  });
+
   it('shows booking approval as a primary choice and preserves the stored service mode', async () => {
-    mockRoutes({ services: [{ id: 'synthetic-approval', name: 'Synthetic manicure', price: 50, durationMinutes: 60, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }] });
+    mockRoutes({ catalogDomainView: 'l1', services: [{ id: 'synthetic-approval', name: 'Synthetic manicure', price: 50, durationMinutes: 60, category: 'manicure', isActive: true, confirmationMode: 'request_approval' }] });
     render(<ServicesModal onClose={vi.fn()} salonSlug="salon-a" />);
     await screen.findByText('Synthetic manicure');
 

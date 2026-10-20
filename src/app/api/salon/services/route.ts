@@ -6,6 +6,7 @@ import { requireAdminSalon } from '@/libs/adminAuth';
 import {
   descriptionItemsToLegacyText,
   normalizeDescriptionItems,
+  resolveCatalogDomainView,
 } from '@/libs/bookingCatalog';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { db } from '@/libs/DB';
@@ -24,6 +25,7 @@ import {
   technicianServicesSchema,
 } from '@/models/Schema';
 import type { ServiceResponse } from '@/types/admin';
+import type { SalonFeatures } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -193,6 +195,7 @@ export async function GET(request: Request): Promise<Response> {
       data: {
         services: formattedServices,
         activeTechnicianCount: activeTechnicianIds.size,
+        catalogDomainView: resolveCatalogDomainView(salon.features as SalonFeatures | null),
       },
     });
   } catch (error) {

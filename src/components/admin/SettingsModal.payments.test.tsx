@@ -594,7 +594,7 @@ describe('SettingsModal Deposits card', () => {
       expect(screen.queryByText(/^Saved\./)).not.toBeInTheDocument();
       expect(screen.queryByText('Deposits saved.')).not.toBeInTheDocument();
       expect(screen.getByTestId('deposits-prerequisites'))
-        .not.toHaveTextContent(/saved/i);
+        .not.toHaveTextContent(/Saved\./i);
 
       fireEvent.click(screen.getByTestId('deposits-enabled'));
 
@@ -621,7 +621,9 @@ describe('SettingsModal Deposits card', () => {
       const prerequisites = screen.getByTestId('deposits-prerequisites');
 
       expect(prerequisites).toHaveTextContent(/Set up deposits when you are ready/i);
-      expect(prerequisites).toHaveTextContent(/Choose a deposit amount and turn on Require a deposit/i);
+      expect(prerequisites).toHaveTextContent(/Choose a deposit amount and save it/i);
+      expect(prerequisites).toHaveTextContent(/cannot be switched on until your payment account is connected and ready/i);
+      expect(prerequisites).not.toHaveTextContent(/stored and waits/i);
       expect(prerequisites).toHaveTextContent(/payment account has to be connected/i);
       expect(prerequisites).toHaveTextContent(/Integrations/i);
       expect(prerequisites).toHaveTextContent(/no card is charged/i);

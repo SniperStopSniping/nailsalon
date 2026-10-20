@@ -30,7 +30,7 @@ function jsonResponse(body: unknown, status = 200) {
  * baseline `ServicesModal.test.tsx` already exercises for the existing
  * tabs — this file adds coverage for the NEW "Catalog" tab only.
  */
-function mockLegacySalonRoutes() {
+function mockLegacySalonRoutes(catalogDomainView: 'legacy' | 'l1' = 'l1') {
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.startsWith('/api/salon/add-on-groups')) {
@@ -60,6 +60,7 @@ function mockLegacySalonRoutes() {
     if (url.startsWith('/api/salon/services') && (!init?.method || init.method === 'GET')) {
       return jsonResponse({
         data: {
+          catalogDomainView,
           services: [{
             id: 'svc_legacy',
             name: 'Classic Manicure',
@@ -125,11 +126,27 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     expect(screen.queryByTestId('services-more-tabs')).not.toBeInTheDocument();
   });
 
+  it('keeps inactive catalog rules hidden while preserving working menu display settings', async () => {
+    mockLegacySalonRoutes('legacy');
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    await screen.findByText('Classic Manicure');
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
+
+    expect(screen.getByTestId('services-tab-catalog')).toHaveTextContent('Menu display');
+
+    fireEvent.click(screen.getByTestId('services-tab-catalog'));
+
+    expect(screen.queryByTestId('catalog-config-tab')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('catalog-section-rules')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save menu display' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('catalog-rules'))).toBe(false);
+  });
+
   it('legacy simplicity: the Catalog tab is fully opt-in — no catalog-config fetch happens until it is opened, and the everyday tabs are unaffected', async () => {
     mockLegacySalonRoutes();
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
-    await screen.findByTestId('services-tab-menu');
+    await screen.findByText('Classic Manicure');
     const catalogFetchesBeforeOpen = fetchMock.mock.calls.filter(([url]) => String(url).includes('add-on-groups') || String(url).includes('capabilities') || String(url).includes('catalog-rules')).length;
 
     expect(catalogFetchesBeforeOpen).toBe(0);
@@ -146,7 +163,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     mockLegacySalonRoutes();
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
-    await screen.findByTestId('services-tab-menu');
+    await screen.findByText('Classic Manicure');
     fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
     fireEvent.click(screen.getByTestId('services-tab-catalog'));
     fireEvent.click(screen.getByTestId('catalog-section-groupServices'));

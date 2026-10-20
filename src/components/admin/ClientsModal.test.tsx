@@ -1474,7 +1474,7 @@ describe('ClientsModal', () => {
     fireEvent.change(screen.getByLabelText('Client profile section'), { target: { value: 'appointments' } });
 
     expect(await screen.findByText('Current & upcoming appointments')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Problem client flag')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Important client flag')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Block future booking')).not.toBeInTheDocument();
   });
 
@@ -1526,10 +1526,10 @@ describe('ClientsModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
     fireEvent.click(await screen.findByRole('button', { name: 'Client controls' }));
 
-    expect(await screen.findByLabelText('Problem client flag')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Important client flag')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Problem client flag'));
-    fireEvent.change(screen.getByLabelText('Problem client reason'), { target: { value: 'Aggressive behavior' } });
+    fireEvent.click(screen.getByLabelText('Important client flag'));
+    fireEvent.change(screen.getByLabelText('Private flag note'), { target: { value: 'Aggressive behavior' } });
 
     fireEvent.click(screen.getByLabelText('Block future booking'));
 

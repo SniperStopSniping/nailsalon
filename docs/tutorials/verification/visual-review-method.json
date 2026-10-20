@@ -1,0 +1,11 @@
+{
+  "method": "Human inspection of beginning, middle and end frames for every current workflow, plus important tap/transition contact sheets for the principal booking, service, no-show and saved-result flows. Every real tap timing and all text bounds were separately checked by script.",
+  "notClaimed": "Every second watched in realtime; physical iPhone/Instagram overlay testing; production availability.",
+  "notes": [
+    "Navigation loading waits were cut while retaining actual taps and settled results. Some early opening shots still show a brief data-card refresh in the real dashboard.",
+    "Setup disclosure was moved below the brand tagline to avoid overlap.",
+    "Inactive catalog footage and service-level approval footage were archived; current approval uses working salon-wide rules.",
+    "No-show customer review uses a real requested/suspended state; the synthetic management view also displays a financial-review notice for its intentionally incomplete older fixture.",
+    "The stopped fifth no-show rehearsal was corrected through the existing authorized API, preserving its audit trail."
+  ]
+}

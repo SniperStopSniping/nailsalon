@@ -1,0 +1,41 @@
+[
+  {
+    "browser": "desktop-chrome",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "videoCount": 67,
+    "allMetadata": "passed",
+    "playback": "passed",
+    "search": "passed",
+    "priorityFilter": "passed",
+    "horizontalOverflow": false
+  },
+  {
+    "browser": "mobile-chrome",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "videoCount": 67,
+    "allMetadata": "passed",
+    "playback": "passed",
+    "search": "passed",
+    "priorityFilter": "passed",
+    "horizontalOverflow": false
+  },
+  {
+    "browser": "mobile-webkit",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "videoCount": 67,
+    "allMetadata": "passed",
+    "playback": "passed",
+    "search": "passed",
+    "priorityFilter": "passed",
+    "horizontalOverflow": false
+  }
+]

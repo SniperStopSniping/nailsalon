@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "paymentStatus": "paid",
+  "balanceCents": 0,
+  "payments": [
+    {
+      "method": "cash",
+      "amountCents": 6500
+    }
+  ]
+}

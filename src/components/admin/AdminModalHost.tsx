@@ -263,6 +263,7 @@ export function AdminModalHost({
           onClose={onCloseModal}
           salonSlug={activeSalonSlug}
           onOpenStaff={onOpenApp ? () => onOpenApp('team') : undefined}
+          onOpenBookingRules={onOpenApp ? () => onOpenApp('booking-rules') : undefined}
         />
       </AppModal>
 
