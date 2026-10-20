@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client } from 'pg';
 
 import { resolveRuntimeEnvironment } from '../src/libs/environmentIsolation';
@@ -68,7 +70,10 @@ function isCiEnvironment(): boolean {
     || process.env.GITHUB_ACTIONS === '1';
 }
 
-async function attestProductionTarget(connectionString: string): Promise<void> {
+async function attestProductionTarget(
+  connectionString: string,
+  operation?: (client: Client) => Promise<void>,
+): Promise<void> {
   const client = new Client({ connectionString });
   let connected = false;
   try {
@@ -79,6 +84,7 @@ async function attestProductionTarget(connectionString: string): Promise<void> {
       throw new Error('Production database command could not attest its target.');
     }
     await rejectNonProductionMarkerForProduction(client);
+    await operation?.(client);
   } finally {
     if (connected) {
       await client.end().catch(() => undefined);
@@ -105,8 +111,19 @@ async function runProductionCommand(command: ProductionCommand): Promise<void> {
 
   try {
     const target = requirePostgresDatabaseTarget(process.env);
-    await attestProductionTarget(target.connectionString);
-    runDrizzleCommand(command, target.connectionString);
+    if (command === 'migrate') {
+      // Use the migrator shipped with the pinned ORM, as Development does.
+      // The older Studio CLI rejects this ORM before executing migrations.
+      // Keep the actual migration on the connection whose target was attested.
+      await attestProductionTarget(target.connectionString, async (client) => {
+        await migrate(drizzle(client), {
+          migrationsFolder: path.join(repositoryRoot, 'migrations'),
+        });
+      });
+    } else {
+      await attestProductionTarget(target.connectionString);
+      runDrizzleCommand(command, target.connectionString);
+    }
   } catch (error) {
     fail(error instanceof NonProductionDatabaseGuardError
       ? error.message
