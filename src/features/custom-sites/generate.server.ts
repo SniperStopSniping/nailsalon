@@ -22,6 +22,7 @@ import { customSiteGenerateSchema, customSiteSourceSchema } from './contracts';
 import { CUSTOM_SITE_OUTPUT_SCHEMA, CUSTOM_SITE_PROMPT } from './prompt';
 import { validateCustomSource } from './validate.server';
 import { assertBookingPolicyCoverage, assertWebsiteDetailsCoverage } from './website-coverage.server';
+import { assertPreservedWebsiteWording } from './wording.server';
 
 // Each paid generation is admitted only after exact multimodal token counting.
 const MAX_OUTPUT = 14000;
@@ -91,10 +92,13 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
         assertWebsiteAssetBudget(media);
         const publicBookingPolicy = publicCustomSiteBookingPolicy(document.bookingPolicy);
         const context = JSON.stringify({ publicBookingPolicy, websiteDetails: document.website.content.websiteDetails, business: { ...previewBusinessIdentity(document), address: document.business.locationDisplayMode === 'full_address' ? document.business.exactAddress : null, bio: document.website.content.bio, hours: document.hours, timezone: document.booking.timezone }, booking: { currency: document.booking.currency, minimumNoticeMinutes: document.booking.minimumNoticeMinutes, bufferMinutes: document.booking.bufferMinutes, confirmationMode: document.booking.confirmationMode }, services: document.services.map(s => ({ id: s.id, name: s.name, description: s.description, priceCents: s.priceCents, durationMinutes: s.durationMinutes, confirmed: s.confirmed })), previousSource: prior?.source ?? null, designBrief: brief ?? { fidelity: 'inspiration', ownedReferenceIds: [] }, assets: media.map(a => ({ id: a.id, role: a.role, name: a.name })), startOver: input.startOver });
-        if (Buffer.byteLength(context + CUSTOM_SITE_PROMPT + input.message) > 140000) {
+        const generationMessage = ownerMessage ? `Assistant design summary (may be stale): ${input.message}\n\nOwner's actual latest instruction (takes precedence): ${ownerMessage}` : input.message;
+        if (Buffer.byteLength(context + CUSTOM_SITE_PROMPT + generationMessage) > 140000) {
           throw new SetupError('INVALID', 'This design is too large for one generation. Simplify the saved source first.');
         }
-        const parts: Extract<ModelProviderInputItem, { role: 'user'; content: unknown[] }>['content'] = [{ type: 'input_text', text: input.message }];
+        // The planner's paraphrase can contain stale quotes from conversation.
+        // Keep its task as context, with the actual owner's latest words last.
+        const parts: Extract<ModelProviderInputItem, { role: 'user'; content: unknown[] }>['content'] = [{ type: 'input_text', text: generationMessage }];
         // Send selected references only. Inherited website images retain identity
         // without resending every binary on each small source modification.
         for (const asset of media.filter(a => selectedIds.includes(a.id))) {
@@ -122,6 +126,9 @@ export async function generateCustomSite(actor: SetupActor, raw: unknown, provid
             source = validateCustomSource(bindWebsiteContacts(source, document.website.content.websiteDetails), allowedImages, true);
             assertWebsiteDetailsCoverage(source.html, document.website.content.websiteDetails);
             assertBookingPolicyCoverage(source.html, publicBookingPolicy);
+            if (prior && !input.startOver) {
+              assertPreservedWebsiteWording(source.html, prior.source.html, ownerMessage ?? input.message);
+            }
             await db.update(calls).set({ validation: 'passed' }).where(eq(calls.id, callId));
             break;
           } catch (error) {

@@ -585,6 +585,61 @@ describe('custom frontend shared draft integration', () => {
     expect(createResponse).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves manually saved headlines through a stale planner paraphrase and bounded design repair', async () => {
+    const actor = await fixture();
+    const manual = { ...editorialSource, html: editorialSource.html.replace('Beauty,<br><em>on your terms.</em>', 'Nails, beautifully considered.') };
+    const saved = await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), assetIds: [], source: manual });
+    const message = 'Make the hero illustration larger. Keep my edited headline, service prices and everything else.';
+    const response = (value: unknown) => ({ status: 'completed', usage: { inputTokens: 3000, outputTokens: 2000, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(value) }] });
+    const repaired = { ...manual, css: `${manual.css}\n.hero{gap:5rem}` };
+    const createResponse = vi.fn()
+      .mockResolvedValueOnce(response({ reply: 'Updating the visual design.', operationsJson: '[]', designRequest: 'Enlarge the hero and keep the edited headline, Beauty, on your terms.' }))
+      .mockResolvedValueOnce(response(editorialSource))
+      .mockResolvedValueOnce(response(repaired));
+
+    const result = await runSetupConversation(actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), scope: 'website', message }, { createResponse });
+
+    expect(createResponse).toHaveBeenCalledTimes(3);
+
+    const planner = JSON.stringify(createResponse.mock.calls[0]![0].input);
+
+    expect(planner).toContain('Nails, beautifully considered.');
+
+    const generation = createResponse.mock.calls[1]![0].input;
+
+    expect(JSON.stringify(generation.at(-1))).toContain(message);
+    expect(JSON.stringify(createResponse.mock.calls[2]![0].input)).toContain('Nails, beautifully considered.');
+
+    const [artifact] = await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.id, result.head.revision.document.website.config.customFrontendId!));
+
+    expect(artifact!.source.html).toContain('Nails, beautifully considered.');
+    expect(artifact!.source.css).toContain('gap:5rem');
+    expect(result.head.revision.document.services).toEqual(saved.head.revision.document.services);
+
+    const evidence = await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId));
+
+    expect(evidence.some(call => call.rawOutput === JSON.stringify(editorialSource) && call.validation !== 'passed')).toBe(true);
+    expect(evidence.some(call => call.rawOutput === JSON.stringify(repaired) && call.validation === 'passed')).toBe(true);
+  });
+
+  it('keeps the saved design when both generated attempts overwrite a headline the owner asked to preserve', async () => {
+    const actor = await fixture();
+    const manual = { ...editorialSource, html: editorialSource.html.replace('Beauty,<br><em>on your terms.</em>', 'Nails, beautifully considered.') };
+    const saved = await saveCustomSource(actor, { expectedRevision: 2, operationId: randomUUID(), assetIds: [], source: manual });
+    const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 3000, outputTokens: 2000, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
+
+    await expect(generateCustomSite(actor, { expectedRevision: saved.head.revision.revision, operationId: randomUUID(), referenceIds: [], message: 'Make the hero bigger. Keep my edited headline.' }, { createResponse })).rejects.toMatchObject({ code: 'NOT_READY' });
+
+    expect(createResponse).toHaveBeenCalledTimes(2);
+
+    const head = await openSetup(actor);
+
+    expect(head.revision.revision).toBe(saved.head.revision.revision);
+    expect(head.revision.document.website.config.customFrontendId).toBe(saved.artifact.id);
+    expect((await database.select().from(schema.customSiteArtifactSchema).where(eq(schema.customSiteArtifactSchema.salonId, actor.salonId)))).toHaveLength(1);
+    expect((await database.select().from(schema.setupAiCallSchema).where(eq(schema.setupAiCallSchema.salonId, actor.salonId)))).toHaveLength(2);
+  });
+
   it('writes and iterates actual source through the provider contract without modifying business settings', async () => {
     const actor = await fixture();
     const createResponse = vi.fn().mockResolvedValue({ status: 'completed', usage: { inputTokens: 3000, outputTokens: 2000, cachedInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify(editorialSource) }] });
