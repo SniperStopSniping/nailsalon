@@ -835,8 +835,8 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-[12px] border-b border-black/10 px-[16px] py-[12px] sm:px-5">
         <h2 className="min-w-0 flex-[1_1_12rem] text-sm font-semibold text-neutral-950 sm:text-lg">{copy.title}</h2>
         <div className="flex shrink-0 items-center gap-1">
-          <button type="button" aria-label={locale === 'fr' ? 'Commencer une nouvelle conversation' : 'Start a new conversation'} onClick={restart} disabled={loading} className="min-h-11 whitespace-nowrap px-2 text-sm font-medium text-neutral-700 underline underline-offset-4 disabled:opacity-50">{copy.restart}</button>
-          <button type="button" onClick={onClose} aria-label={copy.close} className="grid size-11 shrink-0 place-items-center rounded-full text-neutral-700 hover:bg-neutral-100"><X className="size-5" /></button>
+          <button type="button" aria-label={locale === 'fr' ? 'Commencer une nouvelle conversation' : 'Start a new conversation'} onClick={restart} disabled={loading} className="min-h-[44px] whitespace-nowrap px-2 text-sm font-medium text-neutral-700 underline underline-offset-4 disabled:opacity-50">{copy.restart}</button>
+          <button type="button" onClick={onClose} aria-label={copy.close} className="grid min-h-[44px] min-w-[44px] shrink-0 place-items-center rounded-full text-neutral-700 hover:bg-neutral-100"><X className="size-5" /></button>
         </div>
       </div>
       <div className="shrink-0 border-b border-black/10 px-[16px] py-2 sm:px-5">
