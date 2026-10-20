@@ -1,0 +1,46 @@
+{
+  "sourceBase": "930ed92531cc800bd30da75c8a3482a8fe75ce1a",
+  "ciRunWithFailure": 39376064366,
+  "failedCase": "ClientsModal separates deposit, refund, other payments, paid amount, and balance",
+  "cause": "The labels render before the detail response, so awaiting a label did not prove payment values were ready.",
+  "deterministicRedWithDeferredResponse": true,
+  "sameMissingValueAsCi": "$100.00",
+  "fix": "Verify the pending amount is absent, resolve the response and await findAllByText for the actual amount before retaining every remaining payment assertion.",
+  "fullFileNode22": {
+    "version": "22.23.2",
+    "passed": 43,
+    "failed": 0
+  },
+  "fullFileNode24": {
+    "version": "24.19.0",
+    "passed": 43,
+    "failed": 0
+  },
+  "fullTypeScript": "passed",
+  "scopedEslint": "passed",
+  "applicationCodeChanged": false,
+  "timeoutsIncreased": false,
+  "assertionsRemoved": false,
+  "realPaymentsMade": 0,
+  "productionDeployed": false,
+  "newExactHeadCi": "required",
+  "fullAffectedFilesNode22": {
+    "passed": 83,
+    "failed": 0,
+    "elapsedSeconds": 35.56
+  },
+  "fullAffectedFilesNode24": {
+    "passed": 83,
+    "failed": 0,
+    "elapsedSeconds": 33.92
+  },
+  "separateFixtureDdlBudget": {
+    "affectedFile": "src/libs/previewServiceImageFixtures.test.ts",
+    "parameterizedCases": 4,
+    "oldMilliseconds": 5000,
+    "newMilliseconds": 30000,
+    "reason": "Each executes full-schema migration, fixture application, protected owner-work insertion and refused reset, matching the existing other DDL rehearsals.",
+    "assertionsAndDataPreservationGuardsRetained": true,
+    "projectWideTimeoutChanged": false
+  }
+}

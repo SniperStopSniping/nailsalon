@@ -697,7 +697,9 @@ describe('Preview service-image fixture behavior', () => {
     } finally {
       await client.close();
     }
-  });
+  // Each case migrates the full schema, applies the fixture and exercises a
+  // refused reset. Give it the same bounded DDL budget as the other rehearsals.
+  }, 30_000);
 
   it('preserves an AI wallet account instead of cascading it away during fixture reset', async () => {
     const { client, database } = await migratedDatabase();
