@@ -1564,6 +1564,14 @@ jobs:
           grep -Fqx '# skipped 0' tooling-dependency-security.log
 
 
+      - name: Verify scoped release-plugin Lodash with zero skips
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/release-tooling-lodash.node-test.mjs | tee release-plugin-lodash.tap
+          grep -Fqx '# tests 2' release-plugin-lodash.tap
+          grep -Fqx '# pass 2' release-plugin-lodash.tap
+          grep -Fqx '# skipped 0' release-plugin-lodash.tap
+
       - name: Verify timezone rules and booking conversion on Node 24
         shell: bash
         run: |
