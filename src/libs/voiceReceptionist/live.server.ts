@@ -3,6 +3,7 @@ import 'server-only';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 
 import { VOICE_MODEL, type VoiceRuntimeConfig } from './config.server';
+import { VOICE_RECEPTIONIST_RETIRED } from './retirement';
 
 export type VoiceSessionSettings = { greeting: string | null; voice: string; language: string; bookingEnabled: boolean };
 
@@ -51,6 +52,9 @@ export class VoiceProviderError extends Error {
 }
 
 export async function voiceLiveRequest(config: VoiceRuntimeConfig, path: string, body?: unknown): Promise<Response> {
+  if (VOICE_RECEPTIONIST_RETIRED) {
+    throw new VoiceProviderError(410);
+  }
   const response = await fetch(`https://api.openai.com/v1/live/sessions${path}`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${config.apiKey}`, 'Content-Type': 'application/json', ...(config.projectId ? { 'OpenAI-Project': config.projectId } : {}) },

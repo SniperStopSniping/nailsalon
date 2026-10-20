@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { VoiceReceptionistSettings } from './VoiceReceptionistSettings';
@@ -38,22 +38,17 @@ function response(overrides: Record<string, unknown> = {}) {
 describe('VoiceReceptionistSettings', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('shows disabled readiness and saves only the public settings contract', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(Response.json(response()))
-      .mockResolvedValueOnce(Response.json(response()));
+  it('shows retirement and historical calls without activation controls or writes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(response()));
     vi.stubGlobal('fetch', fetchMock);
     render(<VoiceReceptionistSettings salonSlug="isla" />);
 
-    expect(await screen.findByText('AI phone receptionist')).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Answer incoming calls' })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Save phone settings' }));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const init = fetchMock.mock.calls[1]![1] as RequestInit;
-
-    expect(JSON.parse(String(init.body))).toEqual(settings);
+    expect(await screen.findByText(/The AI phone receptionist is retired/)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save phone settings' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('mic-sandbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View appointment' })).toHaveAttribute('href', '/en/admin?app=bookings&salon=isla&appointment=appointment-1');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('renders localized history details and a salon-bound appointment link', async () => {
@@ -65,6 +60,7 @@ describe('VoiceReceptionistSettings', () => {
     expect(screen.getByText(/2030/)).toBeInTheDocument();
     expect(screen.getByText('2 min 5 s · Solicitó devolución de llamada', { exact: false })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Ver cita' })).toHaveAttribute('href', '/es/admin?app=bookings&salon=isla%20nails&appointment=appointment-1');
-    expect(screen.getByRole('checkbox', { name: 'Responder llamadas entrantes' })).toBeDisabled();
+    expect(screen.getByText(/La recepcionista telefónica con IA está retirada/)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });

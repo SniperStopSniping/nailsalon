@@ -833,7 +833,10 @@ export function CustomerAssistantPanel({ salonSlug, salonId, locale, campaignTok
   return (
     <div role="dialog" aria-modal="true" aria-label={copy.title} style={visibleHeight ? { height: `min(42rem, calc(${visibleHeight}px - 2rem))`, maxHeight: `calc(${visibleHeight}px - 2rem)` } : undefined} className="flex h-[min(42rem,calc(100dvh-1rem))] flex-col sm:max-h-[calc(100dvh-2rem)]">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-[12px] border-b border-black/10 px-[16px] py-[12px] sm:px-5">
-        <h2 className="min-w-0 flex-[1_1_12rem] text-sm font-semibold text-neutral-950 sm:text-lg">{copy.title}</h2>
+        <div className="min-w-0 flex-[1_1_12rem]">
+          <h2 className="text-sm font-semibold text-neutral-950 sm:text-lg">{copy.title}</h2>
+          <a href={`/${locale}/privacy`} aria-label={locale === 'fr' ? 'Politique de confidentialité du clavardage OpenAI' : 'OpenAI chat privacy policy'} className="inline-flex min-h-[44px] items-center text-xs text-neutral-600 underline underline-offset-4">{locale === 'fr' ? 'Clavardage : OpenAI.' : 'Chat: OpenAI.'}</a>
+        </div>
         <div className="flex shrink-0 items-center gap-1">
           <button type="button" aria-label={locale === 'fr' ? 'Commencer une nouvelle conversation' : 'Start a new conversation'} onClick={restart} disabled={loading} className="min-h-11 whitespace-nowrap px-2 text-sm font-medium text-neutral-700 underline underline-offset-4 disabled:opacity-50">{copy.restart}</button>
           <button type="button" onClick={onClose} aria-label={copy.close} className="grid size-11 shrink-0 place-items-center rounded-full text-neutral-700 hover:bg-neutral-100"><X className="size-5" /></button>

@@ -408,6 +408,7 @@ export type ConversationTurn = z.infer<typeof conversationTurnSchema>;
 
 export const conversationPayloadSchema = z.object({
   v: z.literal(1),
+  modelContextVersion: z.literal(1).optional(),
   /** Conversation id (random, opaque). */
   cid: z.string().min(8).max(64),
   salonId: z.string().min(1),

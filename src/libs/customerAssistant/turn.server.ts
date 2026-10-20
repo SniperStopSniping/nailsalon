@@ -17,6 +17,7 @@ import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKEN
 import { advanceCustomerConversation, conversationInvalidReason, signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { projectCustomerInterpreterMenu } from './interpreterMenu';
 import { recordCustomerAssistantUsage } from './ledger.server';
+import { CUSTOMER_MODEL_CONTEXT_VERSION, customerServiceConversation, rememberCustomerServiceContext } from './modelBoundary';
 import { aggregateCustomerAssistantStageUsage, CUSTOMER_ASSISTANT_INTERPRETATION_SCHEMA_BYTES, type CustomerAssistantStageUsage } from './modelPricing';
 import { loadCustomerPublicFacts } from './publicFacts.server';
 import { createReceptionistTurnSchema, isRecoverableResult, RECEPTIONIST_TURN_PROMPT, receptionistContext, receptionistTurnSchema, renderReceptionistTurn } from './receptionistTurn';
@@ -137,6 +138,7 @@ export async function runCustomerAssistantTurn(args: {
   let interpreterUsage: ModelProviderUsage | null = null;
   let interpreterInvoked = false;
   let providerCallStarted = false;
+  let modelReply = '';
   let result: CustomerAssistantResult = { kind: 'unavailable', reason: 'unavailable' };
   const started = performance.now();
   timing.add('setup', started - requestStarted);
@@ -153,29 +155,28 @@ export async function runCustomerAssistantTurn(args: {
         nextState.context = undefined;
         nextState.booking = undefined;
         nextState.requestedSelection = undefined;
+        nextState.modelServiceContext = undefined;
         // A stale selection must not prevent an unrelated public information question.
-        conversation = { ...conversation, context: undefined, booking: undefined, requestedSelection: undefined };
+        conversation = { ...conversation, context: undefined, booking: undefined, requestedSelection: undefined, modelServiceContext: undefined };
       }
     }
-    const publicContext = publicFacts ? receptionistContext({ menu, publicFacts, result: { kind: 'answer', topic: 'conversation', message: '', options: [] }, conversation, nextState, message: args.message, locale: args.locale }) : { replyFacts: {}, publicServices: [], unsupportedRequest: conversation.unsupportedRequest ?? null };
+    const serviceConversation = customerServiceConversation(conversation);
+    const publicContext = publicFacts ? receptionistContext({ menu, publicFacts, result: { kind: 'answer', topic: 'conversation', message: '', options: [] }, conversation: serviceConversation, nextState: serviceConversation, message: args.message, locale: args.locale }) : { replyFacts: {}, publicServices: [], unsupportedRequest: serviceConversation.unsupportedRequest ?? null };
     const responseSchema = createReceptionistTurnSchema(Object.keys(publicContext.replyFacts));
     const interpreterContext = compactCustomerModelContext({
       prompt: RECEPTIONIST_TURN_PROMPT,
       additionalInput: args.message,
       maxBytes: CUSTOMER_ASSISTANT_MAX_INPUT_BYTES,
-      legacyMessages: conversation.dialogue?.length ? undefined : conversation.messages,
       context: {
         locale: args.locale,
         bookingSalon: { name: args.salonName ?? args.salonSlug, slug: args.salonSlug },
         previousFacts: conversation.facts ?? emptyFacts(),
         requestedSelection: conversation.requestedSelection ?? null,
         menu: projectCustomerInterpreterMenu(menu),
-        ...(conversation.dialogue?.length ? { dialogue: conversation.dialogue } : {}),
+        dialogue: serviceConversation.dialogue ?? [],
         conversationalSubjects: conversation.subjects ?? [],
         priorConversationalSubjects: conversation.priorSubjects ?? [],
-        lastShown: conversation.context ?? null,
-        bookingState: conversation.booking ?? null,
-        availabilitySearch: conversation.availabilitySearch ?? null,
+        lastShown: serviceConversation.context ?? null,
         ...availabilityContext,
         ...publicContext,
       },
@@ -209,6 +210,9 @@ export async function runCustomerAssistantTurn(args: {
       throw new Error('CUSTOMER_MODEL_INVALID');
     }
     const intent = receptionistTurnSchema.parse(JSON.parse(text));
+    // Preserve the model's own unexpanded wording, never server-rendered
+    // availability, promotions, booking receipts or confirmation details.
+    modelReply = intent.reply?.segments.flatMap(segment => segment.kind === 'text' ? [segment.text] : []).join(' ').slice(0, 2400) ?? '';
     if (intent.unsupportedRequest && intent.selectionChangeExplicitThisTurn) {
       nextState.unsupportedRequest = intent.unsupportedRequest;
       nextState.context = undefined;
@@ -341,6 +345,15 @@ export async function runCustomerAssistantTurn(args: {
     result = { ...result, message: customerAssistantCopy[args.locale].unavailable[result.reason] ?? customerAssistantCopy[args.locale].unavailable.unavailable! };
   }
   applyCustomerTurnResult(nextState, result);
+  nextState.modelContextVersion = CUSTOMER_MODEL_CONTEXT_VERSION;
+  nextState.modelDialogue = [
+    ...(customerServiceConversation(conversation).dialogue ?? []),
+    { role: 'user' as const, content: args.message },
+    ...(modelReply ? [{ role: 'assistant' as const, content: modelReply }] : []),
+  ].slice(-24);
+  if (result.kind === 'proposal' || result.kind === 'answer' || (result.kind === 'clarification' && result.question !== 'date')) {
+    rememberCustomerServiceContext(nextState);
+  }
   const spoken = result.message;
   nextState.dialogue = [...(conversation.dialogue ?? conversation.messages.map(content => ({ role: 'user' as const, content }))), { role: 'user' as const, content: args.message }, ...(spoken ? [{ role: 'assistant' as const, content: spoken.slice(0, 2400) }] : [])].slice(-24);
   try {

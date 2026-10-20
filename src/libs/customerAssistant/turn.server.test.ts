@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { REALISTIC_OPAQUE_MENU, REALISTIC_OPAQUE_PUBLIC_FACTS, REALISTIC_OPAQUE_SELECTION } from './__evals__/realisticOpaqueContext';
@@ -63,6 +66,89 @@ beforeEach(() => {
 });
 
 describe('customer assistant bounded turn', () => {
+  it('keeps changed Calendar-derived slots and rendered history out of actual model requests', async () => {
+    mocks.publicFacts.mockResolvedValue({ salon: { name: 'Synthetic Salon' }, catalogue: { currency: 'CAD', services: [{ id: 'gelx', name: 'Gel-X', description: 'Synthetic service', category: 'manicure', durationMinutes: 60, price: { baseCents: 6000, baseDisplay: '$60', displayLabel: null, range: null } }], addOns: [] } });
+    const requests: unknown[][] = [];
+    const displayed: string[][] = [];
+    const base = createCustomerConversation('salon-a', secret);
+    const preference = { date: '2026-09-20', earliest: '12:00', latest: '17:00' };
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
+    for (const hour of ['15:00', '16:00']) {
+      const startTime = hour === '15:00' ? '2026-09-20T19:00:00.000Z' : '2026-09-20T20:00:00.000Z';
+      const privateSlot = { time: hour, startTime };
+      const legacy = signCustomerConversation({
+        ...base,
+        modelContextVersion: undefined,
+        modelDialogue: undefined,
+        messages: ['SYNTHETIC_CALENDAR_HISTORY_CANARY'],
+        dialogue: [{ role: 'assistant', content: `SYNTHETIC_GOOGLE_EVENT_CANARY ${startTime}` }],
+        context: { question: null, options: [], selection },
+        requestedSelection: selection,
+        booking: { acceptedFingerprint, datePreference: preference, offeredSlots: [privateSlot], selectedSlot: privateSlot },
+        availabilitySearch: { requestedPreference: preference, displayedPreference: preference, fallback: false },
+      }, secret);
+      mocks.lookup.mockResolvedValueOnce({ today: '2026-09-18', selected: null, proposal: await mocks.proposal(), timeZone: 'America/Toronto', slots: [privateSlot], quoteChanged: false });
+      const availabilityModel = provider({ ...interpretation, action: 'availability', datePreference: preference, dateExplicitThisTurn: true, timeWindowExplicitThisTurn: true });
+      const response = await runCustomerAssistantTurn({ ...input(), conversation: legacy, message: 'Saturday afternoon, please.' }, availabilityModel);
+
+      expect(response.result.kind).toBe('slots');
+
+      if (response.result.kind !== 'slots') {
+        throw new Error('SYNTHETIC_AVAILABILITY_RESULT_REQUIRED');
+      }
+      displayed.push(response.result.slots.map(slot => slot.startTime));
+      const state = verifyCustomerConversation(response.conversation, 'salon-a', secret);
+      const receiptState = signCustomerConversation({ ...state, dialogue: [...(state.dialogue ?? []), { role: 'assistant', content: `SYNTHETIC_BOOKING_RECEIPT_CANARY ${startTime}` }], booking: { ...state.booking!, selectedSlot: privateSlot } }, secret);
+      const followupModel = provider({ ...interpretation, action: 'answer', answerTopic: 'service_information', reply: { segments: [{ kind: 'text', text: 'I can explain the service options.' }], serviceOptions: [] } });
+      await runCustomerAssistantTurn({ ...input(), conversation: receiptState, message: 'Would Gel-X suit short nails?' }, followupModel);
+      const captured = [availabilityModel.createResponse.mock.calls[0]![0], followupModel.createResponse.mock.calls[0]![0]];
+      const serialized = JSON.stringify(captured);
+
+      expect(serialized).not.toMatch(/SYNTHETIC_(?:GOOGLE_EVENT|CALENDAR_HISTORY|BOOKING_RECEIPT)_CANARY/);
+      expect(serialized).not.toContain(startTime);
+
+      for (const request of captured) {
+        const context = JSON.parse(request.input[1].content);
+
+        expect(context).not.toHaveProperty('bookingState');
+        expect(context).not.toHaveProperty('availabilitySearch');
+      }
+      requests.push(captured);
+    }
+
+    expect(displayed[0]).not.toEqual(displayed[1]);
+    expect(requests[0]).toEqual(requests[1]);
+
+    if (process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR) {
+      await mkdir(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, { recursive: true });
+      await writeFile(path.join(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, 'customer-intercepted-requests.json'), JSON.stringify({ classification: 'synthetic-only', displayed, requests, identicalModelRequestsAcrossChangedSlots: true }, null, 2));
+    }
+  });
+
+  it('does not replay legacy cached replies or private errors into a retry request', async () => {
+    const legacy = signCustomerConversation({ ...createCustomerConversation('salon-a', secret), modelContextVersion: undefined, modelDialogue: undefined, dialogue: [{ role: 'assistant', content: 'SYNTHETIC_GOOGLE_REPLAY_CANARY' }] }, secret);
+    const { readCompletedCustomerTurn } = await import('./turnReplay.server');
+    vi.mocked(readCompletedCustomerTurn).mockResolvedValueOnce({ conversation: legacy, result: { kind: 'answer', topic: 'conversation', message: 'SYNTHETIC_GOOGLE_REPLAY_CANARY', options: [] } });
+    const cachedModel = provider();
+    await runCustomerAssistantTurn({ ...input(), conversation: legacy }, cachedModel);
+
+    expect(cachedModel.createResponse).not.toHaveBeenCalled();
+
+    const interrupted = provider();
+    interrupted.createResponse.mockRejectedValueOnce(new Error('SYNTHETIC_GOOGLE_ERROR_CANARY'));
+    const failed = await runCustomerAssistantTurn({ ...input(), conversation: legacy, message: 'Please explain the options.' }, interrupted);
+    const retried = provider();
+    await runCustomerAssistantTurn({ ...input(), conversation: failed.conversation, message: 'Please try again.' }, retried);
+    const captured = [interrupted.createResponse.mock.calls[0]![0], retried.createResponse.mock.calls[0]![0]];
+
+    expect(JSON.stringify(captured)).not.toMatch(/SYNTHETIC_GOOGLE_(?:REPLAY|ERROR)_CANARY/);
+
+    if (process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR) {
+      await mkdir(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, { recursive: true });
+      await writeFile(path.join(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, 'customer-replay-error-retry-requests.json'), JSON.stringify({ classification: 'synthetic-only', cachedReplyModelCalls: cachedModel.createResponse.mock.calls.length, requests: captured }, null, 2));
+    }
+  });
+
   it('moves a known gel-polish refresh to a normal Gel Manicure proposal without a removal question', async () => {
     mocks.menu.mockResolvedValue(SEMANTIC_L1_MENU);
     const serviceId = SEMANTIC_L1_MENU.services.find(item => item.name === 'Gel Manicure')!.id;
@@ -190,6 +276,21 @@ describe('customer assistant bounded turn', () => {
     expect(next.booking).toBeUndefined();
   });
 
+  it('clears stale service context before a model request when the catalogue invalidates it', async () => {
+    const selection = { baseServiceId: 'retired-service', selectedAddOns: [] };
+    const state = signCustomerConversation({ ...createCustomerConversation('salon-a', secret), context: { question: null, options: [], selection }, modelServiceContext: { question: 'service', options: ['OBSOLETE_SERVICE_CONTEXT_CANARY'], selection }, requestedSelection: selection }, secret);
+    mocks.validate.mockImplementationOnce(() => {
+      throw new Error('STALE_SELECTION');
+    });
+    const model = provider({ ...interpretation, action: 'answer' });
+    await runCustomerAssistantTurn({ ...input(), conversation: state, message: 'What services can I choose?' }, model);
+    const payload = JSON.parse(model.createResponse.mock.calls[0]![0].input[1].content);
+
+    expect(payload.lastShown).toBeNull();
+    expect(payload.requestedSelection).toBeNull();
+    expect(JSON.stringify(payload)).not.toContain('OBSOLETE_SERVICE_CONTEXT_CANARY');
+  });
+
   it('rejects a cross-tenant or forged capability before quota, tools or provider', async () => {
     const model = provider();
     const otherSalon = { ...input(), salonId: 'salon-b' };
@@ -249,6 +350,7 @@ describe('customer assistant bounded turn', () => {
       : signCustomerConversation({
         ...createCustomerConversation('salon-a', secret),
         dialogue: unicodeHistory,
+        modelDialogue: unicodeHistory,
         facts: { ...emptyFacts(), treatment: 'gel_x', desiredApplication: 'extensions', existingProduct: 'none', removal: 'no', length: 'medium', french: 'yes' },
         requestedSelection: REALISTIC_OPAQUE_SELECTION,
         context: { question: null, options: [], selection: REALISTIC_OPAQUE_SELECTION },
@@ -306,7 +408,7 @@ describe('customer assistant bounded turn', () => {
     }
   });
 
-  it('projects binding authority below the current cap while retaining the prior 40 KB overflow proof', async () => {
+  it('compacts binding authority below the input cap without including private booking state', async () => {
     const services = Array.from({ length: 8 }, (_, index) => ({
       id: index === 0 ? 'gelx' : `s${index}${'s'.repeat(10)}`,
       name: index === 0 ? 'Gel-X' : `S${index}`,
@@ -363,7 +465,7 @@ describe('customer assistant bounded turn', () => {
     const fullBindingPayload = { ...payload, menu };
 
     expect(model.createResponse).toHaveBeenCalledTimes(1);
-    expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(fullBindingPayload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeGreaterThan(40_000);
+    expect(Buffer.byteLength(JSON.stringify(fullBindingPayload), 'utf8')).toBeGreaterThan(Buffer.byteLength(JSON.stringify(payload), 'utf8'));
     expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
     expect(payload.menu.bindings.columns).toEqual(['serviceIndex', 'addOnIndex', 'required', 'defaultQuantity', 'maxQuantity', 'priceMode']);
     expect(payload.menu.bindings.rows.map((row: [number, number, boolean, number, number, 'catalog_priced' | 'manual_confirmation']) => ({
@@ -374,7 +476,7 @@ describe('customer assistant bounded turn', () => {
       maxQuantity: row[4],
       priceMode: row[5],
     }))).toEqual(bindings.map(binding => ({ ...binding, priceMode: 'catalog_priced' })));
-    expect(payload.bookingState.offeredSlots).toHaveLength(8);
+    expect(payload).not.toHaveProperty('bookingState');
     expect(response.result).toEqual({ kind: 'clarification', question: 'finish', options: [target.name] });
     expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).context?.selection).toEqual(selection);
   });
@@ -746,12 +848,7 @@ describe('customer assistant bounded turn', () => {
     await runCustomerAssistantTurn({ ...input(), conversation: askedLater.conversation, message: 'the shown times' }, shownModel);
 
     expect(askedLater.result).toMatchObject({ message: expect.stringContaining('later on') });
-    expect(JSON.parse(shownModel.createResponse.mock.calls[0]![0].input[1].content).availabilitySearch).toMatchObject({
-      requestedPreference: requested,
-      displayedPreference: displayed,
-      fallback: true,
-      pendingTimingFeedback: 'too_early',
-    });
+    expect(JSON.parse(shownModel.createResponse.mock.calls[0]![0].input[1].content)).not.toHaveProperty('availabilitySearch');
     expect(mocks.lookup).toHaveBeenLastCalledWith(expect.objectContaining({
       preference: { date: '2026-09-28', earliest: '10:01', latest: '23:59' },
     }));
@@ -885,7 +982,7 @@ describe('customer assistant bounded turn', () => {
     expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ preference: { date: '2026-09-26', earliest: '00:00', latest: '11:59' } }));
   });
 
-  it('compacts a production-sized role history without losing the original fallback day', async () => {
+  it('preserves private fallback scheduling without replaying display history', async () => {
     const requested = { date: '2026-09-26', earliest: '17:00', latest: '23:59' };
     const displayed = { date: '2026-09-28', earliest: '00:00', latest: '23:59' };
     const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
@@ -926,17 +1023,13 @@ describe('customer assistant bounded turn', () => {
     expect(model.createResponse).toHaveBeenCalledTimes(1);
     expect(Buffer.byteLength(RECEPTIONIST_TURN_PROMPT + JSON.stringify(payload) + model.createResponse.mock.calls[0]![0].input.at(-1)!.content, 'utf8')).toBeLessThanOrEqual(CUSTOMER_ASSISTANT_MAX_INPUT_BYTES);
     expect(payload).not.toHaveProperty('customerMessages');
-    expect(payload.dialogue.length).toBeLessThan([...longHistory, { role: 'user', content: 'Saturday after five please.' }, { role: 'assistant', content: 'No matching Saturday time; I showed Monday times instead.' }].length);
-    expect(payload.dialogue.slice(-2)).toEqual([
-      { role: 'user', content: 'Saturday after five please.' },
-      { role: 'assistant', content: 'No matching Saturday time; I showed Monday times instead.' },
-    ]);
+    expect(payload.dialogue).toEqual([]);
     expect(payload).not.toHaveProperty('latestCustomerMessage');
     expect(model.createResponse.mock.calls[0]![0].input.at(-1)).toEqual({ role: 'user', content: 'Anything earlier on the original Saturday?' });
     expect(payload.menu.services).toHaveLength(8);
-    expect(payload.lastShown.question).toBe('date');
-    expect(payload.bookingState.offeredSlots).toHaveLength(8);
-    expect(payload.availabilitySearch).toEqual({ requestedPreference: requested, displayedPreference: displayed, fallback: true });
+    expect(payload.lastShown).toBeNull();
+    expect(payload).not.toHaveProperty('bookingState');
+    expect(payload).not.toHaveProperty('availabilitySearch');
     expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ preference: { date: '2026-09-26', earliest: '00:00', latest: '16:59' } }));
     expect(response.result.kind).not.toBe('unavailable');
   });

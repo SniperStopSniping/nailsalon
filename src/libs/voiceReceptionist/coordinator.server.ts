@@ -17,6 +17,7 @@ import { requestVoiceCheckpoint } from './checkpoint.server';
 import { VOICE_CALL_LIMIT_SECONDS, type VoiceRuntimeConfig } from './config.server';
 import { advanceVoiceContact, completedVoiceContact, contactPrompt, containsVoicePhoneReadback, correctVoiceContact, isExplicitVoiceBookingConsent, isVoiceBookingLinkAffirmation, isVoiceBookingLinkHarmlessAcknowledgment, isVoiceBookingLinkRequest, isVoiceBookingLinkRevocation, isVoiceContactAffirmation, isVoiceNo, isVoicePhoneFragment, matchVoiceOfferedSlot, normalizedSpeech, spokenPhone, spokenPhoneCorrection, spokenVoiceLinkDestination, VoiceConsentGate, voiceReviewText } from './conversation';
 import { liveSessionPath, voiceLiveRequest } from './live.server';
+import { VOICE_RECEPTIONIST_RETIRED } from './retirement';
 import type { VoiceCallState } from './state';
 import { claimVoiceLease, getVoiceCall, getVoiceSettings, releaseVoiceLease, renewVoiceLease, saveVoiceCall } from './storage.server';
 
@@ -107,6 +108,9 @@ function statusFacts(status: CustomerBookingStatus): string {
 
 /** One leased sideband, no audio bridge, no stored call transcript. */
 export async function coordinateVoiceCall(callId: string, config: VoiceRuntimeConfig, existingLease?: string, reconnectAttempt = 0): Promise<void> {
+  if (VOICE_RECEPTIONIST_RETIRED) {
+    return;
+  }
   const leaseToken = existingLease ?? randomUUID();
   const call = await claimVoiceLease(callId, leaseToken, 90_000);
   if (!call?.liveSessionId || call.endedAt) {

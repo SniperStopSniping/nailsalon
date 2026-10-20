@@ -32,6 +32,9 @@ const mocks = vi.hoisted(() => {
   return { Socket, sockets, claim: vi.fn(), get: vi.fn(), save: vi.fn(), release: vi.fn(), settings: vi.fn(), review: vi.fn(), choose: vi.fn(), consult: vi.fn(), checkpoint: vi.fn(), readOperation: vi.fn(), status: vi.fn(), live: vi.fn(), queueLink: vi.fn(), revokeLink: vi.fn(), recipientHash: vi.fn() };
 });
 vi.mock('server-only', () => ({}));
+// Archived protocol tests; retirement is tested without this override separately.
+const retirement = vi.hoisted(() => ({ VOICE_RECEPTIONIST_RETIRED: false }));
+vi.mock('./retirement', () => retirement);
 vi.mock('ws', () => ({ default: mocks.Socket }));
 vi.mock('@/libs/queries', () => ({ getSalonById: vi.fn(async () => ({ id: 'salon-a', name: 'Synthetic Isla', slug: 'synthetic-isla' })) }));
 vi.mock('@/libs/customerAssistant/publicFacts.server', () => ({ loadCustomerPublicFacts: vi.fn(async () => ({ salon: { name: 'Synthetic Isla' } })) }));
@@ -72,6 +75,7 @@ function close() {
 }
 
 beforeEach(() => {
+  retirement.VOICE_RECEPTIONIST_RETIRED = false;
   vi.useFakeTimers();
   vi.clearAllMocks();
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -95,6 +99,16 @@ afterEach(() => {
 });
 
 describe('voice sideband consultation and interruption', () => {
+  it('returns before storage, consultation or sockets when retirement is enabled', async () => {
+    retirement.VOICE_RECEPTIONIST_RETIRED = true;
+    await coordinateVoiceCall('call-a', config);
+
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(mocks.consult).not.toHaveBeenCalled();
+    expect(mocks.live).not.toHaveBeenCalled();
+    expect(mocks.sockets).toEqual([]);
+  });
+
   it('does not describe an unresolved request as a full calendar', async () => {
     mocks.consult.mockImplementation(async ({ draft }) => ({ draft, result: { kind: 'unavailable', reason: 'no_match' }, modelCalls: 1 }));
     mocks.claim.mockResolvedValue({ ...await mocks.claim(), draft: { ...callState(), contact: null } });

@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from 'react';
 
-import { VoiceMicSandbox } from './VoiceMicSandbox';
-
 type Settings = {
   enabled: boolean;
   bookingEnabled: boolean;
@@ -115,24 +113,10 @@ const COPY = {
   },
 } as const;
 
-function settingsRequest(draft: Settings) {
-  return {
-    enabled: draft.enabled,
-    bookingEnabled: draft.bookingEnabled,
-    greeting: draft.greeting,
-    voice: draft.voice,
-    language: draft.language,
-    answerMode: draft.answerMode,
-    callbackEnabled: draft.callbackEnabled,
-  };
-}
-
 export function VoiceReceptionistSettings({ salonSlug, locale = 'en' }: { salonSlug: string; locale?: 'en' | 'fr' | 'es' }) {
   const copy = COPY[locale];
   const [data, setData] = useState<Payload | null>(null);
-  const [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void fetch(`/api/admin/voice-receptionist?salonSlug=${encodeURIComponent(salonSlug)}`, { cache: 'no-store', signal: controller.signal })
@@ -142,7 +126,6 @@ export function VoiceReceptionistSettings({ salonSlug, locale = 'en' }: { salonS
           throw new Error(body?.error?.message || copy.loadError);
         }
         setData(body.data);
-        setDraft(body.data.settings);
       }).catch((cause) => {
         if (!controller.signal.aborted) {
           setError(cause instanceof Error ? cause.message : copy.loadError);
@@ -150,80 +133,16 @@ export function VoiceReceptionistSettings({ salonSlug, locale = 'en' }: { salonS
       });
     return () => controller.abort();
   }, [copy.loadError, salonSlug]);
-  const save = async () => {
-    if (!draft) {
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/admin/voice-receptionist?salonSlug=${encodeURIComponent(salonSlug)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settingsRequest(draft)) });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error?.message || copy.saveError);
-      }
-      setData(current => current ? { ...current, settings: body.data.settings, readiness: body.data.readiness } : current);
-      setDraft(body.data.settings);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : copy.saveError);
-    } finally {
-      setSaving(false);
-    }
-  };
-  if (!data || !draft) {
+  if (!data) {
     return <div className="p-4 text-sm text-[var(--owner-muted)]" role={error ? 'alert' : 'status'}>{error ?? copy.loading}</div>;
   }
-  const update = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft(current => current ? { ...current, [key]: value } : current);
   return (
     <div className="space-y-5 px-4 pb-8 pt-2">
       <section className="rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <p className="text-sm font-semibold text-[var(--owner-ink)]">{copy.title}</p>
-        <p className="mt-1 text-sm text-[var(--owner-muted)]">{copy.description}</p>
-        {!data.readiness.configured && <p className="mt-3 text-sm text-amber-800" role="status">{copy.readiness}</p>}
-        <label className="mt-4 flex items-center justify-between gap-3 text-sm text-[var(--owner-ink)]">
-          <span>{copy.answer}</span>
-          <input aria-label={copy.answer} type="checkbox" checked={draft.enabled} disabled={!data.readiness.configured} onChange={event => update('enabled', event.target.checked)} />
-        </label>
-        <label className="mt-3 flex items-center justify-between gap-3 text-sm text-[var(--owner-ink)]">
-          <span>{copy.booking}</span>
-          <input aria-label={copy.booking} type="checkbox" checked={draft.bookingEnabled} onChange={event => update('bookingEnabled', event.target.checked)} />
-        </label>
-        <label className="mt-3 flex items-center justify-between gap-3 text-sm text-[var(--owner-ink)]">
-          <span>{copy.callbacks}</span>
-          <input aria-label={copy.callbacks} type="checkbox" checked={draft.callbackEnabled} onChange={event => update('callbackEnabled', event.target.checked)} />
-        </label>
+        <p className="mt-1 text-sm text-[var(--owner-muted)]" role="status">{locale === 'fr' ? 'La réceptionniste téléphonique IA est retirée. La réservation en ligne reste disponible. Les dossiers historiques sont conservés selon la politique de confidentialité.' : locale === 'es' ? 'La recepcionista telefónica con IA está retirada. Las reservas en línea siguen disponibles. Los registros históricos se conservan según la política de privacidad.' : 'The AI phone receptionist is retired. Online booking remains available. Historical records remain subject to the privacy policy.'}</p>
+        <a href={`/${locale}/privacy`} className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4">{locale === 'fr' ? 'Politique de confidentialité' : locale === 'es' ? 'Política de privacidad' : 'Privacy policy'}</a>
       </section>
-      <section className="space-y-3 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
-        <label className="block text-sm font-medium text-[var(--owner-ink)]">
-          {copy.greeting}
-          <textarea aria-label={copy.greeting} maxLength={300} value={draft.greeting ?? ''} onChange={event => update('greeting', event.target.value || null)} className="mt-1 min-h-20 w-full rounded-lg border border-[var(--owner-line)] bg-transparent p-2 text-sm" placeholder={copy.greetingPlaceholder} />
-        </label>
-        <label className="block text-sm font-medium text-[var(--owner-ink)]">
-          {copy.voice}
-          <select aria-label={copy.voice} value={draft.voice} onChange={event => update('voice', event.target.value as Settings['voice'])} className="ml-2 rounded border border-[var(--owner-line)] bg-transparent p-1">
-            <option value="marin">Marin</option>
-            <option value="cedar">Cedar</option>
-          </select>
-        </label>
-        <label className="block text-sm font-medium text-[var(--owner-ink)]">
-          {copy.language}
-          <select aria-label={copy.language} value={draft.language} onChange={event => update('language', event.target.value as Settings['language'])} className="ml-2 rounded border border-[var(--owner-line)] bg-transparent p-1">
-            <option value="auto">{copy.automatic}</option>
-            <option value="en">{copy.english}</option>
-            <option value="es">{copy.spanish}</option>
-          </select>
-        </label>
-        <label className="block text-sm font-medium text-[var(--owner-ink)]">
-          {copy.answerMode}
-          <select aria-label={copy.answerMode} value={draft.answerMode} onChange={event => update('answerMode', event.target.value as Settings['answerMode'])} className="ml-2 rounded border border-[var(--owner-line)] bg-transparent p-1">
-            <option value="always">{copy.always}</option>
-            <option value="after_hours">{copy.afterHours}</option>
-          </select>
-        </label>
-        <button type="button" onClick={() => void save()} disabled={saving} className="rounded-lg bg-[var(--owner-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? copy.saving : copy.save}</button>
-        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      </section>
-      <VoiceMicSandbox salonSlug={salonSlug} locale={locale} />
       <section className="rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <p className="text-sm font-semibold text-[var(--owner-ink)]">{copy.history}</p>
         <div className="mt-3 space-y-3">
