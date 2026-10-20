@@ -432,7 +432,7 @@ describe('Preview service-image fixture target contract', () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   it('rejects wrong live identity, elevated roles, wrong migration count, and wrong final migration', async () => {
     const { client, database } = await migratedDatabase();
@@ -624,6 +624,9 @@ describe('Preview service-image fixture behavior', () => {
     }
   });
 
+  // These multi-operation rehearsals migrate the complete schema, then run
+  // several guarded resets/rollbacks; keep their budget bounded but distinct
+  // from the five-second limit used by ordinary unit cases.
   it('fails closed on one missing edge, same-count identity drift, and complete discovery suppression before a normal idempotent reset', async () => {
     const { client, database } = await migratedDatabase();
     try {
@@ -675,7 +678,7 @@ describe('Preview service-image fixture behavior', () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   it.each([
     ['business_setup_workspace', 'INSERT INTO business_setup_workspace(id,salon_id,head_revision,baseline_hash,baseline) VALUES (\'protected-ai\',$1,1,\'hash\',\'{}\')'],
@@ -844,7 +847,7 @@ describe('Preview service-image fixture behavior', () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   it('rolls back partial writes and emits only bounded SQLSTATE or system diagnostics', async () => {
     const { client, database } = await migratedDatabase();
@@ -897,7 +900,7 @@ describe('Preview service-image fixture behavior', () => {
     } finally {
       await client.close();
     }
-  });
+  }, 30_000);
 
   it('contains only deterministic synthetic identities and fixture-owned static assets', () => {
     const entityIds = [...FIXTURE.salons, ...FIXTURE.locations, ...FIXTURE.services, ...FIXTURE.technicians, ...FIXTURE.addOns, ...FIXTURE.rules, FIXTURE.admin].map(row => row.id);

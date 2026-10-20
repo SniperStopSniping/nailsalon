@@ -1,0 +1,62 @@
+{
+  "parentSourceSha": "595a72319c4ded0ec45094dd38828d243a2bf2af",
+  "observedCiRun": 39367715595,
+  "observedFailures": "Image decoding fixture stalled; a browser constructor was an arrow mock; complete source/catalog and repeated Preview migration rehearsals exceeded the five-second unit budget. A later application job also caught the migration-backed optional-Clerk mapping case.",
+  "originalImageCasesReproduced": {
+    "passed": 32,
+    "failedTimeouts": 7
+  },
+  "changes": {
+    "explicitBitmapFixtureAndRestoredUrlOverrides": true,
+    "constructablePeerMock": true,
+    "repositoryScanComputedOnceWith30SecondHook": true,
+    "bounded30SecondSchemaCases": 6,
+    "defaultUnitTimeoutUnchanged": true,
+    "assertionsRemoved": false,
+    "testSkipsAdded": false,
+    "productionRuntimeFilesChanged": false
+  },
+  "localChecks": {
+    "combined-ci-fixture-fixes-node22": {
+      "passed": 75,
+      "failed": 0,
+      "filteredOrPending": 0
+    },
+    "combined-ci-fixture-fixes-node24": {
+      "passed": 75,
+      "failed": 0,
+      "filteredOrPending": 0
+    },
+    "combined-ci-additional-fixture-fixes-node22": {
+      "passed": 43,
+      "failed": 0,
+      "filteredOrPending": 0
+    },
+    "combined-ci-additional-fixture-fixes-node24": {
+      "passed": 43,
+      "failed": 0,
+      "filteredOrPending": 0
+    },
+    "voice-constructor-fixture-final-node22": {
+      "passed": 3,
+      "failed": 0,
+      "filteredOrPending": 0
+    },
+    "voice-constructor-fixture-final-node24": {
+      "passed": 3,
+      "failed": 0,
+      "filteredOrPending": 0
+    },
+    "combined-ci-fixture-final-regressions-node24": {
+      "passed": 4,
+      "failed": 0,
+      "filteredOrPending": 75
+    }
+  },
+  "fullTypecheck": "passed",
+  "changedTestEslint": "passed",
+  "newHeadFullCi": "required; not yet run",
+  "providerCalls": 0,
+  "payments": 0,
+  "productionAppDeployed": false
+}

@@ -31,7 +31,10 @@ describe('VoiceMicSandbox', () => {
 
   beforeEach(() => {
     peer = new FakePeer();
-    vi.stubGlobal('RTCPeerConnection', vi.fn(() => peer));
+    function PeerConnectionFixture() {
+      return peer;
+    }
+    vi.stubGlobal('RTCPeerConnection', vi.fn(PeerConnectionFixture));
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [track] })) } });
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'DELETE') {
