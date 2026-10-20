@@ -127,3 +127,29 @@ If a verifier reports drift:
 The owner-facing provisioning sequence and Vercel, Neon, Clerk, Stripe, and
 Keychain scope tables are in
 [`docs/ENVIRONMENT_SEPARATION.md`](../docs/ENVIRONMENT_SEPARATION.md).
+
+## Verify backup recovery before a release
+
+A successful archive listing is not a restoration test. Keep the private backup
+outside Git, record its checksum and source PostgreSQL version, then restore it
+into an empty disposable database with application workers and integrations off.
+Never point a recovery rehearsal at an existing salon database. Compare every
+included table's row count and deterministic data fingerprint, and the complete
+`drizzle.__drizzle_migrations` ledger, against the captured backup baseline.
+
+Schema-scoped exports of `public` and `drizzle` can omit extension installation.
+In particular, the booking exclusion constraint requires the standard
+`btree_gist` extension from migrations0054/0066. Inventory the source extensions
+and provision the required, already-supported extensions in the disposable target
+before restoring constraints. Do not weaken or omit the exclusion constraint to
+make recovery pass. Restore roles/ownership deliberately; an isolated test can
+use `--no-owner --no-privileges` rather than copying hosted administrative roles.
+
+Use the source PostgreSQL major version for production recovery qualification.
+A cross-major restore is additional evidence only, and must disclose any restore
+stream compatibility adjustment. For example, PostgreSQL16 does not recognize
+PostgreSQL17's `SET transaction_timeout = 0` prologue. Removing that setting from
+a private local rehearsal stream does not change the original archive or prove
+same-major recovery. Retain the original checksum and stop the disposable cluster
+after verification. A restore test does not authorize a Production restore,
+migration, deployment, or changes to existing records.

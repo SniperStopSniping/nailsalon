@@ -13,7 +13,11 @@ export default defineConfig({
   cacheDir: path.join(os.tmpdir(), 'luster-onboarding-direct-offer-cache'),
   plugins: [react()],
   define: { 'process.env': {} },
-  resolve: { alias: {
+  // The Canva editor is lazy-loaded. Prebundle its drag-and-drop dependencies
+  // with the initial React graph, so opening it cannot introduce a second hook
+  // dispatcher after the owner-entry screens have already rendered.
+  optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', '@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'] },
+  resolve: { dedupe: ['react', 'react-dom'], alias: {
     '@clerk/nextjs': path.join(repository, 'tests/browser/ownerAccountRecovery/clerk.ts'),
     'next/link': path.join(repository, 'tests/browser/ownerEntry/link.tsx'),
     'next/image': path.join(repository, 'tests/browser/appointmentWorkflow/next-image.tsx'),

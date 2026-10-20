@@ -1,0 +1,31 @@
+{
+  "passed": true,
+  "source": "Existing Preview custom-format backup before additive migration0113",
+  "restoredIn": "Disposable local PostgreSQL cluster",
+  "sourceDatabaseMajor": 17,
+  "targetServerVersion": "16.15 (Homebrew)",
+  "clientVersion": "PostgreSQL18.6",
+  "compatibilityAdjustment": "Only SET transaction_timeout = 0 removed from the exported restore stream because PostgreSQL16 does not support that PostgreSQL17+ session setting. Archived schema and data unchanged.",
+  "sameMajorRestoreRehearsed": false,
+  "allPublicTablesRestored": 135,
+  "allRowCountsAndDigestsMatch": true,
+  "totalRows": 1892,
+  "exactMigrationLedgerEntries": 112,
+  "exactEnvironmentMarkerPreserved": true,
+  "tcpListening": false,
+  "privateUnixSocketPermissions": "0700",
+  "applicationWorkersStarted": 0,
+  "providerCredentialsPassed": 0,
+  "productionAccessed": false,
+  "hostedDatabaseChanged": false,
+  "modelCalls": 0,
+  "payments": 0,
+  "outboundMessages": 0,
+  "extensionPrerequisite": "Already-installed standard btree_gist, required by migrations0054/0066, provisioned in the disposable cluster because the schema-scoped archive omits CREATE EXTENSION.",
+  "disposableClusterStopped": true,
+  "failedLocalSetupAttemptsRetained": 2,
+  "setupIssuesResolved": [
+    "Use pg_restore --clean --if-exists only in the empty disposable target to recreate the public schema.",
+    "Provision the already-installed btree_gist extension omitted by the schema-scoped archive."
+  ]
+}

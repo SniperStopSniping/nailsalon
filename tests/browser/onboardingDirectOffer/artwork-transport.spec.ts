@@ -51,6 +51,7 @@ for (const [name, width, height, displayMode, displayLabel] of [
     const dialog = page.getByRole('dialog', { name: 'Upload a Canva design', exact: true });
 
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Choose images', { exact: true })).toBeAttached();
 
     await dialog.getByLabel('Choose images', { exact: true }).setInputFiles({ name: `${name}.png`, mimeType: 'image/png', buffer });
     await dialog.getByRole('button', { name: 'Add clickable links', exact: true }).click();
