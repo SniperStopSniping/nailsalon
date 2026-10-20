@@ -31,6 +31,7 @@ import {
   MessageSquareText,
   X,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import { isNativeSmsCapableDevice, resolveAutomaticTextStatus, resolveManualTextStatus, type SmsOperationalHealth } from '@/libs/textingStatus';
@@ -496,6 +497,12 @@ export function IntegrationsModal({
 
         {view === 'google' && (
           <div className="space-y-4">
+            <p className="text-xs leading-5 text-[var(--owner-muted)]">
+              Luster reads selected calendars to show your schedule, synchronize appointments and check conflicts on its server.
+              Calendar events and calculated openings are kept outside optional AI chat requests. Information you type into chat may still go to OpenAI.
+              {' '}
+              <Link href="/privacy" className="inline-flex min-h-11 items-center font-medium underline underline-offset-4">Privacy policy</Link>
+            </p>
             {googleReadiness === 'reconnect_required' && (
               <div
                 data-testid="google-reconnect-banner"

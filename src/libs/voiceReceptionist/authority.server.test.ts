@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CustomerMenu } from '../customerAssistant/catalogue.server';
 
 vi.mock('server-only', () => ({}));
+// Archived consultation cases; the retirement case below enables the real fence.
+const retirement = vi.hoisted(() => ({ VOICE_RECEPTIONIST_RETIRED: false }));
+vi.mock('./retirement', () => retirement);
 
 const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
@@ -44,6 +47,7 @@ const callId = 'b883cdd1-f08e-41c4-a9f0-90fa5c946630';
 const salon = { id: 'synthetic-isla', slug: 'synthetic-isla', name: 'Synthetic Isla', features: null, settings: { currency: 'CAD' }, plan: { name: 'test' }, address: '1 Test Street', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' };
 
 beforeEach(() => {
+  retirement.VOICE_RECEPTIONIST_RETIRED = false;
   vi.clearAllMocks();
   mocks.menu = { services: [], addOns: [], bindings: [], l1: undefined };
   mocks.resolve.mockResolvedValue({ kind: 'answer', topic: 'conversation', message: '', options: [] });
@@ -95,6 +99,18 @@ const interpreterFallback = {
 };
 
 describe('voice receptionist shared authority adapter', () => {
+  it('blocks direct consultation after retirement before any provider or availability work', async () => {
+    retirement.VOICE_RECEPTIONIST_RETIRED = true;
+    const provider = { createResponse: vi.fn() };
+    const draft = selectedDraft();
+    const result = await runVoiceConsultation({ salon, draft, message: 'SYNTHETIC_PRIVATE_VOICE_CANARY' }, provider);
+
+    expect(result).toMatchObject({ result: { kind: 'unavailable', reason: 'unavailable' }, modelCalls: 0, publicFacts: null });
+    expect(provider.createResponse).not.toHaveBeenCalled();
+    expect(mocks.lookup).not.toHaveBeenCalled();
+    expect(mocks.resolve).not.toHaveBeenCalled();
+  });
+
   it('asks for a service when tomorrow was requested before any calendar lookup', async () => {
     mocks.resolve.mockResolvedValueOnce({ kind: 'unavailable', reason: 'no_match' });
     const provider = { createResponse: vi.fn(async () => ({ status: 'completed' as const, items: [{ type: 'message' as const, text: JSON.stringify({ ...interpreterFallback, action: 'availability', availabilityScope: 'specific_window', dateExplicitThisTurn: true, datePreference: { date: '2026-09-25', earliest: '00:00', latest: '23:59' } }) }], usage: null })) };

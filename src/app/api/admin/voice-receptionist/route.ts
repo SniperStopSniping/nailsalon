@@ -7,21 +7,11 @@ import {
   getVoiceSettings,
   listVoiceCalls,
   listVoiceNumberRoutes,
-  updateVoiceSettings,
 } from '@/libs/voiceReceptionist/storage.server';
 
 export const dynamic = 'force-dynamic';
 
 const querySchema = z.object({ salonSlug: z.string().min(1) });
-const updateSchema = z.object({
-  enabled: z.boolean().optional(),
-  bookingEnabled: z.boolean().optional(),
-  greeting: z.string().trim().max(300).nullable().optional(),
-  voice: z.enum(['marin', 'cedar']).optional(),
-  language: z.enum(['auto', 'en', 'es']).optional(),
-  answerMode: z.enum(['always', 'after_hours']).optional(),
-  callbackEnabled: z.boolean().optional(),
-}).strict();
 
 async function ownerContext(request: Request) {
   const parsed = querySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
@@ -67,6 +57,7 @@ export async function GET(request: Request) {
       listVoiceCalls(context.salon.id),
     ]);
     return Response.json({ data: {
+      retired: true,
       settings,
       readiness: voiceReceptionistReadiness(routes.length > 0),
       calls: calls.map(serializeCall),
@@ -84,19 +75,5 @@ export async function PATCH(request: Request) {
   if (context.error || !context.salon) {
     return context.error!;
   }
-  const parsed = updateSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) {
-    return Response.json({ error: { message: parsed.error.issues[0]?.message ?? 'Invalid voice receptionist settings.' } }, { status: 400 });
-  }
-  try {
-    const routes = await listVoiceNumberRoutes(context.salon.id);
-    const readiness = voiceReceptionistReadiness(routes.length > 0);
-    if (parsed.data.enabled && !readiness.configured) {
-      return Response.json({ error: { message: 'Voice receptionist needs a provisioned phone number and global rollout before it can be turned on.' } }, { status: 409 });
-    }
-    const settings = await updateVoiceSettings(context.salon.id, parsed.data);
-    return Response.json({ data: { settings, readiness } }, { headers: { 'Cache-Control': 'private, no-store' } });
-  } catch {
-    return Response.json({ error: { message: 'Voice receptionist settings could not be saved.' } }, { status: 503 });
-  }
+  return Response.json({ error: { code: 'VOICE_RECEPTIONIST_RETIRED', message: 'The AI phone receptionist is retired. Standard online booking remains available.' } }, { status: 410 });
 }

@@ -11,7 +11,7 @@ export default function PrivacyPage() {
   return (
     <LusterLegalPage
       title="Privacy Policy"
-      updated="October 19, 2026"
+      updated="October 20, 2026"
       intro="Luster provides free salon booking and CRM tools for nail professionals. This policy explains the information we process to operate booking pages, owner workspaces, appointment communications, and optional integrations."
       sections={[
         {
@@ -35,6 +35,15 @@ export default function PrivacyPage() {
             'To protect sensitive information, including Google user data, Luster uses HTTPS (TLS) to encrypt data in transit between your browser and our production service, and between Luster and Google’s OAuth and Calendar APIs.',
             'Google OAuth refresh tokens are encrypted with AES-256-GCM authenticated encryption before they are stored in our database. The encryption key is kept in server configuration separately from the stored tokens. Refresh tokens are decrypted only in server-side integration code when needed for the Google connection; they are not sent to public booking pages.',
             'Server-side authentication and salon-specific authorization checks protect integration settings and synchronized Google event details. Calendar connections and synchronized event records are associated with the connected salon, and access is checked against the signed-in user’s permission to manage that salon. The Google connection also uses signed, expiring authorization state to reject tampered or expired authorization responses.',
+          ],
+        },
+        {
+          title: 'Optional AI service guidance',
+          paragraphs: [
+            'Optional customer and owner text assistants use OpenAI to understand messages and help with services and settings. Messages you enter, relevant prior AI conversation, and salon service or setup information may be sent to OpenAI for that purpose. You can use ordinary online booking without the assistant.',
+            'Luster calculates appointment availability on its own server using salon rules, appointments, and connected Google Calendar conflicts. Luster does not include application-controlled Google Calendar events, busy windows, calculated openings, selected appointment times, or booking confirmations in these text assistants’ model requests. Availability previews and booking selections, reviews, and confirmations are handled separately by Luster.',
+            'If you independently type or paste scheduling or other personal information into chat, that message may still be sent to OpenAI. Luster cannot reliably identify the source of arbitrary messages. Avoid including sensitive information in chat.',
+            'The AI phone receptionist and owner microphone sandbox are retired. This change does not erase historical conversations, call summaries, previously issued provider sessions, or provider records. Luster requests no stored response application state for its text assistant calls; that setting does not guarantee zero provider retention. Other provider security and abuse-monitoring retention may apply. Luster does not use Google Calendar data to train generalized AI or machine learning models.',
           ],
         },
         {

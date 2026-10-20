@@ -27,6 +27,7 @@ import type { CustomerReadyReviewSnapshot } from '../customerAssistant/reviewCon
 import { emptyFacts } from '../customerAssistant/semanticFacts';
 import { semanticCatalog } from '../customerAssistant/semanticSelection';
 import { getCustomerAvailabilityContext, lookupCustomerSlots, lookupNextCustomerSlots } from '../customerAssistant/slots.server';
+import { VOICE_RECEPTIONIST_RETIRED } from './retirement';
 
 /** The persisted, server-trusted call state. It contains no caller-ID identity claim. */
 export type VoiceDraft = {
@@ -222,6 +223,9 @@ export async function runVoiceConsultation(args: {
   /** Explicitly injected for voice; never reads Customer AI pilot/config. */
   voiceApiKey?: string;
 }, provider?: OwnerAssistantModelProvider): Promise<VoiceConsultationResponse> {
+  if (VOICE_RECEPTIONIST_RETIRED) {
+    return { ...unavailable(args.draft, 'unavailable'), publicFacts: null, modelCalls: 0 };
+  }
   const message = args.message.trim();
   if (!message || message.length > MAX_VOICE_MESSAGE_CHARS || args.draft.conversation.salonId !== args.salon.id) {
     return { ...unavailable(args.draft, 'invalid_conversation'), publicFacts: null };

@@ -94,6 +94,7 @@ export function createConversation(args: {
   const iat = nowSeconds(args.now);
   return {
     v: 1,
+    modelContextVersion: 1,
     cid: randomBytes(16).toString('base64url'),
     salonId: args.salonId,
     adminId: args.adminId,

@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { VOICE_RECEPTIONIST_RETIRED } from './retirement';
+
 export const VOICE_MODEL = 'gpt-live-1';
 export const VOICE_CALL_LIMIT_SECONDS = 600;
 export const VOICE_SESSION_PRICE_USD_PER_MINUTE = 0.05;
@@ -21,6 +23,9 @@ function value(name: string): string {
 
 /** Independent voice credentials and switches never activate customer/owner AI or billing. */
 export function getVoiceRuntimeConfig(channel: 'phone' | 'browser'): VoiceRuntimeConfig | null {
+  if (VOICE_RECEPTIONIST_RETIRED) {
+    return null;
+  }
   if (value(channel === 'phone' ? 'VOICE_RECEPTIONIST_ENABLED' : 'VOICE_RECEPTIONIST_SANDBOX_ENABLED') !== 'true') {
     return null;
   }
@@ -48,4 +53,10 @@ export function getVoiceRuntimeConfig(channel: 'phone' | 'browser'): VoiceRuntim
     return null;
   }
   return config;
+}
+
+/** Existing booking reconciliation is server-only and does not start an AI session. */
+export function getVoiceBookingSigningSecret(): string | null {
+  const secret = value('VOICE_RECEPTIONIST_SIGNING_SECRET');
+  return secret.length >= 32 ? secret : null;
 }

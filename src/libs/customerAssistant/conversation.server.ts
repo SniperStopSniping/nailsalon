@@ -48,6 +48,9 @@ const conversationSchema = z.object({
   expiresAtMs: z.number().int().nonnegative(),
   turnIndex: z.number().int().min(0).max(CUSTOMER_CONVERSATION_MAX_TURNS),
   dialogue: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(2400) }).strict()).max(24).optional(),
+  modelContextVersion: z.literal(1).optional(),
+  modelDialogue: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(2400) }).strict()).max(24).optional(),
+  modelServiceContext: customerConversationContextSchema.optional(),
   subjects: z.array(z.string().min(1).max(100)).max(4).optional(),
   priorSubjects: z.array(z.string().min(1).max(100)).max(4).optional(),
   messages: z.array(customerMessageSchema).max(CUSTOMER_CONVERSATION_MAX_MESSAGES),
@@ -96,6 +99,8 @@ export function createCustomerConversation(
     expiresAtMs: now + CONVERSATION_TTL_MS,
     turnIndex: 0,
     messages: [],
+    modelContextVersion: 1,
+    modelDialogue: [],
     ...(nextVisitOffer ? { nextVisitOffer } : {}),
   };
 }
@@ -108,12 +113,14 @@ export function signCustomerConversation(payload: CustomerConversation, secret: 
 
   // Old turns are presentation context, never booking authority. Trim by actual
   // encoded bytes rather than expiring an otherwise valid long conversation.
-  const bounded = { ...parsed.data, dialogue: parsed.data.dialogue?.slice(), messages: parsed.data.messages.slice() };
+  const bounded = { ...parsed.data, dialogue: parsed.data.dialogue?.slice(), modelDialogue: parsed.data.modelDialogue?.slice(), messages: parsed.data.messages.slice() };
   while (Buffer.byteLength(JSON.stringify(bounded), 'utf8') > 16000) {
     if ((bounded.dialogue?.length ?? 0) > 2) {
       bounded.dialogue!.splice(0, 2);
     } else if (bounded.messages.length > 1) {
       bounded.messages.shift();
+    } else if ((bounded.modelDialogue?.length ?? 0) > 2) {
+      bounded.modelDialogue!.splice(0, 2);
     } else {
       break;
     }

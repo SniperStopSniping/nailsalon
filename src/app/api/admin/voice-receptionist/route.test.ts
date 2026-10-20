@@ -53,24 +53,26 @@ describe('/api/admin/voice-receptionist', () => {
     expect(requireRealSalonOwner).toHaveBeenCalledWith('salon_1');
     expect(listVoiceCalls).toHaveBeenCalledWith('salon_1');
     expect(body.data.calls[0]).not.toHaveProperty('draft');
+    expect(body.data.retired).toBe(true);
   });
 
-  it('rejects cross-origin and foreign setting fields before any write', async () => {
+  it('rejects cross-origin requests and retired settings without writes', async () => {
     const foreign = await PATCH(new Request('http://localhost/api/admin/voice-receptionist?salonSlug=isla', { method: 'PATCH', headers: { 'origin': 'https://evil.test', 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }) }));
 
     expect(foreign.status).toBe(403);
 
     const invalid = await PATCH(new Request('http://localhost/api/admin/voice-receptionist?salonSlug=isla', { method: 'PATCH', headers: { 'origin': 'http://localhost', 'content-type': 'application/json' }, body: JSON.stringify({ salonId: 'other' }) }));
 
-    expect(invalid.status).toBe(400);
+    expect(invalid.status).toBe(410);
     expect(updateVoiceSettings).not.toHaveBeenCalled();
   });
 
-  it('uses the resolved salon id for valid settings writes', async () => {
+  it('cannot reactivate the receptionist using formerly valid settings', async () => {
     listVoiceNumberRoutes.mockResolvedValue([]);
     const response = await PATCH(new Request('http://localhost/api/admin/voice-receptionist?salonSlug=isla', { method: 'PATCH', headers: { 'origin': 'http://localhost', 'content-type': 'application/json' }, body: JSON.stringify({ greeting: 'Hi from Isla', voice: 'cedar', callbackEnabled: false }) }));
 
-    expect(response.status).toBe(200);
-    expect(updateVoiceSettings).toHaveBeenCalledWith('salon_1', { greeting: 'Hi from Isla', voice: 'cedar', callbackEnabled: false });
+    expect(response.status).toBe(410);
+    expect(requireRealSalonOwner).toHaveBeenCalledWith('salon_1');
+    expect(updateVoiceSettings).not.toHaveBeenCalled();
   });
 });

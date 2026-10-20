@@ -1058,7 +1058,7 @@ describe('what every result must satisfy', () => {
 describe('the dispatcher', () => {
   const ENABLED = [...OWNER_ASSISTANT_TOOL_NAMES];
 
-  it('runs the tool with the resolved salon', async () => {
+  it('denies the Calendar tool even if the operator enables it', async () => {
     const outcome = await executeOwnerAssistantTool({
       name: 'diagnose_day_availability',
       argumentsJson: '{"date":"friday","serviceName":null,"technicianName":null}',
@@ -1067,11 +1067,10 @@ describe('the dispatcher', () => {
       now: NOW,
     });
 
-    expect(outcome.ok).toBe(true);
-    expect(outcome.ok && outcome.result).toMatchObject({ resolvedDateKey: D_FRI, bookableSlotCount: 16 });
+    expect(outcome).toEqual({ ok: false, error: { code: 'tool_not_enabled' } });
   });
 
-  it('turns an unusable day into invalid_arguments, not a fault', async () => {
+  it('denies an unusable day before argument processing', async () => {
     const outcome = await executeOwnerAssistantTool({
       name: 'diagnose_day_availability',
       argumentsJson: '{"date":"2026-06-30","serviceName":null,"technicianName":null}',
@@ -1081,7 +1080,7 @@ describe('the dispatcher', () => {
     });
 
     expect(outcome.ok).toBe(false);
-    expect(!outcome.ok && outcome.error.code).toBe('invalid_arguments');
+    expect(!outcome.ok && outcome.error.code).toBe('tool_not_enabled');
   });
 
   it.each([
@@ -1100,7 +1099,7 @@ describe('the dispatcher', () => {
     });
 
     expect(outcome.ok).toBe(false);
-    expect(!outcome.ok && outcome.error.code).toBe('invalid_arguments');
+    expect(!outcome.ok && outcome.error.code).toBe('tool_not_enabled');
   });
 
   it('refuses the tool when the operator has not enabled it', async () => {
@@ -1116,7 +1115,7 @@ describe('the dispatcher', () => {
     expect(!outcome.ok && outcome.error.code).toBe('tool_not_enabled');
   });
 
-  it('turns a missing salon into tool_failed', async () => {
+  it('denies a missing salon before any diagnostic lookup', async () => {
     const outcome = await executeOwnerAssistantTool({
       name: 'diagnose_day_availability',
       argumentsJson: '{"date":"friday","serviceName":null,"technicianName":null}',
@@ -1126,6 +1125,6 @@ describe('the dispatcher', () => {
     });
 
     expect(outcome.ok).toBe(false);
-    expect(!outcome.ok && outcome.error.code).toBe('tool_failed');
+    expect(!outcome.ok && outcome.error.code).toBe('tool_not_enabled');
   });
 });

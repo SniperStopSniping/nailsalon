@@ -354,6 +354,9 @@ jobs:
               # Identical reviewed dependency graph after main's 1.143.3
               # release metadata bump; only root version fields differ.
               35b8e45ccdebc4b086e18b311539b23bab137e88:c8d051aa1953cbd1dc7320d366d5bb7f5a7f5a2b) ;;
+              # Identical reviewed graph after protected main's 1.144.0
+              # release; only the three root version fields changed.
+              95a5d51e3c9fd0bde85d21fc288077db849ef5a0:ac97375ebeff51fd225f1e1831243e131a5c50ef) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"

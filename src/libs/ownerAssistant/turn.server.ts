@@ -230,13 +230,20 @@ export async function runOwnerAssistantTurn(
   }
 
   // 5 — conversation: verify (throws ConversationInvalidError → route 409) or start fresh.
-  const conversation = args.conversationToken
+  const verifiedConversation = args.conversationToken
     ? verifyConversation(args.conversationToken, {
       salonId: args.salon.id,
       adminId: args.admin.id,
       now,
     })
     : createConversation({ salonId: args.salon.id, adminId: args.admin.id, now });
+  // Legacy answers may have been grounded in Calendar-derived tool results.
+  // Start a clean model window without deleting persisted/provider records.
+  const conversation = {
+    ...verifiedConversation,
+    modelContextVersion: 1 as const,
+    turns: verifiedConversation.modelContextVersion === 1 ? verifiedConversation.turns : [],
+  };
 
   const performedBy = args.admin.clerkUserId ?? args.admin.id;
   const model = getModelId();

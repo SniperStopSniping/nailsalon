@@ -8,6 +8,7 @@
  * turn that reached the budget carries counts and codes but not one word of
  * anybody's text.
  */
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -131,6 +132,55 @@ function run(provider: ReturnType<typeof createScriptedProvider>, overrides: Rec
 }
 
 describe('direct answer', () => {
+  it('keeps every enabled tool request independent of Google connection state', async () => {
+    const healthModule = await import('@/libs/integrationHealth');
+    const baseHealth = await healthModule.getSalonIntegrationHealth(SALON.id);
+    const healthSpy = vi.spyOn(healthModule, 'getSalonIntegrationHealth');
+    envHolder.OWNER_ASSISTANT_TOOLS = 'get_salon_overview,list_services,find_destination,get_setup_readiness,diagnose_day_availability';
+    const now = new Date('2030-01-01T12:00:00.000Z');
+    const token = signConversation(createConversation({ salonId: SALON.id, adminId: ADMIN.id, now }));
+    const captured = [];
+    try {
+      for (const readiness of ['not_connected', 'ready'] as const) {
+        healthSpy.mockResolvedValue({ ...baseHealth, google: { ...baseHealth.google, readiness, email: 'synthetic-google@example.invalid', lastError: 'SYNTHETIC_GOOGLE_OWNER_TOOL_CANARY' } });
+        const provider = createScriptedProvider(fakeToolCalls([
+          { callId: 'overview', name: 'get_salon_overview', argumentsJson: '{}' },
+          { callId: 'services', name: 'list_services', argumentsJson: '{"includeInactive":false}' },
+          { callId: 'navigation', name: 'find_destination', argumentsJson: '{"query":"calendar"}' },
+          { callId: 'readiness', name: 'get_setup_readiness', argumentsJson: '{}' },
+          { callId: 'blocked', name: 'diagnose_day_availability', argumentsJson: '{"date":"friday","serviceName":null,"technicianName":null}' },
+        ]), fakeAnswer(ANSWER));
+        const result = await run(provider, { conversationToken: token, now, executionNow: () => 0 });
+
+        expect(result.kind).toBe('answer');
+        expect(provider.requests).toHaveLength(2);
+        expect(JSON.stringify(provider.requests)).not.toMatch(/SYNTHETIC_GOOGLE_OWNER_TOOL_CANARY|synthetic-google@example.invalid|googleCalendar|google_not_connected/);
+
+        captured.push(provider.requests);
+      }
+
+      expect(captured[0]).toEqual(captured[1]);
+
+      if (process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR) {
+        await mkdir(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, { recursive: true });
+        await writeFile(path.join(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, 'owner-all-tools-intercepted-requests.json'), JSON.stringify({ classification: 'synthetic-only', requests: captured, identicalAcrossGoogleConnectionStates: true }, null, 2));
+      }
+    } finally {
+      healthSpy.mockRestore();
+    }
+  });
+
+  it('does not replay legacy owner turns that may contain Calendar data', async () => {
+    const legacy = createConversation({ salonId: SALON.id, adminId: ADMIN.id });
+    legacy.modelContextVersion = undefined;
+    legacy.turns = [{ role: 'user', content: 'What is open?' }, { role: 'assistant', content: 'SYNTHETIC_GOOGLE_OWNER_HISTORY_CANARY' }];
+    const provider = createScriptedProvider(fakeAnswer(ANSWER));
+    const result = await run(provider, { conversationToken: signConversation(legacy) });
+
+    expect(result.kind).toBe('answer');
+    expect(JSON.stringify(provider.requests)).not.toContain('SYNTHETIC_GOOGLE_OWNER_HISTORY_CANARY');
+  });
+
   it('answers without calling a tool, and signs a usable conversation', async () => {
     const provider = createScriptedProvider(fakeAnswer(ANSWER));
     const result = await run(provider);
@@ -960,18 +1010,17 @@ describe('ledger row', () => {
  * The follow-up scenario A1-2 was specified around: an owner asks about one
  * day, then about another without repeating themselves. What is being proved
  * is that the second turn INHERITS the first — the window carries the exchange
- * back to the model — and that the day the model asks about is resolved by
- * Luster code in the salon's own timezone, not by the model.
+ * back to the model. Calendar diagnostics now stay outside this tool loop.
  */
 describe('a two-turn availability conversation', () => {
   const FRIDAY_ANSWER = {
-    message: 'Nobody is scheduled to work that day, so there is nothing to book. Same availability rules as your booking page.',
+    message: 'Open your calendar to check Friday. I can help you find the booking settings.',
     links: [{ key: 'team' }],
     followUps: ['What about Saturday?'],
     needsClarification: false,
   };
   const SATURDAY_ANSWER = {
-    message: 'Saturday is the same: no one is working. Same availability rules as your booking page.',
+    message: 'Please check Saturday in your calendar. I can still explain services and settings.',
     links: [],
     followUps: [],
     needsClarification: false,
@@ -988,21 +1037,14 @@ describe('a two-turn availability conversation', () => {
     const output = (provider.requests[requestIndex]?.input ?? [])
       .find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
 
-    return JSON.parse(output.output) as {
-      resolvedDateKey: string;
-      resolution: string;
-      causes: Array<{ code: string; link: string | null }>;
-    };
+    return JSON.parse(output.output) as { error: { code: string } };
   }
-
-  /** 0 = Sunday … 6 = Saturday, read off the date key as a pure calendar fact. */
-  const weekdayOf = (dateKey: string) => new Date(`${dateKey}T12:00:00.000Z`).getUTCDay();
 
   beforeEach(() => {
     envHolder.OWNER_ASSISTANT_TOOLS = 'get_salon_overview,list_services,find_destination,diagnose_day_availability,get_setup_readiness';
   });
 
-  it('answers about Friday, then about Saturday with the first exchange still in view', async () => {
+  it('denies Calendar diagnostics while preserving a safe two-turn conversation', async () => {
     const first = createScriptedProvider(diagnosisCallFor('friday'), fakeAnswer(FRIDAY_ANSWER));
     const turnOne = await run(first, { message: 'Why can\'t people book Friday?' });
 
@@ -1012,15 +1054,9 @@ describe('a two-turn availability conversation', () => {
       return;
     }
 
-    expect(turnOne.checked).toEqual([
-      { tool: 'diagnose_day_availability', label: OWNER_ASSISTANT_TOOL_LABELS.diagnose_day_availability },
-    ]);
-
-    // Luster resolved the weekday word, in the salon's timezone.
-    const fridayResult = toolOutputOf(first, 1);
-
-    expect(weekdayOf(fridayResult.resolvedDateKey)).toBe(5);
-    expect(fridayResult.resolution).toBe('next_weekday');
+    expect(turnOne.checked).toEqual([]);
+    expect(toolOutputOf(first, 1)).toEqual({ error: { code: 'tool_not_enabled' } });
+    expect(first.requests[0]?.tools.some(tool => tool.name === 'diagnose_day_availability')).toBe(false);
 
     const second = createScriptedProvider(diagnosisCallFor('saturday'), fakeAnswer(SATURDAY_ANSWER));
     const turnTwo = await run(second, {
@@ -1042,10 +1078,12 @@ describe('a two-turn availability conversation', () => {
     expect(replayed).toContain(`assistant: ${FRIDAY_ANSWER.message}`);
     expect(replayed.at(-1)).toBe('user: What about Saturday?');
 
-    const saturdayResult = toolOutputOf(second, 1);
+    expect(toolOutputOf(second, 1)).toEqual({ error: { code: 'tool_not_enabled' } });
 
-    expect(weekdayOf(saturdayResult.resolvedDateKey)).toBe(6);
-    expect(saturdayResult.resolvedDateKey).not.toBe(fridayResult.resolvedDateKey);
+    if (process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR) {
+      await mkdir(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, { recursive: true });
+      await writeFile(path.join(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, 'owner-intercepted-requests.json'), JSON.stringify({ classification: 'synthetic-only', requests: [...first.requests, ...second.requests] }, null, 2));
+    }
   });
 
   it('keeps the model\'s cited key only because the registry knows it', async () => {
@@ -1058,7 +1096,7 @@ describe('a two-turn availability conversation', () => {
     expect(result.kind === 'answer' && result.links.map(link => link.key)).toEqual(['team']);
   });
 
-  it('reports a day the tool refuses as an argument error the model must own', async () => {
+  it('hard-denies a legacy diagnostic tool request before argument or Calendar processing', async () => {
     const provider = createScriptedProvider(
       fakeToolCalls([{
         callId: 'c1',
@@ -1072,7 +1110,7 @@ describe('a two-turn availability conversation', () => {
     const output = (provider.requests[1]?.input ?? [])
       .find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
 
-    expect(JSON.parse(output.output)).toEqual({ error: { code: 'invalid_arguments' } });
+    expect(JSON.parse(output.output)).toEqual({ error: { code: 'tool_not_enabled' } });
     // A failed tool is never claimed as "checked".
     expect(result.kind === 'answer' && result.checked).toEqual([]);
   });

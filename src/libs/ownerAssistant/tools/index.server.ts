@@ -4,11 +4,6 @@ import {
   OWNER_ASSISTANT_TOOL_ARG_SCHEMAS,
   type OwnerAssistantToolName,
 } from '../contracts';
-import {
-  type DiagnoseDayArgs,
-  diagnoseDayAvailability,
-  DiagnoseDayInvalidArgumentsError,
-} from './diagnoseDayAvailability.server';
 import { findDestination } from './findDestination.server';
 import { getSalonOverview } from './getSalonOverview.server';
 import { getSetupReadiness } from './getSetupReadiness.server';
@@ -53,7 +48,7 @@ export async function executeOwnerAssistantTool(args: {
     return { ok: false, error: { code: 'unknown_tool' } };
   }
 
-  if (!args.enabledTools.includes(args.name)) {
+  if (!args.enabledTools.includes(args.name) || args.name === 'diagnose_day_availability') {
     return { ok: false, error: { code: 'tool_not_enabled' } };
   }
 
@@ -71,8 +66,10 @@ export async function executeOwnerAssistantTool(args: {
 
   try {
     switch (args.name) {
-      case 'get_salon_overview':
-        return { ok: true, result: await getSalonOverview(args.salonId, { now: args.now }) };
+      case 'get_salon_overview': {
+        const overview = await getSalonOverview(args.salonId, { now: args.now });
+        return { ok: true, result: { ...overview, integrations: { paymentsConnected: overview.integrations?.paymentsConnected } } };
+      }
       case 'list_services':
         return {
           ok: true,
@@ -80,28 +77,14 @@ export async function executeOwnerAssistantTool(args: {
         };
       case 'find_destination':
         return { ok: true, result: findDestination(parsed.data as { query: string }, args.salonSlug) };
-      case 'diagnose_day_availability':
-        return {
-          ok: true,
-          result: await diagnoseDayAvailability(
-            args.salonId,
-            parsed.data as DiagnoseDayArgs,
-            { now: args.now },
-          ),
-        };
-      case 'get_setup_readiness':
-        return { ok: true, result: await getSetupReadiness(args.salonId, { now: args.now }) };
+      case 'get_setup_readiness': {
+        const readiness = await getSetupReadiness(args.salonId, { now: args.now });
+        return { ok: true, result: { ...readiness, items: readiness.items.filter(item => item.code !== 'google_not_connected') } };
+      }
       default:
         return { ok: false, error: { code: 'unknown_tool' } };
     }
-  } catch (error) {
-    // A day the tool cannot honour is an ARGUMENT problem, not a fault: told
-    // apart here so the model can ask the owner for a different day instead of
-    // reporting that something broke.
-    if (error instanceof DiagnoseDayInvalidArgumentsError) {
-      return { ok: false, error: { code: 'invalid_arguments' } };
-    }
-
+  } catch {
     // A database fault must not become an exception the owner sees, and its
     // message must not become model input.
     return { ok: false, error: { code: 'tool_failed' } };

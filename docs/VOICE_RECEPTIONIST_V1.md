@@ -1,4 +1,6 @@
-# V1 voice receptionist
+# V1 voice receptionist — retired
+
+Retired by the owner on October 20, 2026. Phone and browser voice sessions are fenced off in source regardless of legacy activation flags. The settings screen is historical/read-only. Normal online booking and deterministic reconciliation of existing booking operations remain available. The activation and routing notes below are an archive, not current setup instructions. Do not reactivate voice without explicit approval. Historical app/provider records and previously issued sessions are not erased or revoked by this source change. See [the Calendar/AI boundary audit](GOOGLE_CALENDAR_AI_DATA_BOUNDARY.md).
 
 This implementation adds a phone channel to Luster's existing Customer Assistant and booking authority. It does not activate billing. Phone answering and phone booking default off. Deploying this code is not evidence that a real call or booking succeeded.
 

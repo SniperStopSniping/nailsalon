@@ -1,5 +1,6 @@
 /** Actual public booking authority against an attested disposable PostgreSQL pool. */
 import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { eq, inArray, sql } from 'drizzle-orm';
@@ -1438,8 +1439,20 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     expect(await database.select().from(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON))).toHaveLength(0);
   });
 
-  it('creates nothing when another booking takes the reviewed slot before Confirm', async () => {
+  it('creates nothing when Google or another booking takes the reviewed slot before Confirm', async () => {
     const waiting = await prepare(contact('1'));
+    const { hasGoogleCalendarConflict } = await import('@/libs/googleCalendar');
+    vi.mocked(hasGoogleCalendarConflict).mockResolvedValueOnce(true);
+    const googleRejected = await create(waiting);
+
+    expect(googleRejected.status).toBe(409);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    expect((await readCustomerBookingOperation({ salonId: SALON, capability: waiting.reference.capability, secret: SECRET })).appointmentId).toBeNull();
+
+    if (process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR) {
+      await mkdir(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, { recursive: true });
+      await writeFile(path.join(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, 'late-google-conflict-rejection.json'), JSON.stringify({ classification: 'synthetic-only', conflictAfterReview: true, confirmationHttpStatus: googleRejected.status, createdAppointments: 0 }, null, 2));
+    }
 
     expect((await create(await prepare(contact('2')))).status).toBe(201);
 

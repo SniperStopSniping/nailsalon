@@ -423,12 +423,13 @@ describe('case set', () => {
     }
   });
 
-  it('covers the two tools the published doc predates', () => {
+  it('covers setup readiness and routes availability outside AI', () => {
     const tools = dialogueCases()
       .flatMap(evalCase => evalCase.turns)
       .flatMap(turn => [...turn.expectTools, ...(turn.optionalTools ?? [])]);
 
-    expect(tools).toContain('diagnose_day_availability');
+    expect(tools).not.toContain('diagnose_day_availability');
+    expect(tools).toContain('find_destination');
     expect(tools).toContain('get_setup_readiness');
   });
 });
@@ -487,31 +488,15 @@ describe('what the loop decided, per case', () => {
     expect(record.turns[0]?.needsClarification).toBe(true);
   });
 
-  it('C17 gets a service clarify back from the availability tool', async () => {
-    const evalCase = dialogueCases().find(candidate => candidate.id === 'C17')!;
+  it.each(['C17', 'C21'])('%s uses Calendar navigation without availability results', async (id) => {
+    const evalCase = dialogueCases().find(candidate => candidate.id === id)!;
     const record = await runDialogue(evalCase);
-    const result = record.turns[0]?.toolCalls[0]?.result as {
-      clarify?: { kind: string; options: string[] };
-    };
 
-    expect(result.clarify?.kind).toBe('service');
-    expect(result.clarify?.options.length).toBeGreaterThan(1);
-  });
+    expect(record.turns[0]?.toolCalls.map(call => call.name)).toEqual(['find_destination']);
 
-  it('C21 measures availability in the Vancouver salon timezone', async () => {
-    const evalCase = dialogueCases().find(candidate => candidate.id === 'C21')!;
-    const record = await runDialogue(evalCase);
-    const result = record.turns[0]?.toolCalls[0]?.result as {
-      causes: Array<{ code: string }>;
-      checked: { timezone: string };
-      bookableSlotCount: number;
-      customersCanBookNow: boolean;
-    };
+    const result = record.turns[0]?.toolCalls[0]?.result;
 
-    expect(result.checked.timezone).toBe('America/Vancouver');
-    expect(result.causes).toEqual([]);
-    expect(result.bookableSlotCount).toBeGreaterThan(0);
-    expect(result.customersCanBookNow).toBe(true);
+    expect(JSON.stringify(result)).not.toMatch(/bookableSlotCount|firstBookable|resolvedDateKey/);
   });
 
   it('C18 gets the setup-readiness projection with registry link keys', async () => {
@@ -545,8 +530,8 @@ describe('window carry-over on the availability follow-up (C16)', () => {
         const expectation = evalCase.turns[turnIndex]!;
         const toolStep = fakeToolCalls([{
           callId: `call_${turnIndex}`,
-          name: 'diagnose_day_availability',
-          argumentsJson: scriptArgumentsFor('diagnose_day_availability', expectation),
+          name: 'find_destination',
+          argumentsJson: scriptArgumentsFor('find_destination', expectation),
         }]);
 
         if (turnIndex === 0) {
@@ -577,12 +562,7 @@ describe('window carry-over on the availability follow-up (C16)', () => {
     expect(contents).toContain('Friday answer.');
     expect(contents.at(-1)).toBe('What about Saturday?');
 
-    // The second turn diagnosed the NEW day, not the carried one.
-    const firstDay = record.turns[0]?.toolCalls[0]?.result as { resolvedDateKey: string };
-    const secondDay = record.turns[1]?.toolCalls[0]?.result as { resolvedDateKey: string };
-
-    expect(firstDay.resolvedDateKey).toBe('2026-09-18');
-    expect(secondDay.resolvedDateKey).toBe('2026-09-19');
+    expect(record.turns.flatMap(turn => turn.toolCalls.map(call => call.name))).toEqual(['find_destination', 'find_destination']);
   });
 });
 
@@ -764,7 +744,6 @@ describe('security — the model cannot widen its own reach', () => {
       'get_salon_overview',
       'list_services',
       'find_destination',
-      'diagnose_day_availability',
       'get_setup_readiness',
     ]);
   });

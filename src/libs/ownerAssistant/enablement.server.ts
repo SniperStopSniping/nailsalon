@@ -125,7 +125,7 @@ export function getEnabledToolNames(): OwnerAssistantToolName[] {
       .filter(entry => entry.length > 0),
   );
 
-  return OWNER_ASSISTANT_TOOL_NAMES.filter(name => requested.has(name));
+  return OWNER_ASSISTANT_TOOL_NAMES.filter(name => requested.has(name) && name !== 'diagnose_day_availability');
 }
 
 export function getModelId(): string {

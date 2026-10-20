@@ -7,6 +7,7 @@
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect as browserExpect } from '@playwright/test';
@@ -141,7 +142,13 @@ vi.mock('@/libs/ai/openaiResponses.server', () => ({
 vi.mock('@/core/redis/redisClient', () => ({ redis: null, isRedisAvailable: vi.fn(async () => false) }));
 vi.mock('@/libs/email', () => ({ sendTransactionalEmail: vi.fn(async () => true), sendTransactionalEmailDetailed: vi.fn(async () => ({ ok: true, errorCode: null, providerMessageId: 'synthetic' })) }));
 vi.mock('@/libs/SMS', () => ({ sendBookingConfirmationToClient: vi.fn(), sendCancellationNotificationToTech: vi.fn(), sendRescheduleConfirmation: vi.fn(), sendAppointmentReminder: vi.fn(async () => true) }));
-vi.mock('@/libs/googleCalendar', async importOriginal => ({ ...(await importOriginal<typeof import('@/libs/googleCalendar')>()), getGoogleCalendarBusyWindows: vi.fn(async () => []), hasGoogleCalendarConflict: vi.fn(async () => false) }));
+const google = vi.hoisted(() => ({ busy: [] as Array<{ startTime: Date; endTime: Date }> }));
+vi.mock('@/libs/googleCalendar', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/googleCalendar')>()),
+  getGoogleCalendarBusyWindows: vi.fn(async () => google.busy),
+  getGoogleCalendarBusyWindowsReadOnly: vi.fn(async () => google.busy),
+  hasGoogleCalendarConflict: vi.fn(async ({ startTime, endTime }: { startTime: Date; endTime: Date }) => google.busy.some(window => window.startTime < endTime && window.endTime > startTime)),
+}));
 
 const sessionRoute = await import('../../../src/app/api/public/customer-assistant/[salonSlug]/session/route');
 const chatRoute = await import('../../../src/app/api/public/customer-assistant/[salonSlug]/chat/route');
@@ -302,6 +309,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
   beforeEach(async () => {
     vi.clearAllMocks();
     revisions.clear();
+    google.busy = [];
     // This explicitly disposable fixture can already exist after a prior run.
     // Reset its test policy so no previous fixture changes alter this proof.
     await database.update(schema.salonSchema).set({ settings: SETTINGS }).where(eq(schema.salonSchema.id, SALON));
@@ -360,6 +368,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     page.on('pageerror', error => browserErrors.push(error.message));
     let loseConfirmResponse = true;
     const unexpected: string[] = [];
+    const availabilitySnapshots: Array<{ date: string | null; slots: Array<{ time: string; startTime: string; availability: string }> }> = [];
     const serverResults: Array<{ path: string; date: string | null; status: number; kind?: string; reason?: string; message?: string; bookingState?: string; proposal?: unknown; review?: unknown }> = [];
     await page.route('**/*', async (route) => {
       const request = route.request();
@@ -381,6 +390,9 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       }
       const responseText = await response.text();
       const data = JSON.parse(responseText || '{}');
+      if (url.pathname === '/api/appointments/availability' && response.ok) {
+        availabilitySnapshots.push({ date: url.searchParams.get('date'), slots: data.slots });
+      }
       serverResults.push({ path: url.pathname, date: url.searchParams.get('date'), status: response.status, kind: data.result?.kind ?? data.kind, reason: data.result?.reason ?? data.reason, message: data.result?.message, bookingState: data.status, proposal: data.result?.proposal, review: data.result?.review });
       if (url.pathname.endsWith('/confirm') && loseConfirmResponse) {
         // Simulate a lost response AFTER the real creation transaction commits.
@@ -436,6 +448,24 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       }
       return true;
     })).toBe(true);
+    // Change only fake Google busy windows. The actual availability engine and
+    // time buttons must change, without another model request or model input.
+    const beforeConflict = availabilitySnapshots.findLast(snapshot => snapshot.date === futureDate)!;
+    const blocked = beforeConflict.slots.find(slot => slot.availability === 'available')!;
+
+    expect(blocked?.startTime).toBeTruthy();
+
+    const requestsBeforeConflict = JSON.stringify(model.createResponse.mock.calls);
+    google.busy = [{ startTime: new Date(blocked.startTime), endTime: new Date(Date.parse(blocked.startTime) + 60 * 60_000) }];
+    await page.reload();
+    await browserExpect.poll(() => availabilitySnapshots.filter(snapshot => snapshot.date === futureDate).length).toBeGreaterThan(1);
+    await browserExpect(page.getByTestId(`time-slot-${blocked.time}`)).toHaveCount(0);
+    await browserExpect(page.locator('[data-testid^="time-slot-"]').first()).toBeVisible();
+    const afterConflict = availabilitySnapshots.findLast(snapshot => snapshot.date === futureDate)!;
+
+    expect(afterConflict.slots.find(slot => slot.startTime === blocked.startTime)?.availability).not.toBe('available');
+    expect(JSON.stringify(model.createResponse.mock.calls)).toBe(requestsBeforeConflict);
+
     await page.screenshot({ path: path.resolve(process.cwd(), `artifacts/customer-assistant/receptionist-backend-${l1 ? 'l1' : 'legacy'}-${engine}-time.png`) });
     await page.locator('[data-testid^="time-slot-"]').first().click();
     await browserExpect(page.getByLabel('Customer name')).toBeVisible({ timeout: 60_000 });
@@ -548,6 +578,19 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
       timeoutMs: 15_000,
     }));
     expect(unexpected).toEqual([]);
+
+    const interceptedRequests = model.createResponse.mock.calls.map(call => call[0]);
+    const payload = JSON.stringify(interceptedRequests);
+
+    expect(payload).not.toContain(blocked.startTime);
+    expect(payload).not.toContain(appointment.startTime.toISOString());
+    expect(payload).not.toContain('Synthetic Browser Customer');
+    expect(payload).not.toContain('4165550199');
+
+    if (process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR) {
+      await mkdir(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, { recursive: true });
+      await writeFile(path.join(process.env.LUSTER_AI_BOUNDARY_EVIDENCE_DIR, `booking-${l1 ? 'l1' : 'legacy'}-${engine}.json`), JSON.stringify({ classification: 'synthetic-only', beforeConflict, afterConflict, fakeGoogleBusyWindow: google.busy, interceptedRequests, modelCallsThroughSelectionConfirmationAndRecovery: model.createResponse.mock.calls.length, confirmedStartTime: appointment.startTime.toISOString(), confirmedAppointmentCount: appointments.length }, null, 2));
+    }
 
     await page.close();
     await browser.close();
