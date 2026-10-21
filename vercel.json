@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "codex/admin-geometry-auth-20261021": false
+    }
+  },
   "crons": [
     {
       "path": "/api/voice/maintenance",
