@@ -14,6 +14,8 @@ import { appPath, e2eConfig } from './support/config';
 
 const IPHONE_CHROME_USER_AGENT
   = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
+const SYNTHETIC_CI_CLERK_BOOTSTRAP_URL
+  = 'https://ci.luster.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
 
 const VIEWPORTS = [
   { width: 320, height: 700 },
@@ -86,6 +88,13 @@ for (const viewport of VIEWPORTS) {
       const page = await context.newPage();
       page.on('console', (message) => {
         if (message.type() === 'error') {
+          // CI's reserved Clerk placeholder cannot resolve. This geometry lane
+          // uses a synthetic password session; it does not verify Clerk login.
+          if (process.env.CI === 'true'
+            && message.location().url === SYNTHETIC_CI_CLERK_BOOTSTRAP_URL
+            && message.text() === 'Failed to load resource: net::ERR_NAME_NOT_RESOLVED') {
+            return;
+          }
           consoleErrors.push(message.text());
         }
       });
@@ -150,8 +159,8 @@ for (const viewport of VIEWPORTS) {
       expect(iconHidden).toBeNull();
 
       // Title fully visible.
-      const title = page.getByRole('heading', { level: 2 });
-      const titleBox = await title.first().boundingBox();
+      const title = page.getByTestId('service-detail-root').getByRole('heading', { level: 2 });
+      const titleBox = await title.boundingBox();
 
       expect(titleBox).not.toBeNull();
       expect(titleBox!.y).toBeGreaterThanOrEqual(stickyBottom - 1);
