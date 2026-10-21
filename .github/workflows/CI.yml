@@ -357,6 +357,9 @@ jobs:
               # Identical reviewed graph after protected main's 1.144.0
               # release; only the three root version fields changed.
               95a5d51e3c9fd0bde85d21fc288077db849ef5a0:ac97375ebeff51fd225f1e1831243e131a5c50ef) ;;
+              # Checkly/MQTT tooling-only ws7 hardening: pins its two dev-only
+              # receivers to 7.5.11; the production ws8 graph is unchanged.
+              0072a1f53a5d7fb8d6150bf862822bf2a70569d1:42081ccb971311e5dbd10ad9fa543a313f07c2fd) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
