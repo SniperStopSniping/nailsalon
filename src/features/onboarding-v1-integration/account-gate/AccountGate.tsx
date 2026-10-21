@@ -121,7 +121,7 @@ export function PremiumAccountGate({
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(() => (
     typeof window !== 'undefined'
-        && new URLSearchParams(window.location.search).get('clerk-sign-up') === 'failed'
+    && new URLSearchParams(window.location.search).get('clerk-sign-up') === 'failed'
       ? 'We couldn’t complete sign-up. Try again.'
       : null
   ));

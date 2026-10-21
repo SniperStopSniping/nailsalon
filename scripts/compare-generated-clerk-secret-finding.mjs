@@ -111,7 +111,7 @@ export function collectClerkAssignmentProvenance(root, { limits = {} } = {}) {
     const metadata = parsePublicJson(join(packageRoot, 'package.json'));
     const record = lock.packages[`node_modules/${packageName}`];
     if (metadata.name !== packageName || !record || metadata.version !== record.version
-      || !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(metadata.version)
+      || !/^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i.test(metadata.version)
       || !/^sha512-[a-zA-Z0-9+/]+=*$/.test(record.integrity ?? '')
       || !String(record.resolved).startsWith('https://registry.npmjs.org/@clerk/')) {
       refuse('SDK_PACKAGE_LOCK_MISMATCH');
@@ -128,7 +128,7 @@ export function collectClerkAssignmentProvenance(root, { limits = {} } = {}) {
         matched.add(identity);
       }
       const publicPath = relative(packageRoot, path).split(sep).join('/');
-      if (publicPath.length > 200 || !/^[a-zA-Z0-9_./@-]+$/.test(publicPath)) {
+      if (publicPath.length > 200 || !/^[\w./@-]+$/.test(publicPath)) {
         refuse('PUBLIC_PATH_SHAPE');
       }
       if (publicMatches.length >= cap.publicMatches) {
@@ -149,7 +149,8 @@ export function collectClerkAssignmentProvenance(root, { limits = {} } = {}) {
   }
   checkTime();
   const result = {
-    status: !generated.size ? 'NO_GENERIC_CANDIDATE'
+    status: !generated.size
+      ? 'NO_GENERIC_CANDIDATE'
       : matched.size === generated.size ? 'PUBLIC_ASSIGNMENT_IDENTITY_MATCH' : 'UNMATCHED_CANDIDATES',
     generatedFiles: generatedState.files,
     publicSdkFiles: sdkState.files,
