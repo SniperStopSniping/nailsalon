@@ -794,6 +794,42 @@ test('historical evidence checksum exception cannot hide moved, changed or adjac
   });
 });
 
+test('booking workflow synthetic URL exception cannot hide changed or adjacent credentials', () => {
+  const exactPath = '.github/workflows/booking-retry-validation.yml';
+  const contents = readFileSync(join(REPOSITORY_ROOT, exactPath), 'utf8');
+  const url = credentialUrl('postgresql', 'luster_e2e_ci', ['luster', 'e2e', 'ci', 'only', 'password'].join('-'), '127.0.0.1:55432', '/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable');
+  assert.ok(contents.includes(url), 'canonical synthetic workflow URL was not found');
+  withRepository((repository) => {
+    const base = git(repository, ['rev-parse', 'HEAD']);
+    write(repository, exactPath, contents);
+    const head = commit(repository);
+    expectPass(scan(repository));
+    expectPass(scan(repository, ['--base', base, '--head', head]));
+  });
+  for (const variant of [
+    { path: exactPath, value: url.replace('luster-e2e-ci-only-password', `Db${SECRET_BODY}`) },
+    { path: exactPath, value: url.replace('127.0.0.1:55432', 'database.example.com:55432') },
+    { path: exactPath, value: url.replace('/luster_e2e_ci_disposable?', '/other_disposable?') },
+    { path: '.github/workflows/moved-booking-validation.yml', value: url },
+  ]) {
+    withRepository((repository) => {
+      const base = git(repository, ['rev-parse', 'HEAD']);
+      write(repository, variant.path, contents.replaceAll(url, variant.value));
+      const head = commit(repository);
+      expectFinding(scan(repository), 'DATABASE_URL_CREDENTIALS', variant.value);
+      expectFinding(scan(repository, ['--base', base, '--head', head]), 'DATABASE_URL_CREDENTIALS', variant.value);
+    });
+  }
+  withRepository((repository) => {
+    const adjacent = providerSecret('sk_live_');
+    const base = git(repository, ['rev-parse', 'HEAD']);
+    write(repository, exactPath, `${contents}\nSTRIPE_SECRET_KEY: ${adjacent}\n`);
+    const head = commit(repository);
+    expectFinding(scan(repository), 'STRIPE_SECRET_KEY', adjacent);
+    expectFinding(scan(repository, ['--base', base, '--head', head]), 'STRIPE_SECRET_KEY', adjacent);
+  });
+});
+
 test('documentation URL allowlist is bound to its exact path and value', () => {
   withRepository((repository) => {
     const contents = readFileSync(

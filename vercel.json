@@ -2,7 +2,8 @@
   "git": {
     "deploymentEnabled": {
       "codex/owner-protect-compat-20261021": false,
-      "codex/storybook-origin-patch-20261021": false
+      "codex/storybook-origin-patch-20261021": false,
+      "codex/booking-ssi-reliability-20261021": false
     }
   },
   "crons": [

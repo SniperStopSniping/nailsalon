@@ -1274,9 +1274,9 @@ describe('client lifecycle stabilization', () => {
     )).toBe(false);
   });
 
-  it('applies the booking-only eight-attempt exponential full-jitter policy', async () => {
+  it('applies the booking-only twelve-attempt exponential full-jitter policy', async () => {
     expect(BOOKING_TRANSACTION_RETRY_POLICY).toEqual({
-      maxAttempts: 8,
+      maxAttempts: 12,
       retryAdmissionWindowMs: 10_000,
       baseDelayMs: 50,
       maxDelayMs: 800,
@@ -1290,8 +1290,8 @@ describe('client lifecycle stabilization', () => {
       random: () => 1,
     }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toMatchObject({ code: '40001' });
 
-    expect(retry).toHaveBeenCalledTimes(8);
-    expect(sleep.mock.calls).toEqual([[50], [100], [200], [400], [800], [800], [800]]);
+    expect(retry).toHaveBeenCalledTimes(12);
+    expect(sleep.mock.calls).toEqual([[50], [100], [200], [400], [800], [800], [800], [800], [800], [800], [800]]);
   });
 
   it('does not admit a booking retry past the ten-second window', async () => {
@@ -1324,5 +1324,23 @@ describe('client lifecycle stabilization', () => {
 
     expect(operation).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('does not admit a retry when sleep overshoots the booking window', async () => {
+    let now = 9_000;
+    const error = databaseError('40001');
+    const operation = vi.fn().mockRejectedValue(error);
+    const sleep = vi.fn(async () => {
+      now += 10_000;
+    });
+
+    await expect(withClientLifecycleTransactionRetry(operation, {
+      sleep,
+      random: () => 1,
+      now: () => now,
+    }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toBe(error);
+
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledExactlyOnceWith(50);
   });
 });
