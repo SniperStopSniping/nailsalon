@@ -151,6 +151,25 @@ failing=runner.SourceObservation(SimpleNamespace(observe=Mock(side_effect=Runtim
 try:failing.observe(force=True)
 except RuntimeError as error:assert str(error)=='COMBINED_RSS_LIMIT' and failing.metrics['completedObservations']==0
 else:raise AssertionError('source cadence suppressed guard')
+# Execute the actual nested storage callback without any filesystem walk.
+# Expensive scans are followed by a full one-second interval after completion.
+runner_tree=ast.parse((D/'run.py').read_text());storage_def=next(node for node in ast.walk(runner_tree) if isinstance(node,ast.FunctionDef) and node.name=='storage_check')
+clock=[10.0];storage={'last':0,'peakCacheBytes':0,'peakInstallBytes':0,'intervalMs':1000,'completedScans':0,'lastScanMs':0,'maxScanMs':0}
+def fake_tree_bytes(path):clock[0]+=2.0;return 100
+walk=Mock(side_effect=fake_tree_bytes);bounds=Mock(wraps=runner.install_storage_bounds)
+namespace={'time':SimpleNamespace(monotonic=lambda:clock[0]),'storage':storage,'work':Path('/synthetic-work'),'app':Path('/synthetic-app'),'tree_bytes':walk,'install_storage_bounds':bounds}
+exec(compile(ast.fix_missing_locations(ast.Module(body=[storage_def],type_ignores=[])),'<storage-contract>','exec'),namespace);check=namespace['storage_check'];check()
+assert storage['last']==14.0 and storage['completedScans']==1 and storage['lastScanMs']==storage['maxScanMs']==4000
+for _ in range(1000):check()
+assert walk.call_count==2 and bounds.call_count==1
+clock[0]+=0.999;check();assert walk.call_count==2
+clock[0]+=0.001;check();assert walk.call_count==4 and storage['last']==19.0 and storage['completedScans']==2
+previous=storage['last'];clock[0]+=1;bounds.side_effect=RuntimeError('INSTALL_CACHE_LIMIT')
+try:check()
+except RuntimeError as error:assert str(error)=='INSTALL_CACHE_LIMIT'
+else:raise AssertionError('storage bounds suppressed')
+assert storage['last']==previous and storage['completedScans']==2
+assert "'intervalMs':1000,'completedScans':0,'lastScanMs':0,'maxScanMs':0" in (D/'run.py').read_text()
 # Exercise actual copy_source with a synthetic tar written by a fake controller;
 # no git process, install, service or transport executes. Every byte is hashed.
 class SourceController:
@@ -316,6 +335,23 @@ assert "bindings.length !== 1" in app_guard and "bindings[0]?.HostIp !== '127.0.
 runner_source=(D/'run.py').read_text()
 assert runner_source.index('cid,volume=container_identity(row,container,tag,network)')<runner_source.index('container_ports=container_port_projection(row)')<runner_source.index('c.attach_container(pid,cid)')
 assert "'containerPortDiagnostic':container_ports if failure else None" in runner_source
+assert "'networkQualification':'Owned ordinary Docker bridge permits PostgreSQL egress; app/test Node transports are fenced to owned loopback PostgreSQL. Not OS containment.'" in runner_source
+# An ordinary uniquely owned bridge can publish the loopback port. Its trusted
+# PG service has bridge egress; this is not an OS network sandbox. No extra
+# network, firewall or attestation substitution is introduced by the command.
+network_calls=[node for node in ast.walk(ast.parse(runner_source)) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='command' and node.args and isinstance(node.args[0],ast.List) and any(isinstance(arg,ast.Constant) and arg.value=='create' for arg in node.args[0].elts)]
+assert len(network_calls)==1
+argv=network_calls[0].args[0].elts
+assert [ast.literal_eval(arg) for i,arg in enumerate(argv) if i not in [0,6,7]]==['network','create','--driver','bridge','--label']
+assert ast.unparse(argv[0])=='str(docker)' and ast.unparse(argv[6])=="'luster.ssi.run=' + tag" and ast.unparse(argv[7])=='network'
+tree=ast.parse(runner_source);gate=next(node for node in ast.walk(tree) if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='require' and len(node.args)==2 and isinstance(node.args[1],ast.Constant) and node.args[1].value=='CONTAINER_ACTUAL_PORT_REJECTED')
+assert ast.unparse(gate.args[0])=="container_ports['actual5432LoopbackExact']"
+guard_code=compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=gate)],type_ignores=[])),'<actual-port-guard>','exec')
+for exact in [False,True]:
+ try:exec(guard_code,{'require':lc.require,'container_ports':{'actual5432LoopbackExact':exact}})
+ except RuntimeError as error:assert not exact and str(error)=='CONTAINER_ACTUAL_PORT_REJECTED'
+ else:assert exact
+assert runner_source.index('c.attach_container(pid,cid)')<runner_source.index("require(container_ports['actual5432LoopbackExact']")<runner_source.index("bootstrap_item=c.start('BOOTSTRAP'")
 # Inspect the actual readiness launch AST, including the owned CID binding and
 # unchanged attempt/wait budget. No command is executed by this contract.
 def readiness_contract(text):
@@ -372,4 +408,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','existingInspectActualPortProjectionAndPrivacy':'PASS','actualOwnedContainerTcpReadinessArgvAndUnchangedBudget':'PASS','actualReadinessLoopPreservesGuardIdentityAndExitOnlyRetry':'PASS','actualWaitIncludesObservationCostInUnchangedDeadline':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','completedStorageScanCadenceAndBounds':'PASS','ownedOrdinaryBridgeAndActualLoopbackPortGate':'PASS','existingInspectActualPortProjectionAndPrivacy':'PASS','actualOwnedContainerTcpReadinessArgvAndUnchangedBudget':'PASS','actualReadinessLoopPreservesGuardIdentityAndExitOnlyRetry':'PASS','actualWaitIncludesObservationCostInUnchangedDeadline':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
