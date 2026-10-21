@@ -12,5 +12,16 @@ const clerk = {
 };
 export const useClerk = () => clerk;
 export const useSignIn = () => ({ isLoaded: true, signIn: null });
-export const useSignUp = () => ({ isLoaded: true, signUp: null });
-export const AuthenticateWithRedirectCallback = () => null;
+const signUp = {
+  finalize: async () => ({ error: null }),
+  password: async () => ({ error: null }),
+  sso: async () => ({ error: null }),
+  status: null,
+  verifications: {
+    emailAddress: { status: 'unverified' },
+    sendEmailCode: async () => ({ error: null }),
+    verifyEmailCode: async () => ({ error: null }),
+  },
+};
+export const useSignUp = () => ({ signUp });
+export const HandleSSOCallback = () => null;

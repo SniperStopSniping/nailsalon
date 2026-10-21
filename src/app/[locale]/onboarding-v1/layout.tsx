@@ -37,8 +37,8 @@ export default function OnboardingV1Layout(props: {
           borderRadius: '14px',
           colorBackground: '#fffdfb',
           colorPrimary: '#8f3155',
-          colorText: '#30262a',
-          colorTextSecondary: '#706267',
+          colorForeground: '#30262a',
+          colorMutedForeground: '#706267',
         },
       }}
       localization={params.locale === 'fr' ? frFR : enUS}

@@ -75,11 +75,18 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+      - name: Test generated assignment attribution
+        if: matrix.node-version == '24.x'
+        run: node --test scripts/compare-generated-clerk-secret-finding.node-test.mjs
       - run: npm run build
       - name: Verify deployed voice WebSocket packaging and masked send
         run: node scripts/verify-voice-websocket-build.mjs
       - name: Scan production client bundles and runtime credentials
+        id: client_secret_scan
         run: npm run security:check-secrets -- --tree
+      - name: Attribute generated Clerk scanner finding
+        if: failure() && steps.client_secret_scan.outcome == 'failure'
+        run: timeout --signal=TERM 45s node --max-old-space-size=256 scripts/compare-generated-clerk-secret-finding.mjs
 
   full-vitest-shards:
     name: Vitest shard ${{ matrix.shard }}/3
@@ -1136,6 +1143,9 @@ jobs:
       # the regression coverage that protects the mobile sheet.
       - name: Appointment sheet regression gate
         run: npm run test:appointment-regression
+
+      - name: Check all TypeScript diagnostics before framework build
+        run: npm run check-types
 
       - name: Build Next.js for E2E tests
         run: npm run build

@@ -58,7 +58,17 @@ const mocks = vi.hoisted(() => ({
   prepareArtwork: vi.fn(),
   status: vi.fn(),
   signIn: { authenticateWithRedirect: vi.fn(), create: vi.fn() },
-  signUp: { create: vi.fn(), prepareEmailAddressVerification: vi.fn() },
+  signUp: {
+    finalize: vi.fn(),
+    password: vi.fn(),
+    sso: vi.fn(),
+    status: null as null | string,
+    verifications: {
+      emailAddress: { status: 'unverified' as string },
+      sendEmailCode: vi.fn(),
+      verifyEmailCode: vi.fn(),
+    },
+  },
   userState: { isLoaded: true, user: null as unknown },
 }));
 
@@ -77,12 +87,15 @@ vi.mock('@/libs/billing/foundingLifetime', () => ({ isFoundingLifetimeOfferOpen:
 vi.mock('@/libs/publishWebsiteClient', () => ({ publishSalon: (...args: unknown[]) => mocks.publish(...args) }));
 
 vi.mock('@clerk/nextjs', () => ({
-  AuthenticateWithRedirectCallback: () => null,
+  HandleSSOCallback: () => null,
   useAuth: () => mocks.auth,
   useClerk: () => mocks.clerk,
-  useSignIn: () => ({ isLoaded: true, setActive: vi.fn(), signIn: mocks.signIn }),
-  useSignUp: () => ({ isLoaded: true, setActive: vi.fn(), signUp: mocks.signUp }),
+  useSignUp: () => ({ signUp: mocks.signUp }),
   useUser: () => mocks.userState,
+}));
+
+vi.mock('@clerk/nextjs/legacy', () => ({
+  useSignIn: () => ({ isLoaded: true, setActive: vi.fn(), signIn: mocks.signIn }),
 }));
 
 vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider', () => ({
@@ -216,7 +229,13 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.publish.mockReset().mockResolvedValue({ publicationStatus: 'published' });
     mocks.status.mockReset().mockResolvedValue({ claim: null });
     mocks.signIn.create.mockReset();
-    mocks.signUp.create.mockReset();
+    mocks.signUp.finalize.mockReset();
+    mocks.signUp.password.mockReset();
+    mocks.signUp.sso.mockReset();
+    mocks.signUp.status = null;
+    mocks.signUp.verifications.emailAddress.status = 'unverified';
+    mocks.signUp.verifications.sendEmailCode.mockReset();
+    mocks.signUp.verifications.verifyEmailCode.mockReset();
     seedAcceptedReview();
     saveOnboardingIntegrationFlow({
       ...createOnboardingIntegrationFlow(),
