@@ -128,6 +128,10 @@
     {
       "packageJson": "7c09d817d89b801e7097faa633d4ed605058f3ea",
       "packageLock": "eceba5f4c2bff468d9b5e410546b36506641aca7"
+    },
+    {
+      "packageJson": "696a5cd01b071f85f6049343fc694797f26f487f",
+      "packageLock": "487c649ef7ff18d651ce975e1b9308ad97995ecd"
     }
   ]
 }
