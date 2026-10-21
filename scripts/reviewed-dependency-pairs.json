@@ -136,6 +136,10 @@
     {
       "packageJson": "6d84eee3528321bd75fd0f5aef836de6254c051d",
       "packageLock": "e5621478f34ab837603dbb54a51ed42a19480a6f"
+    },
+    {
+      "packageJson": "967dd87bc5a80a153ad03a8de5393caae126b3f8",
+      "packageLock": "6a498e509e23855a3444a5e01859138f8a12934b"
     }
   ]
 }
