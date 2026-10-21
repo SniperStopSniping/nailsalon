@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   booking-retry:
-    name: Booking PostgreSQL (${{ matrix.mode }})
+    name: Booking PostgreSQL (${{ matrix.mode }} ${{ matrix.pass }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -24,8 +24,19 @@ jobs:
       matrix:
         include:
           - mode: baseline
+            pass: 0
             sha: 07633e53a8d26276c0afa878b8a0f8fa6ebb0dfe
           - mode: candidate
+            pass: 1
+            sha: ${{ github.event.pull_request.head.sha }}
+          - mode: candidate
+            pass: 2
+            sha: ${{ github.event.pull_request.head.sha }}
+          - mode: candidate
+            pass: 3
+            sha: ${{ github.event.pull_request.head.sha }}
+          - mode: candidate
+            pass: 4
             sha: ${{ github.event.pull_request.head.sha }}
     services:
       postgres:
@@ -121,7 +132,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: booking-retry-${{ matrix.mode }}
+          name: booking-retry-${{ matrix.mode }}-${{ matrix.pass }}
           path: ${{ runner.temp }}/booking-retry-summary.json
           if-no-files-found: error
           retention-days: 7
