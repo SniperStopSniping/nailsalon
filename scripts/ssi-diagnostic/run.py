@@ -11,6 +11,8 @@ H=D.parent.parent
 SHA='9793ab2220b813cef47505329c5e27c3ea2d040d'
 BRANCH='codex/hosted-ssi-diagnostic-20261021'
 IMAGE='mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
+INSTALL_CACHE_LIMIT=512*1024**2
+INSTALL_TREE_LIMIT=2*1024**3
 ROOTS=['src','migrations','public','prototypes','package.json','package-lock.json','tsconfig.json','vitest-setup.ts','next-env.d.ts','next.config.mjs','postcss.config.js','tailwind.config.ts','components.json','sentry.client.config.ts']
 
 def fixed_error(error):
@@ -83,6 +85,9 @@ def tree_bytes(root):
    require(count<=150000,'OWNED_TREE_FILE_BOUND')
  return total
 
+def install_storage_bounds(cache,modules):
+ require(cache<=INSTALL_CACHE_LIMIT,'INSTALL_CACHE_LIMIT');require(modules<=INSTALL_TREE_LIMIT,'INSTALL_TREE_LIMIT')
+
 def container_identity(row,name,tag,network):
  require(row.get('Id') and re.fullmatch('[a-f0-9]{64}',row['Id']) and row.get('Name')=='/'+name and row.get('Config',{}).get('Image')==IMAGE and row['Config'].get('Labels',{}).get('luster.ssi.run')==tag,'CONTAINER_IDENTITY_REJECTED')
  ports=row.get('HostConfig',{}).get('PortBindings',{});require(ports.get('5432/tcp')==[{'HostIp':'127.0.0.1','HostPort':'55432'}] and set(ports)=={'5432/tcp'},'CONTAINER_PORT_REJECTED')
@@ -107,7 +112,7 @@ def execute():
   storage={'last':0,'peakCacheBytes':0,'peakInstallBytes':0}
   def storage_check():
    if time.monotonic()-storage['last']<1:return
-   storage['last']=time.monotonic();cache=tree_bytes(work/'cache');modules=tree_bytes(app/'node_modules');storage['peakCacheBytes']=max(storage['peakCacheBytes'],cache);storage['peakInstallBytes']=max(storage['peakInstallBytes'],modules);require(cache<=384*1024**2,'INSTALL_CACHE_LIMIT');require(modules<=2*1024**3,'INSTALL_TREE_LIMIT')
+   storage['last']=time.monotonic();cache=tree_bytes(work/'cache');modules=tree_bytes(app/'node_modules');storage['peakCacheBytes']=max(storage['peakCacheBytes'],cache);storage['peakInstallBytes']=max(storage['peakInstallBytes'],modules);install_storage_bounds(cache,modules)
   c.extra_check=storage_check
   installenv={**clean,'NPM_CONFIG_USERCONFIG':str(work/'user.npmrc'),'NPM_CONFIG_GLOBALCONFIG':str(work/'global.npmrc'),'NPM_CONFIG_CACHE':str(work/'cache'),'NPM_CONFIG_REGISTRY':'https://registry.npmjs.org/','NPM_CONFIG_AUDIT':'false','NPM_CONFIG_FUND':'false','NPM_CONFIG_UPDATE_NOTIFIER':'false','NPM_CONFIG_LOGS_MAX':'0','NPM_CONFIG_FETCH_RETRIES':'0','NPM_CONFIG_FETCH_TIMEOUT':'15000','NPM_CONFIG_MAXSOCKETS':'4'}
   install=c.start('INSTALL',[str(node),str(npm),'ci','--no-audit','--no-fund','--fetch-retries=0','--fetch-timeout=15000','--maxsockets=4'],installenv,app);c.wait(install,600);dependency=installed(app,c);source(app)
@@ -174,7 +179,7 @@ def execute():
   if all_children and container_removed and network_removed and not cleanup:
    try:require(work.parent==run and not work.is_symlink() and work.stat().st_uid==os.getuid(),'WORK_OWNERSHIP');shutil.rmtree(work)
    except BaseException:cleanup=cleanup or 'OWNED_WORK_RETAINED'
-  result={'schemaVersion':1,'applicationSha':SHA,'harnessSha':harness_sha,'profile':'hosted-linux-2g-rss','primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup,'proof':proof,'nativeBootstrap':bootstrap,'installed':dependency,'sourceVerification':source_proof,'patchPostimageSha256':{name:hashlib.sha256(text.encode()).hexdigest() for name,text in changed.items()},'threadContract':locals().get('thread_contract'),'installStorage':locals().get('storage'),'tools':{'nodeBinarySha256':digest(node),'npmCliSha256':digest(npm),'nodeVersion':'v24.19.0','npmVersion':locals().get('npm_version')},'limits':{'aggregateRssBytes':RSS_LIMIT,'nodeOldSpaceMiB':256,'workerTotalHeapNotClaimed256':True,'diskFloorBytes':DISK_FLOOR,'availableMemoryFloorBytes':2*1024**3,'deadlineSeconds':1200,'poolMax':32,'postgresMaxConnections':40,'salons':25,'rounds':1},'observed':{'peakAggregateRssBytes':c.peak,'minFreeBytes':c.minimum_disk,'minAvailableMemoryBytes':c.minimum_available,'lastRoles':c.last_roles,'rolePeakRssBytes':c.role_peaks},'cleanup':{'ownedChildrenStopped':all_children,'containerRemoved':container_removed,'networkRemoved':network_removed,'unknownGroupMembers':c.unknown,'workRetained':work.exists()},'classifiers':c.classifiers,'workloadPerturbed':True,'baselinePerformanceClaim':False,'rawLogsSqlParametersRetained':False,'providerCredentialsSupplied':False,'installQualification':'Normal trusted exact-lock npm ci with public lifecycle/network; not OS containment.'};write_json(run/'result.json',result);c.close();print(json.dumps({'resultFile':str(run/'result.json'),'primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup}))
+  result={'schemaVersion':1,'applicationSha':SHA,'harnessSha':harness_sha,'profile':'hosted-linux-2g-rss','primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup,'proof':proof,'nativeBootstrap':bootstrap,'installed':dependency,'sourceVerification':source_proof,'patchPostimageSha256':{name:hashlib.sha256(text.encode()).hexdigest() for name,text in changed.items()},'threadContract':locals().get('thread_contract'),'installStorage':locals().get('storage'),'tools':{'nodeBinarySha256':digest(node),'npmCliSha256':digest(npm),'nodeVersion':'v24.19.0','npmVersion':locals().get('npm_version')},'limits':{'installCacheBytes':INSTALL_CACHE_LIMIT,'installTreeBytes':INSTALL_TREE_LIMIT,'aggregateRssBytes':RSS_LIMIT,'nodeOldSpaceMiB':256,'workerTotalHeapNotClaimed256':True,'diskFloorBytes':DISK_FLOOR,'availableMemoryFloorBytes':2*1024**3,'deadlineSeconds':1200,'poolMax':32,'postgresMaxConnections':40,'salons':25,'rounds':1},'observed':{'peakAggregateRssBytes':c.peak,'minFreeBytes':c.minimum_disk,'minAvailableMemoryBytes':c.minimum_available,'lastRoles':c.last_roles,'rolePeakRssBytes':c.role_peaks},'cleanup':{'ownedChildrenStopped':all_children,'containerRemoved':container_removed,'networkRemoved':network_removed,'unknownGroupMembers':c.unknown,'workRetained':work.exists()},'classifiers':c.classifiers,'workloadPerturbed':True,'baselinePerformanceClaim':False,'rawLogsSqlParametersRetained':False,'providerCredentialsSupplied':False,'installQualification':'Normal trusted exact-lock npm ci with public lifecycle/network; not OS containment.'};write_json(run/'result.json',result);c.close();print(json.dumps({'resultFile':str(run/'result.json'),'primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup}))
  return 0 if proof and not failure and not cleanup else 1
 
 def main():

@@ -10,6 +10,13 @@ D=Path(__file__).resolve().parent;H=D.parent.parent
 pins=json.loads((D/'source-pins.json').read_text())
 source=Path(os.environ.get('SSI_SOURCE_ROOT',str(Path(os.environ.get('GITHUB_WORKSPACE','/nonexistent'))/'application')))
 assert runner.SHA==pins['applicationSha'] and lc.RSS_LIMIT==2*1024**3 and lc.DISK_FLOOR==2*1024**3 and lc.AVAILABLE_FLOOR==2*1024**3 and lc.WORK_SECONDS+120==lc.TOTAL_SECONDS==1200
+# Only the npm cache budget changes after the measured hosted install stop.
+assert runner.INSTALL_CACHE_LIMIT==512*1024**2 and runner.INSTALL_TREE_LIMIT==2*1024**3
+runner.install_storage_bounds(runner.INSTALL_CACHE_LIMIT,runner.INSTALL_TREE_LIMIT)
+for cache,modules,code in [(runner.INSTALL_CACHE_LIMIT+1,0,'INSTALL_CACHE_LIMIT'),(0,runner.INSTALL_TREE_LIMIT+1,'INSTALL_TREE_LIMIT')]:
+ try:runner.install_storage_bounds(cache,modules)
+ except RuntimeError as error:assert str(error)==code
+ else:raise AssertionError('install storage boundary ignored')
 assert hashlib.sha256((D/'patches.py').read_bytes()).hexdigest()==pins['immutablePatchSha256']
 assert hashlib.sha256((D/'ssi-driver.cjs').read_bytes()).hexdigest()==pins['immutableDriverSha256']
 helper=(source/HELPER).read_text();test=(source/TEST).read_text();changed=transform(helper,test);assert len(changed)==2 and changed[TEST].count('expect(')==test.count('expect(')==245
@@ -160,4 +167,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
