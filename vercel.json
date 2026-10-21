@@ -40,5 +40,10 @@
       "path": "/api/network-no-show/reconcile",
       "schedule": "*/5 * * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "codex/hosted-ssi-diagnostic-20261021": false
+    }
+  }
 }

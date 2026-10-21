@@ -1,0 +1,23 @@
+{
+  "applicationSha": "9793ab2220b813cef47505329c5e27c3ea2d040d",
+  "sourceTree": "5344cd44e8e3267b4d351e9cb5120cf96ac959c2",
+  "files": {
+    "package.json": "dd688ddfdf407788d01b379cf9ccf26b995bde04aea1dcbd42d13e15c1bd5c43",
+    "package-lock.json": "e36bcb017db78c3cd415711240d64291963c2306fcda648bd53fc6d4a15a2496",
+    "src/libs/clientLifecycleStabilization.ts": "9103c02820c671a104f1b632ea0159559090a629ba230a07c38a79f17a1a5a60",
+    "src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts": "0ea7b86db3f94ffb98b4c408881a1a1b7300116bf311de63d314200718b33416",
+    "src/libs/disposableDatabaseTarget.ts": "6bd7e7baf67b88c39fb1d2d7bbd23f4a2153fec020f1362eceae12dfa40c25c1",
+    "src/libs/nonProductionDatabaseGuard.ts": "9c4348f06b9909d08f33c845d0f8b4e261794beaf3da85bf90b13ee1a73f4bf5"
+  },
+  "immutablePatchSha256": "7caa0aa9c5f2513e0a70ad965a26dceba6d346efa331d5ca61c3d1ff51c71ee7",
+  "immutableDriverSha256": "df60b25d63eb760a5d907ffa1a9b12637594161030d9c9f3091cc16eeed49663",
+  "priorLocalFailure": {
+    "rssLimitKiB": 1048576,
+    "peakRssKiB": 1319808,
+    "bootstrapPoolLeakObserved": false,
+    "postgresProcesses": 38,
+    "backendStateNotCaptured": true
+  },
+  "harnessBaseSha": "07633e53a8d26276c0afa878b8a0f8fa6ebb0dfe",
+  "harnessCronArraySha256": "a228731491b653d829f0507977e0fabb3aefe780dd586894f7546237105a1599"
+}
