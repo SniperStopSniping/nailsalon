@@ -1,0 +1,167 @@
+name: Fresh invited owner validation (isolated Development)
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fresh-owner-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  invited-owner:
+    # This guard restricts use of existing Development credentials to the
+    # explicitly authorized owner-authored, same-repository harness branch.
+    # It is an operational restriction; the owner must review the exact PR SHA.
+    if: >-
+      github.repository == 'SniperStopSniping/nailsalon' &&
+      github.actor == 'SniperStopSniping' &&
+      github.triggering_actor == 'SniperStopSniping' &&
+      github.event.pull_request.user.login == 'SniperStopSniping' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.fork == false &&
+      github.event.pull_request.head.ref == 'codex/fresh-owner-release-validation-20261021'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        project: [desktop-chromium, iphone-13-webkit]
+    steps:
+      - name: Checkout reviewed harness head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: harness
+          persist-credentials: false
+      - name: Checkout exact application b811
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: b81137ef8bdc55e58030abe109d2d468f6c85e54
+          path: application
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.x
+      - name: Native runner prerequisites (no credentials)
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail() { printf '{"code":"%s"}\n' "$1"; exit 1; }
+          presence() {
+            pg=true
+            for tool in postgres initdb createdb pg_controldata; do
+              if [ ! -x "/usr/lib/postgresql/16/bin/$tool" ]; then pg=false; fi
+            done
+            redis=true
+            if ! command -v redis-server >/dev/null; then redis=false; fi
+            node24=true
+            if ! node -e 'if(process.versions.node.split(".")[0]!=="24")process.exit(1)'; then node24=false; fi
+            printf '{"phase":"%s","postgres16ToolsPresent":%s,"redisPresent":%s,"node24Present":%s}\n' "$1" "$pg" "$redis" "$node24"
+          }
+          presence before-provision
+          [ "$node24" = true ] || fail NATIVE_NODE24_REQUIRED
+          # This is a fresh hosted runner, never a persistent application host.
+          # Preserve any existing service-start policy; refuse one that allows
+          # either package's default service to start during installation.
+          policy_created=false
+          policy_dir=$(mktemp -d "$RUNNER_TEMP/release-owner-apt.XXXXXXXX")
+          chmod 700 "$policy_dir"
+          printf '#!/bin/sh\nexit 101\n' > "$policy_dir/policy-rc.d"
+          cleanup_policy() {
+            result=$?
+            trap - EXIT
+            if [ "$policy_created" = true ]; then
+              if sudo -n cmp -s "$policy_dir/policy-rc.d" /usr/sbin/policy-rc.d; then
+                if ! sudo -n rm -- /usr/sbin/policy-rc.d; then result=1; printf '{"code":"NATIVE_POLICY_CLEANUP_FAILED"}\n'; fi
+              else
+                result=1
+                printf '{"code":"NATIVE_POLICY_IDENTITY_CHANGED_RETAINED"}\n'
+              fi
+            fi
+            rm -- "$policy_dir/policy-rc.d"
+            rmdir -- "$policy_dir"
+            if [ "$result" -ne 0 ]; then printf '{"code":"NATIVE_PREREQUISITES_FAILED"}\n'; fi
+            exit "$result"
+          }
+          trap cleanup_policy EXIT
+          if [ -e /usr/sbin/policy-rc.d ] || [ -L /usr/sbin/policy-rc.d ]; then
+            for service in postgresql redis-server; do
+              policy_status=0
+              sudo -n /usr/sbin/policy-rc.d "$service" start || policy_status=$?
+              [ "$policy_status" -eq 101 ] || fail NATIVE_EXISTING_START_POLICY_REJECTED
+            done
+          else
+            # noclobber prevents replacing a concurrently created policy.
+            sudo -n sh -c 'umask 022; set -C; cat "$1" > /usr/sbin/policy-rc.d' sh "$policy_dir/policy-rc.d"
+            policy_created=true
+            sudo -n chmod 755 /usr/sbin/policy-rc.d
+          fi
+          # Stop only package defaults on this exclusive ephemeral runner.
+          for unit in postgresql.service redis-server.service; do
+            if [ "$(systemctl show "$unit" --property=LoadState --value)" != not-found ]; then
+              sudo -n systemctl stop "$unit" || fail NATIVE_DEFAULT_SERVICE_STOP_FAILED
+            fi
+          done
+          # Ubuntu's existing signed apt sources only; no third-party repository.
+          timeout --signal=TERM --kill-after=15s 180s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o DPkg::Lock::Timeout=60 update
+          timeout --signal=TERM --kill-after=15s 360s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o DPkg::Lock::Timeout=60 install -y --no-install-recommends postgresql-16 postgresql-client-16 redis-server
+          sudo -n systemctl stop postgresql.service redis-server.service || fail NATIVE_DEFAULT_SERVICE_STOP_FAILED
+          if systemctl is-active --quiet postgresql.service || systemctl is-active --quiet redis-server.service; then
+            fail NATIVE_DEFAULT_SERVICE_STILL_ACTIVE
+          fi
+          presence after-provision
+          [ "$pg" = true ] || fail NATIVE_POSTGRES16_TOOLS_MISSING
+          [ "$redis" = true ] || fail NATIVE_REDIS_MISSING
+          [ "$node24" = true ] || fail NATIVE_NODE24_REQUIRED
+      - name: Install exact application dependencies (no credentials)
+        working-directory: application
+        run: HUSKY=0 npm ci --no-audit --no-fund
+      - name: Install browser and OS dependencies (no credentials)
+        working-directory: application
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/release-owner-browsers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ '${{ matrix.project }}' = desktop-chromium ]; then browser=chromium; else browser=webkit; fi
+          node node_modules/@playwright/test/cli.js install --with-deps "$browser"
+      - name: Offline containment and portability contracts (no credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 harness/scripts/release-owner-validation/offline-contract.py
+          node --max-old-space-size=128 harness/scripts/release-owner-validation/node-egress-guard.contract.cjs
+          python3 harness/scripts/release-owner-validation/portability-contract.py
+      - name: Validate isolated runtime preparation (no credentials)
+        env:
+          FRESH_OWNER_HARNESS_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 harness/scripts/release-owner-validation/controller.py
+      - name: Execute real invited owner journey and scoped cleanup
+        timeout-minutes: 24
+        env:
+          FRESH_OWNER_HARNESS_SHA: ${{ github.event.pull_request.head.sha }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+        run: >-
+          python3 harness/scripts/release-owner-validation/controller.py
+          --execute --resource-reviewed --cleanup-created --project ${{ matrix.project }}
+      - name: Upload only sanitized evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fresh-owner-safe-${{ matrix.project }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/release-owner-validation-safe/*/run-context.json
+            ${{ runner.temp }}/release-owner-validation-safe/*/result.json
+            ${{ runner.temp }}/release-owner-validation-safe/*/browser-results.json
+            ${{ runner.temp }}/release-owner-validation-safe/*/safe-controller.jsonl

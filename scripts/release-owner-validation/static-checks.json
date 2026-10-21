@@ -1,0 +1,19 @@
+{
+  "nativeJourneyExecutedLocally": false,
+  "nativeServicesStarted": false,
+  "providerCalls": false,
+  "installs": false,
+  "pythonSyntaxFiles": 3,
+  "jsSyntaxFiles": 2,
+  "bootstrapSyntacticSemanticDiagnostics": 0,
+  "bootstrapTsHeapMiB": 256,
+  "narrowEslintErrors": 0,
+  "narrowEslintWarnings": 0,
+  "offlineProcessContracts": "passed",
+  "offlineEgressContracts": "passed",
+  "portabilityContracts": "passed",
+  "workflowYaml": "passed",
+  "bashSyntaxSteps": 6,
+  "browserAssertions": "parent independently confirmed78 equivalent",
+  "note": "Static/offline preparation only; hosted native tools/resources/secrets not verified."
+}
