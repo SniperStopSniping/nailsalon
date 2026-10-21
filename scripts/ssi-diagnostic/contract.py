@@ -178,6 +178,17 @@ for failure in [None,'DISK_FLOOR','COPIED_SOURCE_CHANGED']:
     assert metrics['copiedBytes']==sum(map(len,payloads.values())) and metrics['forcedObservations']==monitor.observe_calls==3
     assert all((target/name).read_bytes()==data for name,data in payloads.items()) and not (work/'source.tar').exists()
   if failure=='DISK_FLOOR':assert metrics['phase']=='VERIFY' and metrics['verifiedFiles']==2 and metrics['completedObservations']==2
+# Bootstrap failure projection accepts only the shared immutable enum schema.
+boot={'status':'failed','phase':'MIGRATIONS','errorCode':'POSTGRES_ERROR','sqlState':'42P01'}
+assert runner.bootstrap_failure(json.dumps(boot).encode())==boot
+assert runner.bootstrap_failure(b'') is None and runner.bootstrap_failure(b'{"migrationCount":113,"ownedClusterAttested":true}') is None
+for key,value in [('phase','https://example.invalid/private'),('errorCode','synthetic-private-value'),('sqlState','SECRET'),('message','synthetic-private-value')]:
+ bad={**boot,key:value}
+ try:runner.bootstrap_failure(json.dumps(bad).encode())
+ except RuntimeError as error:assert str(error)=='BOOTSTRAP_DIAGNOSTIC_SCHEMA'
+ else:raise AssertionError('raw bootstrap payload accepted')
+boot_source=(D/'bootstrap.mts').read_text();assert boot_source.index('try {')<boot_source.index("require('pg')")<boot_source.index("phase = 'STATIC_TARGET'")<boot_source.index("phase = 'CONNECT'")<boot_source.index('await disposable.attestDisposableDatabaseSession')<boot_source.index('await marker.initializeNonProductionDatabaseMarker')<boot_source.index('await migrate(')
+assert 'row.connections !== 40' in boot_source and "row.fsync !== 'on'" in boot_source and "row.full_page_writes !== 'on'" in boot_source and 'count !== 113' in boot_source
 # No Popen invocation may occur before role admission; signals only defer.
 controller=object.__new__(lc.Controller);controller.env={};controller.children=[];controller.groups=set();controller.selector=SimpleNamespace(register=Mock());controller.tokens={};controller.stop_requested=False
 child=SimpleNamespace(pid=777,stdout=SimpleNamespace(fileno=lambda:10),stderr=SimpleNamespace(fileno=lambda:11),returncode=None)
@@ -299,4 +310,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
