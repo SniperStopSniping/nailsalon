@@ -1,0 +1,177 @@
+{
+  "applicationLockSha256": "e36bcb017db78c3cd415711240d64291963c2306fcda648bd53fc6d4a15a2496",
+  "entries": {
+    "node_modules/@img/sharp-libvips-linuxmusl-x64": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-6zXKeE/p39I1AmA3cJG35eyBGNqNddLnUXjhwBnsGjFPWqf5VKkDBEqaEkPDoTEtkxwi2vv8Tcr2mDyP4So7Fg==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "8a7977500d66633080779d6712ec24246e0485f1b0025ccfd1ac2edca0cab5ad",
+      "manifestUrl": "https://registry.npmjs.org/@img%2Fsharp-libvips-linuxmusl-x64/1.3.4",
+      "name": "@img/sharp-libvips-linuxmusl-x64",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-x64/-/sharp-libvips-linuxmusl-x64-1.3.4.tgz",
+      "version": "1.3.4"
+    },
+    "node_modules/@img/sharp-linuxmusl-x64": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-4KOphqB035HrVdqLZfCgMzzERrQkkzOwRhl4OAkRO1YCldbaFjySXMaK534Mo0V+LndnlJk+sbUyLeU0ULyD1A==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "6cee42e2e86d6daebcc724c23f29b267d63a066110f8afcd503a39194d5c6406",
+      "manifestUrl": "https://registry.npmjs.org/@img%2Fsharp-linuxmusl-x64/0.35.5",
+      "name": "@img/sharp-linuxmusl-x64",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.35.5.tgz",
+      "version": "0.35.5"
+    },
+    "node_modules/@napi-rs/canvas-linux-x64-musl": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-26q26AyITo3CGZX4HWFIMgBMA1lu3YN07gxzBm4tW6Hglq/OVyTP50kDrmWuKybCX6dh3m8Ly+c7YhI+sqCgCQ==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "4ee5d82f137610db385a24fbf7ca4279694152f0cdda1bb0936f3df758eaf829",
+      "manifestUrl": "https://registry.npmjs.org/@napi-rs%2Fcanvas-linux-x64-musl/1.0.11",
+      "name": "@napi-rs/canvas-linux-x64-musl",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@napi-rs/canvas-linux-x64-musl/-/canvas-linux-x64-musl-1.0.11.tgz",
+      "version": "1.0.11"
+    },
+    "node_modules/@next/swc-linux-x64-musl": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-Miq+NDb/HWsXuxseYxMM6fuEOQXgTziarkKIRpVKCn8W69cEfhQaQr+90pO+u4q2CbJR2wzXmUuCFyZaJs/Nng==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "24419c7971fe90d344bdc583ec369b06b6c78fddbb8b3d3fe7b04103cbb4b433",
+      "manifestUrl": "https://registry.npmjs.org/@next%2Fswc-linux-x64-musl/15.5.28",
+      "name": "@next/swc-linux-x64-musl",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-15.5.28.tgz",
+      "version": "15.5.28"
+    },
+    "node_modules/@parcel/watcher-linux-x64-musl": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-tkBYKt7YQrjIJWYDnto2YgO8MRkjlMTSNoRHzsXinBqbLdeOM3L32wPZJvIZxqaLMfSlS/4sUjH/6STVP/XDLw==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "a7402855a80c2cc242c05206be5af0772d506d4566ba4ab4ac1138545f215e45",
+      "manifestUrl": "https://registry.npmjs.org/@parcel%2Fwatcher-linux-x64-musl/2.6.0",
+      "name": "@parcel/watcher-linux-x64-musl",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@parcel/watcher-linux-x64-musl/-/watcher-linux-x64-musl-2.6.0.tgz",
+      "version": "2.6.0"
+    },
+    "node_modules/@rollup/rollup-linux-x64-musl": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-t/yMdeaaQUuNNpmT7taBmH2VvHzgT4YA/IaKVE3qVr4PYQemn/kmJkL4uG4UvTLcWXQd0MSoOa/3URYSWGmUEg==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "57defb9d3aedca01450aeafb828600898cde8b06b2ab371997ce5f4ebfcf0fbd",
+      "manifestUrl": "https://registry.npmjs.org/@rollup%2Frollup-linux-x64-musl/4.64.9",
+      "name": "@rollup/rollup-linux-x64-musl",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@rollup/rollup-linux-x64-musl/-/rollup-linux-x64-musl-4.64.9.tgz",
+      "version": "4.64.9"
+    },
+    "node_modules/@storybook/nextjs/node_modules/@img/sharp-libvips-linuxmusl-x64": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-viYN1KX9m+/hGkJtvYYp+CCLgnJXwiQB39damAO7WMdKWlIhmYTfHjwSbQeUK/20vY154mwezd9HflVFM1wVSw==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "6e934dafa5414e90ae96f19ded5d79b0940ac1c77865863a00fb25ff4571b2e5",
+      "manifestUrl": "https://registry.npmjs.org/@img%2Fsharp-libvips-linuxmusl-x64/1.0.4",
+      "name": "@img/sharp-libvips-linuxmusl-x64",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-x64/-/sharp-libvips-linuxmusl-x64-1.0.4.tgz",
+      "version": "1.0.4"
+    },
+    "node_modules/@storybook/nextjs/node_modules/@img/sharp-linuxmusl-x64": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-WT+d/cgqKkkKySYmqoZ8y3pxx7lx9vVejxW/W4DOFMYVSkErR+w7mf2u8m/y4+xHe7yY9DAXQMWQhpnMuFfScw==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "8898fb761d4cc31493685e621aac879e555ab84060268df4db0e63505c6786e2",
+      "manifestUrl": "https://registry.npmjs.org/@img%2Fsharp-linuxmusl-x64/0.33.5",
+      "name": "@img/sharp-linuxmusl-x64",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.33.5.tgz",
+      "version": "0.33.5"
+    },
+    "node_modules/@swc/core-linux-x64-musl": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-XXysqLkvjtQnXm1zHqLhy00UYPv/gk5OtwR732X+piNisnEbcJBqI8Qp9O7YvLWllRcoP8IMBGDWLGdGLSpViA==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "8052f84f9fd4c6d9c35c886a32a6ca4457569b3c74d2d81f9a6cf72779b4e0fd",
+      "manifestUrl": "https://registry.npmjs.org/@swc%2Fcore-linux-x64-musl/1.7.36",
+      "name": "@swc/core-linux-x64-musl",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@swc/core-linux-x64-musl/-/core-linux-x64-musl-1.7.36.tgz",
+      "version": "1.7.36"
+    },
+    "node_modules/next-intl/node_modules/@swc/core-linux-x64-musl": {
+      "cpu": [
+        "x64"
+      ],
+      "integrity": "sha512-TGU24+QmmS8y/hg0BLKgOU3W5TCcQC9bgGl8AB0R61gTNQdWdcmCehRLAJwlZfxtAml66xMJ6PWrX8NKrABOsA==",
+      "libc": [
+        "musl"
+      ],
+      "manifestSha256": "34197700bea5c48f4ee9ed4ae4feecd806da39d08caade9995446f2ef6ca138a",
+      "manifestUrl": "https://registry.npmjs.org/@swc%2Fcore-linux-x64-musl/1.16.18",
+      "name": "@swc/core-linux-x64-musl",
+      "os": [
+        "linux"
+      ],
+      "resolved": "https://registry.npmjs.org/@swc/core-linux-x64-musl/-/core-linux-x64-musl-1.16.18.tgz",
+      "version": "1.16.18"
+    }
+  },
+  "qualification": "Exact official package-version manifests supplement only omitted libc constraints; unknown missing optional packages remain failures.",
+  "schemaVersion": 1
+}

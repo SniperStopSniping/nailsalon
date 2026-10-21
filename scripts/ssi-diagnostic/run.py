@@ -38,18 +38,33 @@ def event_guard(env,event,harness_sha):
 def bundle():
  pins=json.loads((D/'bundle-sha256.json').read_text());inputs=json.loads((D/'source-pins.json').read_text());require(inputs['applicationSha']==SHA and digest(D/'patches.py')==inputs['immutablePatchSha256'] and digest(D/'ssi-driver.cjs')==inputs['immutableDriverSha256'],'IMMUTABLE_DIAGNOSTIC_INPUT_PIN')
  require(all(not Path(name).is_absolute() and '..' not in Path(name).parts and digest(H/name)==pin for name,pin in pins.items()),'HARNESS_BUNDLE_PIN')
-def installed(app,controller):
- lock=json.loads((app/'package-lock.json').read_text());present=absent=required=0
+def platform_entries(lock_path):
+ metadata=json.loads((D/'platform-eligibility.json').read_text());require(metadata['schemaVersion']==1 and metadata['applicationLockSha256']==digest(lock_path),'PLATFORM_METADATA_LOCK_PIN')
+ return metadata['entries']
+def platform_compatible(name,row,entries):
  def allows(values,target):return not values or '!'+target not in values and (not [v for v in values if not v.startswith('!')] or target in values or 'any' in values)
+ libc=row.get('libc');extra=entries.get(name)
+ if extra:
+  require(row.get('optional') is True and libc is None and extra['version']==row['version'] and extra['integrity']==row.get('integrity') and extra['resolved']==row.get('resolved') and extra['name']==name.rsplit('node_modules/',1)[1] and extra['os']==row.get('os') and extra['cpu']==row.get('cpu') and extra['libc']==['musl'],'PLATFORM_METADATA_NODE_PIN')
+  libc=extra['libc']
+ return allows(row.get('os'),'linux') and allows(row.get('cpu'),'x64') and allows(libc,'glibc')
+def installed(app,controller,diagnostics):
+ lock_path=app/'package-lock.json';lock=json.loads(lock_path.read_text());entries=platform_entries(lock_path);present=absent=required=manifest_absent=0
+ require(set(entries)<=set(lock['packages']),'PLATFORM_METADATA_NODE_PIN')
  for i,(name,row) in enumerate(lock['packages'].items()):
   if not name:continue
-  require(name.startswith('node_modules/') and '..' not in Path(name).parts,'LOCK_PATH_REJECTED');path=app/name/'package.json';compatible=allows(row.get('os'),'linux') and allows(row.get('cpu'),'x64') and allows(row.get('libc'),'glibc')
+  require(name.startswith('node_modules/') and '..' not in Path(name).parts,'LOCK_PATH_REJECTED');path=app/name/'package.json';compatible=platform_compatible(name,row,entries)
   if not row.get('optional') or compatible:required+=1
   if path.is_file():
    path.resolve().relative_to(app.resolve());require(path.stat().st_size<=256*1024 and json.loads(path.read_text()).get('version')==row['version'],'INSTALLED_VERSION_MISMATCH');present+=1
-  else:require(row.get('optional') and not compatible,'REQUIRED_INSTALLED_NODE_MISSING');absent+=1
+  else:
+   if not row.get('optional') or compatible:
+    # Only this source-pinned public lock row is retained; no installer output.
+    diagnostics['firstMissing']={'lockPath':name,'version':row['version'],'optional':bool(row.get('optional')),'os':row.get('os'),'cpu':row.get('cpu'),'lockLibc':row.get('libc'),'manifestLibc':entries.get(name,{}).get('libc'),'platformCompatible':compatible}
+    raise RuntimeError('REQUIRED_INSTALLED_NODE_MISSING')
+   absent+=1;manifest_absent+=int(name in entries)
   if i%64==0:controller.observe()
- return {'requiredNodes':required,'presentNodes':present,'absentPlatformOptionals':absent,'qualification':'Successful normal npm ci integrity verification and every installed lock-node version; not an independent byte scan.'}
+ return {'requiredNodes':required,'presentNodes':present,'absentPlatformOptionals':absent,'absentManifestBoundMuslOptionals':manifest_absent,'qualification':'Normal npm ci integrity verification; all required platform-compatible nodes and every installed version checked. Only lock metadata or exact version/SRI-bound public libc metadata excludes absent optionals; not an independent byte scan.'}
 def verify_copy(expected,root,controller=None):
  for i,(name,oid) in enumerate(expected.items()):
   path=root/name;require(path.is_file() and not path.is_symlink(),'COPIED_MEMBER_MISSING');data=path.read_bytes();require(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==oid,'COPIED_SOURCE_CHANGED')
@@ -104,7 +119,7 @@ def execute():
  for name in ['user.npmrc','global.npmrc','gitconfig']:(work/name).touch(mode=0o600)
  node=Path(shutil.which('node') or '').resolve();npm=Path(shutil.which('npm') or '').resolve();docker=Path(shutil.which('docker') or '').resolve();require(all(p.is_file() for p in [node,npm,docker]) and npm.is_relative_to(node.parent.parent),'REQUIRED_TOOL_BINDING')
  clean={'PATH':str(node.parent)+':/usr/local/bin:/usr/bin:/bin','HOME':str(work/'home'),'TMPDIR':str(work/'tmp'),'XDG_CONFIG_HOME':str(work/'config'),'XDG_CACHE_HOME':str(work/'cache'),'DOCKER_CONFIG':str(work/'docker-config'),'LANG':'C','LC_ALL':'C','TZ':'UTC','CI':'true','GITHUB_ACTIONS':'true','NODE_OPTIONS':'--max-old-space-size=256','NPM_CONFIG_USERCONFIG':str(work/'user.npmrc'),'NPM_CONFIG_GLOBALCONFIG':str(work/'global.npmrc'),'NPM_CONFIG_CACHE':str(work/'cache'),'NPM_CONFIG_LOGS_MAX':'0','NPM_CONFIG_UPDATE_NOTIFIER':'false','HUSKY':'0','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':str(work/'gitconfig')}
- c=Controller(work,clean);failure=cleanup=None;failure_role=failure_exit=None;proof=dependency=bootstrap=source_proof=None;cid=volume=None;network='luster-'+tag;container='luster-'+tag;network_attempted=container_attempted=False;network_known=container_known=False;all_children=False;container_removed=network_removed=False;test=None;copied=None;changed={}
+ c=Controller(work,clean);dependency_diagnostics={};failure=cleanup=None;failure_role=failure_exit=None;proof=dependency=bootstrap=source_proof=None;cid=volume=None;network='luster-'+tag;container='luster-'+tag;network_attempted=container_attempted=False;network_known=container_known=False;all_children=False;container_removed=network_removed=False;test=None;copied=None;changed={}
  write_json(run/'run-context.json',{'schemaVersion':1,'runTag':tag,'applicationSha':SHA,'harnessSha':harness_sha,'runId':str(env['GITHUB_RUN_ID']),'startedMs':int(time.time()*1000),'profile':'hosted-linux-2g-rss','realProviderCredentialsSupplied':False})
  try:
   require(c.wait(c.start('BOOTSTRAP',[str(node),'--version'],private=True),10).decode().strip()=='v24.19.0','NODE_VERSION_REJECTED');npm_version=c.wait(c.start('BOOTSTRAP',[str(node),str(npm),'--version'],private=True),10).decode().strip();require(re.fullmatch(r'\d+\.\d+\.\d+',npm_version),'NPM_VERSION_REJECTED')
@@ -115,7 +130,7 @@ def execute():
    storage['last']=time.monotonic();cache=tree_bytes(work/'cache');modules=tree_bytes(app/'node_modules');storage['peakCacheBytes']=max(storage['peakCacheBytes'],cache);storage['peakInstallBytes']=max(storage['peakInstallBytes'],modules);install_storage_bounds(cache,modules)
   c.extra_check=storage_check
   installenv={**clean,'NPM_CONFIG_USERCONFIG':str(work/'user.npmrc'),'NPM_CONFIG_GLOBALCONFIG':str(work/'global.npmrc'),'NPM_CONFIG_CACHE':str(work/'cache'),'NPM_CONFIG_REGISTRY':'https://registry.npmjs.org/','NPM_CONFIG_AUDIT':'false','NPM_CONFIG_FUND':'false','NPM_CONFIG_UPDATE_NOTIFIER':'false','NPM_CONFIG_LOGS_MAX':'0','NPM_CONFIG_FETCH_RETRIES':'0','NPM_CONFIG_FETCH_TIMEOUT':'15000','NPM_CONFIG_MAXSOCKETS':'4'}
-  install=c.start('INSTALL',[str(node),str(npm),'ci','--no-audit','--no-fund','--fetch-retries=0','--fetch-timeout=15000','--maxsockets=4'],installenv,app);c.wait(install,600);dependency=installed(app,c);source(app)
+  install=c.start('INSTALL',[str(node),str(npm),'ci','--no-audit','--no-fund','--fetch-retries=0','--fetch-timeout=15000','--maxsockets=4'],installenv,app);c.wait(install,600);dependency=installed(app,c,dependency_diagnostics);source(app)
   # Installation intentionally runs normal trusted exact-lock lifecycle/network.
   copied=copy_source(app,work,expected,c);(copied/'node_modules').symlink_to(app/'node_modules',target_is_directory=True)
   changed=transform((copied/HELPER).read_text(),(copied/TEST).read_text())
@@ -179,7 +194,7 @@ def execute():
   if all_children and container_removed and network_removed and not cleanup:
    try:require(work.parent==run and not work.is_symlink() and work.stat().st_uid==os.getuid(),'WORK_OWNERSHIP');shutil.rmtree(work)
    except BaseException:cleanup=cleanup or 'OWNED_WORK_RETAINED'
-  result={'schemaVersion':1,'applicationSha':SHA,'harnessSha':harness_sha,'profile':'hosted-linux-2g-rss','primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup,'proof':proof,'nativeBootstrap':bootstrap,'installed':dependency,'sourceVerification':source_proof,'patchPostimageSha256':{name:hashlib.sha256(text.encode()).hexdigest() for name,text in changed.items()},'threadContract':locals().get('thread_contract'),'installStorage':locals().get('storage'),'tools':{'nodeBinarySha256':digest(node),'npmCliSha256':digest(npm),'nodeVersion':'v24.19.0','npmVersion':locals().get('npm_version')},'limits':{'installCacheBytes':INSTALL_CACHE_LIMIT,'installTreeBytes':INSTALL_TREE_LIMIT,'aggregateRssBytes':RSS_LIMIT,'nodeOldSpaceMiB':256,'workerTotalHeapNotClaimed256':True,'diskFloorBytes':DISK_FLOOR,'availableMemoryFloorBytes':2*1024**3,'deadlineSeconds':1200,'poolMax':32,'postgresMaxConnections':40,'salons':25,'rounds':1},'observed':{'peakAggregateRssBytes':c.peak,'minFreeBytes':c.minimum_disk,'minAvailableMemoryBytes':c.minimum_available,'lastRoles':c.last_roles,'rolePeakRssBytes':c.role_peaks},'cleanup':{'ownedChildrenStopped':all_children,'containerRemoved':container_removed,'networkRemoved':network_removed,'unknownGroupMembers':c.unknown,'workRetained':work.exists()},'classifiers':c.classifiers,'workloadPerturbed':True,'baselinePerformanceClaim':False,'rawLogsSqlParametersRetained':False,'providerCredentialsSupplied':False,'installQualification':'Normal trusted exact-lock npm ci with public lifecycle/network; not OS containment.'};write_json(run/'result.json',result);c.close();print(json.dumps({'resultFile':str(run/'result.json'),'primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup}))
+  result={'schemaVersion':1,'applicationSha':SHA,'harnessSha':harness_sha,'profile':'hosted-linux-2g-rss','primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup,'proof':proof,'nativeBootstrap':bootstrap,'installed':dependency,'dependencyValidation':dependency_diagnostics,'sourceVerification':source_proof,'patchPostimageSha256':{name:hashlib.sha256(text.encode()).hexdigest() for name,text in changed.items()},'threadContract':locals().get('thread_contract'),'installStorage':locals().get('storage'),'tools':{'nodeBinarySha256':digest(node),'npmCliSha256':digest(npm),'nodeVersion':'v24.19.0','npmVersion':locals().get('npm_version')},'limits':{'installCacheBytes':INSTALL_CACHE_LIMIT,'installTreeBytes':INSTALL_TREE_LIMIT,'aggregateRssBytes':RSS_LIMIT,'nodeOldSpaceMiB':256,'workerTotalHeapNotClaimed256':True,'diskFloorBytes':DISK_FLOOR,'availableMemoryFloorBytes':2*1024**3,'deadlineSeconds':1200,'poolMax':32,'postgresMaxConnections':40,'salons':25,'rounds':1},'observed':{'peakAggregateRssBytes':c.peak,'minFreeBytes':c.minimum_disk,'minAvailableMemoryBytes':c.minimum_available,'lastRoles':c.last_roles,'rolePeakRssBytes':c.role_peaks},'cleanup':{'ownedChildrenStopped':all_children,'containerRemoved':container_removed,'networkRemoved':network_removed,'unknownGroupMembers':c.unknown,'workRetained':work.exists()},'classifiers':c.classifiers,'workloadPerturbed':True,'baselinePerformanceClaim':False,'rawLogsSqlParametersRetained':False,'providerCredentialsSupplied':False,'installQualification':'Normal trusted exact-lock npm ci with public lifecycle/network; not OS containment.'};write_json(run/'result.json',result);c.close();print(json.dumps({'resultFile':str(run/'result.json'),'primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup}))
  return 0 if proof and not failure and not cleanup else 1
 
 def main():

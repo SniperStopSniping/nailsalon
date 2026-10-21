@@ -1,18 +1,19 @@
 {
-  "scripts/ssi-diagnostic/README.md": "538d04653f432702f2b33832a4e24872b707a0bba8a524a66f1b3b7ee44f15de",
+  "scripts/ssi-diagnostic/README.md": "4424434a48aab9d175fc1ae46766f28bda2da7a3d8adcb515ee7ae8a43def43a",
   "scripts/ssi-diagnostic/bootstrap.mts": "98caf1004e7c566f5ec925a4c7781fdb02138ebf3be9170b41092ddbb1e76a53",
   "scripts/ssi-diagnostic/contract-thread-prelude.cjs": "6717bbf5b424206110e3a93270a765bb132a00bfcfbe0cc41a39a94bf615207c",
   "scripts/ssi-diagnostic/contract-thread-worker.cjs": "95f1e32c28f7030899526c5758bc4af2f9e5aae4dcee1a00ce609980297d187d",
   "scripts/ssi-diagnostic/contract.cjs": "bdc3fd9aa0d13aab236365c17dd386f22ca44693f2c11bb5b948411017acc8cb",
-  "scripts/ssi-diagnostic/contract.py": "e55f8f74c24bc3992d1b2fa5e74305e1a265262d12215262cbff01679018c3bb",
+  "scripts/ssi-diagnostic/contract.py": "52f5c48d9f40e9b0a20ecbe054ebbc7f489c84af92e55fdab270f77464dce839",
   "scripts/ssi-diagnostic/linux_controller.py": "439f3f9b69d19aa363c99e81ef75b30ff54568f71e50fff19b1899f9f5fb7dd0",
   "scripts/ssi-diagnostic/network-fence.cjs": "54088ebdef434c2a3194f6e4923704686118ef827576c1c95fd4516307d3bc23",
   "scripts/ssi-diagnostic/patches.py": "7caa0aa9c5f2513e0a70ad965a26dceba6d346efa331d5ca61c3d1ff51c71ee7",
   "scripts/ssi-diagnostic/report_protocol.py": "a59bdd3b1f9f1b3459c31acb3326ce63e15057339a6271f18b2520f625203900",
-  "scripts/ssi-diagnostic/run.py": "09a97b4b463ecd111a6b912c50221e8841da3f3a6dd9e65d3f4cbbfaef276e5c",
+  "scripts/ssi-diagnostic/run.py": "b7f84c5b9ccb79a44f4e3951662f98630b9ec1622d70e61f246c28e418b37f19",
   "scripts/ssi-diagnostic/safe-reporter.mjs": "2fdc8091b47851d732f21504d907361b61b720b7dfe13a352fa6e8fa406729c5",
   "scripts/ssi-diagnostic/source-pins.json": "5da3a221018dd7648967f2c83ebd548ac872aa95759a542915f99f0db7c5cbcb",
   "scripts/ssi-diagnostic/ssi-driver.cjs": "df60b25d63eb760a5d907ffa1a9b12637594161030d9c9f3091cc16eeed49663",
   ".github/workflows/ssi-diagnostic.yml": "43c29ab588404f7b9283ed2fa33fa448836d854f76c7ed758bf71f47cdb084ed",
-  "vercel.json": "e8bdce3935253e0267e0a2834b19655b58064bc8dca997d0d7bc678da3412421"
+  "vercel.json": "e8bdce3935253e0267e0a2834b19655b58064bc8dca997d0d7bc678da3412421",
+  "scripts/ssi-diagnostic/platform-eligibility.json": "f732cd0f5a1fbf1b5f8091833fe2e864569e0d3fd72e5f0bc00f3b35b89a746d"
 }

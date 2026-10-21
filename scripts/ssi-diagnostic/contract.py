@@ -17,6 +17,36 @@ for cache,modules,code in [(runner.INSTALL_CACHE_LIMIT+1,0,'INSTALL_CACHE_LIMIT'
  try:runner.install_storage_bounds(cache,modules)
  except RuntimeError as error:assert str(error)==code
  else:raise AssertionError('install storage boundary ignored')
+# Exact public manifests supplement libc omitted by this immutable lock.
+lock_path=source/'package-lock.json';lock_rows=json.loads(lock_path.read_text())['packages'];eligibility=runner.platform_entries(lock_path)
+assert len(eligibility)==10 and all(row['libc']==['musl'] for row in eligibility.values())
+for name,entry in eligibility.items():
+ row=lock_rows[name];assert row.get('libc') is None and row['optional'] is True
+ assert runner.platform_compatible(name,row,{}) is True and runner.platform_compatible(name,row,eligibility) is False
+ bad=copy.deepcopy(row);bad['version']='0.0.0'
+ try:runner.platform_compatible(name,bad,eligibility)
+ except RuntimeError as error:assert str(error)=='PLATFORM_METADATA_NODE_PIN'
+ else:raise AssertionError('unbound platform metadata accepted')
+assert runner.platform_compatible('node_modules/unknown-musl',{'optional':True,'os':['linux'],'cpu':['x64']},eligibility) is True
+# Exercise the actual installed() validator: unknown/compatible optional absence
+# and required absence still fail, with one bounded public lock-row diagnosis.
+with tempfile.TemporaryDirectory(prefix='ssi-pure-install-') as temporary:
+ application=Path(temporary);name='node_modules/synthetic';diagnostics={}
+ for row in [{'version':'1.0.0'},{'version':'1.0.0','optional':True,'os':['linux'],'cpu':['x64'],'libc':['glibc']},{'version':'1.0.0','optional':True}]:
+  (application/'package-lock.json').write_text(json.dumps({'packages':{'':{},name:row}}));diagnostics.clear()
+  with patch.object(runner,'platform_entries',return_value={}):
+   try:runner.installed(application,SimpleNamespace(observe=Mock()),diagnostics)
+   except RuntimeError as error:assert str(error)=='REQUIRED_INSTALLED_NODE_MISSING'
+   else:raise AssertionError('required or unqualified optional absence accepted')
+  assert diagnostics['firstMissing']['lockPath']==name and diagnostics['firstMissing']['version']=='1.0.0' and len(diagnostics)==1
+ known=next(iter(eligibility));row=lock_rows[known];(application/'package-lock.json').write_text(json.dumps({'packages':{'':{},known:row}}));diagnostics.clear()
+ with patch.object(runner,'platform_entries',return_value={known:eligibility[known]}):
+  summary=runner.installed(application,SimpleNamespace(observe=Mock()),diagnostics)
+  assert summary['absentPlatformOptionals']==summary['absentManifestBoundMuslOptionals']==1 and not diagnostics
+  package=application/known/'package.json';package.parent.mkdir(parents=True);package.write_text(json.dumps({'version':'0.0.0'}))
+  try:runner.installed(application,SimpleNamespace(observe=Mock()),diagnostics)
+  except RuntimeError as error:assert str(error)=='INSTALLED_VERSION_MISMATCH'
+  else:raise AssertionError('installed version mismatch accepted')
 assert hashlib.sha256((D/'patches.py').read_bytes()).hexdigest()==pins['immutablePatchSha256']
 assert hashlib.sha256((D/'ssi-driver.cjs').read_bytes()).hexdigest()==pins['immutableDriverSha256']
 helper=(source/HELPER).read_text();test=(source/TEST).read_text();changed=transform(helper,test);assert len(changed)==2 and changed[TEST].count('expect(')==test.count('expect(')==245
@@ -167,4 +197,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
