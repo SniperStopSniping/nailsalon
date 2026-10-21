@@ -81,6 +81,19 @@ const SAFE_LOCALIZATION_COPY_KEYS = new Set([
   'PRIMARY_BUTTON_SET_PASSWORD',
 ]);
 
+// Independently verified canonical @clerk/localizations@4.24.0 public copy:
+// dist/fr-FR.mjs:984-986,1006; SHA256
+// 9c2d5e169054856b465bf9886446798e885d65fbcd83ecc08e4ef3bcee6357d6.
+// Director and independent review matched npm tar SHA512 to the exact lock and
+// both fr-FR public files. Bind these four values to exact normalized keys and
+// generated-client scope only; this does not waive adjacent/raw/provider scans.
+const SAFE_EXACT_CLERK_FRENCH_COPY = new Map([
+  ['FORM_FIELD_INPUT_PLACEHOLDER_API_KEY_DESCRIPTION', 'Expliquez pourquoi vous générez cette clé'],
+  ['FORM_FIELD_INPUT_PLACEHOLDER_API_KEY_EXPIRATION_DATE', 'Sélectionner une date'],
+  ['FORM_FIELD_INPUT_PLACEHOLDER_API_KEY_NAME', 'Entrez le nom de votre clé secrète'],
+  ['FORM_FIELD_LABEL_API_KEY_NAME', 'Nom de la clé secrète'],
+]);
+
 class SafeScannerError extends Error {
   constructor(message) {
     super(message);
@@ -268,6 +281,49 @@ function isHighEntropy(value) {
     && /[A-Z]/.test(compact)
     && /\d/.test(compact);
   return hasVariety && shannonEntropy(compact) >= 3.4;
+}
+
+function matchesExactEscapedCopy(value, expected) {
+  if (value.length < expected.length || value.length > expected.length * 6) {
+    return false;
+  }
+  let cursor = 0;
+  for (let index = 0; index < expected.length; index += 1) {
+    if (value[cursor] !== '\\') {
+      if (value[cursor] !== expected[index]) {
+        return false;
+      }
+      cursor += 1;
+      continue;
+    }
+    const kind = value[cursor + 1];
+    const digits = kind === 'x' ? 2 : kind === 'u' ? 4 : 0;
+    if (!digits) {
+      return false;
+    }
+    const encoded = value.slice(cursor + 2, cursor + 2 + digits);
+    if (encoded.length !== digits || !/^[a-f0-9]+$/i.test(encoded)
+      || Number.parseInt(encoded, 16) !== expected.charCodeAt(index)) {
+      return false;
+    }
+    cursor += 2 + digits;
+  }
+  return cursor === value.length;
+}
+
+function isSafeExactClerkFrenchCopy(path, source, key, value, completeLiteralRhs) {
+  const normalizedPath = normalizePath(path);
+  const expected = SAFE_EXACT_CLERK_FRENCH_COPY.get(key);
+  const quote = value[0];
+  const payload = ['"', '\'', '`'].includes(quote) && value.at(-1) === quote
+    ? value.slice(1, -1)
+    : value;
+  return completeLiteralRhs
+    && source === 'generated-client'
+    && normalizedPath.startsWith('.next/static/')
+    && !normalizedPath.split('/').some(segment => segment === '.' || segment === '..')
+    && expected !== undefined
+    && matchesExactEscapedCopy(payload, expected);
 }
 
 function isSafeLocalizationCopy(path, source, key, value) {
@@ -593,13 +649,18 @@ function isLiteralSimpleAssignment(path, assignment) {
 
 function assignmentCandidates(path, line) {
   const candidates = [];
-  const seen = new Set();
-  const add = (key, value) => {
+  const seen = new Map();
+  const add = (key, value, completeLiteralRhs = false) => {
     const normalizedKey = normalizeAssignmentKey(key);
     const identity = `${normalizedKey}\0${value}`;
-    if (!seen.has(identity)) {
-      seen.add(identity);
-      candidates.push({ key: normalizedKey, value });
+    const existing = seen.get(identity);
+    if (existing) {
+      // Every occurrence must prove its own boundary before the new waiver applies.
+      existing.completeLiteralRhs &&= completeLiteralRhs;
+    } else {
+      const candidate = { key: normalizedKey, value, completeLiteralRhs };
+      seen.set(identity, candidate);
+      candidates.push(candidate);
     }
   };
 
@@ -614,7 +675,9 @@ function assignmentCandidates(path, line) {
   if (declaration) {
     const value = parseQuotedLiteral(declaration.value);
     if (value !== null) {
-      add(declaration.key, value);
+      // Fail closed on comments, line breaks, EOF and expression continuations.
+      const tail = declaration.value.slice(value.length + 2);
+      add(declaration.key, value, /^[ \t]*[;,]/.test(tail));
     }
   }
 
@@ -627,11 +690,13 @@ function assignmentCandidates(path, line) {
     /^[ \t]*([a-z_$][\w$]*)[ \t]*:[ \t]*(["'`])([^"'`\r\n]+)\2/gi,
     /[,{][ \t]*([a-z_$][\w$]*)[ \t]*:[ \t]*(["'`])([^"'`\r\n]+)\2/gi,
   ];
-  for (const pattern of patterns) {
+  for (const [patternIndex, pattern] of patterns.entries()) {
     pattern.lastIndex = 0;
     let match = pattern.exec(line);
     while (match) {
-      add(match[1], match[3]);
+      const tail = line.slice(match.index + match[0].length);
+      const completeLiteralRhs = patternIndex >= 4 && /^[ \t]*[,}]/.test(tail);
+      add(match[1], match[3], completeLiteralRhs);
       match = pattern.exec(line);
     }
   }
@@ -664,7 +729,7 @@ function parseSimpleAssignment(line) {
   };
 }
 
-function assignmentRule(path, key, value, source) {
+function assignmentRule(path, key, value, source, rawValue, completeLiteralRhs) {
   if (isSafeAssignment(path, key, value)) {
     return null;
   }
@@ -677,7 +742,8 @@ function assignmentRule(path, key, value, source) {
   if (/WEBHOOK.*SECRET|SIGNING.*SECRET|SECRET.*SIGNING/i.test(key) && isHighEntropy(value)) {
     return 'WEBHOOK_SIGNING_SECRET';
   }
-  if (isSafeLocalizationCopy(path, source, key, value)) {
+  if (isSafeExactClerkFrenchCopy(path, source, key, rawValue, completeLiteralRhs)
+    || isSafeLocalizationCopy(path, source, key, value)) {
     return null;
   }
   const dotenv = isRuntimeDotenvPath(path) || normalizePath(path).endsWith('.env.example');
@@ -699,9 +765,9 @@ export function genericAssignmentFingerprints(path, buffer, source) {
   }
   const results = new Set();
   for (const line of buffer.toString('utf8').split(/\r?\n/)) {
-    for (const { key, value: raw } of assignmentCandidates(path, line)) {
+    for (const { key, value: raw, completeLiteralRhs } of assignmentCandidates(path, line)) {
       const value = raw.trim().replace(/^['"`]|['"`]$/g, '');
-      if (assignmentRule(path, key, value, source) === 'GENERIC_SECRET_ASSIGNMENT') {
+      if (assignmentRule(path, key, value, source, raw, completeLiteralRhs) === 'GENERIC_SECRET_ASSIGNMENT') {
         results.add(fingerprint(key, value));
       }
     }
@@ -712,9 +778,9 @@ export function genericAssignmentFingerprints(path, buffer, source) {
 function scanAssignments(path, text, source, findings) {
   const lines = text.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
-    for (const { key, value: rawValue } of assignmentCandidates(path, lines[index])) {
+    for (const { key, value: rawValue, completeLiteralRhs } of assignmentCandidates(path, lines[index])) {
       const value = rawValue.trim().replace(/^['"`]|['"`]$/g, '');
-      const rule = assignmentRule(path, key, value, source);
+      const rule = assignmentRule(path, key, value, source, rawValue, completeLiteralRhs);
       if (rule) {
         addFinding(findings, {
           path,
