@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "codex/owner-protect-compat-20261021": false
+    }
+  },
   "crons": [
     {
       "path": "/api/voice/maintenance",

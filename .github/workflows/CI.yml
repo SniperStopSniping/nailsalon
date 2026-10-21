@@ -75,11 +75,18 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+      - name: Test generated assignment attribution
+        if: matrix.node-version == '24.x'
+        run: node --test scripts/compare-generated-clerk-secret-finding.node-test.mjs
       - run: npm run build
       - name: Verify deployed voice WebSocket packaging and masked send
         run: node scripts/verify-voice-websocket-build.mjs
       - name: Scan production client bundles and runtime credentials
+        id: client_secret_scan
         run: npm run security:check-secrets -- --tree
+      - name: Attribute generated Clerk scanner finding
+        if: failure() && steps.client_secret_scan.outcome == 'failure'
+        run: timeout --signal=TERM 45s node --max-old-space-size=256 scripts/compare-generated-clerk-secret-finding.mjs
 
   full-vitest-shards:
     name: Vitest shard ${{ matrix.shard }}/3
@@ -357,6 +364,9 @@ jobs:
               # Identical reviewed graph after protected main's 1.144.0
               # release; only the three root version fields changed.
               95a5d51e3c9fd0bde85d21fc288077db849ef5a0:ac97375ebeff51fd225f1e1831243e131a5c50ef) ;;
+              # Clerk Core3 Protect support: Next.js SDK7.9.19 and aligned
+              # localizations4.24.0; reviewed exact dependency closure.
+              6d84eee3528321bd75fd0f5aef836de6254c051d:e5621478f34ab837603dbb54a51ed42a19480a6f) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -1213,6 +1223,9 @@ jobs:
       # the regression coverage that protects the mobile sheet.
       - name: Appointment sheet regression gate
         run: npm run test:appointment-regression
+
+      - name: Check all TypeScript diagnostics before framework build
+        run: npm run check-types
 
       - name: Build Next.js for E2E tests
         run: npm run build

@@ -150,6 +150,7 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   assert.ok(statement);
   const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
   const monitoringPairs = [
+    ['6d84eee3528321bd75fd0f5aef836de6254c051d', 'e5621478f34ab837603dbb54a51ed42a19480a6f'], // Clerk Core3 Protect-compatible owner signup.
     ['e8611651650ec97880c8a67e05b795a26efaa6cb', '8f5742e82fcd36ec2185235d4bfa08bd383a7966'],
     ['b7e4591c8df9d94b82b281587cec8f98b0f5439e', '9576667ec691e6f5aba41486cfbbcf8e32d6b3ee'],
     ['f5212c5c05d6cf9a89a3e63c2643f03bbf223d75', '3500380b6019dbab17b1c137064ee1c1e3963eda'],

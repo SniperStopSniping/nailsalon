@@ -1,12 +1,12 @@
 'use client';
 
 import {
-  AuthenticateWithRedirectCallback,
+  HandleSSOCallback,
   useClerk,
-  useSignIn,
   useSignUp,
   useUser,
 } from '@clerk/nextjs';
+import { useSignIn } from '@clerk/nextjs/legacy';
 import {
   ArrowLeft,
   Cloud,
@@ -113,13 +113,18 @@ export function PremiumAccountGate({
 }: PremiumAccountGateProps) {
   const clerk = useClerk();
   const { isLoaded: signInLoaded, setActive, signIn } = useSignIn();
-  const { isLoaded: signUpLoaded, setActive: setActiveFromSignUp, signUp } = useSignUp();
+  const { signUp } = useSignUp();
   const { user } = useUser();
 
   const [intent, setIntent] = useState<GateIntent>(authMode);
   const [step, setStep] = useState<GateStep>({ kind: 'providers' });
   const [busy, setBusy] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(() => (
+    typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('clerk-sign-up') === 'failed'
+      ? 'We couldn’t complete sign-up. Try again.'
+      : null
+  ));
   const [statusNote, setStatusNote] = useState<string | null>(null);
   const [emailValue, setEmailValue] = useState('');
   const [passwordValue, setPasswordValue] = useState('');
@@ -131,6 +136,7 @@ export function PremiumAccountGate({
 
   const orgAttemptedKeysRef = useRef(new Set<string>());
   const orgResolutionInFlightKeysRef = useRef(new Set<string>());
+  const signUpFinalizationSupersededRef = useRef(false);
   const pendingTaskRef = useRef<PendingSessionTask | null>(null);
   const mountedRef = useRef(true);
   const signOutInFlightRef = useRef(false);
@@ -143,7 +149,7 @@ export function PremiumAccountGate({
   const salonName = state.profile.businessName.trim() || 'Your nail studio';
   const selectedServices = state.profile.serviceMenu.selectedServiceIds.length;
   const isEarlySave = state.progress.currentScreen === 'save_progress';
-  const clerkReady = signInLoaded && signUpLoaded;
+  const clerkReady = signInLoaded;
 
   const sessionEmail = user?.primaryEmailAddress;
   const showSessionVerify = needsSessionEmailVerification && Boolean(sessionEmail);
@@ -212,6 +218,9 @@ export function PremiumAccountGate({
         : null;
       const ended = nextSession === null || nextSession === undefined
         || (typeof nextStatus === 'string' && ENDED_SESSION_STATUSES.has(nextStatus));
+      if (nextTask || ended) {
+        signUpFinalizationSupersededRef.current = true;
+      }
       if (previousTask && !nextTask && ended) {
         setStep({ kind: 'providers' });
         setFormError(ORGANIZATION_SESSION_ENDED_MESSAGE);
@@ -378,18 +387,34 @@ export function PremiumAccountGate({
   }, [claimUrl, clerk]);
 
   const startOAuth = useCallback(async (provider: OAuthProviderStrategy) => {
-    if (!signIn || busy) {
+    if (busy || (intent === 'sign-in' && !signIn)) {
       return;
     }
     setBusy(true);
     clearTransient();
     setStep({ kind: 'sso', provider });
     try {
-      await signIn.authenticateWithRedirect({
-        redirectUrl: `${onboardingRoute}?sso=1`,
-        redirectUrlComplete: claimUrl,
-        strategy: provider,
-      });
+      if (intent === 'sign-up') {
+        const callbackUrl = `${onboardingRoute}?sso=1`;
+        const { error } = await signUp.sso({
+          redirectCallbackUrl: callbackUrl,
+          redirectUrl: callbackUrl,
+          strategy: provider,
+        });
+        if (error) {
+          throw error;
+        }
+      } else {
+        const currentSignIn = signIn;
+        if (!currentSignIn) {
+          throw new Error('Clerk sign-in is not ready.');
+        }
+        await currentSignIn.authenticateWithRedirect({
+          redirectUrl: `${onboardingRoute}?sso=1`,
+          redirectUrlComplete: claimUrl,
+          strategy: provider,
+        });
+      }
     } catch (error) {
       setBusy(false);
       setStep({ kind: 'providers' });
@@ -400,7 +425,7 @@ export function PremiumAccountGate({
           : 'We couldn’t open Google sign-in. Try again.',
       ));
     }
-  }, [busy, claimUrl, clearTransient, onboardingRoute, signIn]);
+  }, [busy, claimUrl, clearTransient, intent, onboardingRoute, signIn, signUp]);
 
   const submitEmail = useCallback(async (event: FormEvent) => {
     event.preventDefault();
@@ -434,23 +459,36 @@ export function PremiumAccountGate({
     clearTransient();
     try {
       if (step.mode === 'new') {
-        if (!signUp || !setActiveFromSignUp) {
-          return;
-        }
-        const created = await signUp.create({
+        const { error } = await signUp.password({
           emailAddress: step.email,
           password: passwordValue,
         });
-        if (created.status === 'complete') {
+        if (error) {
+          throw error;
+        }
+        if (signUp.status === 'complete') {
           // Instances that don't require the email attribute complete the
           // sign-up immediately with the address still unverified. Activate
           // the session; the controller then holds the flow in the
           // verification step until the email is genuinely verified — the
           // claim never starts early.
+          signUpFinalizationSupersededRef.current = false;
           setStep({ kind: 'finalizing' });
-          await setActiveFromSignUp({ session: created.createdSessionId });
+          const finalized = await signUp.finalize();
+          if (finalized.error) {
+            if (!signUpFinalizationSupersededRef.current) {
+              setStep(current => current.kind === 'finalizing' ? step : current);
+              setFormError(describeClerkError(
+                finalized.error,
+                'Your account was created, but we couldn’t sign you in. Try again.',
+              ));
+            }
+          }
         } else {
-          await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+          const verification = await signUp.verifications.sendEmailCode();
+          if (verification.error) {
+            throw verification.error;
+          }
           setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS);
           moveToStep({ email: step.email, kind: 'verify-sign-up' });
         }
@@ -486,7 +524,6 @@ export function PremiumAccountGate({
     moveToStep,
     passwordValue,
     setActive,
-    setActiveFromSignUp,
     signIn,
     signUp,
     step,
@@ -495,25 +532,48 @@ export function PremiumAccountGate({
   const submitSignUpCode = useCallback(async (event: FormEvent) => {
     event.preventDefault();
     const code = codeValue.trim();
-    if (step.kind !== 'verify-sign-up' || busy || !code || !signUp || !setActiveFromSignUp) {
+    if (step.kind !== 'verify-sign-up' || busy || !code) {
       return;
     }
     setBusy(true);
     clearTransient();
     try {
-      const result = await signUp.attemptEmailAddressVerification({ code });
-      if (result.status === 'complete') {
-        setStep({ kind: 'finalizing' });
-        await setActiveFromSignUp({ session: result.createdSessionId });
+      const { error } = await signUp.verifications.verifyEmailCode({ code });
+      if (error) {
+        setFormError(describeClerkError(error, 'We couldn’t verify your email. Try again.'));
+        return;
+      }
+      if (signUp.status === 'complete') {
+        try {
+          signUpFinalizationSupersededRef.current = false;
+          setStep({ kind: 'finalizing' });
+          const finalized = await signUp.finalize();
+          if (finalized.error) {
+            if (!signUpFinalizationSupersededRef.current) {
+              setStep(current => current.kind === 'finalizing' ? step : current);
+              setFormError(describeClerkError(
+                finalized.error,
+                'Your email was verified, but we couldn’t sign you in. Try again.',
+              ));
+            }
+          }
+        } catch (error) {
+          if (!signUpFinalizationSupersededRef.current) {
+            setStep(current => current.kind === 'finalizing' ? step : current);
+            setFormError(describeClerkError(error, 'Your email was verified, but we couldn’t sign you in. Try again.'));
+          }
+        }
+      } else if (signUp.verifications.emailAddress.status === 'verified') {
+        setFormError('Your email was verified, but your account still needs another verification step. Try again to continue.');
       } else {
-        setFormError('That code didn’t finish verification. Send a new code and try again.');
+        setFormError('We couldn’t finish creating your account. Your work is safe on this device. Try again to continue.');
       }
     } catch (error) {
-      setFormError(describeClerkError(error, 'That code doesn’t match. Check the newest email and try again.'));
+      setFormError(describeClerkError(error, 'We couldn’t verify your email. Try again.'));
     } finally {
       setBusy(false);
     }
-  }, [busy, clearTransient, codeValue, setActiveFromSignUp, signUp, step.kind]);
+  }, [busy, clearTransient, codeValue, signUp, step]);
 
   const submitSessionCode = useCallback(async (event: FormEvent) => {
     event.preventDefault();
@@ -548,8 +608,11 @@ export function PremiumAccountGate({
     try {
       if (showSessionVerify && sessionEmail) {
         await sessionEmail.prepareVerification({ strategy: 'email_code' });
-      } else if (step.kind === 'verify-sign-up' && signUp) {
-        await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+      } else if (step.kind === 'verify-sign-up') {
+        const { error } = await signUp.verifications.sendEmailCode();
+        if (error) {
+          throw error;
+        }
       } else if (step.kind === 'reset-code' && signIn) {
         await signIn.create({
           identifier: step.email,
@@ -678,10 +741,16 @@ export function PremiumAccountGate({
           <p className="onboarding-gate__support">
             Your work stays safe on this device until saving is complete.
           </p>
-          <AuthenticateWithRedirectCallback
-            continueSignUpUrl={`${onboardingRoute}?auth=sign-up`}
-            signInFallbackRedirectUrl={claimUrl}
-            signUpFallbackRedirectUrl={claimUrl}
+          <HandleSSOCallback
+            navigateToApp={({ decorateUrl }) => {
+              window.location.assign(decorateUrl(claimUrl));
+            }}
+            navigateToSignIn={() => {
+              window.location.assign(`${onboardingRoute}?auth=sign-in`);
+            }}
+            navigateToSignUp={() => {
+              window.location.assign(`${onboardingRoute}?auth=sign-up&clerk-sign-up=failed`);
+            }}
           />
         </div>
       </GateShell>
