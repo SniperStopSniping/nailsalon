@@ -11,8 +11,8 @@ export const lusterClerkVariables = {
   borderRadius: '14px',
   colorBackground: '#fffdfb',
   colorPrimary: '#8f3155',
-  colorText: '#30262a',
-  colorTextSecondary: '#706267',
+  colorForeground: '#30262a',
+  colorMutedForeground: '#706267',
 };
 
 /** Only the start title is redundant; Clerk retains all step and recovery copy. */
