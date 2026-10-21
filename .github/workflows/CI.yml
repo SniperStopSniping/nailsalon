@@ -1217,6 +1217,9 @@ jobs:
       - name: Appointment sheet regression gate
         run: npm run test:appointment-regression
 
+      - name: Check all TypeScript diagnostics before framework build
+        run: npm run check-types
+
       - name: Build Next.js for E2E tests
         run: npm run build
         # PR-controlled builds validate the production bundle without provider
