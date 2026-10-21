@@ -266,6 +266,7 @@
     },
     "@semantic-release/changelog": {
       "lodash": "4.18.1"
-    }
+    },
+    "ws@^7.0.0": "7.5.11"
   }
 }
