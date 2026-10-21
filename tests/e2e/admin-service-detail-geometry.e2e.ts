@@ -4,11 +4,12 @@
  * was previously hidden behind the sticky region and only revealed by iOS
  * overscroll bounce. Measures real DOM geometry with no drag/overscroll.
  *
- * Requires a dev-mode server (dev auth bypass) to reach /admin; the spec
- * skips itself in environments where the admin is auth-gated.
+ * Uses the reusable synthetic admin password session and configured E2E salon.
+ * Authentication or dashboard failures must fail these geometry checks.
  */
 import { expect, type Page, test } from '@playwright/test';
 
+import { createImpersonatedAdminRequestContext } from './support/appointment-ops';
 import { appPath, e2eConfig } from './support/config';
 
 const IPHONE_CHROME_USER_AGENT
@@ -21,25 +22,14 @@ const VIEWPORTS = [
   { width: 430, height: 932 },
 ] as const;
 
-async function openServicesList(page: Page): Promise<boolean> {
-  // Dev-only role override (404s in production, where this spec skips).
-  await page.request
-    .post(appPath('/api/dev/role'), { data: { role: 'admin' } })
-    .catch(() => null);
-
-  await page.goto(appPath(`/admin?salonSlug=${e2eConfig.salonSlug}`), {
+async function openServicesList(page: Page): Promise<void> {
+  await page.goto(appPath(`/admin?salon=${encodeURIComponent(e2eConfig.salonSlug)}`), {
     waitUntil: 'domcontentloaded',
   });
 
-  // Dev-only surface: skip cleanly when the admin dashboard is auth-gated.
-  const servicesNav = page.getByRole('button', { name: 'Services', exact: true });
-  const navAvailable = await servicesNav
-    .waitFor({ state: 'visible', timeout: 10_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!navAvailable) {
-    return false;
-  }
+  const servicesNav = page.getByTestId('owner-nav-services');
+
+  await expect(servicesNav).toBeVisible();
 
   await servicesNav.click();
 
@@ -55,8 +45,6 @@ async function openServicesList(page: Page): Promise<boolean> {
   }, undefined, { timeout: 15_000 });
 
   await page.locator('[data-testid^="service-row-"]').first().waitFor({ state: 'visible', timeout: 15_000 });
-
-  return true;
 }
 
 async function openFirstDetail(page: Page): Promise<void> {
@@ -80,8 +68,11 @@ for (const viewport of VIEWPORTS) {
     browser,
     baseURL,
   }) => {
+    const adminRequest = await createImpersonatedAdminRequestContext();
+    const storageState = await adminRequest.storageState().finally(() => adminRequest.dispose());
     const context = await browser.newContext({
       baseURL,
+      storageState,
       viewport,
       deviceScaleFactor: 3,
       hasTouch: true,
@@ -104,12 +95,9 @@ for (const viewport of VIEWPORTS) {
         }
       });
 
-      const reachable = await openServicesList(page);
+      await openServicesList(page);
 
-      test.skip(!reachable, 'Admin dashboard is auth-gated in this environment; run against a dev server.');
-
-      // The dashboard shell may emit environment-auth noise under the dev
-      // role; this spec asserts the Services DETAIL interaction is clean.
+      // This spec asserts the Services DETAIL interaction is clean.
       consoleErrors.length = 0;
       await openFirstDetail(page);
 
