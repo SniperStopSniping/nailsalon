@@ -1,0 +1,33 @@
+{
+  "scope": "CI dependency-pair allowlist correction",
+  "base": "origin/main",
+  "candidate": "e25840bd20b115b1b007798a1c017c19246f1920",
+  "rootCause": {
+    "hostedRun": "39599938692",
+    "job": "App 24",
+    "test": "scripts/ci-workflow.node-test.mjs",
+    "assertion": "The current manifest and lock contents must be a reviewed pair",
+    "line": 186,
+    "reason": "The guarded case statement did not contain the candidate's exact package.json/package-lock.json Git blob pair."
+  },
+  "reviewedPair": {
+    "packageJsonGitBlob": "0072a1f53a5d7fb8d6150bf862822bf2a70569d1",
+    "packageLockGitBlob": "42081ccb971311e5dbd10ad9fa543a313f07c2fd",
+    "packageJsonSha256": "1afb279204e3629a119fc984a354d1f47ac5258039e7d676154b7d33e7b6995a",
+    "packageLockSha256": "cdf140362f29789d8874e0e689194d6945b995d56b9cfbeda19ccda42bb65e2f"
+  },
+  "dependencyDiff": {
+    "manifestOverride": "ws@^7.0.0 -> 7.5.11",
+    "changedLockRecords": [
+      "node_modules/mqtt/node_modules/ws: 7.5.10 -> 7.5.11 (dev)",
+      "node_modules/webpack-bundle-analyzer/node_modules/ws: 7.5.10 -> 7.5.11 (dev)"
+    ],
+    "productionPackageRecordsIncludingRoot": 617,
+    "changedNonRootProductionRecords": 0,
+    "qualification": "The root lock record changes only to mirror the reviewed manifest override; all non-root production package records are byte-equivalent to origin/main."
+  },
+  "validation": {
+    "beforeAllowlist": "workflow contract failed only the dependency-pair test; 24 of 25 tests passed",
+    "afterAllowlist": "scripts/ci-workflow.node-test.mjs: 25 of 25 tests passed"
+  }
+}
