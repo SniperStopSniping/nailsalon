@@ -465,6 +465,59 @@ describe('PremiumAccountGate', () => {
     expect(screen.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   });
 
+  it('preserves a newer pending organization task when sign-up finalization resolves later', async () => {
+    const user = userEvent.setup();
+    let finishFinalize!: (result: { error: unknown }) => void;
+    let onSessionChanged!: (state: { session: unknown }) => void;
+    mocks.signIn.create.mockRejectedValueOnce({
+      errors: [{ code: 'form_identifier_not_found' }],
+    });
+    mocks.signUp.finalize.mockImplementationOnce(() => new Promise(resolve => {
+      finishFinalize = resolve;
+    }));
+    mocks.clerk.addListener.mockImplementation(listener => {
+      onSessionChanged = listener;
+      return () => undefined;
+    });
+    mocks.resolveOrganization.mockResolvedValue({
+      created: false,
+      organizations: [
+        { id: 'org_1', name: 'Isla Nail Studio' },
+        { id: 'org_2', name: 'Luster Studio' },
+      ],
+    });
+    renderGate();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await user.type(screen.getByLabelText('Email address'), 'new-owner@example.com');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.type(await screen.findByLabelText('Password'), 'a-strong-password');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+    await user.type(await screen.findByLabelText('Verification code'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+    await waitFor(() => expect(mocks.signUp.finalize).toHaveBeenCalledTimes(1));
+
+    const pendingSession = {
+      currentTask: { key: 'choose-organization' },
+      getToken: mocks.getToken,
+      id: 'sess_pending',
+      status: 'pending',
+    };
+    mocks.clerk.session = pendingSession;
+    await act(async () => {
+      onSessionChanged({ session: pendingSession });
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Choose your business' })).toBeVisible();
+
+    await act(async () => {
+      finishFinalize({ error: { errors: [{ code: 'session_finalize_failed' }] } });
+    });
+
+    expect(screen.getByRole('heading', { name: 'Choose your business' })).toBeVisible();
+    expect(screen.queryByText('Your email was verified, but we couldn’t sign you in. Try again.')).not.toBeInTheDocument();
+  });
+
   it('starts sign-up OAuth through the current Clerk resource with a same-route callback', async () => {
     const user = userEvent.setup();
     renderGate();

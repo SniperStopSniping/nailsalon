@@ -136,6 +136,7 @@ export function PremiumAccountGate({
 
   const orgAttemptedKeysRef = useRef(new Set<string>());
   const orgResolutionInFlightKeysRef = useRef(new Set<string>());
+  const signUpFinalizationSupersededRef = useRef(false);
   const pendingTaskRef = useRef<PendingSessionTask | null>(null);
   const mountedRef = useRef(true);
   const signOutInFlightRef = useRef(false);
@@ -217,6 +218,9 @@ export function PremiumAccountGate({
         : null;
       const ended = nextSession === null || nextSession === undefined
         || (typeof nextStatus === 'string' && ENDED_SESSION_STATUSES.has(nextStatus));
+      if (nextTask || ended) {
+        signUpFinalizationSupersededRef.current = true;
+      }
       if (previousTask && !nextTask && ended) {
         setStep({ kind: 'providers' });
         setFormError(ORGANIZATION_SESSION_ENDED_MESSAGE);
@@ -464,15 +468,19 @@ export function PremiumAccountGate({
           // the session; the controller then holds the flow in the
           // verification step until the email is genuinely verified — the
           // claim never starts early.
+          signUpFinalizationSupersededRef.current = false;
+          setStep({ kind: 'finalizing' });
           const finalized = await signUp.finalize();
           if (finalized.error) {
-            setFormError(describeClerkError(
-              finalized.error,
-              'Your account was created, but we couldn’t sign you in. Try again.',
-            ));
+            if (!signUpFinalizationSupersededRef.current) {
+              setStep(current => current.kind === 'finalizing' ? step : current);
+              setFormError(describeClerkError(
+                finalized.error,
+                'Your account was created, but we couldn’t sign you in. Try again.',
+              ));
+            }
             return;
           }
-          setStep({ kind: 'finalizing' });
         } else {
           const verification = await signUp.verifications.sendEmailCode();
           if (verification.error) {
@@ -534,17 +542,24 @@ export function PremiumAccountGate({
       }
       if (signUp.status === 'complete') {
         try {
+          signUpFinalizationSupersededRef.current = false;
+          setStep({ kind: 'finalizing' });
           const finalized = await signUp.finalize();
           if (finalized.error) {
-            setFormError(describeClerkError(
-              finalized.error,
-              'Your email was verified, but we couldn’t sign you in. Try again.',
-            ));
+            if (!signUpFinalizationSupersededRef.current) {
+              setStep(current => current.kind === 'finalizing' ? step : current);
+              setFormError(describeClerkError(
+                finalized.error,
+                'Your email was verified, but we couldn’t sign you in. Try again.',
+              ));
+            }
             return;
           }
-          setStep({ kind: 'finalizing' });
         } catch (error) {
-          setFormError(describeClerkError(error, 'Your email was verified, but we couldn’t sign you in. Try again.'));
+          if (!signUpFinalizationSupersededRef.current) {
+            setStep(current => current.kind === 'finalizing' ? step : current);
+            setFormError(describeClerkError(error, 'Your email was verified, but we couldn’t sign you in. Try again.'));
+          }
         }
       } else if (signUp.verifications.emailAddress.status === 'verified') {
         setFormError('Your email was verified, but your account still needs another verification step. Try again to continue.');
