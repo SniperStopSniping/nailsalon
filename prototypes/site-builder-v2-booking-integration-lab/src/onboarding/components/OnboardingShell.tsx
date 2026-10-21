@@ -122,6 +122,19 @@ export function OnboardingShell({
     action();
   }, [closeMore]);
 
+  const handleMoreKeyDownCapture = useCallback((event: ReactKeyboardEvent<HTMLDetailsElement>) => {
+    if (event.key !== 'Escape') {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    // Native <details> can still have its opening toggle queued in this turn.
+    // Close the mounted element too, so that toggle cannot reopen the menu
+    // before React commits the controlled state.
+    event.currentTarget.open = false;
+    closeMore(true);
+  }, [closeMore]);
+
   const handleMoreKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (!['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
       return;
@@ -183,6 +196,7 @@ export function OnboardingShell({
                   ref={moreRef}
                   className="onboarding-shell__more"
                   open={moreOpen}
+                  onKeyDownCapture={handleMoreKeyDownCapture}
                   onToggle={event => setMoreOpen(event.currentTarget.open)}
                 >
                   <summary
