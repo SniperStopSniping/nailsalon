@@ -48,23 +48,47 @@ def platform_compatible(name,row,entries):
   require(row.get('optional') is True and libc is None and extra['version']==row['version'] and extra['integrity']==row.get('integrity') and extra['resolved']==row.get('resolved') and extra['name']==name.rsplit('node_modules/',1)[1] and extra['os']==row.get('os') and extra['cpu']==row.get('cpu') and extra['libc']==['musl'],'PLATFORM_METADATA_NODE_PIN')
   libc=extra['libc']
  return allows(row.get('os'),'linux') and allows(row.get('cpu'),'x64') and allows(libc,'glibc')
+def resolve_lock_dependency(packages,parent,dependency):
+ require(re.fullmatch(r'(?:@[A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+',dependency) and '..' not in dependency.split('/'),'LOCK_DEPENDENCY_NAME')
+ while True:
+  candidate=(parent+'/' if parent else '')+'node_modules/'+dependency
+  if candidate in packages:return candidate
+  if not parent:return None
+  parent=parent.rsplit('/node_modules/',1)[0] if '/node_modules/' in parent else ''
+def active_lock_nodes(packages,entries):
+ require('' in packages and len(packages)<=10000,'LOCK_GRAPH_BOUND')
+ require(all(not name or name.startswith('node_modules/') and '..' not in Path(name).parts for name in packages),'LOCK_PATH_REJECTED')
+ # All nonoptional lock nodes remain required, even if unreachable. Optional
+ # descendants activate only through an active compatible dependency path.
+ active={''}|{name for name,row in packages.items() if name and not row.get('optional')};pending=list(active)
+ while pending:
+  parent=pending.pop();row=packages[parent];optional=row.get('optionalDependencies',{});dependencies={**row.get('dependencies',{}),**(row.get('devDependencies',{}) if not parent else {}),**optional}
+  for name,spec in row.get('peerDependencies',{}).items():
+   if not row.get('peerDependenciesMeta',{}).get(name,{}).get('optional'):dependencies.setdefault(name,spec)
+  for dependency in dependencies:
+   child=resolve_lock_dependency(packages,parent,dependency)
+   if child is None:
+    require(dependency in optional,'LOCK_REQUIRED_EDGE_UNRESOLVED');continue
+   if child not in active and platform_compatible(child,packages[child],entries):active.add(child);pending.append(child)
+ return active
 def installed(app,controller,diagnostics):
- lock_path=app/'package-lock.json';lock=json.loads(lock_path.read_text());entries=platform_entries(lock_path);present=absent=required=manifest_absent=0
+ lock_path=app/'package-lock.json';lock=json.loads(lock_path.read_text());entries=platform_entries(lock_path);active=active_lock_nodes(lock['packages'],entries);present=absent=required=manifest_absent=graph_absent=0
  require(set(entries)<=set(lock['packages']),'PLATFORM_METADATA_NODE_PIN')
  for i,(name,row) in enumerate(lock['packages'].items()):
   if not name:continue
-  require(name.startswith('node_modules/') and '..' not in Path(name).parts,'LOCK_PATH_REJECTED');path=app/name/'package.json';compatible=platform_compatible(name,row,entries)
-  if not row.get('optional') or compatible:required+=1
+  require(name.startswith('node_modules/') and '..' not in Path(name).parts,'LOCK_PATH_REJECTED');path=app/name/'package.json';compatible=platform_compatible(name,row,entries);needed=not row.get('optional') or name in active and compatible
+  if needed:required+=1
   if path.is_file():
    path.resolve().relative_to(app.resolve());require(path.stat().st_size<=256*1024 and json.loads(path.read_text()).get('version')==row['version'],'INSTALLED_VERSION_MISMATCH');present+=1
   else:
-   if not row.get('optional') or compatible:
+   if needed:
     # Only this source-pinned public lock row is retained; no installer output.
-    diagnostics['firstMissing']={'lockPath':name,'version':row['version'],'optional':bool(row.get('optional')),'os':row.get('os'),'cpu':row.get('cpu'),'lockLibc':row.get('libc'),'manifestLibc':entries.get(name,{}).get('libc'),'platformCompatible':compatible}
+    diagnostics['firstMissing']={'lockPath':name,'version':row['version'],'optional':bool(row.get('optional')),'os':row.get('os'),'cpu':row.get('cpu'),'lockLibc':row.get('libc'),'manifestLibc':entries.get(name,{}).get('libc'),'platformCompatible':compatible,'activeDependency':name in active}
     raise RuntimeError('REQUIRED_INSTALLED_NODE_MISSING')
-   absent+=1;manifest_absent+=int(name in entries)
+   if compatible:graph_absent+=1
+   else:absent+=1;manifest_absent+=int(name in entries)
   if i%64==0:controller.observe()
- return {'requiredNodes':required,'presentNodes':present,'absentPlatformOptionals':absent,'absentManifestBoundMuslOptionals':manifest_absent,'qualification':'Normal npm ci integrity verification; all required platform-compatible nodes and every installed version checked. Only lock metadata or exact version/SRI-bound public libc metadata excludes absent optionals; not an independent byte scan.'}
+ return {'requiredNodes':required,'activeGraphNodes':len(active)-1,'inactiveCompatibleOptionalGraphNodes':[{'lockPath':name,'version':row['version']} for name,row in lock['packages'].items() if name and row.get('optional') and name not in active and platform_compatible(name,row,entries)],'presentNodes':present,'absentPlatformOptionals':absent,'absentManifestBoundMuslOptionals':manifest_absent,'absentInactiveGraphOptionals':graph_absent,'qualification':'Normal npm ci integrity verification; all nonoptional nodes, active compatible optional dependencies and every installed version checked. Optional peers alone do not force installation. Lock or exact version/SRI-bound public platform constraints prune inactive branches; not an independent byte scan.'}
 def verify_copy(expected,root,controller=None):
  for i,(name,oid) in enumerate(expected.items()):
   path=root/name;require(path.is_file() and not path.is_symlink(),'COPIED_MEMBER_MISSING');data=path.read_bytes();require(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==oid,'COPIED_SOURCE_CHANGED')

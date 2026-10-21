@@ -33,12 +33,12 @@ assert runner.platform_compatible('node_modules/unknown-musl',{'optional':True,'
 with tempfile.TemporaryDirectory(prefix='ssi-pure-install-') as temporary:
  application=Path(temporary);name='node_modules/synthetic';diagnostics={}
  for row in [{'version':'1.0.0'},{'version':'1.0.0','optional':True,'os':['linux'],'cpu':['x64'],'libc':['glibc']},{'version':'1.0.0','optional':True}]:
-  (application/'package-lock.json').write_text(json.dumps({'packages':{'':{},name:row}}));diagnostics.clear()
+  (application/'package-lock.json').write_text(json.dumps({'packages':{'':{'dependencies':{'synthetic':'1.0.0'}},name:row}}));diagnostics.clear()
   with patch.object(runner,'platform_entries',return_value={}):
    try:runner.installed(application,SimpleNamespace(observe=Mock()),diagnostics)
    except RuntimeError as error:assert str(error)=='REQUIRED_INSTALLED_NODE_MISSING'
    else:raise AssertionError('required or unqualified optional absence accepted')
-  assert diagnostics['firstMissing']['lockPath']==name and diagnostics['firstMissing']['version']=='1.0.0' and len(diagnostics)==1
+  assert diagnostics['firstMissing']['lockPath']==name and diagnostics['firstMissing']['version']=='1.0.0' and diagnostics['firstMissing']['activeDependency'] is True and len(diagnostics)==1
  known=next(iter(eligibility));row=lock_rows[known];(application/'package-lock.json').write_text(json.dumps({'packages':{'':{},known:row}}));diagnostics.clear()
  with patch.object(runner,'platform_entries',return_value={known:eligibility[known]}):
   summary=runner.installed(application,SimpleNamespace(observe=Mock()),diagnostics)
@@ -47,6 +47,45 @@ with tempfile.TemporaryDirectory(prefix='ssi-pure-install-') as temporary:
   try:runner.installed(application,SimpleNamespace(observe=Mock()),diagnostics)
   except RuntimeError as error:assert str(error)=='INSTALLED_VERSION_MISMATCH'
   else:raise AssertionError('installed version mismatch accepted')
+# Platform eligibility is a path property, not a compatible leaf property.
+active=runner.active_lock_nodes(lock_rows,eligibility)
+orphans={name for name,row in lock_rows.items() if name and row.get('optional') and runner.platform_compatible(name,row,eligibility) and name not in active}
+assert len(active)-1==2777 and orphans=={'node_modules/@emnapi/runtime','node_modules/@img/sharp-wasm32'}
+assert all(not row.get('optional') or name in active or name in orphans or not runner.platform_compatible(name,row,eligibility) for name,row in lock_rows.items() if name)
+# Nested resolution chooses the nearest ancestor before a root hoist.
+nested={'':{'dependencies':{'parent':'1'}},'node_modules/parent':{'version':'1','dependencies':{'inner':'1'}},'node_modules/parent/node_modules/inner':{'version':'1','optional':True,'dependencies':{'leaf':'1'}},'node_modules/parent/node_modules/leaf':{'version':'1','optional':True},'node_modules/leaf':{'version':'2','optional':True}}
+assert runner.resolve_lock_dependency(nested,'node_modules/parent/node_modules/inner','leaf')=='node_modules/parent/node_modules/leaf'
+assert 'node_modules/parent/node_modules/leaf' in runner.active_lock_nodes(nested,{}) and 'node_modules/leaf' not in runner.active_lock_nodes(nested,{})
+hoisted=copy.deepcopy(nested);del hoisted['node_modules/parent/node_modules/leaf'];assert runner.resolve_lock_dependency(hoisted,'node_modules/parent/node_modules/inner','leaf')=='node_modules/leaf'
+cycle={'':{'optionalDependencies':{'a':'1'},'devDependencies':{'dev':'1'}},'node_modules/a':{'version':'1','optional':True,'dependencies':{'b':'1'}},'node_modules/b':{'version':'1','optional':True,'dependencies':{'a':'1'}},'node_modules/dev':{'version':'1','optional':True}}
+assert runner.active_lock_nodes(cycle,{})==set(cycle)
+peers={'':{'dependencies':{'a':'1'}},'node_modules/a':{'version':'1','peerDependencies':{'required-peer':'1','optional-peer':'1','absent-peer':'1'},'peerDependenciesMeta':{'optional-peer':{'optional':True},'absent-peer':{'optional':True}}},'node_modules/required-peer':{'version':'1','optional':True},'node_modules/optional-peer':{'version':'1','optional':True}}
+assert 'node_modules/required-peer' in runner.active_lock_nodes(peers,{}) and 'node_modules/optional-peer' not in runner.active_lock_nodes(peers,{})
+for bad in [{'':{'dependencies':{'absent':'1'}}},{'':{'peerDependencies':{'absent':'1'}}}]:
+ try:runner.active_lock_nodes(bad,{})
+ except RuntimeError as error:assert str(error)=='LOCK_REQUIRED_EDGE_UNRESOLVED'
+ else:raise AssertionError('unresolved mandatory graph edge accepted')
+assert runner.active_lock_nodes({'':{'optionalDependencies':{'absent':'1'}}},{})=={''}
+# Actual filesystem validation still refuses a required/active optional or peer
+# even if another inactive parent or a different root-hoisted copy exists.
+def fake_graph_install(packages,present,error=None):
+ with tempfile.TemporaryDirectory(prefix='ssi-pure-active-graph-') as temporary:
+  app=Path(temporary);(app/'package-lock.json').write_text(json.dumps({'packages':packages}));diagnostics={}
+  for name in present:
+   file=app/name/'package.json';file.parent.mkdir(parents=True,exist_ok=True);file.write_text(json.dumps({'version':packages[name]['version']}))
+  with patch.object(runner,'platform_entries',return_value={}):
+   try:summary=runner.installed(app,SimpleNamespace(observe=Mock()),diagnostics)
+   except RuntimeError as actual:
+    assert error is not None and str(actual)==error;return diagnostics
+   else:assert error is None;return summary
+failure=fake_graph_install(nested,{'node_modules/parent','node_modules/parent/node_modules/inner','node_modules/leaf'},'REQUIRED_INSTALLED_NODE_MISSING');assert failure['firstMissing']['lockPath']=='node_modules/parent/node_modules/leaf' and failure['firstMissing']['activeDependency'] is True
+failure=fake_graph_install(peers,{'node_modules/a'},'REQUIRED_INSTALLED_NODE_MISSING');assert failure['firstMissing']['lockPath']=='node_modules/required-peer'
+assert fake_graph_install(peers,{'node_modules/a','node_modules/required-peer'})['absentInactiveGraphOptionals']==1
+inactive={'':{'optionalDependencies':{'foreign':'1'}},'node_modules/foreign':{'version':'1','optional':True,'os':['darwin'],'dependencies':{'neutral':'1'}},'node_modules/neutral':{'version':'1','optional':True}}
+assert fake_graph_install(inactive,set())['absentInactiveGraphOptionals']==1
+multiple=copy.deepcopy(inactive);multiple['']['dependencies']={'local':'1'};multiple['node_modules/local']={'version':'1','dependencies':{'neutral':'1'}}
+failure=fake_graph_install(multiple,{'node_modules/local'},'REQUIRED_INSTALLED_NODE_MISSING');assert failure['firstMissing']['lockPath']=='node_modules/neutral' and failure['firstMissing']['activeDependency'] is True
+failure=fake_graph_install({'':{},'node_modules/nonoptional-orphan':{'version':'1'}},set(),'REQUIRED_INSTALLED_NODE_MISSING');assert failure['firstMissing']['optional'] is False
 assert hashlib.sha256((D/'patches.py').read_bytes()).hexdigest()==pins['immutablePatchSha256']
 assert hashlib.sha256((D/'ssi-driver.cjs').read_bytes()).hexdigest()==pins['immutableDriverSha256']
 helper=(source/HELPER).read_text();test=(source/TEST).read_text();changed=transform(helper,test);assert len(changed)==2 and changed[TEST].count('expect(')==test.count('expect(')==245
@@ -216,4 +255,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
