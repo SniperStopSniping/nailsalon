@@ -300,6 +300,23 @@ for mutate in [lambda r:r['Config'].update(Image='foreign'),lambda r:r['Config']
  try:runner.container_identity(bad,'owned','tag','network')
  except RuntimeError:pass
  else:raise AssertionError('foreign container accepted')
+# Inspect the actual readiness launch AST, including the owned CID binding and
+# unchanged attempt/wait budget. No command is executed by this contract.
+def readiness_contract(text):
+ tree=ast.parse(text);calls=[node for node in ast.walk(tree) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='start' and len(node.args)>=2 and isinstance(node.args[1],ast.List) and any(isinstance(item,ast.Constant) and item.value=='pg_isready' for item in node.args[1].elts)]
+ assert len(calls)==1;call=calls[0];assert isinstance(call.args[0],ast.Constant) and call.args[0].value=='DOCKER'
+ argv=call.args[1].elts;assert isinstance(argv[0],ast.Call) and isinstance(argv[0].func,ast.Name) and argv[0].func.id=='str' and len(argv[0].args)==1 and isinstance(argv[0].args[0],ast.Name) and argv[0].args[0].id=='docker'
+ assert isinstance(argv[2],ast.Name) and argv[2].id=='cid'
+ assert [ast.literal_eval(item) for index,item in enumerate(argv) if index not in [0,2]]==['exec','pg_isready','-h','127.0.0.1','-p','5432','-U','luster_e2e_ci','-d','luster_e2e_ci_disposable']
+ loops=[node for node in ast.walk(tree) if isinstance(node,ast.For) and call in list(ast.walk(node))];assert len(loops)==1
+ loop=loops[0];assert isinstance(loop.iter,ast.Call) and isinstance(loop.iter.func,ast.Name) and loop.iter.func.id=='range' and [ast.literal_eval(arg) for arg in loop.iter.args]==[60]
+ waits=[node for node in ast.walk(loop) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='wait'];assert len(waits)==1 and isinstance(waits[0].args[0],ast.Name) and waits[0].args[0].id=='item' and ast.literal_eval(waits[0].args[1])==3
+readiness_source=(D/'run.py').read_text();readiness_contract(readiness_source)
+for old,new in [("'pg_isready','-h','127.0.0.1','-p','5432'","'pg_isready'"),("'pg_isready','-h','127.0.0.1','-p','5432'","'pg_isready','-h','0.0.0.0','-p','5432'"),("'pg_isready','-h','127.0.0.1','-p','5432'","'pg_isready','-h','127.0.0.1','-p','55432'"),("'exec',cid,'pg_isready'","'exec',foreign_cid,'pg_isready'"),("for _ in range(60):","for _ in range(61):"),("c.wait(item,3)","c.wait(item,4)")]:
+ assert old in readiness_source
+ try:readiness_contract(readiness_source.replace(old,new,1))
+ except AssertionError:pass
+ else:raise AssertionError('weakened readiness command accepted')
 workflow=(H/'.github/workflows/ssi-diagnostic.yml').read_text();assert 'pull_request' not in workflow and 'workflow_dispatch' not in workflow and 'secrets.' not in workflow and 'id-token:' not in workflow and 'branches: ['+runner.BRANCH+']' in workflow
 assert workflow.count('persist-credentials: false')==2 and 'ref: '+runner.SHA in workflow and 'contents: read' in workflow
 for line in workflow.splitlines():
@@ -310,4 +327,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','actualOwnedContainerTcpReadinessArgvAndUnchangedBudget':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))

@@ -193,7 +193,7 @@ def execute():
   # Readiness executes only the fixed bundled PG utility, not SQL/customer data.
   ready=False
   for _ in range(60):
-   item=c.start('DOCKER',[str(docker),'exec',cid,'pg_isready','-U','luster_e2e_ci','-d','luster_e2e_ci_disposable'])
+   item=c.start('DOCKER',[str(docker),'exec',cid,'pg_isready','-h','127.0.0.1','-p','5432','-U','luster_e2e_ci','-d','luster_e2e_ci_disposable'])
    try:c.wait(item,3);ready=True;break
    except RuntimeError as error:
     require(str(error)=='CHILD_EXIT_FAILED','PG_READINESS_GUARD');time.sleep(.2)
