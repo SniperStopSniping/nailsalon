@@ -405,7 +405,11 @@ export function PremiumAccountGate({
           throw error;
         }
       } else {
-        await signIn.authenticateWithRedirect({
+        const currentSignIn = signIn;
+        if (!currentSignIn) {
+          throw new Error('Clerk sign-in is not ready.');
+        }
+        await currentSignIn.authenticateWithRedirect({
           redirectUrl: `${onboardingRoute}?sso=1`,
           redirectUrlComplete: claimUrl,
           strategy: provider,
