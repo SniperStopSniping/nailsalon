@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
   getToken: vi.fn(),
   resolveOrganization: vi.fn(),
   setActiveSignIn: vi.fn(),
-  setActiveSignUp: vi.fn(),
   signIn: {
     attemptFirstFactor: vi.fn(),
     authenticateWithRedirect: vi.fn(),
@@ -24,27 +23,33 @@ const mocks = vi.hoisted(() => ({
     resetPassword: vi.fn(),
   },
   signUp: {
-    attemptEmailAddressVerification: vi.fn(),
-    create: vi.fn(),
-    prepareEmailAddressVerification: vi.fn(),
+    finalize: vi.fn(),
+    password: vi.fn(),
+    sso: vi.fn(),
+    status: null as null | string,
+    verifications: {
+      sendEmailCode: vi.fn(),
+      verifyEmailCode: vi.fn(),
+    },
   },
   userState: { isLoaded: true, user: null as unknown },
 }));
 
 vi.mock('@clerk/nextjs', () => ({
-  AuthenticateWithRedirectCallback: () => null,
+  HandleSSOCallback: () => null,
   useClerk: () => mocks.clerk,
+  useSignUp: () => ({
+    signUp: mocks.signUp,
+  }),
+  useUser: () => mocks.userState,
+}));
+
+vi.mock('@clerk/nextjs/legacy', () => ({
   useSignIn: () => ({
     isLoaded: true,
     setActive: mocks.setActiveSignIn,
     signIn: mocks.signIn,
   }),
-  useSignUp: () => ({
-    isLoaded: true,
-    setActive: mocks.setActiveSignUp,
-    signUp: mocks.signUp,
-  }),
-  useUser: () => mocks.userState,
 }));
 
 vi.mock('../../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider', async (importOriginal) => {
@@ -121,6 +126,18 @@ describe('PremiumAccountGate', () => {
     mocks.clerk.session = null;
     mocks.userState.user = null;
     mocks.clerk.addListener.mockReturnValue(() => undefined);
+    mocks.signUp.status = null;
+    mocks.signUp.password.mockReset().mockImplementation(async () => {
+      mocks.signUp.status = 'missing_requirements';
+      return { error: null };
+    });
+    mocks.signUp.verifications.sendEmailCode.mockReset().mockResolvedValue({ error: null });
+    mocks.signUp.verifications.verifyEmailCode.mockReset().mockImplementation(async () => {
+      mocks.signUp.status = 'complete';
+      return { error: null };
+    });
+    mocks.signUp.finalize.mockReset().mockResolvedValue({ error: null });
+    mocks.signUp.sso.mockReset().mockResolvedValue({ error: null });
   });
 
   it('opens Screen 6 at the document top before focusing its reward heading', () => {
@@ -255,12 +272,6 @@ describe('PremiumAccountGate', () => {
     mocks.signIn.create.mockRejectedValueOnce({
       errors: [{ code: 'form_identifier_not_found' }],
     });
-    mocks.signUp.create.mockResolvedValue({ status: 'missing_requirements' });
-    mocks.signUp.prepareEmailAddressVerification.mockResolvedValue({});
-    mocks.signUp.attemptEmailAddressVerification.mockResolvedValue({
-      createdSessionId: 'sess_new',
-      status: 'complete',
-    });
     renderGate();
 
     await user.click(screen.getByRole('button', { name: 'Continue with email' }));
@@ -279,15 +290,14 @@ describe('PremiumAccountGate', () => {
       level: 1,
       name: 'Check your email',
     })).toBeVisible();
-    expect(mocks.signUp.prepareEmailAddressVerification)
-      .toHaveBeenCalledWith({ strategy: 'email_code' });
+    expect(mocks.signUp.verifications.sendEmailCode).toHaveBeenCalledWith();
     expect(screen.getByText(/new-owner@example.com/u)).toBeVisible();
 
     await user.type(screen.getByLabelText('Verification code'), '424242');
     await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
 
     await waitFor(() => {
-      expect(mocks.setActiveSignUp).toHaveBeenCalledWith({ session: 'sess_new' });
+      expect(mocks.signUp.finalize).toHaveBeenCalledWith();
     });
   });
 
@@ -296,9 +306,9 @@ describe('PremiumAccountGate', () => {
     mocks.signIn.create.mockRejectedValueOnce({
       errors: [{ code: 'form_identifier_not_found' }],
     });
-    mocks.signUp.create.mockResolvedValue({
-      createdSessionId: 'sess_immediate',
-      status: 'complete',
+    mocks.signUp.password.mockImplementation(async () => {
+      mocks.signUp.status = 'complete';
+      return { error: null };
     });
     renderGate();
 
@@ -309,10 +319,31 @@ describe('PremiumAccountGate', () => {
     await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
 
     await waitFor(() => {
-      expect(mocks.setActiveSignUp).toHaveBeenCalledWith({ session: 'sess_immediate' });
+      expect(mocks.signUp.finalize).toHaveBeenCalledWith();
     });
 
-    expect(mocks.signUp.prepareEmailAddressVerification).not.toHaveBeenCalled();
+    expect(mocks.signUp.verifications.sendEmailCode).not.toHaveBeenCalled();
+  });
+
+  it('does not advance a cancelled or failed Protect-gated sign-up operation', async () => {
+    const user = userEvent.setup();
+    mocks.signIn.create.mockRejectedValueOnce({
+      errors: [{ code: 'form_identifier_not_found' }],
+    });
+    mocks.signUp.password.mockResolvedValue({ error: {
+      errors: [{ code: 'protect_check_failed', longMessage: 'Challenge cancelled' }],
+    } });
+    renderGate();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await user.type(screen.getByLabelText('Email address'), 'new-owner@example.com');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.type(await screen.findByLabelText('Password'), 'a-strong-password');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We couldn’t create your account. Try again.');
+    expect(mocks.signUp.verifications.sendEmailCode).not.toHaveBeenCalled();
+    expect(mocks.signUp.finalize).not.toHaveBeenCalled();
   });
 
   it('maps a wrong verification code to owner copy instead of a raw Clerk error', async () => {
@@ -320,11 +351,9 @@ describe('PremiumAccountGate', () => {
     mocks.signIn.create.mockRejectedValueOnce({
       errors: [{ code: 'form_identifier_not_found' }],
     });
-    mocks.signUp.create.mockResolvedValue({ status: 'missing_requirements' });
-    mocks.signUp.prepareEmailAddressVerification.mockResolvedValue({});
-    mocks.signUp.attemptEmailAddressVerification.mockRejectedValue({
+    mocks.signUp.verifications.verifyEmailCode.mockResolvedValue({ error: {
       errors: [{ code: 'form_code_incorrect', longMessage: 'Incorrect code' }],
-    });
+    } });
     renderGate();
 
     await user.click(screen.getByRole('button', { name: 'Continue with email' }));
@@ -342,10 +371,63 @@ describe('PremiumAccountGate', () => {
     expect(screen.getByRole('button', { name: 'Use a different email' })).toBeVisible();
   });
 
-  it('starts OAuth with a same-route return and claim completion URL', async () => {
+  it('does not call a verified but incomplete sign-up a bad code or finalize its session', async () => {
+    const user = userEvent.setup();
+    mocks.signIn.create.mockRejectedValueOnce({
+      errors: [{ code: 'form_identifier_not_found' }],
+    });
+    mocks.signUp.verifications.verifyEmailCode.mockResolvedValue({ error: null });
+    renderGate();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await user.type(screen.getByLabelText('Email address'), 'new-owner@example.com');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.type(await screen.findByLabelText('Password'), 'a-strong-password');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+    await user.type(await screen.findByLabelText('Verification code'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your email was verified, but your account still needs another verification step. Try again to continue.',
+    );
+    expect(mocks.signUp.finalize).not.toHaveBeenCalled();
+  });
+
+  it('starts sign-up OAuth through the current Clerk resource with a same-route callback', async () => {
+    const user = userEvent.setup();
+    renderGate();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with Google' }));
+
+    expect(mocks.signUp.sso).toHaveBeenCalledWith({
+      redirectCallbackUrl: '/en/onboarding-v1?sso=1',
+      redirectUrl: '/en/onboarding-v1?sso=1',
+      strategy: 'oauth_google',
+    });
+    expect(mocks.signIn.authenticateWithRedirect).not.toHaveBeenCalled();
+    expect(await screen.findByRole('heading', {
+      level: 1,
+      name: 'Continuing with Google…',
+    })).toBeVisible();
+  });
+
+  it('keeps a cancelled or failed sign-up OAuth challenge out of the callback and claim flow', async () => {
+    const user = userEvent.setup();
+    mocks.signUp.sso.mockResolvedValue({ error: {
+      errors: [{ code: 'protect_check_failed', longMessage: 'Challenge cancelled' }],
+    } });
+    renderGate();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with Google' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We couldn’t open Google sign-in. Try again.');
+    expect(mocks.signIn.authenticateWithRedirect).not.toHaveBeenCalled();
+  });
+
+  it('keeps the existing-account OAuth flow on its existing sign-in resource', async () => {
     const user = userEvent.setup();
     mocks.signIn.authenticateWithRedirect.mockResolvedValue(undefined);
-    renderGate();
+    renderGate({ authMode: 'sign-in' });
 
     await user.click(screen.getByRole('button', { name: 'Continue with Google' }));
 
@@ -354,10 +436,14 @@ describe('PremiumAccountGate', () => {
       redirectUrlComplete: '/en/onboarding-v1?claim=1',
       strategy: 'oauth_google',
     });
-    expect(await screen.findByRole('heading', {
-      level: 1,
-      name: 'Continuing with Google…',
-    })).toBeVisible();
+    expect(mocks.signUp.sso).not.toHaveBeenCalled();
+  });
+
+  it('describes a returned sign-up callback failure without blaming an email code', () => {
+    window.history.replaceState({}, '', '/en/onboarding-v1?clerk-sign-up=failed');
+    renderGate();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t complete sign-up. Try again.');
   });
 
   it('resolves a pending choose-organization task without a generic Clerk screen', async () => {
