@@ -13,6 +13,7 @@ BRANCH='codex/hosted-ssi-diagnostic-20261021'
 IMAGE='mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea'
 INSTALL_CACHE_LIMIT=512*1024**2
 INSTALL_TREE_LIMIT=2*1024**3
+SOURCE_OBSERVE_INTERVAL_SECONDS=0.1
 ROOTS=['src','migrations','public','prototypes','package.json','package-lock.json','tsconfig.json','vitest-setup.ts','next-env.d.ts','next.config.mjs','postcss.config.js','tailwind.config.ts','components.json','sentry.client.config.ts']
 
 def fixed_error(error):
@@ -94,16 +95,29 @@ def verify_copy(expected,root,controller=None):
   path=root/name;require(path.is_file() and not path.is_symlink(),'COPIED_MEMBER_MISSING');data=path.read_bytes();require(hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==oid,'COPIED_SOURCE_CHANGED')
   if controller and i%64==0:controller.observe()
  return {'checkedRuntimeFiles':len(expected),'unexpectedTrackedChanges':0}
-def copy_source(app,work,expected,c):
+class SourceObservation:
+ # Source-only cadence: an expensive completed full observation cannot make
+ # the very next file immediately trigger another recursive storage scan.
+ def __init__(self,controller,metrics):self.controller=controller;self.metrics=metrics;self.last=None
+ def observe(self,force=False):
+  if force or self.last is None or time.monotonic()-self.last>=SOURCE_OBSERVE_INTERVAL_SECONDS:
+   self.metrics['attemptedObservations']+=1;self.metrics['forcedObservations']+=int(force)
+   self.controller.observe();self.last=time.monotonic();self.metrics['completedObservations']+=1
+  else:self.metrics['skippedObservationOpportunities']+=1
+
+def copy_source(app,work,expected,c,metrics=None):
+ metrics={} if metrics is None else metrics;metrics.update({'phase':'ARCHIVE','observationIntervalMs':100,'attemptedObservations':0,'completedObservations':0,'forcedObservations':0,'skippedObservationOpportunities':0,'copiedFiles':0,'copiedBytes':0,'verifiedFiles':0});observer=SourceObservation(c,metrics)
  archive=work/'source.tar';item=c.start('SOURCE',['git','-C',str(app),'archive','--format=tar','--output',str(archive),SHA,'--',*ROOTS]);c.wait(item,30);require(archive.stat().st_size<=96*1024**2,'SOURCE_ARCHIVE_BOUND');target=work/'application';target.mkdir(mode=0o700);total=0
+ metrics['phase']='EXTRACT';observer.observe(force=True)
  with tarfile.open(archive) as tar:
   for member in tar:
    path=target/member.name;require(not member.name.startswith('/') and '..' not in Path(member.name).parts and (member.isfile() or member.isdir()),'SOURCE_ARCHIVE_MEMBER')
-   if member.isdir():path.mkdir(parents=True,exist_ok=True,mode=0o700);continue
+   if member.isdir():path.mkdir(parents=True,exist_ok=True,mode=0o700);observer.observe();continue
    require(member.name in expected and member.size<=32*1024**2,'SOURCE_ARCHIVE_FILE');total+=member.size;require(total<=64*1024**2,'SOURCE_COPY_BOUND');path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-   with tar.extractfile(member) as src,open(path,'xb') as out:shutil.copyfileobj(src,out,65536)
-   os.chmod(path,0o700 if member.mode&0o111 else 0o600);c.observe()
- archive.unlink();verify_copy(expected,target,c);return target
+   with tar.extractfile(member) as src,open(path,'xb') as out:
+    for block in iter(lambda:src.read(65536),b''):out.write(block);metrics['copiedBytes']+=len(block);observer.observe()
+   os.chmod(path,0o700 if member.mode&0o111 else 0o600);metrics['copiedFiles']+=1;observer.observe()
+ observer.observe(force=True);archive.unlink();metrics['phase']='VERIFY';verification=verify_copy(expected,target,observer);metrics['verifiedFiles']=verification['checkedRuntimeFiles'];observer.observe(force=True);metrics['phase']='COMPLETE';return target
 
 def tree_bytes(root):
  if not root.exists():return 0
@@ -143,7 +157,7 @@ def execute():
  for name in ['user.npmrc','global.npmrc','gitconfig']:(work/name).touch(mode=0o600)
  node=Path(shutil.which('node') or '').resolve();npm=Path(shutil.which('npm') or '').resolve();docker=Path(shutil.which('docker') or '').resolve();require(all(p.is_file() for p in [node,npm,docker]) and npm.is_relative_to(node.parent.parent),'REQUIRED_TOOL_BINDING')
  clean={'PATH':str(node.parent)+':/usr/local/bin:/usr/bin:/bin','HOME':str(work/'home'),'TMPDIR':str(work/'tmp'),'XDG_CONFIG_HOME':str(work/'config'),'XDG_CACHE_HOME':str(work/'cache'),'DOCKER_CONFIG':str(work/'docker-config'),'LANG':'C','LC_ALL':'C','TZ':'UTC','CI':'true','GITHUB_ACTIONS':'true','NODE_OPTIONS':'--max-old-space-size=256','NPM_CONFIG_USERCONFIG':str(work/'user.npmrc'),'NPM_CONFIG_GLOBALCONFIG':str(work/'global.npmrc'),'NPM_CONFIG_CACHE':str(work/'cache'),'NPM_CONFIG_LOGS_MAX':'0','NPM_CONFIG_UPDATE_NOTIFIER':'false','HUSKY':'0','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':str(work/'gitconfig')}
- c=Controller(work,clean);dependency_diagnostics={};failure=cleanup=None;failure_role=failure_exit=None;proof=dependency=bootstrap=source_proof=None;cid=volume=None;network='luster-'+tag;container='luster-'+tag;network_attempted=container_attempted=False;network_known=container_known=False;all_children=False;container_removed=network_removed=False;test=None;copied=None;changed={}
+ c=Controller(work,clean);dependency_diagnostics={};source_copy_metrics={};failure=cleanup=None;failure_role=failure_exit=None;proof=dependency=bootstrap=source_proof=None;cid=volume=None;network='luster-'+tag;container='luster-'+tag;network_attempted=container_attempted=False;network_known=container_known=False;all_children=False;container_removed=network_removed=False;test=None;copied=None;changed={}
  write_json(run/'run-context.json',{'schemaVersion':1,'runTag':tag,'applicationSha':SHA,'harnessSha':harness_sha,'runId':str(env['GITHUB_RUN_ID']),'startedMs':int(time.time()*1000),'profile':'hosted-linux-2g-rss','realProviderCredentialsSupplied':False})
  try:
   require(c.wait(c.start('BOOTSTRAP',[str(node),'--version'],private=True),10).decode().strip()=='v24.19.0','NODE_VERSION_REJECTED');npm_version=c.wait(c.start('BOOTSTRAP',[str(node),str(npm),'--version'],private=True),10).decode().strip();require(re.fullmatch(r'\d+\.\d+\.\d+',npm_version),'NPM_VERSION_REJECTED')
@@ -156,7 +170,7 @@ def execute():
   installenv={**clean,'NPM_CONFIG_USERCONFIG':str(work/'user.npmrc'),'NPM_CONFIG_GLOBALCONFIG':str(work/'global.npmrc'),'NPM_CONFIG_CACHE':str(work/'cache'),'NPM_CONFIG_REGISTRY':'https://registry.npmjs.org/','NPM_CONFIG_AUDIT':'false','NPM_CONFIG_FUND':'false','NPM_CONFIG_UPDATE_NOTIFIER':'false','NPM_CONFIG_LOGS_MAX':'0','NPM_CONFIG_FETCH_RETRIES':'0','NPM_CONFIG_FETCH_TIMEOUT':'15000','NPM_CONFIG_MAXSOCKETS':'4'}
   install=c.start('INSTALL',[str(node),str(npm),'ci','--no-audit','--no-fund','--fetch-retries=0','--fetch-timeout=15000','--maxsockets=4'],installenv,app);c.wait(install,600);dependency=installed(app,c,dependency_diagnostics);source(app)
   # Installation intentionally runs normal trusted exact-lock lifecycle/network.
-  copied=copy_source(app,work,expected,c);(copied/'node_modules').symlink_to(app/'node_modules',target_is_directory=True)
+  copied=copy_source(app,work,expected,c,source_copy_metrics);(copied/'node_modules').symlink_to(app/'node_modules',target_is_directory=True)
   changed=transform((copied/HELPER).read_text(),(copied/TEST).read_text())
   for name,text in changed.items():
    (copied/name).write_text(text);data=text.encode();expected[name]=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
@@ -218,7 +232,7 @@ def execute():
   if all_children and container_removed and network_removed and not cleanup:
    try:require(work.parent==run and not work.is_symlink() and work.stat().st_uid==os.getuid(),'WORK_OWNERSHIP');shutil.rmtree(work)
    except BaseException:cleanup=cleanup or 'OWNED_WORK_RETAINED'
-  result={'schemaVersion':1,'applicationSha':SHA,'harnessSha':harness_sha,'profile':'hosted-linux-2g-rss','primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup,'proof':proof,'nativeBootstrap':bootstrap,'installed':dependency,'dependencyValidation':dependency_diagnostics,'sourceVerification':source_proof,'patchPostimageSha256':{name:hashlib.sha256(text.encode()).hexdigest() for name,text in changed.items()},'threadContract':locals().get('thread_contract'),'installStorage':locals().get('storage'),'installErrors':install['installErrors'].snapshot() if 'install' in locals() else {'firstRecognizedCode':'UNKNOWN','codeCounts':{},'unrecognizedCodeLines':0,'rawLinesUrlsValuesRetained':False},'tools':{'nodeBinarySha256':digest(node),'npmCliSha256':digest(npm),'nodeVersion':'v24.19.0','npmVersion':locals().get('npm_version')},'limits':{'installCacheBytes':INSTALL_CACHE_LIMIT,'installTreeBytes':INSTALL_TREE_LIMIT,'aggregateRssBytes':RSS_LIMIT,'nodeOldSpaceMiB':256,'workerTotalHeapNotClaimed256':True,'diskFloorBytes':DISK_FLOOR,'availableMemoryFloorBytes':2*1024**3,'deadlineSeconds':1200,'poolMax':32,'postgresMaxConnections':40,'salons':25,'rounds':1},'observed':{'peakAggregateRssBytes':c.peak,'minFreeBytes':c.minimum_disk,'minAvailableMemoryBytes':c.minimum_available,'lastRoles':c.last_roles,'rolePeakRssBytes':c.role_peaks},'cleanup':{'ownedChildrenStopped':all_children,'containerRemoved':container_removed,'networkRemoved':network_removed,'unknownGroupMembers':c.unknown,'workRetained':work.exists()},'classifiers':c.classifiers,'workloadPerturbed':True,'baselinePerformanceClaim':False,'rawLogsSqlParametersRetained':False,'providerCredentialsSupplied':False,'installQualification':'Normal trusted exact-lock npm ci with public lifecycle/network; not OS containment.'};write_json(run/'result.json',result);c.close();print(json.dumps({'resultFile':str(run/'result.json'),'primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup}))
+  result={'schemaVersion':1,'applicationSha':SHA,'harnessSha':harness_sha,'profile':'hosted-linux-2g-rss','primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup,'proof':proof,'nativeBootstrap':bootstrap,'installed':dependency,'dependencyValidation':dependency_diagnostics,'sourceVerification':source_proof,'sourceCopy':source_copy_metrics,'patchPostimageSha256':{name:hashlib.sha256(text.encode()).hexdigest() for name,text in changed.items()},'threadContract':locals().get('thread_contract'),'installStorage':locals().get('storage'),'installErrors':install['installErrors'].snapshot() if 'install' in locals() else {'firstRecognizedCode':'UNKNOWN','codeCounts':{},'unrecognizedCodeLines':0,'rawLinesUrlsValuesRetained':False},'tools':{'nodeBinarySha256':digest(node),'npmCliSha256':digest(npm),'nodeVersion':'v24.19.0','npmVersion':locals().get('npm_version')},'limits':{'installCacheBytes':INSTALL_CACHE_LIMIT,'installTreeBytes':INSTALL_TREE_LIMIT,'aggregateRssBytes':RSS_LIMIT,'nodeOldSpaceMiB':256,'workerTotalHeapNotClaimed256':True,'diskFloorBytes':DISK_FLOOR,'availableMemoryFloorBytes':2*1024**3,'deadlineSeconds':1200,'poolMax':32,'postgresMaxConnections':40,'salons':25,'rounds':1},'observed':{'peakAggregateRssBytes':c.peak,'minFreeBytes':c.minimum_disk,'minAvailableMemoryBytes':c.minimum_available,'lastRoles':c.last_roles,'rolePeakRssBytes':c.role_peaks},'cleanup':{'ownedChildrenStopped':all_children,'containerRemoved':container_removed,'networkRemoved':network_removed,'unknownGroupMembers':c.unknown,'workRetained':work.exists()},'classifiers':c.classifiers,'workloadPerturbed':True,'baselinePerformanceClaim':False,'rawLogsSqlParametersRetained':False,'providerCredentialsSupplied':False,'installQualification':'Normal trusted exact-lock npm ci with public lifecycle/network; not OS containment.'};write_json(run/'result.json',result);c.close();print(json.dumps({'resultFile':str(run/'result.json'),'primaryFailureCode':failure,'failureRole':failure_role,'failureChildExitCode':failure_exit,'cleanupFailureCode':cleanup}))
  return 0 if proof and not failure and not cleanup else 1
 
 def main():

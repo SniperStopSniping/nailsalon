@@ -1,6 +1,6 @@
 """Pure source/ownership/resource contracts; no services, install or network."""
 from pathlib import Path
-import ast,copy,hashlib,importlib.util,json,os,tempfile,time
+import ast,copy,hashlib,importlib.util,io,json,os,tarfile,tempfile,time
 from types import SimpleNamespace
 from unittest.mock import Mock,patch
 import linux_controller as lc
@@ -134,6 +134,50 @@ key=SimpleNamespace(data=(item,'stderrBytes'),fileobj=stream);draining=object.__
 with patch.object(lc.os,'read',side_effect=[b'npm error co',b'de ECONNRESET\n',b'']):
  for _ in range(3):draining.drain()
 assert item['installErrors'].snapshot()['codeCounts']=={'ECONNRESET':1} and item['stderrBytes']==26 and stream.close.call_count==1
+# Source-only observation cadence starts its interval AFTER an expensive full
+# observation. Fast file opportunities cannot retrigger full storage scans.
+assert runner.SOURCE_OBSERVE_INTERVAL_SECONDS==0.1
+clock=[0.0];counts={'attemptedObservations':0,'completedObservations':0,'forcedObservations':0,'skippedObservationOpportunities':0}
+def expensive_observation():clock[0]+=2.0
+monitor=SimpleNamespace(observe=Mock(side_effect=expensive_observation));cadence=runner.SourceObservation(monitor,counts)
+with patch.object(runner.time,'monotonic',side_effect=lambda:clock[0]):
+ cadence.observe(force=True)
+ for _ in range(1000):cadence.observe()
+ assert monitor.observe.call_count==1
+ clock[0]+=0.05;cadence.observe();assert monitor.observe.call_count==1
+ clock[0]+=0.051;cadence.observe();assert monitor.observe.call_count==2
+ cadence.observe(force=True);assert monitor.observe.call_count==3 and counts['forcedObservations']==2 and counts['completedObservations']==3
+failing=runner.SourceObservation(SimpleNamespace(observe=Mock(side_effect=RuntimeError('COMBINED_RSS_LIMIT'))),dict.fromkeys(counts,0))
+try:failing.observe(force=True)
+except RuntimeError as error:assert str(error)=='COMBINED_RSS_LIMIT' and failing.metrics['completedObservations']==0
+else:raise AssertionError('source cadence suppressed guard')
+# Exercise actual copy_source with a synthetic tar written by a fake controller;
+# no git process, install, service or transport executes. Every byte is hashed.
+class SourceController:
+ def __init__(self,payloads,fail_final=False):self.payloads=payloads;self.observe_calls=0;self.fail_final=fail_final
+ def start(self,role,argv):
+  assert role=='SOURCE' and argv[0]=='git';archive=Path(argv[argv.index('--output')+1])
+  with tarfile.open(archive,'w') as tar:
+   for name,payload in self.payloads.items():
+    member=tarfile.TarInfo(name);member.size=len(payload);member.mode=0o644;tar.addfile(member,io.BytesIO(payload))
+  return {'fakeSourceChild':True}
+ def wait(self,item,seconds):assert item=={'fakeSourceChild':True} and seconds==30;return b''
+ def observe(self):
+  self.observe_calls+=1
+  if self.fail_final and self.observe_calls==3:raise RuntimeError('DISK_FLOOR')
+payloads={'src/a.ts':b'bounded-source'*10000,'public/b.txt':b'complete-source'};expected={name:hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest() for name,data in payloads.items()}
+for failure in [None,'DISK_FLOOR','COPIED_SOURCE_CHANGED']:
+ with tempfile.TemporaryDirectory(prefix='ssi-pure-source-copy-') as temporary:
+  work=Path(temporary);monitor=SourceController(payloads,fail_final=failure=='DISK_FLOOR');metrics={};wanted=dict(expected)
+  if failure=='COPIED_SOURCE_CHANGED':wanted['public/b.txt']='0'*40
+  with patch.object(runner.time,'monotonic',return_value=0):
+   try:target=runner.copy_source(work/'unused-app',work,wanted,monitor,metrics)
+   except RuntimeError as error:assert str(error)==failure
+   else:
+    assert failure is None and metrics['phase']=='COMPLETE' and metrics['copiedFiles']==metrics['verifiedFiles']==2
+    assert metrics['copiedBytes']==sum(map(len,payloads.values())) and metrics['forcedObservations']==monitor.observe_calls==3
+    assert all((target/name).read_bytes()==data for name,data in payloads.items()) and not (work/'source.tar').exists()
+  if failure=='DISK_FLOOR':assert metrics['phase']=='VERIFY' and metrics['verifiedFiles']==2 and metrics['completedObservations']==2
 # No Popen invocation may occur before role admission; signals only defer.
 controller=object.__new__(lc.Controller);controller.env={};controller.children=[];controller.groups=set();controller.selector=SimpleNamespace(register=Mock());controller.tokens={};controller.stop_requested=False
 child=SimpleNamespace(pid=777,stdout=SimpleNamespace(fileno=lambda:10),stderr=SimpleNamespace(fileno=lambda:11),returncode=None)
@@ -255,4 +299,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
