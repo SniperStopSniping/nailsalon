@@ -300,6 +300,22 @@ for mutate in [lambda r:r['Config'].update(Image='foreign'),lambda r:r['Config']
  try:runner.container_identity(bad,'owned','tag','network')
  except RuntimeError:pass
  else:raise AssertionError('foreign container accepted')
+# Requested HostConfig is not proof of an actual published binding. Project
+# only fixed shapes/booleans from the existing inspect row; never alter it.
+binding={'HostIp':'127.0.0.1','HostPort':'55432'}
+port_cases=[(None,'NULL',False,'MISSING',False),('synthetic-private-output','OTHER',False,'MISSING',False),({},'OBJECT',False,'MISSING',False),({'5432/tcp':None},'OBJECT',True,'NULL',False),({'5432/tcp':[]},'OBJECT',True,'EMPTY_LIST',False),({'5432/tcp':[{}]},'OBJECT',True,'SINGLE_OBJECT',False),({'5432/tcp':['synthetic-private-output']},'OBJECT',True,'INVALID',False),({'5432/tcp':[binding,binding]},'OBJECT',True,'MULTIPLE',False),({'5432/tcp':[{**binding,'HostIp':'synthetic-private-output'}]},'OBJECT',True,'SINGLE_OBJECT',False),({'5432/tcp':[{**binding,'HostPort':'55433'}]},'OBJECT',True,'SINGLE_OBJECT',False),({'5432/tcp':[{**binding,'HostPort':55432}]},'OBJECT',True,'SINGLE_OBJECT',False),({'5432/tcp':[{**binding,'extra':'synthetic-private-output'}],'other-private-port':None},'OBJECT',True,'SINGLE_OBJECT',True)]
+for ports,shape,present,binding_shape,exact in port_cases:
+ candidate=copy.deepcopy(row);candidate['NetworkSettings']['Ports']=ports;before=copy.deepcopy(candidate)
+ assert runner.container_identity(candidate,'owned','tag','network')==('b'*64,'c'*64)
+ projection=runner.container_port_projection(candidate)
+ assert projection=={'requestedLoopbackBindingValidated':True,'actualPortsShape':shape,'actual5432KeyPresent':present,'actual5432BindingShape':binding_shape,'actual5432LoopbackExact':exact}
+ assert candidate==before and 'synthetic-private-output' not in json.dumps(projection) and '127.0.0.1' not in json.dumps(projection) and '55432' not in json.dumps(projection)
+assert runner.container_port_projection(row)['actualPortsShape']=='MISSING'
+app_guard=(source/'src/libs/disposableDatabaseTarget.ts').read_text()
+assert "bindings.length !== 1" in app_guard and "bindings[0]?.HostIp !== '127.0.0.1'" in app_guard and 'bindings[0].HostPort !== String(DISPOSABLE_DATABASE_PORT)' in app_guard
+runner_source=(D/'run.py').read_text()
+assert runner_source.index('cid,volume=container_identity(row,container,tag,network)')<runner_source.index('container_ports=container_port_projection(row)')<runner_source.index('c.attach_container(pid,cid)')
+assert "'containerPortDiagnostic':container_ports if failure else None" in runner_source
 # Inspect the actual readiness launch AST, including the owned CID binding and
 # unchanged attempt/wait budget. No command is executed by this contract.
 def readiness_contract(text):
@@ -356,4 +372,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','actualOwnedContainerTcpReadinessArgvAndUnchangedBudget':'PASS','actualReadinessLoopPreservesGuardIdentityAndExitOnlyRetry':'PASS','actualWaitIncludesObservationCostInUnchangedDeadline':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','existingInspectActualPortProjectionAndPrivacy':'PASS','actualOwnedContainerTcpReadinessArgvAndUnchangedBudget':'PASS','actualReadinessLoopPreservesGuardIdentityAndExitOnlyRetry':'PASS','actualWaitIncludesObservationCostInUnchangedDeadline':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
