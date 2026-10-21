@@ -252,6 +252,13 @@ export function OnboardingWorkspaceHandoff({
     return null;
   }
 
+  const websiteIsPublished = handoff.setup.shareLink === 'complete';
+  const welcomeHeading = websiteIsPublished
+    ? 'Your Luster site is published'
+    : 'Your Luster site draft is ready to review';
+  const welcomeDescription = websiteIsPublished
+    ? 'Your site is published and ready to share.'
+    : 'Review your draft, then publish when you’re ready.';
   const shouldShowChecklist = checklist.length > 0;
   if (!handoff.handoff.showWelcome && !shouldShowChecklist) {
     return null;
@@ -314,10 +321,10 @@ export function OnboardingWorkspaceHandoff({
                   ref={welcomeHeadingRef}
                   tabIndex={-1}
                 >
-                  Your Luster site is ready
+                  {welcomeHeading}
                 </h2>
                 <p className="mt-2 max-w-xl text-[15px] leading-6 text-[var(--owner-muted)]">
-                  Your website, booking page and service menu are set up.
+                  {welcomeDescription}
                 </p>
                 {handoff.handoff.coreAccess?.status === 'active'
                   ? (
