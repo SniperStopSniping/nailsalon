@@ -36,9 +36,6 @@ jobs:
       - name: Test secret scanner
         run: node --test scripts/check-secret-leaks.node-test.mjs
 
-      - name: Test generated assignment attribution
-        run: node --test scripts/compare-generated-clerk-secret-finding.node-test.mjs
-
       - name: Scan tracked tree and reviewed commit range
         shell: bash
         env:
@@ -78,6 +75,9 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+      - name: Test generated assignment attribution
+        if: matrix.node-version == '24.x'
+        run: node --test scripts/compare-generated-clerk-secret-finding.node-test.mjs
       - run: npm run build
       - name: Verify deployed voice WebSocket packaging and masked send
         run: node scripts/verify-voice-websocket-build.mjs
