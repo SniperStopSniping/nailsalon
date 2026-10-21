@@ -85,7 +85,7 @@ describe('OnboardingWorkspaceHandoff', () => {
     );
 
     const welcomeHeading = await screen.findByRole('heading', {
-      name: 'Your Luster site is ready',
+      name: 'Your Luster site draft is ready to review',
     });
 
     expect(welcomeHeading).toBeInTheDocument();
@@ -294,7 +294,7 @@ describe('OnboardingWorkspaceHandoff', () => {
       />,
     );
 
-    await screen.findByRole('heading', { name: 'Your Luster site is ready' });
+    await screen.findByRole('heading', { name: 'Your Luster site draft is ready to review' });
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss welcome' }));
 
     await waitFor(() => {
@@ -305,6 +305,6 @@ describe('OnboardingWorkspaceHandoff', () => {
     });
 
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be dismissed');
-    expect(screen.getByRole('heading', { name: 'Your Luster site is ready' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Your Luster site draft is ready to review' })).toBeInTheDocument();
   });
 });
