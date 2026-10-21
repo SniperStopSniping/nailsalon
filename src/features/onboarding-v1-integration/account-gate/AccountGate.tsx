@@ -464,11 +464,15 @@ export function PremiumAccountGate({
           // the session; the controller then holds the flow in the
           // verification step until the email is genuinely verified — the
           // claim never starts early.
-          setStep({ kind: 'finalizing' });
           const finalized = await signUp.finalize();
           if (finalized.error) {
-            throw finalized.error;
+            setFormError(describeClerkError(
+              finalized.error,
+              'Your account was created, but we couldn’t sign you in. Try again.',
+            ));
+            return;
           }
+          setStep({ kind: 'finalizing' });
         } else {
           const verification = await signUp.verifications.sendEmailCode();
           if (verification.error) {
@@ -525,19 +529,30 @@ export function PremiumAccountGate({
     try {
       const { error } = await signUp.verifications.verifyEmailCode({ code });
       if (error) {
-        throw error;
+        setFormError(describeClerkError(error, 'We couldn’t verify your email. Try again.'));
+        return;
       }
       if (signUp.status === 'complete') {
-        setStep({ kind: 'finalizing' });
-        const finalized = await signUp.finalize();
-        if (finalized.error) {
-          throw finalized.error;
+        try {
+          const finalized = await signUp.finalize();
+          if (finalized.error) {
+            setFormError(describeClerkError(
+              finalized.error,
+              'Your email was verified, but we couldn’t sign you in. Try again.',
+            ));
+            return;
+          }
+          setStep({ kind: 'finalizing' });
+        } catch (error) {
+          setFormError(describeClerkError(error, 'Your email was verified, but we couldn’t sign you in. Try again.'));
         }
-      } else {
+      } else if (signUp.verifications.emailAddress.status === 'verified') {
         setFormError('Your email was verified, but your account still needs another verification step. Try again to continue.');
+      } else {
+        setFormError('We couldn’t finish creating your account. Your work is safe on this device. Try again to continue.');
       }
     } catch (error) {
-      setFormError(describeClerkError(error, 'That code doesn’t match. Check the newest email and try again.'));
+      setFormError(describeClerkError(error, 'We couldn’t verify your email. Try again.'));
     } finally {
       setBusy(false);
     }

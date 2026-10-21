@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     sso: vi.fn(),
     status: null as null | string,
     verifications: {
+      emailAddress: { status: 'unverified' as string },
       sendEmailCode: vi.fn(),
       verifyEmailCode: vi.fn(),
     },
@@ -127,6 +128,7 @@ describe('PremiumAccountGate', () => {
     mocks.userState.user = null;
     mocks.clerk.addListener.mockReturnValue(() => undefined);
     mocks.signUp.status = null;
+    mocks.signUp.verifications.emailAddress.status = 'unverified';
     mocks.signUp.password.mockReset().mockImplementation(async () => {
       mocks.signUp.status = 'missing_requirements';
       return { error: null };
@@ -134,6 +136,7 @@ describe('PremiumAccountGate', () => {
     mocks.signUp.verifications.sendEmailCode.mockReset().mockResolvedValue({ error: null });
     mocks.signUp.verifications.verifyEmailCode.mockReset().mockImplementation(async () => {
       mocks.signUp.status = 'complete';
+      mocks.signUp.verifications.emailAddress.status = 'verified';
       return { error: null };
     });
     mocks.signUp.finalize.mockReset().mockResolvedValue({ error: null });
@@ -371,7 +374,52 @@ describe('PremiumAccountGate', () => {
     expect(screen.getByRole('button', { name: 'Use a different email' })).toBeVisible();
   });
 
+  it('does not present a failed Protect check during verification as a bad code', async () => {
+    const user = userEvent.setup();
+    mocks.signIn.create.mockRejectedValueOnce({
+      errors: [{ code: 'form_identifier_not_found' }],
+    });
+    mocks.signUp.verifications.verifyEmailCode.mockResolvedValue({ error: {
+      errors: [{ code: 'protect_check_failed', longMessage: 'Challenge cancelled' }],
+    } });
+    renderGate();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await user.type(screen.getByLabelText('Email address'), 'new-owner@example.com');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.type(await screen.findByLabelText('Password'), 'a-strong-password');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+    await user.type(await screen.findByLabelText('Verification code'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('We couldn’t verify your email. Try again.');
+    expect(mocks.signUp.finalize).not.toHaveBeenCalled();
+  });
+
   it('does not call a verified but incomplete sign-up a bad code or finalize its session', async () => {
+    const user = userEvent.setup();
+    mocks.signIn.create.mockRejectedValueOnce({
+      errors: [{ code: 'form_identifier_not_found' }],
+    });
+    mocks.signUp.verifications.verifyEmailCode.mockResolvedValue({ error: null });
+    mocks.signUp.verifications.emailAddress.status = 'verified';
+    renderGate();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await user.type(screen.getByLabelText('Email address'), 'new-owner@example.com');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.type(await screen.findByLabelText('Password'), 'a-strong-password');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+    await user.type(await screen.findByLabelText('Verification code'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your email was verified, but your account still needs another verification step. Try again to continue.',
+    );
+    expect(mocks.signUp.finalize).not.toHaveBeenCalled();
+  });
+
+  it('does not claim an unverified email was verified when sign-up remains incomplete', async () => {
     const user = userEvent.setup();
     mocks.signIn.create.mockRejectedValueOnce({
       errors: [{ code: 'form_identifier_not_found' }],
@@ -388,9 +436,33 @@ describe('PremiumAccountGate', () => {
     await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Your email was verified, but your account still needs another verification step. Try again to continue.',
+      'We couldn’t finish creating your account. Your work is safe on this device. Try again to continue.',
     );
     expect(mocks.signUp.finalize).not.toHaveBeenCalled();
+  });
+
+  it('does not describe a post-verification finalization failure as a bad code', async () => {
+    const user = userEvent.setup();
+    mocks.signIn.create.mockRejectedValueOnce({
+      errors: [{ code: 'form_identifier_not_found' }],
+    });
+    mocks.signUp.finalize.mockResolvedValue({ error: {
+      errors: [{ code: 'session_finalize_failed', longMessage: 'Session unavailable' }],
+    } });
+    renderGate();
+
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await user.type(screen.getByLabelText('Email address'), 'new-owner@example.com');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.type(await screen.findByLabelText('Password'), 'a-strong-password');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+    await user.type(await screen.findByLabelText('Verification code'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your email was verified, but we couldn’t sign you in. Try again.',
+    );
+    expect(screen.getByRole('heading', { name: 'Check your email' })).toBeVisible();
   });
 
   it('starts sign-up OAuth through the current Clerk resource with a same-route callback', async () => {
