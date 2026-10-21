@@ -14,8 +14,10 @@ import { appPath, e2eConfig } from './support/config';
 
 const IPHONE_CHROME_USER_AGENT
   = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
-const SYNTHETIC_CI_CLERK_BOOTSTRAP_URL
-  = 'https://ci.luster.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+const SYNTHETIC_CI_CLERK_BOOTSTRAP_URLS = new Set([
+  'https://ci.luster.invalid/npm/@clerk/clerk-js@6/dist/clerk.browser.js',
+  'https://ci.luster.invalid/npm/@clerk/ui@1/dist/ui.browser.js',
+]);
 
 const VIEWPORTS = [
   { width: 320, height: 700 },
@@ -91,7 +93,7 @@ for (const viewport of VIEWPORTS) {
           // CI's reserved Clerk placeholder cannot resolve. This geometry lane
           // uses a synthetic password session; it does not verify Clerk login.
           if (process.env.CI === 'true'
-            && message.location().url === SYNTHETIC_CI_CLERK_BOOTSTRAP_URL
+            && SYNTHETIC_CI_CLERK_BOOTSTRAP_URLS.has(message.location().url)
             && message.text() === 'Failed to load resource: net::ERR_NAME_NOT_RESOLVED') {
             return;
           }
