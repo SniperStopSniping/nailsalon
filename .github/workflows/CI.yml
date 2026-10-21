@@ -205,6 +205,14 @@ jobs:
           npm ls --all --json > "$RUNNER_TEMP/installed-dependency-graph.json"
           echo 'INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1'
 
+      - name: Verify release dependency registration with zero skips
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/dependency-pair.node-test.mjs scripts/release-pair-registration.node-test.mjs | tee release-dependency-pairs.tap
+          grep -Fqx '# tests 22' release-dependency-pairs.tap
+          grep -Fqx '# pass 22' release-dependency-pairs.tap
+          grep -Fqx '# skipped 0' release-dependency-pairs.tap
+
       - name: Test CI evidence and cancellation contracts
         run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
 
@@ -278,92 +286,7 @@ jobs:
           # Dependency manifests remain frozen except these reviewed exact
           # manifest/lock pairs. Neither a generic version range nor an
           # unrelated dependency refresh can ride along with a security fix.
-          if ! git diff --quiet "$base" -- package.json package-lock.json; then
-            dependency_manifest_blob="$(git hash-object package.json)"
-            dependency_lock_blob="$(git hash-object package-lock.json)"
-            case "$dependency_manifest_blob:$dependency_lock_blob" in
-              # Clerk 6.39.6: GHSA-vqx2-fgx2-5wq9 + GHSA-w24r-5266-9c3c.
-              158fcdce964972ec67f578e56bddba4db1408596:94fa39b23421c3eafeeddff7aac5fe50d6e71fa8) ;;
-              # Next 15.5.25 / React 19.2.8: patched App Router request handling
-              # (GHSA-m99w-x7hq-7vfj), with compatible intl/UI/test dependencies.
-              2566f6f2a1cb093ce512627a1568265c57aa8895:8d44f4449583e8d5d8bcc3cf6e844d9f47610578) ;;
-              # Voice receptionist: ws runtime sideband + matching TypeScript
-              # types on the current main manifests; payment dependencies unchanged.
-              f7c4952389da41ef8ad7a16fc3c71ccd785140f3:75eb90cb75b577a9b9ea9b9f84a1ec928ad20e34) ;;
-              # Node 24 monitoring compatibility: Sentry 8.55.2, its resolved
-              # dependency graph and the native regression command only.
-              2d308eb94fc47228b1f8cefb95e5109674a6c7b6:16a00768b1248501e221a5af2350d2a49a27d3d4) ;;
-              # Same reviewed graph after main's 1.142.4 release-version bump.
-              81033b57a45e03fa3fb84b35435d5c511c945dc6:9c7d5702e010a55e897258fee728c517b20d0593) ;;
-              # Remaining bundled Node 24 URL parser: ioredis 5.11.1 and only
-              # its resolved dependency closure; application settings unchanged.
-              2658646d2addf8fe450503e0366a1b30d3a37d16:2b018033b1df3bbc21bfd1858b764a6fe2d14e64) ;;
-              # Same reviewed Redis graph after main's 1.142.5 version bump.
-              36b6eb8cc244742e3f00ca9e6371e83580bbd907:f30136fcafe073d34bb76a50cadeaf8d83c2a31b) ;;
-              # Cloudinary 2.9.0: native URL parsing and promises; removes only
-              # the SDK's unused Q dependency. Upload/cleanup rules unchanged.
-              676faa4e87813eb9500b132e5b5034947fb607ea:9d6a655a476d1beaea9c5f3ed3dee6a0b0012ca2) ;;
-              # Readability regression checks: explicitly pin the already-resolved
-              # development-only axe-core 4.10.1; resolved package graph unchanged.
-              5f3f0c31d902dd4ff5494d02d536de4cf04784ad:ac14f583f5e9bde0910231da97b64d28e24b252b) ;;
-              # Sharp 0.35.5: patched production SVG/native image decoders
-              # (GHSA-wq5f-xc86-pv6w); Next deduplicated, Storybook dev-only.
-              ea2893563cf943de48bbd6ba91881946fe4c9f98:da93db3e2a143e0b8694b3231265f4e8b8885d5a) ;;
-              # Same reviewed Sharp graph after main's 1.142.36 version bump.
-              f5212c5c05d6cf9a89a3e63c2643f03bbf223d75:3500380b6019dbab17b1c137064ee1c1e3963eda) ;;
-              # Node 24 runtime pin: package metadata only; dependency graph unchanged.
-              30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b:8e1b8a6010053efb7bd0fb883f4674537829cdd0) ;;
-              # Compatible SMS transport, multipart, ID and editor-parser fixes;
-              # Cloudinary alone resolves patched lodash despite the dev-tool pin.
-              b7e4591c8df9d94b82b281587cec8f98b0f5439e:9576667ec691e6f5aba41486cfbbcf8e32d6b3ee) ;;
-              # Custom website builder: constrained JS/HTML parsers, PDF references
-              # and private-suffix isolation; Acorn retains main's 8.18.0 version.
-              ed0e8734ece6869797c94dfa57037955df0d02e5:433031ed9d0c705c548bc522e585e15d69648dba) ;;
-              # Same builder dependencies after main's 1.143.1 release bump.
-              7a219ff506106dca631528df8bf7877ca28c4b71:03917548fdcf78991dfd60a487783cfbdefa5ab0) ;;
-              # Identical reviewed builder dependency graph after main's 1.143.2
-              # release bump. Both manifests differ only in version fields.
-              021dfc548a7955ac279af6576c880b87ff36d87a:99e31ce606948ad4d522d0f3da2ec9d372b0db7d) ;;
-              # Prelaunch security refresh: Next 15.5.28, Sentry 10.76.2,
-              # patched PostCSS, and compatible dependency closure only.
-              e8611651650ec97880c8a67e05b795a26efaa6cb:8f5742e82fcd36ec2185235d4bfa08bd383a7966) ;;
-              # Same audited refresh with explicit Node24 deployment engine.
-              30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b:8e1b8a6010053efb7bd0fb883f4674537829cdd0) ;;
-              # Local integration retains that patched graph and adds only the
-              # already reviewed AI parsing/PDF/private-suffix dependencies.
-              8c510528ccff7fa01b70bb29cb42dd6a32452ac2:f9473055446d79e1ccce710cd0924b3a677c5844) ;;
-              # Combined candidate: Drizzle ORM 0.45.4 + next-intl 4.14.9,
-              # retaining PR461 Node24, Sentry 10 and AI dependency graph.
-              415d1c90eb42ea7230692a3f241d6febe7e872d6:c7bb0015690ce967afed8f1776d28ced92d5f116) ;;
-              # Compatible development-only transitive security patches for
-              # cipher-base, elliptic, pbkdf2, sha.js and Handlebars.
-              415d1c90eb42ea7230692a3f241d6febe7e872d6:f0c9aa4940a835250395d2098565f07802bb950e) ;;
-              # Vitest4 toolchain migration: project-based Node/jsdom config,
-              # matching coverage/expect packages and Vite6; the compatible
-              # shared magic-string/source-map transitive pins move with it.
-              2c85781c86ede9f53b02c36bd36751a0bae4e5e4:960fa1603f11ff1a10084331ff43b95d8ea68a9e) ;;
-              # Separately reviewed Storybook and npm tar security pairs.
-              cf9ee4410133e7254924abfee7a7a70e0592a25b:c7279e61b579800514e86c260774a902c25b26b4) ;;
-              fcf749d8a0e3a531756b221ed60848df2b540355:1a0d21a18e49f9d77dcecde059cdbf20a788a621) ;;
-              # Local combined tooling graph: D security patches, Vitest4,
-              # Storybook local Webpack5.111.1 and npm10.9.9/tar7.5.22.
-              68378a97e8f7292264e15565a299b4b5c04e47b3:5467895180e9024f1227adf9b47b9c42ce7c4d4c) ;;
-              # Preserve distinct Next0.5.15 and Intl compiler0.5.23 SWC
-              # helper requirements with an explicit compatible peer provider.
-              72714ec554388ba617898e14c78a0556f475bc65:547a7f34a8855333a1cfbdebbdd32393b8be31c3) ;;
-              # Identical reviewed dependency graph after main's 1.143.3
-              # release metadata bump; only root version fields differ.
-              35b8e45ccdebc4b086e18b311539b23bab137e88:c8d051aa1953cbd1dc7320d366d5bb7f5a7f5a2b) ;;
-              # Identical reviewed graph after protected main's 1.144.0
-              # release; only the three root version fields changed.
-              95a5d51e3c9fd0bde85d21fc288077db849ef5a0:ac97375ebeff51fd225f1e1831243e131a5c50ef) ;;
-              *)
-                echo "::error::Dependency manifests must match a reviewed security-refresh pair."
-                printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
-                exit 1
-                ;;
-            esac
-          fi
+          node scripts/verify-dependency-pair.mjs
 
           # 1b. Billing checkout surface (Gate C2). Only the enumerated paths
           #     may change under src/app/api/billing, and the route itself
@@ -1287,6 +1210,14 @@ jobs:
         timeout-minutes: 38
         uses: ./.github/actions/install-playwright
 
+      - name: Verify Percy discovery browser override without provider traffic
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/percy-browser-override.node-test.mjs | tee percy-browser-override.tap
+          grep -Fqx '# tests 3' percy-browser-override.tap
+          grep -Fqx '# pass 3' percy-browser-override.tap
+          grep -Fqx '# skipped 0' percy-browser-override.tap
+
       # Functional visual assertions remain in Visual.e2e.ts for PRs, while
       # trusted main retains hosted snapshot publication.
       - name: Run E2E tests against disposable PostgreSQL
@@ -1294,7 +1225,7 @@ jobs:
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/quick-book-designs.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts tests/e2e/rebooking-reminders.e2e.ts
+        run: PLAYWRIGHT_JSON_OUTPUT_FILE=test-results/app24-e2e-results.json npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/quick-book-designs.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts tests/e2e/rebooking-reminders.e2e.ts --reporter=github,json
 
       - name: Verify authoritative L1 public booking in mobile Chromium and WebKit
         env:
@@ -1312,7 +1243,13 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
+          set -euo pipefail
           if [ -n "$PERCY_TOKEN" ]; then
+            PERCY_BROWSER_EXECUTABLE="$(node -e 'process.stdout.write(require("playwright").chromium.executablePath())')"
+            export PERCY_BROWSER_EXECUTABLE
+            test -n "$PERCY_BROWSER_EXECUTABLE"
+            test -f "$PERCY_BROWSER_EXECUTABLE"
+            test -x "$PERCY_BROWSER_EXECUTABLE"
             npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts
           else
             npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts
@@ -1581,6 +1518,15 @@ jobs:
           grep -Fqx '# tests 18' monitoring-node24.log
           grep -Fqx '# pass 18' monitoring-node24.log
           grep -Fqx '# skipped 0' monitoring-node24.log
+      - name: Verify Checkly Axios request compatibility with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:checkly-axios:node24 | tee checkly-axios-node24.log
+          grep -Fqx '# tests 1' checkly-axios-node24.log
+          grep -Fqx '# pass 1' checkly-axios-node24.log
+          grep -Fqx '# skipped 0' checkly-axios-node24.log
+
       - name: Verify Redis URL compatibility with zero skips
         shell: bash
         run: |
@@ -1607,6 +1553,42 @@ jobs:
           grep -Fqx '# tests 10' runtime-dependency-security.log
           grep -Fqx '# pass 10' runtime-dependency-security.log
           grep -Fqx '# skipped 0' runtime-dependency-security.log
+
+      - name: Verify patched release tooling dependencies with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/tooling-dependency-security.node-test.mjs | tee tooling-dependency-security.log
+          grep -Fqx '# tests 3' tooling-dependency-security.log
+          grep -Fqx '# pass 3' tooling-dependency-security.log
+          grep -Fqx '# skipped 0' tooling-dependency-security.log
+
+
+      - name: Verify scoped release-plugin Lodash with zero skips
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/release-tooling-lodash.node-test.mjs | tee release-plugin-lodash.tap
+          grep -Fqx '# tests 2' release-plugin-lodash.tap
+          grep -Fqx '# pass 2' release-plugin-lodash.tap
+          grep -Fqx '# skipped 0' release-plugin-lodash.tap
+
+      - name: Verify patched semantic-release lodash-es with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/release-tooling-lodash-es.node-test.mjs | tee release-tooling-lodash-es.log
+          grep -Fqx '# tests 2' release-tooling-lodash-es.log
+          grep -Fqx '# pass 2' release-tooling-lodash-es.log
+          grep -Fqx '# skipped 0' release-tooling-lodash-es.log
+
+      - name: Verify ws7 tooling receivers and Checkly options with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u WS7_TEST_ARTIFACT -u WS7_TEST_NODE_MODULES node --max-old-space-size=256 --test --test-reporter=tap scripts/ws7-dependency-security.node-test.mjs | tee ws7-dependency-security.log
+          grep -Fqx '# tests 6' ws7-dependency-security.log
+          grep -Fqx '# pass 6' ws7-dependency-security.log
+          grep -Fqx '# skipped 0' ws7-dependency-security.log
 
       - name: Verify timezone rules and booking conversion on Node 24
         shell: bash
