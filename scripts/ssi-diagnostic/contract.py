@@ -76,6 +76,25 @@ def cgread(path,*args,**kwargs):
  raise AssertionError('unexpected metadata path')
 with patch.object(Path,'is_file',return_value=True),patch.object(Path,'read_text',cgread):
  assert lc.effective_available(10*1024**3)==1024**3
+# Install classification is a bounded fixed-enum projection, never raw output.
+wire=b'npm error code ETIMEDOUT\nnpm ERR! code EINTEGRITY\r\nnpm error code 1\n'
+expected={'ETIMEDOUT':1,'EINTEGRITY':1,'EXIT_CODE_1':1}
+for split in range(len(wire)+1):
+ classifier=lc.NpmErrorClassifier();classifier.feed('stderrBytes',wire[:split]);classifier.feed('stderrBytes',wire[split:]);classifier.feed('stderrBytes',b'',eof=True)
+ safe=classifier.snapshot();assert safe['codeCounts']==expected and safe['firstRecognizedCode']=='ETIMEDOUT' and not classifier.pending
+classifier=lc.NpmErrorClassifier();assert classifier.snapshot()['firstRecognizedCode']=='UNKNOWN'
+private_payload=b'https://example.invalid/private-token?key=synthetic-value\nnpm error code EPRIVATE_SYNTHETIC_VALUE\nnot npm error code ECONNRESET\nnpm error code ETIMEDOUT https://example.invalid/credential\n'
+classifier.feed('stdoutBytes',private_payload);classifier.feed('stdoutBytes',b'npm error code '+b'X'*1000);classifier.feed('stdoutBytes',b'npm error code ECONNRESET\n');classifier.feed('stdoutBytes',b'npm error code ELIFECYCLE',eof=True)
+safe=classifier.snapshot();encoded=json.dumps(safe);assert safe['codeCounts']=={'ELIFECYCLE':1} and safe['unrecognizedCodeLines']==1
+assert all(value not in encoded for value in ['example.invalid','synthetic-value','EPRIVATE_SYNTHETIC_VALUE','credential']) and not classifier.pending and not classifier.overflow
+classifier=lc.NpmErrorClassifier();classifier.feed('stdoutBytes',b'npm error co');classifier.feed('stderrBytes',b'de EINTEGRITY\n');classifier.feed('stdoutBytes',b'de EAI_AGAIN\n');assert classifier.snapshot()['codeCounts']=={'EAI_AGAIN':1}
+# The real controller drain forwards only the install's observed stream, with
+# chunk-boundary/EOF handling and the unchanged per-stream byte cap.
+stream=SimpleNamespace(fileno=lambda:99,close=Mock());item={'process':SimpleNamespace(pid=777),'role':'INSTALL','installErrors':lc.NpmErrorClassifier(),'private':False,'stdoutBytes':0,'stderrBytes':0}
+key=SimpleNamespace(data=(item,'stderrBytes'),fileobj=stream);draining=object.__new__(lc.Controller);draining.selector=SimpleNamespace(select=lambda timeout:[(key,None)],unregister=Mock());draining.tails={};draining.classifiers={'oom':0,'enospc':0,'egressDenied':0}
+with patch.object(lc.os,'read',side_effect=[b'npm error co',b'de ECONNRESET\n',b'']):
+ for _ in range(3):draining.drain()
+assert item['installErrors'].snapshot()['codeCounts']=={'ECONNRESET':1} and item['stderrBytes']==26 and stream.close.call_count==1
 # No Popen invocation may occur before role admission; signals only defer.
 controller=object.__new__(lc.Controller);controller.env={};controller.children=[];controller.groups=set();controller.selector=SimpleNamespace(register=Mock());controller.tokens={};controller.stop_requested=False
 child=SimpleNamespace(pid=777,stdout=SimpleNamespace(fileno=lambda:10),stderr=SimpleNamespace(fileno=lambda:11),returncode=None)
@@ -197,4 +216,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))

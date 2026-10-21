@@ -91,6 +91,32 @@ def table():
   except (FileNotFoundError,ProcessLookupError):continue
   except PermissionError:raise RuntimeError('PROCESS_OBSERVATION_PERMISSION') from None
  return rows
+NPM_ERROR_CODES=('ETIMEDOUT','ECONNRESET','ECONNREFUSED','EAI_AGAIN','ENOTFOUND','ENETUNREACH','EHOSTUNREACH','EINTEGRITY','ERESOLVE','EBADENGINE','EBADPLATFORM','ELIFECYCLE','EACCES','EPERM','ENOSPC','ENOENT','EEXIST','EBUSY','ENOTEMPTY','ERR_INVALID_ARG_TYPE','ERR_INVALID_ARG_VALUE','CERT_HAS_EXPIRED','DEPTH_ZERO_SELF_SIGNED_CERT','SELF_SIGNED_CERT_IN_CHAIN','UNABLE_TO_VERIFY_LEAF_SIGNATURE','UNABLE_TO_GET_ISSUER_CERT_LOCALLY')
+class NpmErrorClassifier:
+ # Only complete short npm code lines are classified. Transient partial lines
+ # are bounded, discarded on overflow, and never exposed by snapshot().
+ def __init__(self):self.pending={};self.overflow=set();self.counts={};self.first='UNKNOWN';self.unrecognized=0
+ def feed(self,stream,chunk,eof=False):
+  require(stream in ['stdoutBytes','stderrBytes'],'NPM_STREAM_REQUIRED')
+  parts=chunk.split(b'\n');pending=self.pending.get(stream,b'')
+  for i,part in enumerate(parts):
+   if stream not in self.overflow:
+    if len(pending)+len(part)<=160:pending+=part
+    else:pending=b'';self.overflow.add(stream)
+   if i<len(parts)-1 or eof:
+    if stream not in self.overflow:
+     match=re.fullmatch(rb'npm (?:error|ERR!) code ([A-Z_0-9]{1,64})\r?',pending)
+     if match:
+      raw=match.group(1).decode('ascii');code='EXIT_CODE_1' if raw=='1' else raw
+      if code in NPM_ERROR_CODES or code=='EXIT_CODE_1':
+       self.counts[code]=self.counts.get(code,0)+1
+       if self.first=='UNKNOWN':self.first=code
+      else:self.unrecognized+=1
+    pending=b'';self.overflow.discard(stream)
+  if eof:self.pending.pop(stream,None)
+  else:self.pending[stream]=pending
+ def snapshot(self):return {'firstRecognizedCode':self.first,'codeCounts':dict(self.counts),'unrecognizedCodeLines':self.unrecognized,'coverage':'Observed INSTALL stdout/stderr only; existing bounded pipe draining unchanged.','rawLinesUrlsValuesRetained':False}
+
 class Controller:
  def __init__(self,root,env):
   self.root=root;self.disk_paths=[root];self.extra_check=None;self.env=env;self.started=time.monotonic();self.children=[];self.tokens={};self.pidfds={};self.groups=set();self.stop_requested=False;self.selector=selectors.DefaultSelector();self.container_root=None;self.container_token=None;self.container_cgroup=None;self.container_stopped=False;self.peak=0;self.minimum_disk=2**63;self.minimum_available=2**63;self.classifiers={'oom':0,'enospc':0,'egressDenied':0};self.tails={};self.role_peaks={};self.last_roles={};self.unknown=0
@@ -113,7 +139,7 @@ class Controller:
   require(role in ['INSTALL','TEST','BOOTSTRAP','DOCKER','SOURCE'],'CHILD_ROLE_REQUIRED')
   # Signal handlers only defer; append immediately after successful Popen.
   process=subprocess.Popen(argv,cwd=cwd,env=env or self.env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
-  item={'process':process,'role':role,'private':private,'buffer':bytearray(),'stdoutBytes':0,'stderrBytes':0};self.children.append(item);self.groups.add(process.pid)
+  item={'process':process,'role':role,'installErrors':NpmErrorClassifier() if role=='INSTALL' else None,'private':private,'buffer':bytearray(),'stdoutBytes':0,'stderrBytes':0};self.children.append(item);self.groups.add(process.pid)
   try:
    row=parse_stat(Path('/proc',str(process.pid),'stat').read_text());require(row['parent']==os.getpid() and row['group']==process.pid,'DIRECT_CHILD_IDENTITY');self.register(process.pid,row['token'])
   except FileNotFoundError:require(process.poll() is not None,'CHILD_IDENTITY_UNOBSERVABLE')
@@ -122,6 +148,7 @@ class Controller:
  def drain(self):
   for key,_ in self.selector.select(timeout=0):
    item,name=key.data;chunk=os.read(key.fileobj.fileno(),16384)
+   if item.get('installErrors') is not None:item['installErrors'].feed(name,chunk,eof=not chunk)
    if not chunk:self.selector.unregister(key.fileobj);key.fileobj.close();continue
    identity=(item['process'].pid,name);tail=self.tails.get(identity,b'');scan=(tail+chunk).lower()
    for key,marker in [('oom',b'heap out of memory'),('enospc',b'enospc'),('egressDenied',b'network fence denied')]:self.classifiers[key]+=sum(1 for m in re.finditer(re.escape(marker),scan) if m.end()>len(tail))
