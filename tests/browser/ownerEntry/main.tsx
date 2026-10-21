@@ -1,10 +1,10 @@
 /// <reference types="vite/client" />
-import '@/styles/global.css';
-
-import { ClerkProvider } from '@clerk/react';
 import { enUS } from '@clerk/localizations';
+import { ClerkProvider } from '@clerk/react';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+
+import '@/styles/global.css';
 
 import { SuperAdminPasswordLoginForm } from '@/app/[locale]/(unauth)/super-admin-login/SuperAdminPasswordLoginForm';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';

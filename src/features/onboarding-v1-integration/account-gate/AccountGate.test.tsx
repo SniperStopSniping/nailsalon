@@ -472,10 +472,10 @@ describe('PremiumAccountGate', () => {
     mocks.signIn.create.mockRejectedValueOnce({
       errors: [{ code: 'form_identifier_not_found' }],
     });
-    mocks.signUp.finalize.mockImplementationOnce(() => new Promise(resolve => {
+    mocks.signUp.finalize.mockImplementationOnce(() => new Promise((resolve) => {
       finishFinalize = resolve;
     }));
-    mocks.clerk.addListener.mockImplementation(listener => {
+    mocks.clerk.addListener.mockImplementation((listener) => {
       onSessionChanged = listener;
       return () => undefined;
     });

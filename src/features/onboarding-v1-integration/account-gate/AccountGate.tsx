@@ -121,7 +121,7 @@ export function PremiumAccountGate({
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(() => (
     typeof window !== 'undefined'
-      && new URLSearchParams(window.location.search).get('clerk-sign-up') === 'failed'
+        && new URLSearchParams(window.location.search).get('clerk-sign-up') === 'failed'
       ? 'We couldn’t complete sign-up. Try again.'
       : null
   ));
@@ -483,7 +483,6 @@ export function PremiumAccountGate({
                 'Your account was created, but we couldn’t sign you in. Try again.',
               ));
             }
-            return;
           }
         } else {
           const verification = await signUp.verifications.sendEmailCode();
@@ -557,7 +556,6 @@ export function PremiumAccountGate({
                 'Your email was verified, but we couldn’t sign you in. Try again.',
               ));
             }
-            return;
           }
         } catch (error) {
           if (!signUpFinalizationSupersededRef.current) {
@@ -575,7 +573,7 @@ export function PremiumAccountGate({
     } finally {
       setBusy(false);
     }
-  }, [busy, clearTransient, codeValue, signUp, step.kind]);
+  }, [busy, clearTransient, codeValue, signUp, step]);
 
   const submitSessionCode = useCallback(async (event: FormEvent) => {
     event.preventDefault();
