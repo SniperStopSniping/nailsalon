@@ -664,63 +664,63 @@ function parseSimpleAssignment(line) {
   };
 }
 
+function assignmentRule(path, key, value, source) {
+  if (isSafeAssignment(path, key, value)) {
+    return null;
+  }
+  if (key === 'TWILIO_AUTH_TOKEN' && /^[0-9a-f]{32}$/i.test(value)) {
+    return 'TWILIO_AUTH_TOKEN';
+  }
+  if (key === 'RESEND_API_KEY' && isHighEntropy(value)) {
+    return 'RESEND_API_KEY';
+  }
+  if (/WEBHOOK.*SECRET|SIGNING.*SECRET|SECRET.*SIGNING/i.test(key) && isHighEntropy(value)) {
+    return 'WEBHOOK_SIGNING_SECRET';
+  }
+  if (isSafeLocalizationCopy(path, source, key, value)) {
+    return null;
+  }
+  const dotenv = isRuntimeDotenvPath(path) || normalizePath(path).endsWith('.env.example');
+  if (
+    (isSensitiveKey(key) && isHighEntropy(value))
+    || (isPublicIdentifierKey(key) && isHighEntropy(value))
+    || (dotenv && isHighEntropy(value))
+  ) {
+    return 'GENERIC_SECRET_ASSIGNMENT';
+  }
+  return null;
+}
+
+// Diagnostic callers receive opaque identities only. Literal bytes, assignment
+// keys and environment values never leave the scanner through this interface.
+export function genericAssignmentFingerprints(path, buffer, source) {
+  if (isBinary(buffer) || buffer.length > MAX_SCAN_BYTES) {
+    return [];
+  }
+  const results = new Set();
+  for (const line of buffer.toString('utf8').split(/\r?\n/)) {
+    for (const { key, value: raw } of assignmentCandidates(path, line)) {
+      const value = raw.trim().replace(/^['"`]|['"`]$/g, '');
+      if (assignmentRule(path, key, value, source) === 'GENERIC_SECRET_ASSIGNMENT') {
+        results.add(fingerprint(key, value));
+      }
+    }
+  }
+  return [...results].sort();
+}
+
 function scanAssignments(path, text, source, findings) {
   const lines = text.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
     for (const { key, value: rawValue } of assignmentCandidates(path, lines[index])) {
       const value = rawValue.trim().replace(/^['"`]|['"`]$/g, '');
-      if (isSafeAssignment(path, key, value)) {
-        continue;
-      }
-
-      if (key === 'TWILIO_AUTH_TOKEN' && /^[0-9a-f]{32}$/i.test(value)) {
+      const rule = assignmentRule(path, key, value, source);
+      if (rule) {
         addFinding(findings, {
           path,
           line: index + 1,
-          rule: 'TWILIO_AUTH_TOKEN',
-          classification: RULES.TWILIO_AUTH_TOKEN,
-          source,
-        });
-        continue;
-      }
-
-      if (key === 'RESEND_API_KEY' && isHighEntropy(value)) {
-        addFinding(findings, {
-          path,
-          line: index + 1,
-          rule: 'RESEND_API_KEY',
-          classification: RULES.RESEND_API_KEY,
-          source,
-        });
-        continue;
-      }
-
-      if (/WEBHOOK.*SECRET|SIGNING.*SECRET|SECRET.*SIGNING/i.test(key) && isHighEntropy(value)) {
-        addFinding(findings, {
-          path,
-          line: index + 1,
-          rule: 'WEBHOOK_SIGNING_SECRET',
-          classification: RULES.WEBHOOK_SIGNING_SECRET,
-          source,
-        });
-        continue;
-      }
-
-      if (isSafeLocalizationCopy(path, source, key, value)) {
-        continue;
-      }
-
-      const dotenv = isRuntimeDotenvPath(path) || normalizePath(path).endsWith('.env.example');
-      if (
-        (isSensitiveKey(key) && isHighEntropy(value))
-        || (isPublicIdentifierKey(key) && isHighEntropy(value))
-        || (dotenv && isHighEntropy(value))
-      ) {
-        addFinding(findings, {
-          path,
-          line: index + 1,
-          rule: 'GENERIC_SECRET_ASSIGNMENT',
-          classification: RULES.GENERIC_SECRET_ASSIGNMENT,
+          rule,
+          classification: RULES[rule],
           source,
         });
       }
