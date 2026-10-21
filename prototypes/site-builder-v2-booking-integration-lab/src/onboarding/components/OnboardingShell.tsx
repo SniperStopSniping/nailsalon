@@ -123,7 +123,7 @@ export function OnboardingShell({
   }, [closeMore]);
 
   const handleMoreKeyDownCapture = useCallback((event: ReactKeyboardEvent<HTMLDetailsElement>) => {
-    if (event.key !== 'Escape') {
+    if (event.key !== 'Escape' || (!event.currentTarget.open && !moreOpen)) {
       return;
     }
     event.preventDefault();
@@ -133,7 +133,7 @@ export function OnboardingShell({
     // before React commits the controlled state.
     event.currentTarget.open = false;
     closeMore(true);
-  }, [closeMore]);
+  }, [closeMore, moreOpen]);
 
   const handleMoreKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
     if (!['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
