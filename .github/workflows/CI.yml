@@ -1608,6 +1608,15 @@ jobs:
           grep -Fqx '# pass 10' runtime-dependency-security.log
           grep -Fqx '# skipped 0' runtime-dependency-security.log
 
+      - name: Verify ws7 tooling receivers and Checkly options with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u WS7_TEST_ARTIFACT -u WS7_TEST_NODE_MODULES node --max-old-space-size=256 --test --test-reporter=tap scripts/ws7-dependency-security.node-test.mjs | tee ws7-dependency-security.log
+          grep -Fqx '# tests 6' ws7-dependency-security.log
+          grep -Fqx '# pass 6' ws7-dependency-security.log
+          grep -Fqx '# skipped 0' ws7-dependency-security.log
+
       - name: Verify timezone rules and booking conversion on Node 24
         shell: bash
         run: |
