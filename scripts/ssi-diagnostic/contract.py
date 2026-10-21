@@ -2,7 +2,7 @@
 from pathlib import Path
 import ast,copy,hashlib,importlib.util,io,json,os,tarfile,tempfile,time
 from types import SimpleNamespace
-from unittest.mock import Mock,patch
+from unittest.mock import Mock,call,patch
 import linux_controller as lc
 import run as runner
 from patches import transform,HELPER,TEST
@@ -317,6 +317,35 @@ for old,new in [("'pg_isready','-h','127.0.0.1','-p','5432'","'pg_isready'"),("'
  try:readiness_contract(readiness_source.replace(old,new,1))
  except AssertionError:pass
  else:raise AssertionError('weakened readiness command accepted')
+# Execute the actual readiness loop AST with fake children: only a completed
+# nonzero utility exit retries. Every other guard preserves the same exception.
+tree=ast.parse(readiness_source)
+ready_loop=next(node for node in ast.walk(tree) if isinstance(node,ast.For) and any(isinstance(call,ast.Call) and isinstance(call.func,ast.Attribute) and call.func.attr=='start' and any(isinstance(arg,ast.Constant) and arg.value=='pg_isready' for arg in ast.walk(call)) for call in ast.walk(node)))
+ready_code=compile(ast.fix_missing_locations(ast.Module(body=[ready_loop],type_ignores=[])),'<readiness-contract>','exec')
+def fake_readiness(outcomes):
+ controller=SimpleNamespace(start=Mock(return_value={'process':object()}),wait=Mock(side_effect=outcomes));pause=Mock();namespace={'c':controller,'docker':'synthetic-docker','cid':'b'*64,'ready':False,'time':SimpleNamespace(sleep=pause)}
+ return controller,pause,namespace
+for code in ['CHILD_DEADLINE','COMBINED_RSS_LIMIT','DISK_FLOOR','AVAILABLE_MEMORY_FLOOR','WORK_DEADLINE','CONTAINER_ACCOUNTING_PERMISSION','CONTAINER_SNAPSHOT_UNSTABLE','STDIO_BYTE_BOUND']:
+ original=RuntimeError(code);controller,pause,namespace=fake_readiness([original])
+ try:exec(ready_code,namespace)
+ except RuntimeError as error:assert error is original and runner.fixed_error(error)==code
+ else:raise AssertionError('readiness guard was masked or retried')
+ assert controller.start.call_count==controller.wait.call_count==1 and namespace['ready'] is False;pause.assert_not_called()
+controller,pause,namespace=fake_readiness([RuntimeError('CHILD_EXIT_FAILED'),b'']);exec(ready_code,namespace)
+assert namespace['ready'] is True and controller.start.call_count==controller.wait.call_count==2 and pause.call_args_list==[call(.2)]
+controller,pause,namespace=fake_readiness([RuntimeError('CHILD_EXIT_FAILED')]*60);exec(ready_code,namespace)
+assert namespace['ready'] is False and controller.start.call_count==controller.wait.call_count==pause.call_count==60 and all(item.args[1]==3 for item in controller.wait.call_args_list)
+# Actual wait() includes full observation cost in its existing three-second
+# budget. A synthetic slow observation can cause CHILD_DEADLINE; this proves a
+# mechanism, not the unretained historical underlying error or its duration.
+clock=[0.0];waiting=object.__new__(lc.Controller);pending=SimpleNamespace(poll=Mock(return_value=None),returncode=None)
+def slow_observation(cleanup):clock[0]+=3.01
+waiting.observe=slow_observation
+with patch.object(lc.time,'monotonic',side_effect=lambda:clock[0]),patch.object(lc.time,'sleep') as pause:
+ try:waiting.wait({'process':pending,'buffer':bytearray()},3)
+ except RuntimeError as error:assert str(error)=='CHILD_DEADLINE'
+ else:raise AssertionError('full observation escaped unchanged child deadline')
+ pause.assert_not_called()
 workflow=(H/'.github/workflows/ssi-diagnostic.yml').read_text();assert 'pull_request' not in workflow and 'workflow_dispatch' not in workflow and 'secrets.' not in workflow and 'id-token:' not in workflow and 'branches: ['+runner.BRANCH+']' in workflow
 assert workflow.count('persist-credentials: false')==2 and 'ref: '+runner.SHA in workflow and 'contents: read' in workflow
 for line in workflow.splitlines():
@@ -327,4 +356,4 @@ text=(D/'run.py').read_text();assert '--ignore-scripts' not in text and "'NODE_O
 assert text.index("'ci','--no-audit'")<text.index("'run','-d'")<text.index('runtime={**clean')
 assert "'providerCredentialsSupplied':False" in text and "cleanup=cleanup or" in text
 for file in D.glob('*.py'):ast.parse(file.read_text())
-print(json.dumps({'pureContracts':'PASS','actualOwnedContainerTcpReadinessArgvAndUnchangedBudget':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
+print(json.dumps({'pureContracts':'PASS','actualOwnedContainerTcpReadinessArgvAndUnchangedBudget':'PASS','actualReadinessLoopPreservesGuardIdentityAndExitOnlyRetry':'PASS','actualWaitIncludesObservationCostInUnchangedDeadline':'PASS','bootstrapFixedEnumSchemaPrivacyAndGuardOrder':'PASS','boundedSourceObservationCadenceAndForcedGuards':'PASS','actualSyntheticSourceCopyAndAllByteHashVerification':'PASS','activeDependencyGraph2777NodesTwoOrphans':'PASS','nestedHoistCyclePeersAndMandatoryEdges':'PASS','safeInstallErrorCodeProjectionAndChunkBoundaries':'PASS','exactManifestLibcEligibility':'PASS','missingRequiredAndCompatibleOptionalRefused':'PASS','boundedMissingNodeDiagnosis':'PASS','installCache512MiBBoundary':'PASS','unchangedInstallTree2GiBBoundary':'PASS','sourceSha':runner.SHA,'originalExpectCalls':245,'unchangedRetryAndSerializablePolicy':True,'eventAndWorkflowGuards':'PASS','effectiveCgroupMemoryFloor':'PASS','fakePopenRegistration':'PASS','allOwnedAndContainerRssAccounting':'PASS','guardFailureRolesRetained':'PASS','containerIdentityRefusal':'PASS','pidfdCleanupAndUnknownRefusal':'PASS','pendingDirectChildRefusal':'PASS','exactCgroupSubtreeOrphanAndFailureContracts':'PASS','vercelExactBranchAndCrons':'PASS','nativeServicesInstallOrNetworkExecuted':False}))
