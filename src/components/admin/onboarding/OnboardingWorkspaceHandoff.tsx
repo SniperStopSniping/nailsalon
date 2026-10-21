@@ -314,10 +314,14 @@ export function OnboardingWorkspaceHandoff({
                   ref={welcomeHeadingRef}
                   tabIndex={-1}
                 >
-                  Your Luster site is ready
+                  {handoff.setup.shareLink === 'complete'
+                    ? 'Your Luster site is ready'
+                    : 'Your draft site is ready to review'}
                 </h2>
                 <p className="mt-2 max-w-xl text-[15px] leading-6 text-[var(--owner-muted)]">
-                  Your website, booking page and service menu are set up.
+                  {handoff.setup.shareLink === 'complete'
+                    ? 'Your website, booking page and service menu are set up.'
+                    : 'Your draft is saved. Review your website, booking page and service menu before publishing.'}
                 </p>
                 {handoff.handoff.coreAccess?.status === 'active'
                   ? (
