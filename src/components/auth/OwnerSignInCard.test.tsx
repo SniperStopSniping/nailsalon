@@ -108,7 +108,7 @@ describe('OwnerSignInCard branding', () => {
           colorForeground: '#30262a',
           colorMutedForeground: '#706267',
         }),
-        layout: { socialButtonsPlacement: 'bottom', socialButtonsVariant: 'blockButton' },
+        options: { socialButtonsPlacement: 'bottom', socialButtonsVariant: 'blockButton' },
       }),
       fallbackRedirectUrl: '/en/admin',
     }));

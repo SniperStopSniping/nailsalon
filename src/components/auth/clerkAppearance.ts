@@ -33,7 +33,7 @@ export const lusterOwnerSignInAppearance = {
     socialButtonsBlockButton: 'luster-auth-social',
     socialButtonsBlockButtonText: 'luster-auth-social-text',
   },
-  layout: {
+  options: {
     socialButtonsPlacement: 'bottom' as const,
     socialButtonsVariant: 'blockButton' as const,
   },
