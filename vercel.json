@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "codex/storybook-origin-patch-20261021": false
+    }
+  },
   "crons": [
     {
       "path": "/api/voice/maintenance",
