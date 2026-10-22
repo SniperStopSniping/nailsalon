@@ -206,7 +206,7 @@ jobs:
           echo 'INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1'
 
       - name: Test CI evidence and cancellation contracts
-        run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
+        run: node --test scripts/ci-workflow.node-test.mjs scripts/install-playwright.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
 
       # The deposits ladder is additive by construction. These paths carry the
       # SaaS billing surface, dependency manifests, migration set, deploy

@@ -36,26 +36,46 @@ runs:
 
         # Runs install-deps in its own session so the watchdog can signal the
         # entire process GROUP. The child records its own pgid, so this works
-        # whether or not setsid forks. This is what guarantees no privileged
-        # apt child outlives a failed attempt.
+        # whether or not setsid forks. Retry only after termination and lock
+        # checks succeed; otherwise fail closed and leave runner cleanup to CI.
         run_deps_bounded() {
           limit="$1"
           pgid_file="$(mktemp)"
           setsid --fork --wait bash -c \
-            'ps -o pgid= -p $$ | tr -d " " > "$1"; exec npx playwright install-deps' _ "$pgid_file" &
+            'set -euo pipefail; ps -o pgid= -p $$ | tr -d " " > "$1"; test -s "$1"; exec npx playwright install-deps' _ "$pgid_file" &
           wrapper_pid=$!
           waited=0
           while kill -0 "$wrapper_pid" 2>/dev/null; do
             if [ "$waited" -ge "$limit" ]; then
               pgid="$(tr -d '[:space:]' < "$pgid_file" 2>/dev/null || true)"
               echo "install-deps exceeded ${limit}s; killing its whole process group (${pgid:-unknown})"
-              if [ -n "$pgid" ]; then
-                sudo kill -TERM "-${pgid}" 2>/dev/null || true
-                sleep 5
-                sudo kill -KILL "-${pgid}" 2>/dev/null || true
-              fi
-              wait "$wrapper_pid" 2>/dev/null || true
-              return 124
+              case "$pgid" in
+                ''|*[!0-9]*|0|1)
+                  echo "No safe dependency process group was recorded; refusing to retry."
+                  kill -KILL "$wrapper_pid" 2>/dev/null || true
+                  return 125
+                  ;;
+              esac
+              # Explicit -- prevents a negative PGID being parsed as a signal.
+              sudo kill -TERM -- "-${pgid}" 2>/dev/null || true
+              sleep 5
+              sudo kill -KILL -- "-${pgid}" 2>/dev/null || true
+              # Never wait indefinitely after a failed signal. The wrapper
+              # should exit once its child group is gone; otherwise fail closed.
+              for _ in $(seq 1 20); do
+                if ! kill -0 "$wrapper_pid" 2>/dev/null; then
+                  wait "$wrapper_pid" 2>/dev/null || true
+                  if sudo kill -0 -- "-${pgid}" 2>/dev/null; then
+                    echo "Dependency process group survived cleanup; refusing to retry."
+                    return 125
+                  fi
+                  return 124
+                fi
+                sleep 1
+              done
+              echo "Dependency wrapper survived cleanup; refusing to retry."
+              kill -KILL "$wrapper_pid" 2>/dev/null || true
+              return 125
             fi
             sleep 2
             waited=$((waited + 2))
@@ -79,7 +99,13 @@ runs:
           if ! assert_apt_unlocked; then
             exit 1
           fi
-          sudo dpkg --configure -a || true
+          if [ "${status}" -eq 125 ]; then
+            exit 1
+          fi
+          sudo timeout --kill-after=5 60 dpkg --configure -a || true
+          if ! assert_apt_unlocked; then
+            exit 1
+          fi
         done
         echo "Playwright OS dependencies did not install in 2 bounded attempts."
         exit 1
