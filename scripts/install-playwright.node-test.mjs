@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -44,6 +44,12 @@ if(name==='setsid'){
 }else if(name==='sudo'){
   const command=args.shift();
   if(command==='tee'){process.stdin.resume();process.stdin.on('end',()=>process.exit(0));}
+  else if(command==='python3'){
+    log('fixture-mirror-preference');
+    if(args.length!==2||args[0]!=='-'||args[1]!=='/etc/apt')process.exit(2);
+    const result=spawnSync('/usr/bin/python3',['-',dir+'/apt'],{input:readFileSync(0),stdio:['pipe','inherit','inherit']});
+    process.exit(result.status??1);
+  }
   else if(command==='kill'){
     log('kill '+args.join(' '));
     const target=args.at(-1);
@@ -84,6 +90,7 @@ const alive = (pid) => {
 
 async function runFixture(mode) {
   const dir = mkdtempSync(path.join(tmpdir(), 'playwright-installer-contract-'));
+  mkdirSync(path.join(dir, 'apt'));
   const nativeSetsid = ['/usr/bin/setsid', '/bin/setsid'].find(file => existsSync(file));
   for (const command of ['sudo', 'npx', 'ps', ...(nativeSetsid ? [] : ['setsid'])]) {
     writeFileSync(path.join(dir, command), helper, { mode: 0o755 });
@@ -147,6 +154,7 @@ test('Playwright watchdog kills a TERM-resistant process group and retries only 
   assert.equal(result.expired, false, result.output);
   assert.equal(result.code, 0, result.output);
   assert.match(result.output, /Attempt 1 failed with status 124/);
+  assert.match(result.calls, /fixture-mirror-preference/);
   assert.match(result.calls, /kill -TERM -- -\d+/);
   assert.match(result.calls, /kill -KILL -- -\d+/);
   assert.ok(result.calls.indexOf('lock-check') < result.calls.indexOf('attempt 2'));
@@ -183,3 +191,61 @@ test('Playwright watchdog never retries while privileged package locks remain he
   assert.doesNotMatch(result.calls, /attempt 2/);
   assert.deepEqual(result.livePids, [], result.calls);
 });
+
+const mirrorScript = dependencyScript.match(/sudo python3 - \/etc\/apt <<'PY'\n([\s\S]*?)\nPY/)?.[1] || '';
+const azureArchive = 'http://azure.archive.ubuntu.com/ubuntu';
+const officialArchive = 'http://archive.ubuntu.com/ubuntu';
+
+for (const fixture of [
+  {
+    name: 'legacy lists',
+    files: {
+      'sources.list': `# ${azureArchive} is only a comment\ndeb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] ${azureArchive}/ noble main restricted\ndeb http://security.ubuntu.com/ubuntu noble-security main\ndeb https://packages.microsoft.com/repos/azure-cli noble main\n`,
+      'sources.list.d/vendor.list': 'deb https://azure.archive.ubuntu.com.example/ubuntu noble main\ndeb http://azure.archive.ubuntu.com/other-repo noble main\n',
+    },
+    changedPath: 'sources.list',
+  },
+  {
+    name: 'deb822 URIs with continuation lines',
+    files: {
+      'sources.list.d/ubuntu.sources': `# ${azureArchive} is only a comment\nTypes: deb deb-src\nURIs: ${azureArchive}/\n https://azure.archive.ubuntu.com/ubuntu\nSuites: noble noble-updates noble-backports\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\nTypes: deb\nURIs: http://security.ubuntu.com/ubuntu\nSuites: noble-security\nComponents: main\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n`,
+      'sources.list.d/vendor.sources': 'Types: deb\nURIs: https://packages.microsoft.com/ubuntu/24.04/prod\nSuites: noble\nComponents: main\nSigned-By: /usr/share/keyrings/microsoft-prod.gpg\n',
+    },
+    changedPath: 'sources.list.d/ubuntu.sources',
+  },
+  {
+    name: 'runner mirror+file configuration',
+    files: {
+      'sources.list': 'deb mirror+file:/etc/apt/apt-mirrors.txt noble main restricted\n',
+      'sources.list.d/ubuntu.sources': 'Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\nSuites: noble noble-updates noble-security\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n',
+      'apt-mirrors.txt': `${azureArchive}/\tpriority:1\nhttps://archive.ubuntu.com/ubuntu/\nhttp://security.ubuntu.com/ubuntu/\nhttps://packages.microsoft.com/ubuntu/24.04/prod\n`,
+    },
+    changedPath: 'apt-mirrors.txt',
+  },
+]) {
+  test(`Ubuntu mirror preference preserves repository policy for ${fixture.name}`, () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'playwright-apt-mirror-contract-'));
+    try {
+      for (const [name, contents] of Object.entries(fixture.files)) {
+        mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+        writeFileSync(path.join(dir, name), contents);
+      }
+      const run = () => spawnSync('/usr/bin/python3', ['-', dir], { input: mirrorScript, encoding: 'utf8' });
+      const first = run();
+      assert.equal(first.status, 0, first.stderr);
+      const changed = fixture.files[fixture.changedPath]
+        .split('\n')
+        .map(line => line.startsWith('#') ? line : line.replaceAll(azureArchive, officialArchive).replaceAll('https://azure.archive.ubuntu.com/ubuntu', 'https://archive.ubuntu.com/ubuntu'))
+        .join('\n');
+      for (const [name, original] of Object.entries(fixture.files)) {
+        assert.equal(readFileSync(path.join(dir, name), 'utf8'), name === fixture.changedPath ? changed : original, name);
+      }
+      const second = run();
+      assert.equal(second.status, 0, second.stderr);
+      assert.equal(second.stdout, '', 'Already-preferred repositories must not be rewritten');
+      assert.equal(readFileSync(path.join(dir, fixture.changedPath), 'utf8'), changed);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
