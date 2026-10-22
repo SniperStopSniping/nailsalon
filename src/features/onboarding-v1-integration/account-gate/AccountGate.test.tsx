@@ -846,4 +846,46 @@ describe('PremiumAccountGate', () => {
 
     expect(reload).toHaveBeenCalledTimes(2);
   });
+
+  it('shows the provider password minimum and recovers after editing and retrying', async () => {
+    const user = userEvent.setup();
+    mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+    mocks.signUp.create
+      .mockRejectedValueOnce({ errors: [{
+        code: 'form_password_length_too_short',
+        longMessage: 'Passwords must be 15 characters or more.',
+      }] })
+      .mockResolvedValueOnce({ status: 'missing_requirements' });
+    mocks.signUp.prepareEmailAddressVerification.mockResolvedValue({});
+    renderGate();
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await user.type(screen.getByLabelText('Email address'), 'synthetic-retry@example.com');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    const password = await screen.findByLabelText('Password');
+
+    expect(password).toBeRequired();
+    expect(password).not.toHaveAttribute('minlength');
+
+    await user.type(password, 'synthetic-first');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a password of at least 15 characters.');
+    expect(mocks.signUp.prepareEmailAddressVerification).not.toHaveBeenCalled();
+    expect(mocks.setActiveSignUp).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Create account and continue' })).toBeEnabled();
+
+    await user.clear(password);
+    await user.type(password, 'synthetic-replacement-password');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+
+    expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mocks.signUp.create).toHaveBeenCalledTimes(2);
+    expect(mocks.signUp.create).toHaveBeenNthCalledWith(2, {
+      emailAddress: 'synthetic-retry@example.com',
+      password: 'synthetic-replacement-password',
+    });
+    expect(mocks.signUp.prepareEmailAddressVerification).toHaveBeenCalledTimes(1);
+    expect(mocks.setActiveSignUp).not.toHaveBeenCalled();
+  });
 });
