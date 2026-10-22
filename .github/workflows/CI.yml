@@ -221,7 +221,7 @@ jobs:
           grep -Fqx '# skipped 0' release-dependency-pairs.tap
 
       - name: Test CI evidence and cancellation contracts
-        run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
+        run: node --test scripts/ci-workflow.node-test.mjs scripts/install-playwright.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
 
       # The deposits ladder is additive by construction. These paths carry the
       # SaaS billing surface, dependency manifests, migration set, deploy
@@ -1589,7 +1589,6 @@ jobs:
           grep -Fqx '# tests 3' tooling-dependency-security.log
           grep -Fqx '# pass 3' tooling-dependency-security.log
           grep -Fqx '# skipped 0' tooling-dependency-security.log
-
 
       - name: Verify scoped release-plugin Lodash with zero skips
         run: |
