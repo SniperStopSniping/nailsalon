@@ -878,7 +878,7 @@ async function syncExistingBusinessProfile(input: {
     if (soleTechnicianId && input.teamContinuationBaseline) {
       const [salon] = await database.select({ settings: salonSchema.settings })
         .from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
-      const settings = isRecord(salon?.settings) ? salon.settings : {};
+      const settings: Record<string, unknown> = isRecord(salon?.settings) ? salon.settings : {};
       const ownership = isRecord(settings.onboardingOwnership) ? settings.onboardingOwnership : {};
       // Only createBusiness writes this binding. Never infer ownership from a
       // sole staff row or matching contact details, and never rewrite team identity.
