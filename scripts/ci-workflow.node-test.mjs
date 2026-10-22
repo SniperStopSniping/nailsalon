@@ -475,7 +475,7 @@ test('the required component job runs onboarding tests with their package config
   assert.equal(layout.run, 'npx playwright test --config playwright.layout-previews.config.ts');
   assert.equal(layout['timeout-minutes'], 10);
   for (const candidate of [prepare, unit, step, layout]) {
-    assert.equal(candidate.if, "matrix.suite == 'onboarding-owner'");
+    assert.equal(candidate.if, 'matrix.suite == \'onboarding-owner\'');
     assert.equal(candidate['working-directory'], step['working-directory']);
     assert.equal(candidate['continue-on-error'], undefined);
   }
