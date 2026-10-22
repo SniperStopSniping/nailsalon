@@ -59,6 +59,13 @@ const ORGANIZATION_SIGN_IN_AGAIN_MESSAGE = 'We couldn’t activate your business
 const ORGANIZATION_SESSION_ENDED_MESSAGE = 'Your sign-in session ended. Sign in again to continue.';
 const ENDED_SESSION_STATUSES = new Set(['abandoned', 'ended', 'expired', 'removed', 'replaced', 'revoked']);
 
+type AccountHandoff = { sessionId: string | null };
+
+type CompletedSessionNavigation = (input: {
+  session: { id: string; status: string; currentTask?: unknown };
+  decorateUrl?: (url: string) => string;
+}) => void;
+
 type PendingSessionTask = {
   sessionId: string;
   taskKey: string;
@@ -137,7 +144,14 @@ export function PremiumAccountGate({
   const orgAttemptedKeysRef = useRef(new Set<string>());
   const orgResolutionInFlightKeysRef = useRef(new Set<string>());
   const signUpFinalizationSupersededRef = useRef(false);
+  const orgTransientRetryKeysRef = useRef(new Set<string>());
+  const orgTransientRetryUsedKeysRef = useRef(new Set<string>());
   const pendingTaskRef = useRef<PendingSessionTask | null>(null);
+  // Object identity fences async work; signup and its organization task share
+  // one attempt, while an ended/replaced session invalidates older callbacks.
+  const accountHandoffRef = useRef<AccountHandoff>({ sessionId: null });
+  const observedSessionRef = useRef<unknown>(clerk.session);
+  const navigationStartedRef = useRef(false);
   const mountedRef = useRef(true);
   const signOutInFlightRef = useRef(false);
   const sessionVerifyPreparedRef = useRef(false);
@@ -146,6 +160,43 @@ export function PremiumAccountGate({
 
   const onboardingRoute = getOnboardingIntegrationRoute(locale);
   const claimUrl = `${onboardingRoute}?claim=1`;
+  const beginAccountHandoff = useCallback(() => {
+    const attempt: AccountHandoff = { sessionId: null };
+    accountHandoffRef.current = attempt;
+    return attempt;
+  }, []);
+
+  const isCurrentAccountHandoff = useCallback((attempt: AccountHandoff, sessionId: string | null) => {
+    const observed = observedSessionRef.current as { id?: unknown; status?: unknown } | null;
+    const current = clerk.session;
+    return mountedRef.current && accountHandoffRef.current === attempt && Boolean(sessionId)
+      && (!current || (current.id === sessionId && !ENDED_SESSION_STATUSES.has(current.status)))
+      && (!observed || (observed.id === sessionId
+        && !(typeof observed.status === 'string' && ENDED_SESSION_STATUSES.has(observed.status))));
+  }, [clerk]);
+
+  const completedSessionNavigation = useCallback((
+    sessionId: string | null,
+    attempt = accountHandoffRef.current,
+  ): CompletedSessionNavigation => {
+    if (sessionId && accountHandoffRef.current === attempt && !attempt.sessionId) {
+      attempt.sessionId = sessionId;
+    }
+    return ({ session, decorateUrl }) => {
+      if (
+        navigationStartedRef.current || !isCurrentAccountHandoff(attempt, sessionId)
+        || !sessionId || attempt.sessionId !== sessionId
+        || session.id !== sessionId || session.status !== 'active' || session.currentTask
+      ) {
+        return;
+      }
+      navigationStartedRef.current = true;
+      // Supported Clerk handoff: fresh context resumes the persisted draft.
+      // The parent and server still enforce verified email and tenant access.
+      window.location.assign(decorateUrl ? decorateUrl(claimUrl) : claimUrl);
+    };
+  }, [claimUrl, isCurrentAccountHandoff]);
+
   const salonName = state.profile.businessName.trim() || 'Your nail studio';
   const selectedServices = state.profile.serviceMenu.selectedServiceIds.length;
   const isEarlySave = state.progress.currentScreen === 'save_progress';
@@ -209,14 +260,30 @@ export function PremiumAccountGate({
       if (!mountedRef.current) {
         return;
       }
+      // Undefined is Clerk loading state; retain the pending task until a
+      // concrete session event completes or invalidates it.
+      if (nextSession === undefined) {
+        return;
+      }
+      observedSessionRef.current = nextSession;
+      const expected = accountHandoffRef.current.sessionId;
+      const observed = nextSession as { id?: unknown; status?: unknown } | null;
+      if (expected && (!observed || observed.id !== expected
+        || (typeof observed.status === 'string' && ENDED_SESSION_STATUSES.has(observed.status)))) {
+        accountHandoffRef.current = { sessionId: null };
+      }
       const nextTask = derivePendingSessionTask(nextSession);
       const previousTask = pendingTaskRef.current;
+      if (previousTask && (nextTask?.sessionId !== previousTask.sessionId
+        || nextTask?.taskKey !== previousTask.taskKey)) {
+        orgTransientRetryKeysRef.current.delete(`${previousTask.sessionId}\u0000${previousTask.taskKey}`);
+      }
       pendingTaskRef.current = nextTask;
       setPendingTask(nextTask);
       const nextStatus = nextSession && typeof nextSession === 'object'
         ? (nextSession as { status?: unknown }).status
         : null;
-      const ended = nextSession === null || nextSession === undefined
+      const ended = nextSession === null
         || (typeof nextStatus === 'string' && ENDED_SESSION_STATUSES.has(nextStatus));
       if (nextTask || ended) {
         signUpFinalizationSupersededRef.current = true;
@@ -236,8 +303,12 @@ export function PremiumAccountGate({
     if (orgResolutionInFlightKeysRef.current.has(taskKey)) {
       return;
     }
-    if (!explicitRetry && orgAttemptedKeysRef.current.has(taskKey)) {
+    if (!explicitRetry && orgAttemptedKeysRef.current.has(taskKey)
+      && !orgTransientRetryKeysRef.current.has(taskKey)) {
       return;
+    }
+    if (orgTransientRetryKeysRef.current.delete(taskKey)) {
+      orgTransientRetryUsedKeysRef.current.add(taskKey);
     }
     orgAttemptedKeysRef.current.add(taskKey);
     orgResolutionInFlightKeysRef.current.add(taskKey);
@@ -247,6 +318,20 @@ export function PremiumAccountGate({
     const isCurrentTask = () => {
       const current = pendingTaskRef.current;
       const rawTask = derivePendingSessionTask(clerk.session);
+      if (mountedRef.current && current?.sessionId === task.sessionId
+        && current.taskKey === task.taskKey && clerk.session === undefined) {
+        // One recovery attempt, only when a subsequent session event restores
+        // this same task. Explicit sign-out/replacement cannot qualify.
+        if (orgTransientRetryUsedKeysRef.current.has(taskKey)) {
+          setStep({
+            kind: 'setup-error',
+            message: 'We couldn’t finish setting up your business. Please try again.',
+            retryable: true,
+          });
+        } else {
+          orgTransientRetryKeysRef.current.add(taskKey);
+        }
+      }
       return rawTask?.sessionId === task.sessionId
         && rawTask.taskKey === task.taskKey
         && mountedRef.current
@@ -290,6 +375,7 @@ export function PremiumAccountGate({
           await clerk.setActive({
             organization: firstOrganization.id,
             session: task.sessionId,
+            navigate: completedSessionNavigation(task.sessionId),
           });
         } catch {
           if (isCurrentTask()) {
@@ -333,8 +419,17 @@ export function PremiumAccountGate({
       });
     } finally {
       orgResolutionInFlightKeysRef.current.delete(taskKey);
+      const current = pendingTaskRef.current;
+      const rawTask = derivePendingSessionTask(clerk.session);
+      if (mountedRef.current && orgTransientRetryKeysRef.current.has(taskKey)
+        && current?.sessionId === task.sessionId && current.taskKey === task.taskKey
+        && rawTask?.sessionId === task.sessionId && rawTask.taskKey === task.taskKey) {
+        // A restoration event may have arrived while the request was still
+        // in flight. Wake its effect after releasing the in-flight fence.
+        setPendingTask({ ...current });
+      }
     }
-  }, [clerk, salonName]);
+  }, [clerk, completedSessionNavigation, salonName]);
 
   // A pending session with the choose-organization task never shows a
   // generic Clerk screen: the business shell is resolved server-side, named
@@ -459,14 +554,21 @@ export function PremiumAccountGate({
     clearTransient();
     try {
       if (step.mode === 'new') {
+        const attempt = beginAccountHandoff();
         const { error } = await signUp.password({
           emailAddress: step.email,
           password: passwordValue,
         });
+        if (!mountedRef.current || accountHandoffRef.current !== attempt) {
+          return;
+        }
         if (error) {
           throw error;
         }
         if (signUp.status === 'complete') {
+          if (!isCurrentAccountHandoff(attempt, signUp.createdSessionId)) {
+            return;
+          }
           // Instances that don't require the email attribute complete the
           // sign-up immediately with the address still unverified. Activate
           // the session; the controller then holds the flow in the
@@ -474,7 +576,9 @@ export function PremiumAccountGate({
           // claim never starts early.
           signUpFinalizationSupersededRef.current = false;
           setStep({ kind: 'finalizing' });
-          const finalized = await signUp.finalize();
+          const finalized = await signUp.finalize({
+            navigate: completedSessionNavigation(signUp.createdSessionId, attempt),
+          });
           if (finalized.error) {
             if (!signUpFinalizationSupersededRef.current) {
               setStep(current => current.kind === 'finalizing' ? step : current);
@@ -519,8 +623,11 @@ export function PremiumAccountGate({
       setBusy(false);
     }
   }, [
+    beginAccountHandoff,
     busy,
     clearTransient,
+    completedSessionNavigation,
+    isCurrentAccountHandoff,
     moveToStep,
     passwordValue,
     setActive,
@@ -538,16 +645,25 @@ export function PremiumAccountGate({
     setBusy(true);
     clearTransient();
     try {
+      const attempt = beginAccountHandoff();
       const { error } = await signUp.verifications.verifyEmailCode({ code });
+      if (!mountedRef.current || accountHandoffRef.current !== attempt) {
+        return;
+      }
       if (error) {
         setFormError(describeClerkError(error, 'We couldn’t verify your email. Try again.'));
         return;
       }
       if (signUp.status === 'complete') {
+        if (!isCurrentAccountHandoff(attempt, signUp.createdSessionId)) {
+          return;
+        }
         try {
           signUpFinalizationSupersededRef.current = false;
           setStep({ kind: 'finalizing' });
-          const finalized = await signUp.finalize();
+          const finalized = await signUp.finalize({
+            navigate: completedSessionNavigation(signUp.createdSessionId, attempt),
+          });
           if (finalized.error) {
             if (!signUpFinalizationSupersededRef.current) {
               setStep(current => current.kind === 'finalizing' ? step : current);
@@ -573,7 +689,7 @@ export function PremiumAccountGate({
     } finally {
       setBusy(false);
     }
-  }, [busy, clearTransient, codeValue, signUp, step]);
+  }, [beginAccountHandoff, busy, clearTransient, codeValue, completedSessionNavigation, isCurrentAccountHandoff, signUp, step]);
 
   const submitSessionCode = useCallback(async (event: FormEvent) => {
     event.preventDefault();
@@ -715,7 +831,11 @@ export function PremiumAccountGate({
     setBusy(true);
     clearTransient();
     try {
-      await clerk.setActive({ organization: organizationId, session: selectedTask.sessionId });
+      await clerk.setActive({
+        organization: organizationId,
+        session: selectedTask.sessionId,
+        navigate: completedSessionNavigation(selectedTask.sessionId),
+      });
       const current = pendingTaskRef.current;
       if (current?.sessionId === selectedTask.sessionId && current.taskKey === selectedTask.taskKey) {
         setStep({ kind: 'finalizing' });
@@ -728,7 +848,7 @@ export function PremiumAccountGate({
     } finally {
       setBusy(false);
     }
-  }, [busy, clearTransient, clerk, pendingTask, step]);
+  }, [busy, clearTransient, clerk, completedSessionNavigation, pendingTask, step]);
 
   if (ssoCallback) {
     return (
@@ -1035,7 +1155,6 @@ export function PremiumAccountGate({
                 autoComplete={step.mode === 'new' ? 'new-password' : 'current-password'}
                 className="onboarding-gate__input"
                 id="onboarding-gate-password"
-                minLength={step.mode === 'new' ? 8 : undefined}
                 name="password"
                 ref={focusTargetRef}
                 required
@@ -1130,7 +1249,6 @@ export function PremiumAccountGate({
                 autoComplete="new-password"
                 className="onboarding-gate__input"
                 id="onboarding-gate-new-password"
-                minLength={8}
                 name="new-password"
                 ref={focusTargetRef}
                 required

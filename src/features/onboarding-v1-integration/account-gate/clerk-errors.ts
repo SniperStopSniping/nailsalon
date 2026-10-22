@@ -18,7 +18,7 @@ const OWNER_MESSAGE_BY_CLERK_CODE: Record<string, string> = {
   form_identifier_not_found: 'We couldn’t find a Luster account for this email.',
   form_param_format_invalid: 'Enter a valid email address.',
   form_password_incorrect: 'That password doesn’t match this account.',
-  form_password_length_too_short: 'Choose a longer password of at least eight characters.',
+  form_password_length_too_short: 'Choose a longer password.',
   form_password_pwned: 'That password has appeared in a known data breach. Choose a different one.',
   form_password_validation_failed: 'That password doesn’t match this account.',
   session_exists: 'You’re already signed in on this device.',
@@ -39,10 +39,31 @@ export const getClerkErrorCode = (error: unknown): string | null => {
   return typeof first.code === 'string' && first.code ? first.code : null;
 };
 
+// Clerk documents the minimum in this error's message, not in numeric meta.
+// Accept only that exact format and render our own copy; never echo raw prose.
+// https://clerk.com/docs/guides/development/errors/backend-api#forminvalidpasswordlengthtooshort
+const describePasswordMinimum = (error: unknown): string | null => {
+  const first = (error as { errors: ClerkApiErrorLike[] }).errors[0];
+  for (const message of [first?.longMessage, first?.message]) {
+    if (typeof message !== 'string' || message.length > 80) {
+      continue;
+    }
+    const match = /^Passwords must be ([1-9]\d{0,3}) characters or more\.$/u.exec(message);
+    const minimum = match ? Number(match[1]) : 0;
+    if (match?.[0] === message && minimum > 0 && minimum <= 1024) {
+      return `Choose a password of at least ${minimum} characters.`;
+    }
+  }
+  return null;
+};
+
 export const describeClerkError = (
   error: unknown,
   fallback: string,
 ): string => {
   const code = getClerkErrorCode(error);
+  if (code === 'form_password_length_too_short') {
+    return describePasswordMinimum(error) || OWNER_MESSAGE_BY_CLERK_CODE[code]!;
+  }
   return (code && OWNER_MESSAGE_BY_CLERK_CODE[code]) || fallback;
 };

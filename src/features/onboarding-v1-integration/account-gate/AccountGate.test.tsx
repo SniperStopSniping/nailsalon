@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { onTestFinished } from 'vitest';
 
 import { initializeStarter } from '../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { createDefaultOnboardingState } from '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
     resetPassword: vi.fn(),
   },
   signUp: {
+    createdSessionId: null as string | null,
     finalize: vi.fn(),
     password: vi.fn(),
     sso: vi.fn(),
@@ -127,6 +129,7 @@ describe('PremiumAccountGate', () => {
     mocks.clerk.session = null;
     mocks.userState.user = null;
     mocks.clerk.addListener.mockReturnValue(() => undefined);
+    mocks.signUp.createdSessionId = null;
     mocks.signUp.status = null;
     mocks.signUp.verifications.emailAddress.status = 'unverified';
     mocks.signUp.password.mockReset().mockImplementation(async () => {
@@ -135,6 +138,7 @@ describe('PremiumAccountGate', () => {
     });
     mocks.signUp.verifications.sendEmailCode.mockReset().mockResolvedValue({ error: null });
     mocks.signUp.verifications.verifyEmailCode.mockReset().mockImplementation(async () => {
+      mocks.signUp.createdSessionId = 'sess_new';
       mocks.signUp.status = 'complete';
       mocks.signUp.verifications.emailAddress.status = 'verified';
       return { error: null };
@@ -300,7 +304,7 @@ describe('PremiumAccountGate', () => {
     await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
 
     await waitFor(() => {
-      expect(mocks.signUp.finalize).toHaveBeenCalledWith();
+      expect(mocks.signUp.finalize).toHaveBeenCalledWith({ navigate: expect.any(Function) });
     });
   });
 
@@ -310,6 +314,7 @@ describe('PremiumAccountGate', () => {
       errors: [{ code: 'form_identifier_not_found' }],
     });
     mocks.signUp.password.mockImplementation(async () => {
+      mocks.signUp.createdSessionId = 'sess_new';
       mocks.signUp.status = 'complete';
       return { error: null };
     });
@@ -322,7 +327,7 @@ describe('PremiumAccountGate', () => {
     await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
 
     await waitFor(() => {
-      expect(mocks.signUp.finalize).toHaveBeenCalledWith();
+      expect(mocks.signUp.finalize).toHaveBeenCalledWith({ navigate: expect.any(Function) });
     });
 
     expect(mocks.signUp.verifications.sendEmailCode).not.toHaveBeenCalled();
@@ -588,6 +593,7 @@ describe('PremiumAccountGate', () => {
       expect(mocks.clerk.setActive).toHaveBeenCalledWith({
         organization: 'org_1',
         session: 'sess_pending',
+        navigate: expect.any(Function),
       });
     });
 
@@ -660,6 +666,7 @@ describe('PremiumAccountGate', () => {
       expect(mocks.clerk.setActive).toHaveBeenCalledWith({
         organization: 'org_b',
         session: 'sess_pending',
+        navigate: expect.any(Function),
       });
     });
   });
@@ -734,6 +741,7 @@ describe('PremiumAccountGate', () => {
       expect(mocks.clerk.setActive).toHaveBeenCalledWith({
         organization: 'org_1',
         session: 'sess_pending',
+        navigate: expect.any(Function),
       });
     });
 
@@ -821,7 +829,7 @@ describe('PremiumAccountGate', () => {
       finishFirst({ created: true, organizations: [{ id: 'org_old', name: 'Old Business' }] });
     });
 
-    expect(mocks.clerk.setActive).not.toHaveBeenCalledWith({ organization: 'org_old', session: 'sess_old' });
+    expect(mocks.clerk.setActive).not.toHaveBeenCalledWith(expect.objectContaining({ organization: 'org_old', session: 'sess_old' }));
     expect(view.container).not.toHaveTextContent('Old Business');
   });
 
@@ -887,7 +895,7 @@ describe('PremiumAccountGate', () => {
 
     await waitFor(() => {
       expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2);
-      expect(mocks.clerk.setActive).toHaveBeenCalledWith({ organization: 'org_new', session: 'sess_new' });
+      expect(mocks.clerk.setActive).toHaveBeenCalledWith({ organization: 'org_new', session: 'sess_new', navigate: expect.any(Function) });
     });
   });
 
@@ -1056,5 +1064,342 @@ describe('PremiumAccountGate', () => {
     await waitFor(() => expect(onSessionEmailVerified).toHaveBeenCalledTimes(1));
 
     expect(reload).toHaveBeenCalledTimes(2);
+  });
+
+  describe('completed-session navigation', () => {
+    type Session = { id: string; status: string; currentTask?: { key: string } | null };
+    type Navigate = (input: { session: Session; decorateUrl?: (url: string) => string }) => void;
+    const active: Session = { id: 'sess_handoff', status: 'active', currentTask: null };
+    let assign: ReturnType<typeof vi.fn>;
+    let emit: (session: unknown) => void;
+
+    beforeEach(() => {
+      const originalLocation = window.location;
+      assign = vi.fn();
+      Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, assign } });
+      onTestFinished(() => {
+        Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+      });
+      mocks.signUp.finalize.mockReset().mockResolvedValue({ error: null });
+      mocks.clerk.setActive.mockReset().mockResolvedValue(undefined);
+      mocks.clerk.addListener.mockImplementation((listener) => {
+        emit = (session) => {
+          mocks.clerk.session = session;
+          listener({ session });
+        };
+        return () => undefined;
+      });
+    });
+
+    async function completedSignup() {
+      const user = userEvent.setup();
+      mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+      mocks.signUp.password.mockImplementationOnce(async () => {
+        mocks.signUp.createdSessionId = active.id;
+        mocks.signUp.status = 'complete';
+        return { error: null };
+      });
+      const view = renderGate();
+      await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+      await user.type(screen.getByLabelText('Email address'), 'handoff+clerk_test@example.com');
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      await user.type(await screen.findByLabelText('Password'), 'synthetic-handoff-password');
+      await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+      await waitFor(() => expect(mocks.signUp.finalize).toHaveBeenCalledTimes(1));
+      return { view, navigate: mocks.signUp.finalize.mock.calls[0]![0].navigate as Navigate };
+    }
+
+    it('navigates once only for its completed session and uses the decorated claim route', async () => {
+      const { navigate } = await completedSignup();
+      const decorateUrl = vi.fn((url: string) => `${url}&handoff=synthetic`);
+      for (const session of [
+        { ...active, id: 'sess_other' },
+        { ...active, status: 'pending' },
+        { ...active, currentTask: { key: 'choose-organization' } },
+      ]) {
+        navigate({ session, decorateUrl });
+      }
+
+      expect(assign).not.toHaveBeenCalled();
+
+      navigate({ session: active, decorateUrl });
+      navigate({ session: active, decorateUrl });
+
+      expect(decorateUrl).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1');
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&handoff=synthetic');
+    });
+
+    it('falls back to the claim route when a callback has no URL decorator', async () => {
+      const { navigate } = await completedSignup();
+      navigate({ session: active });
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1');
+    });
+
+    it.each(['token', 'lookup'])('preserves an in-flight organization task across undefined during %s', async (phase) => {
+      let resolve!: (value: never) => void;
+      const deferred = new Promise<never>((done) => {
+        resolve = done;
+      });
+      const pending = { ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: mocks.getToken };
+      const resolution = { created: false, organizations: [{ id: 'org_handoff', name: 'Handoff Studio' }] };
+      mocks.clerk.session = pending;
+      if (phase === 'token') {
+        mocks.getToken.mockReturnValueOnce(deferred);
+      }
+      mocks.resolveOrganization.mockReset().mockResolvedValue(resolution);
+      if (phase === 'lookup') {
+        mocks.resolveOrganization.mockReturnValueOnce(deferred);
+      }
+      renderGate();
+      await waitFor(() => expect(phase === 'token' ? mocks.getToken : mocks.resolveOrganization).toHaveBeenCalledTimes(1));
+      act(() => {
+        emit(undefined);
+        emit(pending);
+      });
+      await act(async () => {
+        resolve((phase === 'token' ? 'synthetic-token' : resolution) as never);
+      });
+      await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1));
+
+      expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries only once on a subsequent same-task event after lookup completes while undefined', async () => {
+      let resolve!: (value: unknown) => void;
+      const deferred = new Promise((done) => {
+        resolve = done;
+      });
+      const pending = { ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: mocks.getToken };
+      const resolution = { created: false, organizations: [{ id: 'org_handoff', name: 'Handoff Studio' }] };
+      mocks.clerk.session = pending;
+      mocks.resolveOrganization.mockReturnValueOnce(deferred).mockImplementationOnce(async () => {
+        emit(undefined);
+        return resolution;
+      });
+      renderGate();
+      await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1));
+      act(() => emit(undefined));
+      await act(async () => {
+        resolve(resolution);
+      });
+
+      expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+
+      act(() => emit(pending));
+      await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2));
+      act(() => emit(pending));
+      await act(async () => {});
+
+      expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2);
+      expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+      expect(assign).not.toHaveBeenCalled();
+
+      const retry = await screen.findByRole('button', { name: 'Retry business setup' });
+      mocks.resolveOrganization.mockResolvedValueOnce(resolution);
+      await userEvent.setup().click(retry);
+      await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1));
+
+      expect(mocks.resolveOrganization).toHaveBeenCalledTimes(3);
+
+      const navigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+      navigate({ session: active, decorateUrl: url => url });
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1');
+    });
+
+    it.each([null, { ...active, status: 'revoked' }, { ...active, id: 'sess_replacement' }])(
+      'does not recover a transient lookup after explicit session invalidation: %j',
+      async (invalid) => {
+        let resolve!: (value: unknown) => void;
+        const deferred = new Promise((done) => {
+          resolve = done;
+        });
+        const pending = { ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: mocks.getToken };
+        mocks.clerk.session = pending;
+        mocks.resolveOrganization.mockReturnValueOnce(deferred);
+        renderGate();
+        await waitFor(() => expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1));
+        act(() => emit(undefined));
+        await act(async () => {
+          resolve({ created: false, organizations: [{ id: 'org_handoff', name: 'Handoff Studio' }] });
+        });
+        act(() => {
+          emit(invalid);
+          emit(pending);
+        });
+        await act(async () => {});
+
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+        expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+      },
+    );
+
+    it('shares one navigation between organization activation and a later signup callback', async () => {
+      const { navigate: signupNavigate } = await completedSignup();
+      mocks.resolveOrganization.mockResolvedValueOnce({ created: true, organizations: [{ id: 'org_handoff', name: 'Handoff Studio' }] });
+      act(() => emit({ ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: mocks.getToken }));
+      await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1));
+      const orgNavigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+      const decorateUrl = vi.fn((url: string) => url);
+      // Model a loading emission before navigate while the previous raw
+      // session is pending. Loading alone does not establish sign-out.
+      act(() => emit(undefined));
+
+      expect(screen.queryByText('Your sign-in session ended. Sign in again to continue.')).not.toBeInTheDocument();
+
+      orgNavigate({ session: active, decorateUrl });
+      signupNavigate({ session: active, decorateUrl });
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1');
+    });
+
+    it.each([
+      null,
+      { ...active, status: 'ended' },
+      { ...active, status: 'revoked' },
+      { ...active, id: 'sess_replacement' },
+    ])('ignores delayed completion after an ended or replaced session: %j', async (session) => {
+      const { navigate } = await completedSignup();
+      act(() => emit(session));
+      navigate({ session: active, decorateUrl: url => url });
+
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('ignores a stale callback when raw session changes before a listener is delivered', async () => {
+      const { navigate } = await completedSignup();
+      mocks.clerk.session = { id: 'sess_replacement', status: 'active' };
+      navigate({ session: active, decorateUrl: url => url });
+
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('ignores completion after unmount', async () => {
+      const { view, navigate } = await completedSignup();
+      view.unmount();
+      navigate({ session: active, decorateUrl: url => url });
+
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('navigates from an existing pending organization only after that session becomes active', async () => {
+      mocks.clerk.session = { ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: mocks.getToken };
+      mocks.resolveOrganization.mockResolvedValueOnce({ created: false, organizations: [{ id: 'org_handoff', name: 'Handoff Studio' }] });
+      renderGate();
+      await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1));
+      const navigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+      navigate({ session: { ...active, status: 'pending' }, decorateUrl: url => url });
+
+      expect(assign).not.toHaveBeenCalled();
+
+      act(() => emit(active));
+      navigate({ session: active, decorateUrl: url => url });
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1');
+    });
+
+    it.each(['complete', 'missing_requirements'])('allows pre-session null emissions during signup and verification (%s)', async (status) => {
+      const user = userEvent.setup();
+      mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+      mocks.signUp.password.mockImplementationOnce(async () => {
+        emit(null);
+        mocks.signUp.createdSessionId = status === 'complete' ? active.id : null;
+        mocks.signUp.status = status;
+        return { error: null };
+      });
+      mocks.signUp.verifications.sendEmailCode.mockResolvedValueOnce({ error: null });
+      mocks.signUp.verifications.verifyEmailCode.mockImplementationOnce(async () => {
+        emit(null);
+        mocks.signUp.createdSessionId = active.id;
+        mocks.signUp.status = 'complete';
+        mocks.signUp.verifications.emailAddress.status = 'verified';
+        return { error: null };
+      });
+      renderGate();
+      await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+      await user.type(screen.getByLabelText('Email address'), 'handoff+clerk_test@example.com');
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      await user.type(await screen.findByLabelText('Password'), 'synthetic-handoff-password');
+      await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+      if (status === 'missing_requirements') {
+        expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeVisible();
+
+        await user.type(screen.getByLabelText('Verification code'), '424242');
+        await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+      }
+      await waitFor(() => expect(mocks.signUp.finalize).toHaveBeenCalledTimes(1));
+      const navigate = mocks.signUp.finalize.mock.calls[0]![0].navigate as Navigate;
+      navigate({ session: active, decorateUrl: url => url });
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1');
+    });
+
+    it('uses completed-session navigation after the owner selects an allowed organization', async () => {
+      const user = userEvent.setup();
+      mocks.clerk.session = { ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: mocks.getToken };
+      mocks.resolveOrganization.mockResolvedValueOnce({ created: false, organizations: [
+        { id: 'org_one', name: 'First Studio' },
+        { id: 'org_two', name: 'Second Studio' },
+      ] });
+      renderGate();
+      await user.click(await screen.findByRole('button', { name: 'Second Studio' }));
+
+      expect(mocks.clerk.setActive).toHaveBeenCalledWith({
+        organization: 'org_two',
+        session: active.id,
+        navigate: expect.any(Function),
+      });
+
+      const navigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+      navigate({ session: active, decorateUrl: url => `${url}&selected=synthetic` });
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&selected=synthetic');
+    });
+  });
+
+  it('shows the provider password minimum and recovers after editing and retrying', async () => {
+    const user = userEvent.setup();
+    mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+    mocks.signUp.password
+      .mockResolvedValueOnce({ error: { errors: [{
+        code: 'form_password_length_too_short',
+        longMessage: 'Passwords must be 15 characters or more.',
+      }] } })
+      .mockImplementationOnce(async () => {
+        mocks.signUp.status = 'missing_requirements';
+        return { error: null };
+      });
+    mocks.signUp.verifications.sendEmailCode.mockResolvedValue({ error: null });
+    renderGate();
+    await user.click(screen.getByRole('button', { name: 'Continue with email' }));
+    await user.type(screen.getByLabelText('Email address'), 'synthetic-retry@example.com');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    const password = await screen.findByLabelText('Password');
+
+    expect(password).toBeRequired();
+    expect(password).not.toHaveAttribute('minlength');
+
+    await user.type(password, 'synthetic-first');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a password of at least 15 characters.');
+    expect(mocks.signUp.verifications.sendEmailCode).not.toHaveBeenCalled();
+    expect(mocks.signUp.finalize).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Create account and continue' })).toBeEnabled();
+
+    await user.clear(password);
+    await user.type(password, 'synthetic-replacement-password');
+    await user.click(screen.getByRole('button', { name: 'Create account and continue' }));
+
+    expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mocks.signUp.password).toHaveBeenCalledTimes(2);
+    expect(mocks.signUp.password).toHaveBeenNthCalledWith(2, {
+      emailAddress: 'synthetic-retry@example.com',
+      password: 'synthetic-replacement-password',
+    });
+    expect(mocks.signUp.verifications.sendEmailCode).toHaveBeenCalledTimes(1);
+    expect(mocks.signUp.finalize).not.toHaveBeenCalled();
   });
 });
