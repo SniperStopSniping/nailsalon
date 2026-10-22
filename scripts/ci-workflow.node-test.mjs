@@ -61,6 +61,36 @@ test('Calendar PostgreSQL regressions are required and cannot silently skip', ()
   assert.equal(jobs.test.steps[0].env.GOOGLE_OUTBOX_RESULT, '${{ needs.google-outbox-postgres.result }}');
 });
 
+test('D5 browser setup is bounded and later PostgreSQL and mobile evidence remain required', () => {
+  const deposits = jobs['deposits-postgres-concurrency'];
+  const installer = deposits.steps.find(step => step.name === 'Install mobile browser engines for the real customer booking journey');
+  assert.ok(installer, 'D5 must install the engines needed by its mobile customer journey');
+  assert.equal(installer.uses, './.github/actions/install-playwright');
+  assert.equal(installer.run, undefined, 'D5 must use the bounded installer instead of an unbounded shell install');
+  assert.equal(installer['timeout-minutes'], 38);
+  assert.equal(deposits['timeout-minutes'], 55);
+  assert.equal(deposits.if, undefined);
+  assert.equal(deposits['continue-on-error'], undefined);
+  for (const step of [installer, ...[
+    'Verify Calendar read contention on real PostgreSQL with zero skips',
+    'Verify customer journey through real handlers and PostgreSQL in both mobile engines',
+    'Verify portfolio upload slot races on real PostgreSQL with zero skips',
+    'Verify scope-clean outbox mutants on real PostgreSQL with zero skips',
+    'Verify Next Visit offer races on real PostgreSQL with zero skips',
+  ].map((name) => {
+    const evidence = deposits.steps.find(step => step.name === name);
+    assert.ok(evidence, `D5 must retain required evidence: ${name}`);
+    assert.ok(deposits.steps.indexOf(evidence) > deposits.steps.indexOf(installer));
+    assert.match(evidence.run, /set -euo pipefail/);
+    assert.match(evidence.run, /npx vitest run/);
+    assert.match(evidence.run, /TESTS_SKIPPED=0/);
+    return evidence;
+  })]) {
+    assert.equal(step.if, undefined, `${step.name} must execute after successful prior steps`);
+    assert.equal(step['continue-on-error'], undefined, `${step.name} must fail the job on error`);
+  }
+});
+
 test('CI services use the reviewed digest-pinned Docker Official Images from the Google cache', () => {
   const approvedImages = {
     postgres: 'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
