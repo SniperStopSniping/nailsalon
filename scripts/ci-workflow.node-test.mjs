@@ -62,6 +62,13 @@ test('Calendar PostgreSQL regressions are required and cannot silently skip', ()
   assert.equal(jobs.test.steps[0].env.GOOGLE_OUTBOX_RESULT, '${{ needs.google-outbox-postgres.result }}');
 });
 
+test('required application evidence executes the offline Playwright watchdog contracts', () => {
+  const gate = jobs['test-core'].steps.find(step => step.name === 'Test CI evidence and cancellation contracts');
+  assert.ok(gate.run.includes('scripts/install-playwright.node-test.mjs'));
+  assert.equal(gate.if, undefined);
+  assert.equal(gate['continue-on-error'], undefined);
+});
+
 test('D5 browser setup is bounded and later PostgreSQL and mobile evidence remain required', () => {
   const deposits = jobs['deposits-postgres-concurrency'];
   const installer = deposits.steps.find(step => step.name === 'Install mobile browser engines for the real customer booking journey');
