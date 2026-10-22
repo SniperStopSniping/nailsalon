@@ -462,8 +462,26 @@ test('the required component job runs onboarding tests with their package config
   assert.ok(jobs.test.needs.includes('test-components'));
   const step = jobs['test-components'].steps.find(candidate => candidate.name === 'Verify onboarding confirmation and booking notice');
   assert.equal(step['working-directory'], 'prototypes/site-builder-v2-booking-integration-lab');
-  assert.match(step.run, /npm test -- --maxWorkers=2 --minWorkers=1/);
-  assert.match(step.run, /playwright\.layout-previews\.config\.ts/);
+  assert.equal(step.run, 'npx playwright test --config playwright.booking-preferences.config.ts');
+  assert.equal(step['timeout-minutes'], 5);
+  const steps = jobs['test-components'].steps;
+  const prepare = steps.find(candidate => candidate.name === 'Prepare onboarding lab dependencies and types');
+  const unit = steps.find(candidate => candidate.name === 'Verify onboarding lab unit tests');
+  const layout = steps.find(candidate => candidate.name === 'Verify onboarding layout previews and recovery');
+  assert.equal(prepare.run, 'npm ci\nnpm run typecheck\n');
+  assert.equal(prepare['timeout-minutes'], 10);
+  assert.equal(unit.run, 'npm test -- --maxWorkers=2 --minWorkers=1');
+  assert.equal(unit['timeout-minutes'], 8);
+  assert.equal(layout.run, 'npx playwright test --config playwright.layout-previews.config.ts');
+  assert.equal(layout['timeout-minutes'], 10);
+  for (const candidate of [prepare, unit, step, layout]) {
+    assert.equal(candidate.if, "matrix.suite == 'onboarding-owner'");
+    assert.equal(candidate['working-directory'], step['working-directory']);
+    assert.equal(candidate['continue-on-error'], undefined);
+  }
+  assert.equal(steps.indexOf(prepare) + 1, steps.indexOf(unit));
+  assert.equal(steps.indexOf(unit) + 1, steps.indexOf(step));
+  assert.equal(steps.indexOf(step) + 1, steps.indexOf(layout));
   assert.ok(jobs['test-core'].steps.some(candidate => candidate.run?.includes('scripts/test-changed-source.node-test.mjs')));
 });
 
@@ -476,7 +494,9 @@ test('all browser evidence runs exactly once across required independent groups'
   const expected = {
     'onboarding-owner': [
       'Verify HTTPS custom-site workers and opaque-origin isolation',
+      'Verify onboarding lab unit tests',
       'Verify onboarding confirmation and booking notice',
+      'Verify onboarding layout previews and recovery',
       'Verify SMS components and plan access in desktop and mobile browsers',
       'Verify review previews and delivery states in mobile browsers',
       'Verify no-show correction in desktop and mobile browsers',
@@ -543,7 +563,7 @@ test('all browser evidence runs exactly once across required independent groups'
   const upload = job.steps.at(-1);
   assert.equal(upload.if, 'always()');
   assert.equal(upload.with.name, 'component-test-results-${{ matrix.suite }}');
-  assert.equal(upload.with.path, 'test-results/');
+  assert.equal(upload.with.path, 'test-results/\n/tmp/luster-booking-confirmation-browser-results/\n/tmp/luster-layout-preview-browser-results/\n');
   const ownerRecovery = evidence.find(step => step.name === 'Verify owner assistant reload recovery and account isolation');
   assert.equal(ownerRecovery.run, 'node node_modules/playwright/cli.js test --config tests/browser/ownerAssistant/playwright.config.ts --output=test-results/owner-assistant-components');
   const dashboardStartup = evidence.find(step => step.name === 'Verify dashboard loading, recovery and salon context in mobile browsers');

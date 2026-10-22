@@ -1331,17 +1331,31 @@ jobs:
         timeout-minutes: 3
         run: node node_modules/@playwright/test/cli.js test --config tests/browser/rendererIsolationHttps/playwright.config.ts --output=test-results/renderer-https-isolation
 
-      - name: Verify onboarding confirmation and booking notice
+      - name: Prepare onboarding lab dependencies and types
         if: matrix.suite == 'onboarding-owner'
         working-directory: prototypes/site-builder-v2-booking-integration-lab
-        # The full lab suite and both device/browser matrices share this step.
-        timeout-minutes: 15
+        timeout-minutes: 10
         run: |
           npm ci
           npm run typecheck
-          npm test -- --maxWorkers=2 --minWorkers=1
-          npx playwright test --config playwright.booking-preferences.config.ts
-          npx playwright test --config playwright.layout-previews.config.ts
+
+      - name: Verify onboarding lab unit tests
+        if: matrix.suite == 'onboarding-owner'
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        timeout-minutes: 8
+        run: npm test -- --maxWorkers=2 --minWorkers=1
+
+      - name: Verify onboarding confirmation and booking notice
+        if: matrix.suite == 'onboarding-owner'
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        timeout-minutes: 5
+        run: npx playwright test --config playwright.booking-preferences.config.ts
+
+      - name: Verify onboarding layout previews and recovery
+        if: matrix.suite == 'onboarding-owner'
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        timeout-minutes: 10
+        run: npx playwright test --config playwright.layout-previews.config.ts
 
       - name: Verify SMS components and plan access in desktop and mobile browsers
         if: matrix.suite == 'onboarding-owner'
@@ -1500,7 +1514,10 @@ jobs:
         if: always()
         with:
           name: component-test-results-${{ matrix.suite }}
-          path: test-results/
+          path: |
+            test-results/
+            /tmp/luster-booking-confirmation-browser-results/
+            /tmp/luster-layout-preview-browser-results/
           retention-days: 7
 
   monitoring-node24:
