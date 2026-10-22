@@ -966,7 +966,6 @@ export function PremiumAccountGate({
                 autoComplete={step.mode === 'new' ? 'new-password' : 'current-password'}
                 className="onboarding-gate__input"
                 id="onboarding-gate-password"
-                minLength={step.mode === 'new' ? 8 : undefined}
                 name="password"
                 ref={focusTargetRef}
                 required
@@ -1061,7 +1060,6 @@ export function PremiumAccountGate({
                 autoComplete="new-password"
                 className="onboarding-gate__input"
                 id="onboarding-gate-new-password"
-                minLength={8}
                 name="new-password"
                 ref={focusTargetRef}
                 required
