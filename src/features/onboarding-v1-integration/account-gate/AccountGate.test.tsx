@@ -1109,6 +1109,354 @@ describe('PremiumAccountGate', () => {
       return { view, navigate: mocks.signUp.finalize.mock.calls[0]![0].navigate as Navigate };
     }
 
+    describe('bounded finalization recovery', () => {
+      const pending = () => ({ ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: mocks.getToken });
+      const resolution = { created: false, organizations: [{ id: 'org_handoff', name: 'Handoff Studio' }] };
+      function deferred<T>() {
+        let resolve!: (value: T) => void;
+        let reject!: (error: unknown) => void;
+        const promise = new Promise<T>((done, fail) => {
+          resolve = done;
+          reject = fail;
+        });
+        return { promise, resolve, reject };
+      }
+
+      beforeEach(() => {
+        vi.useFakeTimers();
+        onTestFinished(() => {
+          vi.useRealTimers();
+        });
+        mocks.resolveOrganization.mockReset().mockResolvedValue(resolution);
+      });
+
+      async function startSignup(needsSessionEmailVerification = false) {
+        mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+        mocks.signUp.password.mockImplementationOnce(async () => {
+          mocks.signUp.createdSessionId = active.id;
+          mocks.signUp.status = 'complete';
+          return { error: null };
+        });
+        const view = renderGate({ needsSessionEmailVerification });
+        fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
+        fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'bounded+clerk_test@example.com' } });
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+        });
+        fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'synthetic-bounded-password' } });
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Create account and continue' }));
+        });
+
+        expect(mocks.signUp.finalize).toHaveBeenCalledTimes(1);
+
+        return { view, navigate: mocks.signUp.finalize.mock.calls[0]![0].navigate as Navigate };
+      }
+      const advance = (ms = 30000) => act(() => {
+        vi.advanceTimersByTime(ms);
+      });
+      const panel = () => screen.getByRole('heading', { name: 'Connecting is taking longer than expected' });
+
+      it.each(['finalize', 'token', 'lookup', 'activation'] as const)('bounds never-settling %s without starting another operation', async (phase) => {
+        const waiting = new Promise<never>(() => {});
+        if (phase === 'finalize') {
+          mocks.signUp.finalize.mockReturnValueOnce(waiting);
+          await startSignup();
+          act(() => emit(active));
+        } else {
+          mocks.clerk.session = pending();
+          if (phase === 'token') {
+            mocks.getToken.mockReturnValueOnce(waiting);
+          }
+          if (phase === 'lookup') {
+            mocks.resolveOrganization.mockReturnValueOnce(waiting);
+          }
+          if (phase === 'activation') {
+            mocks.clerk.setActive.mockReturnValueOnce(waiting);
+          }
+          renderGate();
+          await act(async () => {});
+        }
+        advance(20000);
+        act(() => emit(phase === 'finalize' ? active : pending()));
+        advance(10000);
+
+        expect(panel()).toBeVisible();
+        expect(panel().parentElement).toHaveAttribute('aria-busy', 'false');
+        expect(panel().parentElement?.querySelector('.onboarding-integration-spinner')).toBeNull();
+        expect(screen.getByRole('link', { name: 'Contact Luster support' })).toHaveAttribute('href', 'mailto:support@lustergel.app');
+        expect(screen.queryByRole('button', { name: 'Continue securely' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+
+        advance(60000);
+
+        expect(mocks.signUp.finalize).toHaveBeenCalledTimes(phase === 'finalize' ? 1 : 0);
+        expect(mocks.getToken).toHaveBeenCalledTimes(phase === 'finalize' ? 0 : 1);
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(['lookup', 'activation'].includes(phase) ? 1 : 0);
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(phase === 'activation' ? 1 : 0);
+      });
+
+      it('keeps the deadline across signup-to-organization stages and duplicate task emissions', async () => {
+        const finalize = deferred<{ error: null }>();
+        const token = deferred<string>();
+        mocks.signUp.finalize.mockReturnValueOnce(finalize.promise);
+        mocks.getToken.mockReturnValueOnce(token.promise);
+        await startSignup();
+        advance(20000);
+        act(() => emit(pending()));
+        advance(9000);
+        act(() => emit(pending()));
+        advance(1000);
+
+        expect(panel()).toBeVisible();
+
+        await act(async () => {
+          finalize.resolve({ error: null });
+        });
+
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+        expect(mocks.getToken).toHaveBeenCalledTimes(1);
+        expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+      });
+
+      it('accepts late valid decorated navigation once while finalization is still pending', async () => {
+        const finalize = deferred<{ error: null }>();
+        mocks.signUp.finalize.mockReturnValueOnce(finalize.promise);
+        const { navigate } = await startSignup();
+        advance();
+
+        expect(panel()).toBeVisible();
+
+        act(() => emit(active));
+        act(() => {
+          navigate({ session: active, decorateUrl: url => `${url}&bounded=synthetic` });
+          navigate({ session: active });
+        });
+        await act(async () => {
+          finalize.resolve({ error: null });
+        });
+
+        expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&bounded=synthetic');
+        expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+      });
+
+      it('continues a settled active session once without changing its organization', async () => {
+        const activation = deferred<void>();
+        mocks.clerk.setActive.mockReturnValueOnce(activation.promise);
+        const { navigate } = await startSignup();
+        act(() => emit({ ...active, lastActiveOrganizationId: 'org_existing' }));
+        advance();
+        const button = screen.getByRole('button', { name: 'Continue securely' });
+        act(() => {
+          fireEvent.click(button);
+          fireEvent.click(button);
+        });
+
+        expect(mocks.clerk.setActive).toHaveBeenCalledExactlyOnceWith({ session: active.id, navigate: expect.any(Function) });
+        expect(mocks.clerk.setActive.mock.calls[0]![0]).not.toHaveProperty('organization');
+        expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+
+        advance();
+
+        expect(panel()).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Continue securely' })).not.toBeInTheDocument();
+
+        const recoveryNavigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+        act(() => {
+          recoveryNavigate({ session: active, decorateUrl: url => `${url}&recovered=synthetic` });
+          navigate({ session: active });
+        });
+        await act(async () => {
+          activation.resolve();
+        });
+
+        expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&recovered=synthetic');
+      });
+
+      it('withholds recovery through undefined and resumes the same expired deadline when restored', async () => {
+        await startSignup();
+        act(() => emit(active));
+        advance();
+
+        expect(screen.getByRole('button', { name: 'Continue securely' })).toBeVisible();
+
+        act(() => emit(undefined));
+
+        expect(panel()).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Continue securely' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+
+        act(() => emit(active));
+
+        expect(screen.getByRole('button', { name: 'Continue securely' })).toBeVisible();
+        expect(mocks.signUp.finalize).toHaveBeenCalledTimes(1);
+      });
+
+      it('keeps a settled transient continuation rejection actionable without organization provisioning', async () => {
+        mocks.clerk.setActive.mockRejectedValueOnce(new Error('Offline'));
+        await startSignup();
+        act(() => emit(active));
+        advance();
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Continue securely' }));
+        });
+
+        expect(panel()).toBeVisible();
+        expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t continue securely. Try again or contact Luster support.');
+        expect(screen.getByRole('button', { name: 'Continue securely' })).toBeEnabled();
+        expect(screen.getByRole('link', { name: 'Contact Luster support' })).toHaveAttribute('href', 'mailto:support@lustergel.app');
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
+        expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+        expect(assign).not.toHaveBeenCalled();
+      });
+
+      it.each(['SESSION_EXPIRED', 'organization_quota_exceeded'])('shows support without a generic retry for continuation %s', async (code) => {
+        mocks.clerk.setActive.mockRejectedValueOnce({ errors: [{ code }] });
+        await startSignup();
+        act(() => emit(active));
+        advance();
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Continue securely' }));
+        });
+
+        expect(screen.getByRole('heading', { name: 'Business setup needs attention' })).toBeVisible();
+        expect(screen.getByRole('link', { name: 'Contact Luster support' })).toHaveAttribute('href', 'mailto:support@lustergel.app');
+        expect(screen.queryByRole('button', { name: 'Continue securely' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+        expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+      });
+
+      it.each(['replacement', 'unmount'])('ignores a pending continuation rejection after %s', async (change) => {
+        const activation = deferred<void>();
+        mocks.clerk.setActive.mockReturnValueOnce(activation.promise);
+        const { view } = await startSignup();
+        act(() => emit(active));
+        advance();
+        fireEvent.click(screen.getByRole('button', { name: 'Continue securely' }));
+        if (change === 'replacement') {
+          act(() => emit({ ...active, id: 'sess_replacement' }));
+        } else {
+          view.unmount();
+        }
+        await act(async () => {
+          activation.reject(new Error('Stale activation failure'));
+        });
+        advance();
+
+        expect(screen.queryByText('We couldn’t continue securely. Try again or contact Luster support.')).not.toBeInTheDocument();
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
+        expect(mocks.resolveOrganization).not.toHaveBeenCalled();
+        expect(assign).not.toHaveBeenCalled();
+      });
+
+      it('allows exactly one explicit same-task retry only after existing organization work settles', async () => {
+        mocks.clerk.session = pending();
+        renderGate();
+        await act(async () => {});
+
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
+
+        advance();
+        const retry = deferred<typeof resolution>();
+        mocks.resolveOrganization.mockReturnValueOnce(retry.promise);
+        const button = screen.getByRole('button', { name: 'Retry business setup' });
+        act(() => {
+          fireEvent.click(button);
+          fireEvent.click(button);
+        });
+        await act(async () => {});
+
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(2);
+
+        act(() => emit(pending()));
+        advance();
+
+        expect(panel()).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+        expect(mocks.getToken).toHaveBeenCalledTimes(2);
+      });
+
+      it.each(['ORGANIZATION_QUOTA_EXCEEDED', 'SESSION_EXPIRED'])('preserves a late %s error without generic recovery', async (code) => {
+        const lookup = deferred<typeof resolution>();
+        mocks.clerk.session = pending();
+        mocks.resolveOrganization.mockReturnValueOnce(lookup.promise);
+        renderGate();
+        await act(async () => {});
+        advance();
+
+        expect(panel()).toBeVisible();
+
+        await act(async () => {
+          lookup.reject(Object.assign(new Error('Setup refused'), { code }));
+        });
+
+        expect(screen.getByRole('heading', { name: 'Business setup needs attention' })).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Continue securely' })).not.toBeInTheDocument();
+      });
+
+      it('preserves a late signup error after the recovery deadline', async () => {
+        const finalize = deferred<{ error: { message: string } }>();
+        mocks.signUp.finalize.mockReturnValueOnce(finalize.promise);
+        await startSignup();
+        advance();
+
+        expect(panel()).toBeVisible();
+
+        await act(async () => {
+          finalize.resolve({ error: { message: 'Final activation refused' } });
+        });
+
+        expect(screen.getByRole('alert')).toHaveTextContent('Your account was created, but we couldn’t sign you in. Try again.');
+        expect(screen.getByLabelText('Password')).toBeVisible();
+        expect(screen.queryByRole('heading', { name: 'Connecting is taking longer than expected' })).not.toBeInTheDocument();
+      });
+
+      it.each([null, { ...active, status: 'ended' }, { ...active, id: 'sess_other' }])('invalidates finalization without a previous task on %j', async (session) => {
+        const finalize = deferred<{ error: null }>();
+        mocks.signUp.finalize.mockReturnValueOnce(finalize.promise);
+        const { navigate } = await startSignup();
+        act(() => emit(session));
+        advance();
+
+        expect(screen.getByRole('alert')).toHaveTextContent('Your sign-in session ended');
+        expect(screen.queryByRole('heading', { name: 'Connecting is taking longer than expected' })).not.toBeInTheDocument();
+
+        await act(async () => {
+          finalize.reject(new Error('Old failure'));
+        });
+        navigate({ session: active });
+
+        expect(assign).not.toHaveBeenCalled();
+        expect(screen.getByRole('alert')).not.toHaveTextContent('Old failure');
+      });
+
+      it('ignores the old recovery click, timer and callback after replacement or unmount', async () => {
+        const { view, navigate } = await startSignup();
+        act(() => emit(active));
+        advance();
+        const button = screen.getByRole('button', { name: 'Continue securely' });
+        act(() => emit({ ...active, id: 'sess_other' }));
+        fireEvent.click(button);
+        view.unmount();
+        advance(60000);
+        navigate({ session: active });
+
+        expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+        expect(assign).not.toHaveBeenCalled();
+      });
+
+      it('does not offer active-session recovery while parent email verification is required', async () => {
+        await startSignup(true);
+        act(() => emit(active));
+        advance();
+
+        expect(panel()).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Continue securely' })).not.toBeInTheDocument();
+        expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+      });
+    });
+
     it('navigates once only for its completed session and uses the decorated claim route', async () => {
       const { navigate } = await completedSignup();
       const decorateUrl = vi.fn((url: string) => `${url}&handoff=synthetic`);
