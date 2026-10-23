@@ -48,6 +48,14 @@ export class OnboardingIntegrationRequestError extends Error {
   }
 }
 
+/** The request may have committed even though its response never arrived. */
+export class OnboardingClaimTransportError extends Error {
+  constructor() {
+    super('We couldn’t confirm the save yet. Your work is still safe on this device. Please try again.');
+    this.name = 'OnboardingClaimTransportError';
+  }
+}
+
 const readJson = async <Value>(response: Response): Promise<Value | null> =>
   response.json().catch(() => null) as Promise<Value | null>;
 
@@ -100,11 +108,17 @@ export const claimOnboardingDraft = async (
   request: OnboardingDraftClaimRequest,
   options: { fetcher?: typeof fetch; signal?: AbortSignal } = {},
 ): Promise<ClaimSiteResult> => {
+  const bodyJson = JSON.stringify(request);
   const response = await (options.fetcher ?? fetch)('/api/onboarding/v1/claim', {
-    body: JSON.stringify(request),
+    body: bodyJson,
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
     signal: options.signal,
+  }).catch((error: unknown) => {
+    if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw error;
+    }
+    throw new OnboardingClaimTransportError();
   });
   const body = await readJson<
     DataEnvelope<OnboardingClaimSuccess> & ErrorEnvelope

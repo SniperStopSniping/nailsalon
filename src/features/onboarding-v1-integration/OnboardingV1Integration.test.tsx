@@ -3,6 +3,7 @@ import type { EventEmitter } from 'node:events';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
+import { StrictMode } from 'react';
 import { onTestFinished } from 'vitest';
 
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
@@ -11,7 +12,7 @@ import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v
 import { goToScreen } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/routing';
 import { loadOnboardingState, ONBOARDING_STORAGE_KEY, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import type { OnboardingAuthProviderAvailability } from './auth-providers';
-import { OnboardingIntegrationRequestError } from './client';
+import { OnboardingClaimTransportError, OnboardingIntegrationRequestError } from './client';
 import type { OnboardingClaimSuccess } from './contracts';
 import { loadDeviceSetups } from './device-setups';
 import {
@@ -599,6 +600,188 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     });
   });
 
+  it.each(['committed', 'not-saved', 'owner-mismatch', 'status-network', 'fingerprint-mismatch', 'stale-revision', 'media-failure', 'strict-committed'] as const)('reconciles an uncertain claim response: %s', async (scenario) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
+    const real = await vi.importActual<typeof import('./client')>('./client');
+    mocks.claim.mockImplementation(real.claimOnboardingDraft);
+    mocks.status.mockImplementation(real.getOnboardingDraftClaimStatus);
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+    if (scenario === 'media-failure') {
+      mocks.claimMedia.mockRejectedValue(new Error('Media finalization unavailable'));
+    }
+    const requests: { path: string; body: Record<string, unknown> }[] = [];
+    let submittedFingerprint: string | null = null;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push({ path, body });
+      if (path === '/api/onboarding/v1/claim') {
+        submittedFingerprint = fingerprintOnboardingPayload(body.snapshot as Parameters<typeof fingerprintOnboardingPayload>[0]);
+        // Server commit is represented only by what the authenticated status endpoint returns.
+        throw new TypeError('Load failed');
+      }
+      if (path === '/api/onboarding/v1/status') {
+        if (scenario === 'status-network') {
+          throw new TypeError('Load failed');
+        }
+        if (scenario === 'stale-revision') {
+          return Response.json({ error: { code: 'CLAIM_REVISION_STALE', message: 'An older revision cannot resume.' } }, { status: 409 });
+        }
+        if (scenario === 'owner-mismatch') {
+          return Response.json({ error: { code: 'DRAFT_ALREADY_CLAIMED', message: 'This draft has already been saved to a different Luster account.' } }, { status: 409 });
+        }
+        return Response.json({ data: { claim: ['committed', 'fingerprint-mismatch', 'media-failure', 'strict-committed'].includes(scenario) ? { ...savedSite, created: false, payloadFingerprint: scenario === 'fingerprint-mismatch' ? 'mismatched' : submittedFingerprint } : null } });
+      }
+      throw new Error('Unexpected mocked fetch path');
+    }));
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    const keyBefore = loadOnboardingIntegrationFlow().claimIdempotencyKey;
+    const tokenBefore = loadOnboardingState().state.anonymousDraftId;
+    const component = <OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />;
+    render(scenario === 'strict-committed' ? <StrictMode>{component}</StrictMode> : component);
+    if (scenario === 'committed' || scenario === 'strict-committed') {
+      expect(await screen.findByRole('heading', { name: 'Your progress is saved' })).toBeVisible();
+    } else if (scenario === 'media-failure') {
+      await waitFor(() => expect(loadOnboardingIntegrationFlow().phase).toBe('media_failure'));
+
+      expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
+    } else if (scenario === 'owner-mismatch') {
+      expect(await screen.findByRole('heading', { name: 'This setup is connected to another account' })).toBeVisible();
+    } else {
+      expect(await screen.findByRole('heading', { name: 'We couldn’t finish saving your site' })).toBeVisible();
+      expect(mocks.claimMedia).not.toHaveBeenCalled();
+      expect(screen.queryByText('Load failed')).not.toBeInTheDocument();
+    }
+
+    expect(requests.map(r => r.path)).toEqual(['/api/onboarding/v1/claim', '/api/onboarding/v1/status']);
+    expect(requests[1]?.body).toEqual({ anonymousDraftToken: tokenBefore });
+    expect(loadOnboardingIntegrationFlow().claimIdempotencyKey).toBe(keyBefore);
+    expect(loadOnboardingState().state.anonymousDraftId).toBe(tokenBefore);
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    if (scenario === 'stale-revision') {
+      expect(loadOnboardingIntegrationFlow().errorCode).toBe('CLAIM_REVISION_STALE');
+    }
+    if (scenario === 'fingerprint-mismatch') {
+      expect(loadOnboardingIntegrationFlow().errorCode).toBe('CLAIM_RECOVERY_MISMATCH');
+    }
+  });
+
+  it('bounds uncertain-response reconciliation to one read and aborts after eight seconds', async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockRejectedValue(new OnboardingClaimTransportError());
+    // Even a stalled fetch implementation that ignores abort cannot hold the UI forever.
+    mocks.status.mockImplementation(() => new Promise(() => {}));
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mocks.status).toHaveBeenCalledOnce();
+
+    const signal = mocks.status.mock.calls[0]?.[1]?.signal as AbortSignal;
+
+    expect(signal.aborted).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+
+    expect(signal.aborted).toBe(true);
+    expect(screen.getByRole('heading', { name: 'We couldn’t finish saving your site' })).toBeVisible();
+    expect(mocks.claim).toHaveBeenCalledOnce();
+    expect(mocks.status).toHaveBeenCalledOnce();
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+  });
+
+  it.each(['signed-out', 'different-owner', 'unmounted'] as const)('aborts and discards reconciliation after %s', async (change) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockRejectedValueOnce(new OnboardingClaimTransportError()).mockResolvedValue(ownedBusinessConflict);
+    let resolveStatus: (value: { claim: OnboardingClaimSuccess }) => void = () => {};
+    mocks.status.mockImplementation(() => new Promise((resolve) => {
+      resolveStatus = resolve;
+    }));
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledOnce());
+    const signal = mocks.status.mock.calls[0]?.[1]?.signal as AbortSignal;
+    if (change === 'unmounted') {
+      view.unmount();
+    } else {
+      mocks.auth.isSignedIn = change !== 'signed-out';
+      mocks.userState.user = change === 'signed-out' ? null : { ...verifiedClerkUser(), id: 'different-owner' };
+      view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    }
+
+    expect(signal.aborted).toBe(true);
+
+    await act(async () => {
+      resolveStatus({ claim: savedSite });
+    });
+
+    expect(loadOnboardingIntegrationFlow().savedSite).toBeNull();
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.status).toHaveBeenCalledOnce();
+  });
+
+  it.each(['unmount', 'account-round-trip'] as const)('discards a pending claim after %s', async (change) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    let rejectClaim: (error: Error) => void = () => {};
+    mocks.claim.mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectClaim = reject;
+    }));
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await waitFor(() => expect(mocks.claim).toHaveBeenCalledOnce());
+    if (change === 'unmount') {
+      view.unmount();
+    } else {
+      mocks.userState.user = { ...verifiedClerkUser(), id: 'different-owner' };
+      view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+      mocks.userState.user = verifiedClerkUser();
+      view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    }
+    const flowAtUnmount = loadOnboardingIntegrationFlow();
+    mocks.claim.mockResolvedValue(ownedBusinessConflict);
+    await act(async () => {
+      rejectClaim(new OnboardingClaimTransportError());
+    });
+
+    expect(mocks.status).not.toHaveBeenCalled();
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    if (change === 'unmount') {
+      expect(loadOnboardingIntegrationFlow()).toEqual(flowAtUnmount);
+    } else {
+      expect(loadOnboardingIntegrationFlow().savedSite).toBeNull();
+    }
+  });
+
+  it('does not reconcile a known server claim rejection', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockRejectedValue(new OnboardingIntegrationRequestError('The server refused this save.', { code: 'SAVE_FAILED', status: 500 }));
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { name: 'We couldn’t finish saving your site' })).toBeVisible();
+    expect(mocks.status).not.toHaveBeenCalled();
+    expect(mocks.claim).toHaveBeenCalledOnce();
+  });
+
   it('keeps ordinary request failures retryable without requesting email verification', async () => {
     mocks.auth.isSignedIn = true;
     const user = verifiedClerkUser();
@@ -886,6 +1069,39 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
         salonId: savedSite.salonId,
       },
     })));
+  });
+
+  it.each(['salonId', 'siteId'] as const)('rejects same-fingerprint recovery for another %s', async (field) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const draft = savedResumeDraft();
+    window.localStorage.clear();
+    window.history.replaceState({}, '', `/en/onboarding-v1?resume=review&site=${draft.siteId}&revision=${draft.verifiedRevision}`);
+    mocks.status.mockResolvedValueOnce({ claim: savedSite });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} initialResumeDraft={draft} locale="en" />);
+    await waitFor(() => expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite));
+    mocks.lab.acceptOnboardingPresentation.mockReturnValue(draft.document as never);
+    mocks.claim.mockRejectedValue(new OnboardingClaimTransportError());
+    mocks.status.mockImplementation(async () => ({
+      claim: {
+        ...savedSite,
+        [field]: '00000000-0000-4000-8000-000000000099',
+        payloadFingerprint: fingerprintOnboardingPayload(mocks.claim.mock.calls[0]![0].snapshot),
+      },
+    }));
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Finish setup' }));
+    await waitFor(() => expect(loadOnboardingIntegrationFlow().errorCode).toBe('CLAIM_RECOVERY_MISMATCH'));
+
+    expect(mocks.claim).toHaveBeenCalledOnce();
+    expect(mocks.claim.mock.calls[0]![0].target).toMatchObject({
+      mode: 'existing_business',
+      salonId: savedSite.salonId,
+      expectedSiteId: savedSite.siteId,
+    });
+    expect(mocks.status).toHaveBeenCalledTimes(2);
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite);
   });
 
   it('blocks stale resume content when a newer revision was saved in another session', async () => {

@@ -62,6 +62,7 @@ import {
   checkOnboardingSiteSlugAvailability,
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
+  OnboardingClaimTransportError,
   OnboardingIntegrationRequestError,
   prepareOnboardingCanva,
   saveOnboardingPlanIntent,
@@ -97,6 +98,7 @@ import {
   cleanupVerifiedUnreferencedOnboardingMedia,
   collectPendingOnboardingMediaReferences,
 } from './media-claim-client';
+import { fingerprintOnboardingPayload } from './payload-fingerprint';
 import { ResumedOnboardingAssetRepository } from './resume-assets';
 import { hydrateInitialOnboardingResumeDraft } from './resume-client';
 import type { InitialOnboardingResumeDraft } from './resume-draft';
@@ -371,6 +373,10 @@ function OnboardingIntegrationController({
     && emailVerified && !serverEmailVerificationRequired && !changingAccount;
   const accountId = accountReady ? user!.id : null;
   const accountIdRef = useRef(accountId);
+  const accountEpochRef = useRef(0);
+  if (accountIdRef.current !== accountId) {
+    accountEpochRef.current += 1;
+  }
   accountIdRef.current = accountId;
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
@@ -424,6 +430,15 @@ function OnboardingIntegrationController({
   const [planConfirmation, setPlanConfirmation] = useState<string | null>(null);
   const payloadRef = useRef(payload);
   const claimInFlightRef = useRef(false);
+  const claimReconciliationRef = useRef<AbortController | null>(null);
+  const controllerMountedRef = useRef(true);
+  useEffect(() => {
+    controllerMountedRef.current = true;
+    return () => {
+      controllerMountedRef.current = false;
+      claimReconciliationRef.current?.abort();
+    };
+  }, [accountId]);
   const mediaInFlightRef = useRef(false);
   const planInFlightRef = useRef(false);
   const resumeInFlightRef = useRef(false);
@@ -583,6 +598,7 @@ function OnboardingIntegrationController({
     explicitIdempotencyKey?: string,
   ) => {
     const claimAccountId = accountIdRef.current;
+    const claimAccountEpoch = accountEpochRef.current;
     if (!claimAccountId) {
       setFlow(current => ({ ...current, phase: 'account' }));
       return;
@@ -653,16 +669,75 @@ function OnboardingIntegrationController({
       }
       const resolvedTarget = target
         ?? continuationTargetForSavedSite(latestFlowRef.current.savedSite);
-      const result = await claimOnboardingDraft({
+      const request: OnboardingDraftClaimRequest = {
         anonymousDraftToken: currentPayload.state.anonymousDraftId,
         idempotencyKey,
         media: persisted.media,
         snapshot: persisted.snapshot,
         ...(resolvedTarget ? { target: resolvedTarget } : {}),
-      });
+      };
+      let result: Awaited<ReturnType<typeof claimOnboardingDraft>>;
+      try {
+        result = await claimOnboardingDraft(request);
+      } catch (error) {
+        if (!controllerMountedRef.current || accountEpochRef.current !== claimAccountEpoch) {
+          return;
+        }
+        if (!(error instanceof OnboardingClaimTransportError) || accountIdRef.current !== claimAccountId) {
+          throw error;
+        }
+        // Reconcile one uncertain response using the original token. Never
+        // replace the save or rotate its key just because its reply was lost.
+        const controller = new AbortController();
+        claimReconciliationRef.current = controller;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        let timedOut = false;
+        try {
+          const status = await Promise.race([
+            getOnboardingDraftClaimStatus(request.anonymousDraftToken, { signal: controller.signal }),
+            new Promise<never>((_resolve, reject) => {
+              timeout = setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+                reject(error);
+              }, 8_000);
+            }),
+          ]);
+          if (!controllerMountedRef.current || accountEpochRef.current !== claimAccountEpoch || controller.signal.aborted || accountIdRef.current !== claimAccountId) {
+            return;
+          }
+          if (!status.claim) {
+            throw error;
+          }
+          const recovered = status.claim;
+          if (recovered.payloadFingerprint !== fingerprintOnboardingPayload(request.snapshot)
+            || (resolvedTarget?.mode === 'existing_business'
+              && (recovered.salonId !== resolvedTarget.salonId
+                || (resolvedTarget.expectedSiteId && recovered.siteId !== resolvedTarget.expectedSiteId)))) {
+            throw new OnboardingIntegrationRequestError(
+              'This saved website does not match this setup. Your work is still safe on this device.',
+              { code: 'CLAIM_RECOVERY_MISMATCH', status: 409 },
+            );
+          }
+          result = { status: 'saved', value: recovered };
+        } catch (recoveryError) {
+          if (controller.signal.aborted && !timedOut) {
+            return;
+          }
+          // Keep server identity/ownership/revision errors intact; a second
+          // transport failure must not expose browser diagnostics or retry.
+          throw recoveryError instanceof OnboardingIntegrationRequestError ? recoveryError : error;
+        } finally {
+          clearTimeout(timeout);
+          controller.abort();
+          if (claimReconciliationRef.current === controller) {
+            claimReconciliationRef.current = null;
+          }
+        }
+      }
       // A reply to the previous account must never populate the next account's
       // picker (or a signed-out screen), even when it arrives after sign-out.
-      if (accountIdRef.current !== claimAccountId) {
+      if (!controllerMountedRef.current || accountEpochRef.current !== claimAccountEpoch || accountIdRef.current !== claimAccountId) {
         return;
       }
       if (result.status === 'conflict') {
@@ -675,7 +750,7 @@ function OnboardingIntegrationController({
       coreSavedSite = result.value;
       await finishCoreClaim(result.value, currentPayload, idempotencyKey, claimAccountId);
     } catch (error) {
-      if (accountIdRef.current !== claimAccountId) {
+      if (!controllerMountedRef.current || accountEpochRef.current !== claimAccountEpoch || accountIdRef.current !== claimAccountId) {
         return;
       }
       recordIntegrationEvent({ type: 'draft_claim_failed' });
@@ -721,7 +796,7 @@ function OnboardingIntegrationController({
       }));
     } finally {
       claimInFlightRef.current = false;
-      if (accountIdRef.current !== claimAccountId) {
+      if (controllerMountedRef.current && (accountEpochRef.current !== claimAccountEpoch || accountIdRef.current !== claimAccountId)) {
         setFlow(current => ({ ...current, phase: 'account' }));
       }
     }
