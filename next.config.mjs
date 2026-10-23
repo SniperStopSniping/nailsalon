@@ -83,6 +83,11 @@ function applyScopedPrismaOtelIgnoreWarnings(baseConfig) {
 /** @type {import('next').NextConfig} */
 const baseNextConfig = bundleAnalyzer(
   withNextIntlConfig({
+    experimental: {
+      // Our webpack wrappers opt out of Next's default worker; release its
+      // compilation memory before the build proceeds to type validation.
+      webpackBuildWorker: true,
+    },
     eslint: {
       dirs: ['.'],
       ignoreDuringBuilds: true,
