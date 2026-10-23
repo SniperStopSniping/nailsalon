@@ -1326,27 +1326,44 @@ describe('PremiumAccountGate', () => {
         expect(mocks.resolveOrganization).not.toHaveBeenCalled();
       });
 
-      it.each(['replacement', 'unmount'])('ignores a pending continuation rejection after %s', async (change) => {
+      it.each([
+        ['replacement', 'resolve'],
+        ['replacement', 'reject'],
+        ['unmount', 'resolve'],
+        ['unmount', 'reject'],
+      ])('ignores stale continuation navigation and %s/%s settlement', async (change, settlement) => {
         const activation = deferred<void>();
         mocks.clerk.setActive.mockReturnValueOnce(activation.promise);
         const { view } = await startSignup();
         act(() => emit(active));
         advance();
         fireEvent.click(screen.getByRole('button', { name: 'Continue securely' }));
+        const staleNavigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+        const replacement = { ...active, id: 'sess_replacement' };
         if (change === 'replacement') {
-          act(() => emit({ ...active, id: 'sess_replacement' }));
+          act(() => emit(replacement));
         } else {
           view.unmount();
         }
+        act(() => staleNavigate({ session: active, decorateUrl: url => `${url}&stale=synthetic` }));
         await act(async () => {
-          activation.reject(new Error('Stale activation failure'));
+          if (settlement === 'resolve') {
+            activation.resolve();
+          } else {
+            activation.reject(new Error('Stale activation failure'));
+          }
         });
+        act(() => staleNavigate({ session: active, decorateUrl: url => `${url}&stale=synthetic` }));
         advance();
 
         expect(screen.queryByText('We couldn’t continue securely. Try again or contact Luster support.')).not.toBeInTheDocument();
         expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
         expect(mocks.resolveOrganization).not.toHaveBeenCalled();
         expect(assign).not.toHaveBeenCalled();
+
+        if (change === 'replacement') {
+          expect(mocks.clerk.session).toBe(replacement);
+        }
       });
 
       it('allows exactly one explicit same-task retry only after existing organization work settles', async () => {
