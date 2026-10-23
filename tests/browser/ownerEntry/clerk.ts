@@ -1,2 +1,2 @@
-// Actual Clerk Core 2 widgets for visual review; no authentication mock.
-export { SignIn, SignUp, useClerk } from '@clerk/clerk-react';
+// Actual Clerk Core 3 widgets for visual review; no authentication mock.
+export { SignIn, SignUp, useClerk } from '@clerk/react';

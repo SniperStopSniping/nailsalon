@@ -18,6 +18,7 @@ export default defineConfig({
   // dispatcher after the owner-entry screens have already rendered.
   optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', '@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'] },
   resolve: { dedupe: ['react', 'react-dom'], alias: {
+    '@clerk/nextjs/legacy': path.join(repository, 'tests/browser/ownerAccountRecovery/clerk.ts'),
     '@clerk/nextjs': path.join(repository, 'tests/browser/ownerAccountRecovery/clerk.ts'),
     'next/link': path.join(repository, 'tests/browser/ownerEntry/link.tsx'),
     'next/image': path.join(repository, 'tests/browser/appointmentWorkflow/next-image.tsx'),

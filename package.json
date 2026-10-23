@@ -20,6 +20,7 @@
     "test": "node scripts/test-changed-source.mjs",
     "test:all": "vitest run",
     "test:monitoring:node24": "node --test --test-reporter=tap scripts/monitoring-node24.node-test.mjs",
+    "test:checkly-axios:node24": "node --preserve-symlinks --test --test-reporter=tap scripts/checkly-axios.node-test.mjs",
     "test:deposits:pg": "vitest run --no-file-parallelism src/libs/deposits/deposits.concurrency.integration.test.ts",
     "test:client-lifecycle:pg": "vitest run --no-file-parallelism src/libs/clientLifecycle.migration.integration.test.ts src/libs/clientLifecycle.concurrency.integration.test.ts src/libs/queries.clientLifecycle.integration.test.ts",
     "test:client-lifecycle:regression": "vitest run --no-file-parallelism src/libs/clientLifecycleMigrationRetry.test.ts src/libs/clientLifecycleStabilization.test.ts src/app/api/health/route.test.ts src/app/api/admin/retention/route.test.ts src/app/api/admin/retention/campaigns/route.test.ts 'src/app/api/appointments/[id]/communication/route.test.ts' 'src/app/api/appointments/[id]/review-followup/route.test.ts' 'src/app/api/admin/clients/[id]/flag/route.test.ts' src/libs/clientInsights.test.ts src/app/api/admin/client-hub/route.integration.test.ts src/libs/financialReportingServer.test.ts",
@@ -83,8 +84,8 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@clerk/localizations": "^3.14.2",
-    "@clerk/nextjs": "^6.18.3",
+    "@clerk/localizations": "4.24.0",
+    "@clerk/nextjs": "7.9.19",
     "@clerk/themes": "^2.1.36",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -202,7 +203,7 @@
     "rimraf": "^6.0.1",
     "semantic-release": "^24.1.2",
     "start-server-and-test": "^2.0.8",
-    "storybook": "^8.6.14",
+    "storybook": "^8.6.19",
     "tailwindcss": "^3.4.14",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.19.1",
@@ -237,7 +238,18 @@
           "npmPublish": false
         }
       ],
-      "@semantic-release/git",
+      "./scripts/register-release-dependency-pair.mjs",
+      [
+        "@semantic-release/git",
+        {
+          "assets": [
+            "CHANGELOG.md",
+            "package.json",
+            "package-lock.json",
+            "scripts/reviewed-dependency-pairs.json"
+          ]
+        }
+      ],
       "@semantic-release/github"
     ]
   },
@@ -245,6 +257,16 @@
     "cloudinary": {
       "lodash": "4.18.1"
     },
-    "postcss": "^8.5.30"
+    "checkly": {
+      "axios": "1.20.0"
+    },
+    "postcss": "^8.5.30",
+    "@semantic-release/git": {
+      "lodash": "4.18.1"
+    },
+    "@semantic-release/changelog": {
+      "lodash": "4.18.1"
+    },
+    "ws@^7.0.0": "7.5.11"
   }
 }

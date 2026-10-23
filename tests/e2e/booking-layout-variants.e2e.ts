@@ -38,8 +38,10 @@ import {
 
 const SYNTHETIC_SALON_ID = 'salon_nail-salon-no5';
 const SYNTHETIC_SALON_SLUG = 'nail-salon-no5';
-const SYNTHETIC_CI_CLERK_BOOTSTRAP_URL
-  = 'https://ci.luster.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+const SYNTHETIC_CI_CLERK_BOOTSTRAP_URLS = new Set([
+  'https://ci.luster.invalid/npm/@clerk/clerk-js@6/dist/clerk.browser.js',
+  'https://ci.luster.invalid/npm/@clerk/ui@1/dist/ui.browser.js',
+]);
 const SYNTHETIC_ACCESSIBLE_ADD_ON_ID = 'addon_e2e_nail-repair';
 
 const STAGE7_PRESET_LABELS = {
@@ -4226,10 +4228,10 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
 
           if (parsedUrl.origin !== expectedOrigin) {
             // The authenticated admin shell may attempt its exact reserved
-            // `.invalid` Clerk bootstrap. It is pre-existing auth plumbing,
+            // `.invalid` Clerk bootstrap resources. It is pre-existing auth plumbing,
             // remains blocked, and is not a Stage 6 hosted dependency. Every
             // other external request is still recorded and fails the lane.
-            if (requestUrl !== SYNTHETIC_CI_CLERK_BOOTSTRAP_URL) {
+            if (!SYNTHETIC_CI_CLERK_BOOTSTRAP_URLS.has(requestUrl)) {
               externalRequests.push(requestUrl);
             }
             await route.abort('blockedbyclient');

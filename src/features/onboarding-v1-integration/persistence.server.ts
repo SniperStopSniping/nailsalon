@@ -726,6 +726,10 @@ async function createBusiness(
     : null;
   const ownerPhone = identityPhone(identity, snapshot);
 
+  const initialSettings = {
+    onboardingOwnership: { primaryTechnicianId: technicianId },
+    rebookingPrompt: { enabled: true },
+  };
   await database.insert(salonSchema).values({
     address: publicAddress,
     businessHours: hours,
@@ -746,7 +750,7 @@ async function createBusiness(
     // The prompt is non-promotional, so new businesses can opt into the
     // normal post-visit rebooking path from day one. Existing businesses are
     // updated elsewhere and retain an absent/off setting.
-    settings: { rebookingPrompt: { enabled: true } },
+    settings: initialSettings,
     slug: salonSlug,
     slugLockedAt: null,
     status: 'active',
@@ -800,6 +804,7 @@ async function syncExistingBusinessProfile(input: {
   snapshot: OnboardingPersistedSnapshot;
   /** Resume guard — canonical groups the dashboard owns; see `resolveDashboardOwnedFields`. */
   preserve?: ReadonlySet<DashboardOwnedField>;
+  teamContinuationBaseline?: OnboardingPersistedSnapshot;
 }): Promise<string | null> {
   const { database, identity, salonId, snapshot } = input;
   const preserve = input.preserve ?? new Set<DashboardOwnedField>();
@@ -869,7 +874,27 @@ async function syncExistingBusinessProfile(input: {
     ))
     .limit(2);
   if (snapshot.profile.businessStructure !== 'solo') {
-    return activeTechnicians.length === 1 ? activeTechnicians[0]!.id : null;
+    const soleTechnicianId = activeTechnicians.length === 1 ? activeTechnicians[0]!.id : null;
+    if (soleTechnicianId && input.teamContinuationBaseline) {
+      const [salon] = await database.select({ settings: salonSchema.settings })
+        .from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
+      const settings: Record<string, unknown> = isRecord(salon?.settings) ? salon.settings : {};
+      const ownership = isRecord(settings.onboardingOwnership) ? settings.onboardingOwnership : {};
+      // Only createBusiness writes this binding. Never infer ownership from a
+      // sole staff row or matching contact details, and never rewrite team identity.
+      if (ownership.primaryTechnicianId === soleTechnicianId) {
+        await database.update(technicianSchema).set({
+          acceptingNewClients: snapshot.profile.bookingPreferences.newClientStatus === 'yes',
+        }).where(and(
+          eq(technicianSchema.id, soleTechnicianId),
+          eq(technicianSchema.salonId, salonId),
+          eq(technicianSchema.isActive, true),
+          // A dashboard status change wins, including one racing this save.
+          eq(technicianSchema.acceptingNewClients, input.teamContinuationBaseline.profile.bookingPreferences.newClientStatus === 'yes'),
+        ));
+      }
+    }
+    return soleTechnicianId;
   }
   const technicianId = activeTechnicians[0]?.id ?? crypto.randomUUID();
   const values = {
@@ -1790,6 +1815,7 @@ async function claimOnboardingDraftUnlocked(
     let technicianId: string | null = null;
     let currentSite: typeof onboardingSiteSchema.$inferSelect | null = null;
     let preserveExistingProductData = false;
+    let teamContinuationBaseline: OnboardingPersistedSnapshot | undefined;
     // Resume guard (implementation plan Batch 2). Empty for a first claim, so
     // creating a business behaves exactly as before.
     let dashboardOwned: ReadonlySet<DashboardOwnedField> = new Set<DashboardOwnedField>();
@@ -1926,6 +1952,9 @@ async function claimOnboardingDraftUnlocked(
           eq(onboardingSiteRevisionSchema.revision, target.expectedRevision!),
         )).limit(1);
         if (baselineRevision) {
+          if (continuingOnboardingDraft) {
+            teamContinuationBaseline = baselineRevision.snapshot;
+          }
           dashboardOwned = await resolveDashboardOwnedFields({
             baseline: baselineRevision.snapshot,
             database: tx as QueryDatabase,
@@ -1975,6 +2004,7 @@ async function claimOnboardingDraftUnlocked(
           preserve: dashboardOwned,
           salonId,
           snapshot: input.snapshot,
+          teamContinuationBaseline,
         });
       }
     } else {

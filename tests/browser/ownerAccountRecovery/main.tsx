@@ -18,6 +18,9 @@ import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking
 // No customer data, account provisioning, messages or payments.
 const params = new URLSearchParams(location.search);
 const dashboard = params.get('screen') === 'dashboard';
+const claimResponseLoss = params.get('scenario') === 'claim-response-loss';
+const finalizationRecovery = params.get('scenario') === 'finalization-recovery';
+const accountScenario = finalizationRecovery || params.get('scenario') === 'organization-focus';
 const claimedScenario = params.get('scenario') === 'claimed' || sessionStorage.getItem('fixture-claimed') === 'yes';
 if (params.get('scenario') === 'claimed') {
   sessionStorage.setItem('fixture-claimed', 'yes');
@@ -50,6 +53,9 @@ if (!sessionStorage.getItem('fixture-seeded')) {
   state.profile.businessStructure = 'solo';
   state.recipe.starter = 'one_page';
   state.recipe.starterDocumentSiteId = 'local-site';
+  if (claimResponseLoss || accountScenario) {
+    state.progress.currentScreen = 'save_progress';
+  }
   saveOnboardingState(state);
   localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(initializeStarter('one_page', { siteId: 'local-site', siteName: state.profile.businessName })));
   saveOnboardingIntegrationFlow(claimedScenario
@@ -59,11 +65,22 @@ if (!sessionStorage.getItem('fixture-seeded')) {
         savedSiteOwnerId: 'different-fixture-owner',
         savedSite: { created: false, dashboardUrl: '/en/admin', media: { ready: 0, pending: 0, failed: 0 }, ownerCreatedServiceIds: [], revisionId: 'fixture-revision', serviceMenuApplied: false, serviceMappingIssues: [], claimId: 'fixture-claim', siteId: 'fixture-site', salonId: 'fixture-salon', salonSlug: 'fixture-salon', revision: 1, payloadFingerprint: '0000000000000000' },
       }
-    : { ...createOnboardingIntegrationFlow(), phase: 'failure', errorCode: 'OWNER_ACCOUNT_CONFLICT', errorMessage: 'Sign in with the Luster account already connected to this email.' });
+    : claimResponseLoss || accountScenario
+      ? { ...createOnboardingIntegrationFlow(), phase: 'account' }
+      : { ...createOnboardingIntegrationFlow(), phase: 'failure', errorCode: 'OWNER_ACCOUNT_CONFLICT', errorMessage: 'Sign in with the Luster account already connected to this email.' });
   sessionStorage.setItem('fixture-seeded', 'yes');
 }
-window.fetch = async (input) => {
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async (input, options) => {
   const url = String(input);
+  if (accountScenario && url === '/api/onboarding/v1/organization') {
+    // Count even caught provisioning attempts at the browser HTTP boundary.
+    return nativeFetch(input, options);
+  }
+  if ((claimResponseLoss || accountScenario) && ['/api/onboarding/v1/claim', '/api/onboarding/v1/status', '/api/onboarding/v1/media/verify'].includes(url)) {
+    // The browser regression supplies these responses at the HTTP boundary.
+    return nativeFetch(input, options);
+  }
   if (url === '/api/onboarding/v1/status') {
     return Response.json({ error: { code: 'BUSINESS_ACCESS_DENIED', message: 'Sign in to the account that saved this website.' } }, { status: 403 });
   }

@@ -14,6 +14,7 @@ export default defineConfig({
   plugins: [react()],
   define: { 'process.env': {} },
   resolve: { alias: {
+    '@clerk/nextjs/legacy': path.join(root, 'clerk.ts'),
     '@clerk/nextjs': path.join(root, 'clerk.ts'),
     'next/link': path.join(repository, 'tests/browser/ownerEntry/link.tsx'),
     'next/image': path.join(repository, 'tests/browser/appointmentWorkflow/next-image.tsx'),

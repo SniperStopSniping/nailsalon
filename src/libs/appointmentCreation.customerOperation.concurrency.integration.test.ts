@@ -901,9 +901,9 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
   });
 
-  it('retries actual PostgreSQL 40001 and 40P01 rollbacks inside SERIALIZABLE and commits one booking', async () => {
+  it('commits once after twelve actual PostgreSQL 40001 and 40P01 rollbacks inside SERIALIZABLE', async () => {
     const prepared = await prepare();
-    const retryableCodes: Array<'40001' | '40P01'> = ['40001', '40P01'];
+    const retryableCodes: Array<'40001' | '40P01'> = Array.from({ length: 12 }, (_, index) => index % 2 === 0 ? '40001' : '40P01');
     let guardCalls = 0;
     const response = await create(prepared, async (tx) => {
       const code = retryableCodes.shift();
@@ -914,8 +914,10 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     }, true);
 
     expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
-    expect(guardCalls).toBe(4);
-    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    expect(guardCalls).toBe(14);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toEqual([
+      expect.objectContaining({ salonId: SALON, totalPrice: 6500, totalDurationMinutes: 60 }),
+    ]);
     expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(1);
     expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeTruthy();
     expect(await database.select().from(schema.publicBookingAttemptSchema).where(eq(schema.publicBookingAttemptSchema.attemptId, prepared.attemptId))).toEqual([expect.objectContaining({ salonId: SALON, state: 'succeeded' })]);
@@ -924,19 +926,27 @@ async function prepareL1Material({ requiresCapability = false, depositsEnabled =
     expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
   });
 
-  it('returns retryable 503 after eight PostgreSQL rollbacks and permits same-key recovery', async () => {
+  it('returns retryable 503 at the finite PostgreSQL attempt cap and permits same-key recovery', async () => {
     const prepared = await prepare();
     let failedTransactions = 0;
-    const exhausted = await create(prepared, async (tx) => {
-      failedTransactions += 1;
-      await tx.execute(sql.raw('DO $$ BEGIN RAISE EXCEPTION \'synthetic booking serialization exhaustion\' USING ERRCODE = \'40001\'; END $$'));
-    }, true);
+    // Exercise the work cap deterministically, separately from the admission
+    // deadline unit tests. Real PostgreSQL must roll back every failed attempt.
+    const jitter = vi.spyOn(Math, 'random').mockReturnValue(0);
+    let exhausted: Response;
+    try {
+      exhausted = await create(prepared, async (tx) => {
+        failedTransactions += 1;
+        await tx.execute(sql.raw('DO $$ BEGIN RAISE EXCEPTION \'synthetic booking serialization exhaustion\' USING ERRCODE = \'40001\'; END $$'));
+      }, true);
+    } finally {
+      jitter.mockRestore();
+    }
     const exhaustedBody = await exhausted.json();
 
     expect(exhausted.status, JSON.stringify(exhaustedBody)).toBe(503);
     expect(exhausted.headers.get('retry-after')).toBe('1');
     expect(exhaustedBody).toMatchObject({ error: { code: 'BOOKING_TEMPORARILY_UNAVAILABLE' } });
-    expect(failedTransactions).toBe(8);
+    expect(failedTransactions).toBe(32);
     expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
     expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(0);
     expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeNull();
