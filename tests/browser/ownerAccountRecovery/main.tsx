@@ -19,6 +19,7 @@ import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking
 const params = new URLSearchParams(location.search);
 const dashboard = params.get('screen') === 'dashboard';
 const claimResponseLoss = params.get('scenario') === 'claim-response-loss';
+const finalizationRecovery = params.get('scenario') === 'finalization-recovery';
 const claimedScenario = params.get('scenario') === 'claimed' || sessionStorage.getItem('fixture-claimed') === 'yes';
 if (params.get('scenario') === 'claimed') {
   sessionStorage.setItem('fixture-claimed', 'yes');
@@ -51,7 +52,7 @@ if (!sessionStorage.getItem('fixture-seeded')) {
   state.profile.businessStructure = 'solo';
   state.recipe.starter = 'one_page';
   state.recipe.starterDocumentSiteId = 'local-site';
-  if (claimResponseLoss) {
+  if (claimResponseLoss || finalizationRecovery) {
     state.progress.currentScreen = 'save_progress';
   }
   saveOnboardingState(state);
@@ -63,7 +64,7 @@ if (!sessionStorage.getItem('fixture-seeded')) {
         savedSiteOwnerId: 'different-fixture-owner',
         savedSite: { created: false, dashboardUrl: '/en/admin', media: { ready: 0, pending: 0, failed: 0 }, ownerCreatedServiceIds: [], revisionId: 'fixture-revision', serviceMenuApplied: false, serviceMappingIssues: [], claimId: 'fixture-claim', siteId: 'fixture-site', salonId: 'fixture-salon', salonSlug: 'fixture-salon', revision: 1, payloadFingerprint: '0000000000000000' },
       }
-    : claimResponseLoss
+    : claimResponseLoss || finalizationRecovery
       ? { ...createOnboardingIntegrationFlow(), phase: 'account' }
       : { ...createOnboardingIntegrationFlow(), phase: 'failure', errorCode: 'OWNER_ACCOUNT_CONFLICT', errorMessage: 'Sign in with the Luster account already connected to this email.' });
   sessionStorage.setItem('fixture-seeded', 'yes');
@@ -71,7 +72,11 @@ if (!sessionStorage.getItem('fixture-seeded')) {
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, options) => {
   const url = String(input);
-  if (claimResponseLoss && ['/api/onboarding/v1/claim', '/api/onboarding/v1/status', '/api/onboarding/v1/media/verify'].includes(url)) {
+  if (finalizationRecovery && url === '/api/onboarding/v1/organization') {
+    // Count even caught provisioning attempts at the browser HTTP boundary.
+    return nativeFetch(input, options);
+  }
+  if ((claimResponseLoss || finalizationRecovery) && ['/api/onboarding/v1/claim', '/api/onboarding/v1/status', '/api/onboarding/v1/media/verify'].includes(url)) {
     // The browser regression supplies these responses at the HTTP boundary.
     return nativeFetch(input, options);
   }
