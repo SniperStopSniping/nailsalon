@@ -124,6 +124,8 @@ const renderGate = (overrides: {
 describe('PremiumAccountGate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    onTestFinished(() => hasFocus.mockRestore());
     mocks.getToken.mockReset().mockResolvedValue('synthetic-session-token');
     window.history.replaceState({}, '', '/en/onboarding-v1?account=1');
     mocks.clerk.session = null;
@@ -1364,6 +1366,194 @@ describe('PremiumAccountGate', () => {
         if (change === 'replacement') {
           expect(mocks.clerk.session).toBe(replacement);
         }
+      });
+
+      it('retains one resolved organization through an unfocused deadline and duplicate focus events', async () => {
+        vi.mocked(document.hasFocus).mockReturnValue(false);
+        mocks.clerk.session = pending();
+        renderGate();
+        await act(async () => {});
+
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+        expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+
+        advance(30001);
+        act(() => {
+          emit(pending());
+          window.dispatchEvent(new Event('focus'));
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+
+        expect(panel()).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Continue securely' })).not.toBeInTheDocument();
+        expect(mocks.getToken).toHaveBeenCalledTimes(1);
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+        expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+
+        vi.mocked(document.hasFocus).mockReturnValue(true);
+        await act(async () => {
+          window.dispatchEvent(new Event('focus'));
+          window.dispatchEvent(new Event('focus'));
+        });
+
+        expect(mocks.clerk.setActive).toHaveBeenCalledExactlyOnceWith({
+          organization: 'org_handoff',
+          session: active.id,
+          navigate: expect.any(Function),
+        });
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+
+        const navigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+        act(() => navigate({ session: active, decorateUrl: url => url }));
+
+        expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1');
+      });
+
+      it('retains the focus wait through undefined accessors until the same pending task returns', async () => {
+        vi.mocked(document.hasFocus).mockReturnValue(false);
+        mocks.clerk.session = pending();
+        renderGate();
+        await act(async () => {});
+        // The wait sees focus first; the accessor clears before its await resumes.
+        window.addEventListener('focus', () => emit(undefined), { once: true });
+        vi.mocked(document.hasFocus).mockReturnValue(true);
+        await act(async () => {
+          window.dispatchEvent(new Event('focus'));
+        });
+
+        expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+
+        await act(async () => emit(pending()));
+
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+      });
+
+      it('rejects replacement after the focus wait resolves but before activation dispatch', async () => {
+        vi.mocked(document.hasFocus).mockReturnValue(false);
+        mocks.clerk.session = pending();
+        renderGate();
+        await act(async () => {});
+        vi.mocked(document.hasFocus).mockReturnValue(true);
+        await act(async () => {
+          window.dispatchEvent(new Event('focus'));
+          emit({ ...active, id: 'sess_replacement' });
+        });
+
+        expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+        expect(assign).not.toHaveBeenCalled();
+      });
+
+      it.each(['unmount', 'replacement', 'ended', 'signout', 'task-change', 'task-complete'])(
+        'cancels a resolved organization focus wait on %s',
+        async (change) => {
+          vi.mocked(document.hasFocus).mockReturnValue(false);
+          mocks.clerk.session = pending();
+          const view = renderGate();
+          await act(async () => {});
+
+          expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+
+          if (change === 'unmount') {
+            view.unmount();
+          } else {
+            act(() => emit(change === 'signout'
+              ? null
+              : change === 'replacement'
+                ? { ...active, id: 'sess_replacement' }
+                : change === 'ended'
+                  ? { ...active, status: 'ended' }
+                  : change === 'task-change'
+                    ? { ...pending(), currentTask: { key: 'reset-password' } }
+                    : active));
+          }
+          vi.mocked(document.hasFocus).mockReturnValue(true);
+          await act(async () => {
+            window.dispatchEvent(new Event('focus'));
+            document.dispatchEvent(new Event('visibilitychange'));
+          });
+
+          expect(mocks.clerk.setActive).not.toHaveBeenCalled();
+          expect(mocks.getToken).toHaveBeenCalledTimes(1);
+          expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+          expect(assign).not.toHaveBeenCalled();
+        },
+      );
+
+      it('keeps delayed organization activation fenced past the deadline and navigates during an undefined transition', async () => {
+        const activation = deferred<void>();
+        mocks.clerk.session = pending();
+        mocks.clerk.setActive.mockReturnValueOnce(activation.promise);
+        renderGate();
+        await act(async () => {});
+
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+        expect(mocks.clerk.setActive).toHaveBeenCalledExactlyOnceWith({
+          organization: 'org_handoff',
+          session: active.id,
+          navigate: expect.any(Function),
+        });
+
+        const navigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+
+        advance(30001);
+        act(() => emit(pending()));
+
+        expect(panel()).toBeVisible();
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Continue securely' })).not.toBeInTheDocument();
+        expect(assign).not.toHaveBeenCalled();
+        expect(mocks.getToken).toHaveBeenCalledTimes(1);
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
+
+        act(() => {
+          emit(undefined);
+          navigate({ session: active, decorateUrl: url => `${url}&activated=synthetic` });
+        });
+        await act(async () => {
+          activation.resolve();
+        });
+        act(() => emit(active));
+
+        expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&activated=synthetic');
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
+      });
+
+      it('makes recovery actionable after a single pending activation callback and a later active event', async () => {
+        const activation = deferred<void>();
+        mocks.clerk.session = pending();
+        mocks.clerk.setActive.mockReturnValueOnce(activation.promise);
+        renderGate();
+        await act(async () => {});
+
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
+
+        const navigate = mocks.clerk.setActive.mock.calls[0]![0].navigate as Navigate;
+
+        // Model one SDK callback while its task is still pending.
+        act(() => navigate({ session: pending(), decorateUrl: url => url }));
+        await act(async () => {
+          activation.resolve();
+        });
+        advance(30001);
+
+        expect(panel()).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Retry business setup' })).toBeEnabled();
+        expect(assign).not.toHaveBeenCalled();
+
+        // A later listener event is not a second invocation of that callback.
+        act(() => emit(active));
+
+        expect(screen.getByRole('button', { name: 'Continue securely' })).toBeEnabled();
+        expect(screen.queryByRole('button', { name: 'Retry business setup' })).not.toBeInTheDocument();
+        expect(assign).not.toHaveBeenCalled();
+        expect(mocks.getToken).toHaveBeenCalledTimes(1);
+        expect(mocks.resolveOrganization).toHaveBeenCalledTimes(1);
+        expect(mocks.clerk.setActive).toHaveBeenCalledTimes(1);
       });
 
       it('allows exactly one explicit same-task retry only after existing organization work settles', async () => {

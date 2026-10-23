@@ -158,6 +158,7 @@ export function PremiumAccountGate({
   const navigationStartedRef = useRef(false);
   const mountedRef = useRef(true);
   const signOutInFlightRef = useRef(false);
+  const organizationFocusWaitRef = useRef<{ check: () => void; cancel: () => void } | null>(null);
   const sessionVerifyPreparedRef = useRef(false);
   const focusTargetRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -165,6 +166,7 @@ export function PremiumAccountGate({
   const onboardingRoute = getOnboardingIntegrationRoute(locale);
   const claimUrl = `${onboardingRoute}?claim=1`;
   const beginAccountHandoff = useCallback(() => {
+    organizationFocusWaitRef.current?.cancel();
     const attempt = createAccountHandoff();
     accountHandoffRef.current = attempt;
     return attempt;
@@ -195,6 +197,7 @@ export function PremiumAccountGate({
         return;
       }
       navigationStartedRef.current = true;
+      organizationFocusWaitRef.current?.cancel();
       // Supported Clerk handoff: fresh context resumes the persisted draft.
       // The parent and server still enforce verified email and tenant access.
       window.location.assign(decorateUrl ? decorateUrl(claimUrl) : claimUrl);
@@ -293,6 +296,7 @@ export function PremiumAccountGate({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      organizationFocusWaitRef.current?.cancel();
     };
   }, []);
 
@@ -329,6 +333,7 @@ export function PremiumAccountGate({
       }
       pendingTaskRef.current = nextTask;
       setPendingTask(nextTask);
+      organizationFocusWaitRef.current?.check();
       const nextStatus = nextSession && typeof nextSession === 'object'
         ? (nextSession as { status?: unknown }).status
         : null;
@@ -423,6 +428,56 @@ export function PremiumAccountGate({
       }
       const [firstOrganization] = resolution.organizations;
       if (resolution.organizations.length === 1 && firstOrganization) {
+        // Clerk can settle a pending setActive without touching its session in
+        // an unfocused browser. Retain this resolved target and in-flight fence
+        // until focus returns or the owning task is cancelled. The recovery
+        // timer changes presentation only; it must not launch parallel work.
+        const waitForFocus = () => new Promise<boolean>((resolve) => {
+          let settled = false;
+          const finish = (ready: boolean) => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            window.removeEventListener('focus', check);
+            window.document.removeEventListener('visibilitychange', check);
+            if (organizationFocusWaitRef.current?.check === check) {
+              organizationFocusWaitRef.current = null;
+            }
+            resolve(ready);
+          };
+          function check() {
+            if (!mountedRef.current || accountHandoffRef.current !== attempt
+              || navigationStartedRef.current || signOutInFlightRef.current) {
+              finish(false);
+              return;
+            }
+            // Undefined is a transient SDK accessor state, not sign-out.
+            if (clerk.session === undefined) {
+              return;
+            }
+            const rawTask = derivePendingSessionTask(clerk.session);
+            const current = pendingTaskRef.current;
+            if (rawTask?.sessionId !== task.sessionId || rawTask.taskKey !== task.taskKey
+              || current?.sessionId !== task.sessionId || current.taskKey !== task.taskKey) {
+              finish(false);
+            } else if (window.document.hasFocus()) {
+              finish(true);
+            }
+          }
+          organizationFocusWaitRef.current = { check, cancel: () => finish(false) };
+          window.addEventListener('focus', check);
+          window.document.addEventListener('visibilitychange', check);
+          check();
+        });
+        do {
+          if (!await waitForFocus()) {
+            return;
+          }
+        } while (!window.document.hasFocus() || clerk.session === undefined);
+        if (!isCurrentTask() || navigationStartedRef.current || signOutInFlightRef.current) {
+          return;
+        }
         try {
           await clerk.setActive({
             organization: firstOrganization.id,
@@ -568,6 +623,7 @@ export function PremiumAccountGate({
       return;
     }
     signOutInFlightRef.current = true;
+    organizationFocusWaitRef.current?.cancel();
     setBusy(true);
     try {
       await clerk.signOut({ sessionId, redirectUrl: claimUrl });

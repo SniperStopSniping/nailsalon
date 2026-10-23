@@ -1,8 +1,9 @@
 // Isolated browser adapter. No Clerk account is created or contacted.
 const params = new URLSearchParams(location.search);
 const finalizationRecovery = params.get('scenario') === 'finalization-recovery';
-const resumed = finalizationRecovery && params.has('claim');
-type Session = { id: string; status: string; currentTask: null; lastActiveOrganizationId: string };
+const organizationFocus = params.get('scenario') === 'organization-focus';
+const resumed = (finalizationRecovery || organizationFocus) && params.has('claim');
+type Session = { id: string; status: string; currentTask: { key: string } | null; lastActiveOrganizationId: string; getToken?: () => Promise<string> };
 type Navigate = (input: { session: Session; decorateUrl: (url: string) => string }) => void;
 const session: Session = { id: 'fixture-recovery-session', status: 'active', currentTask: null, lastActiveOrganizationId: 'fixture-existing-org' };
 const listeners = new Set<(state: { session: Session }) => void>();
@@ -16,21 +17,38 @@ let finalizeNavigate: Navigate | undefined;
 let finishActivation: (() => void) | undefined;
 let activationKeys: string[] = [];
 let activationSession: string | null = null;
-const decorateUrl = (url: string) => `${url}&scenario=finalization-recovery&fixtureDecorated=1`;
-export const useAuth = () => ({ isLoaded: true, isSignedIn: !finalizationRecovery || resumed, userId: 'fixture-owner', getToken: async () => 'fixture-token' });
+const organizationState = JSON.parse(sessionStorage.getItem('fixture-organization-focus') ?? '{"tokens":0,"activationSession":null,"activationOrganization":null}') as { tokens: number; activationSession: string | null; activationOrganization: string | null };
+const saveOrganizationState = () => sessionStorage.setItem('fixture-organization-focus', JSON.stringify(organizationState));
+const pendingOrganization: Session = { ...session, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: async () => {
+  organizationState.tokens += 1;
+  saveOrganizationState();
+  return 'fixture-token';
+} };
+const decorateUrl = (url: string) => `${url}&scenario=${organizationFocus ? 'organization-focus' : 'finalization-recovery'}&fixtureDecorated=1`;
+export const useAuth = () => ({ isLoaded: true, isSignedIn: !(finalizationRecovery || organizationFocus) || resumed, userId: 'fixture-owner', getToken: async () => 'fixture-token' });
 export const useUser = () => ({ isLoaded: true, user: { id: 'fixture-owner', primaryEmailAddress: { emailAddress: 'owner@example.test', verification: { status: 'verified' } } } });
 const clerk = {
-  session: resumed ? session : null as Session | null,
+  session: resumed ? session : organizationFocus ? pendingOrganization : null as Session | null,
   addListener: (listener: (state: { session: Session }) => void) => {
-    if (finalizationRecovery) {
+    if (finalizationRecovery || organizationFocus) {
       listeners.add(listener);
     }
     return () => listeners.delete(listener);
   },
-  setActive: (options: { session: string; navigate: Navigate }) => {
+  setActive: (options: { session: string; organization?: string; navigate: Navigate }) => {
     count('activation');
     activationKeys = Object.keys(options).sort();
     activationSession = options.session;
+    if (organizationFocus) {
+      // Simulated successful SDK activation; real SDK focus behavior has its own fixture.
+      organizationState.activationSession = options.session;
+      organizationState.activationOrganization = options.organization ?? null;
+      saveOrganizationState();
+      clerk.session = { ...session, lastActiveOrganizationId: options.organization ?? session.lastActiveOrganizationId };
+      listeners.forEach(listener => listener({ session: clerk.session! }));
+      options.navigate({ session: clerk.session, decorateUrl });
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve) => {
       finishActivation = () => {
         options.navigate({ session, decorateUrl });
@@ -46,6 +64,26 @@ const clerk = {
     document.body.dataset.signedOut = options?.redirectUrl ?? 'yes';
   },
 };
+if (organizationFocus) {
+  // Controlled document focus makes the application branch deterministic in both engines.
+  // This is an application fixture, not a claim about actual Safari focus/provider timing.
+  let focused = false;
+  Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused });
+  Object.assign(window, {
+    organizationFocusFixture: {
+      inspect: () => ({ ...organizationState, ...counts, currentSessionId: clerk.session?.id }),
+      focus: () => {
+        focused = true;
+        window.dispatchEvent(new Event('focus'));
+        document.dispatchEvent(new Event('visibilitychange'));
+      },
+      replaceSession: () => {
+        clerk.session = { ...session, id: 'fixture-replacement-session' };
+        listeners.forEach(listener => listener({ session: clerk.session! }));
+      },
+    },
+  });
+}
 export const useClerk = () => clerk;
 export const useSignIn = () => ({
   isLoaded: true,
