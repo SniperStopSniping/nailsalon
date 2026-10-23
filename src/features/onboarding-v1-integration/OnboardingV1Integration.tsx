@@ -430,6 +430,7 @@ function OnboardingIntegrationController({
   const [planConfirmation, setPlanConfirmation] = useState<string | null>(null);
   const payloadRef = useRef(payload);
   const claimInFlightRef = useRef(false);
+  const locallyHandledClaimKeyRef = useRef<string | null>(null);
   const claimReconciliationRef = useRef<AbortController | null>(null);
   const controllerMountedRef = useRef(true);
   useEffect(() => {
@@ -625,6 +626,7 @@ function OnboardingIntegrationController({
     claimInFlightRef.current = true;
     const idempotencyKey = explicitIdempotencyKey
       ?? latestFlowRef.current.claimIdempotencyKey;
+    locallyHandledClaimKeyRef.current = idempotencyKey;
     setSavingStep('core');
     setSnapshotFixScreen(null);
     setFlow(current => ({
@@ -868,6 +870,11 @@ function OnboardingIntegrationController({
   }, [authMode, flow.authMode, setFlow]);
 
   useEffect(() => {
+    // A queued saving render can flush after this document's claim settled.
+    // Only a save not handled here needs interrupted-document recovery.
+    if (locallyHandledClaimKeyRef.current === flow.claimIdempotencyKey) {
+      return undefined;
+    }
     if (flow.savedSite && !savedSiteVerified) {
       return undefined;
     }

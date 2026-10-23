@@ -1196,6 +1196,33 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(loadOnboardingIntegrationFlow().phase).toBe('onboarding');
   });
 
+  it('still recovers the same interrupted key after a fresh mount', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
+    const originalFlow = loadOnboardingIntegrationFlow();
+    mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await screen.findByRole('heading', { name: 'Your progress is saved' });
+
+    expect(mocks.status).not.toHaveBeenCalled();
+
+    view.unmount();
+    // A fresh document may load an interrupted record with this same key.
+    saveOnboardingIntegrationFlow({ ...originalFlow, phase: 'saving' });
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await screen.findByRole('heading', { name: 'Your progress is saved' });
+
+    expect(mocks.status).toHaveBeenCalledOnce();
+    expect(mocks.claim).toHaveBeenCalledOnce();
+    expect(loadOnboardingIntegrationFlow().claimIdempotencyKey).toBe(originalFlow.claimIdempotencyKey);
+    expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite);
+  });
+
   it('ignores an interrupted-save status response after the account changes', async () => {
     mocks.auth.isSignedIn = true;
     mocks.userState.user = verifiedClerkUser();
