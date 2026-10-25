@@ -7,6 +7,8 @@
 
 import { z } from 'zod';
 
+import { patchShape } from '@/libs/zodPatch';
+
 // =============================================================================
 // ENUMS & CONSTANTS
 // =============================================================================
@@ -61,7 +63,7 @@ export type SalonPolicyInput = z.infer<typeof SalonPolicyInputSchema>;
  * fields remain untouched; this is required now that photo rules and social
  * posting are separate screens over the same database row.
  */
-export const SalonPolicyPatchSchema = SalonPolicyInputSchema.partial()
+export const SalonPolicyPatchSchema = SalonPolicyInputSchema.extend(patchShape(SalonPolicyInputSchema.shape))
   .strict()
   .refine(value => Object.keys(value).length > 0, {
     message: 'At least one policy field is required',

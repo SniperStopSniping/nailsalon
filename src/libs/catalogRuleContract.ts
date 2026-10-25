@@ -161,9 +161,9 @@ export function parseCatalogRuleParams<T extends CatalogRuleType>(
 export function safeParseCatalogRuleParams<T extends CatalogRuleType>(
   ruleType: T,
   params: unknown,
-): z.SafeParseReturnType<unknown, CatalogRuleParams<T>> {
+): z.ZodSafeParseResult<CatalogRuleParams<T>> {
   return PARAMS_SCHEMA_BY_TYPE[ruleType].safeParse(params ?? {}) as
-    z.SafeParseReturnType<unknown, CatalogRuleParams<T>>;
+    z.ZodSafeParseResult<CatalogRuleParams<T>>;
 }
 
 // =============================================================================

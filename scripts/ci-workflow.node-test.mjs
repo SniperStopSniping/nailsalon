@@ -718,6 +718,18 @@ test('the required Node 24 job exercises the patched release-tooling dependency 
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
 });
 
+test('the required Node 24 job verifies the patched URI parser and its consumers without skips', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched URI parser consumers with zero skips');
+  assert.ok(step);
+  assert.equal(step.if, undefined);
+  assert.equal(step['continue-on-error'], undefined);
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('node --test --test-reporter=tap scripts/fast-uri-security.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 7\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 7\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
 test('the required Node 24 job verifies scoped release-plugin Lodash without skips', () => {
   const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify scoped release-plugin Lodash with zero skips');
   assert.ok(step);

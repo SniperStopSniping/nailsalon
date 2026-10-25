@@ -1590,6 +1590,15 @@ jobs:
           grep -Fqx '# pass 3' tooling-dependency-security.log
           grep -Fqx '# skipped 0' tooling-dependency-security.log
 
+      - name: Verify patched URI parser consumers with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/fast-uri-security.node-test.mjs | tee fast-uri-security.log
+          grep -Fqx '# tests 7' fast-uri-security.log
+          grep -Fqx '# pass 7' fast-uri-security.log
+          grep -Fqx '# skipped 0' fast-uri-security.log
+
       - name: Verify scoped release-plugin Lodash with zero skips
         run: |
           set -euo pipefail

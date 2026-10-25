@@ -144,6 +144,10 @@
     {
       "packageJson": "45360c6c61c9b7b739b0b84ab71efe57f1c9991c",
       "packageLock": "c67a19cc1093a515db7b9d8ef68dab4bb3d9a84a"
+    },
+    {
+      "packageJson": "6419d27be95f36a0ebd65af8d50583b1e7f8faa4",
+      "packageLock": "087ce19300b39274c0a9578bd7e7dc2e5662e103"
     }
   ]
 }

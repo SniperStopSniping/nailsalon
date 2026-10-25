@@ -486,10 +486,10 @@ const tokenOverridesObjectSchema = z.object({
 const tokenOverridesSchema = tokenOverridesObjectSchema.nullable();
 
 const sectionIdArraySchema = z.array(sectionIdSchema);
-// z.record already treats every key as optional at parse time (an empty
+// z.partialRecord treats every key as optional at parse time (an empty
 // object and a partial object both pass) while rejecting any key outside the
 // enum, which is exactly Partial<Record<SectionId, string>>.
-const sectionVariantsSchema = z.record(sectionIdSchema, z.string().min(1)).superRefine((value, context) => {
+const sectionVariantsSchema = z.partialRecord(sectionIdSchema, z.string().min(1)).superRefine((value, context) => {
   for (const [sectionId, variant] of Object.entries(value)) {
     if (!isSupportedSectionVariant(sectionId as SectionId, variant)) {
       context.addIssue({
@@ -638,7 +638,7 @@ type PersistableBookingPageDraftPatch = Omit<BookingPageDraftPatch, 'sectionVari
   presetBase?: BookingPagePresetReference | null;
 };
 
-const preservedSectionVariantsSchema = z.record(sectionIdSchema, z.string().min(1));
+const preservedSectionVariantsSchema = z.partialRecord(sectionIdSchema, z.string().min(1));
 
 function validateBuilderSectionVariantSnapshot(
   value: unknown,

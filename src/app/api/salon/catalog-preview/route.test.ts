@@ -21,6 +21,7 @@ vi.mock('server-only', () => ({}));
 const holder = vi.hoisted(() => ({
   db: null as unknown,
   adminSalon: null as null | { id: string; slug: string },
+  authenticated: true,
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -30,6 +31,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 vi.mock('@/libs/adminAuth', () => ({
+  getAdminSession: vi.fn(async () => holder.authenticated ? { id: 'preview-admin' } : null),
   requireAdminSalon: vi.fn(async () => {
     if (holder.adminSalon) {
       return { salon: holder.adminSalon, error: null };
@@ -80,6 +82,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   holder.adminSalon = { id: SALON_ID, slug: SALON_SLUG };
+  holder.authenticated = true;
 });
 
 afterAll(async () => {
@@ -89,9 +92,34 @@ afterAll(async () => {
 describe('POST /api/salon/catalog-preview', () => {
   it('rejects unauthenticated callers', async () => {
     holder.adminSalon = null;
+    holder.authenticated = false;
     const response = await POST(postRequest({ salonSlug: SALON_SLUG, serviceId: SERVICE_ID, selectedAddOns: [] }));
 
     expect(response.status).toBe(401);
+  });
+
+  it('rejects unauthenticated input before opening the body stream', async () => {
+    holder.adminSalon = null;
+    holder.authenticated = false;
+    const request = postRequest({ selectedAddOns: ['invalid'] });
+    const read = vi.spyOn(request.body!, 'getReader');
+
+    expect((await POST(request)).status).toBe(401);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('checks salon access before validating malformed selection collections', async () => {
+    holder.adminSalon = null;
+    const response = await POST(postRequest({ salonSlug: 'other-salon', selectedAddOns: 'invalid' }));
+
+    expect(response.status).toBe(401);
+  });
+
+  it('bounds authenticated JSON before catalog resolution or validation', async () => {
+    const response = await POST(postRequest({ salonSlug: SALON_SLUG, serviceId: SERVICE_ID, padding: 'x'.repeat(30_000) }));
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: { code: 'REQUEST_TOO_LARGE' } });
   });
 
   it('matches resolveCatalogSelectionForSalon exactly — price, duration, and violations', async () => {

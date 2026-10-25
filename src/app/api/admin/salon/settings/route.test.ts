@@ -4,7 +4,6 @@ import { PGlite } from '@electric-sql/pglite';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
 
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
@@ -113,15 +112,8 @@ vi.mock('@/libs/auditLog', () => ({
   logAuditEvent,
 }));
 
-vi.mock('@/libs/bookingConfig', () => ({
-  bookingConfigSchema: z.object({
-    bufferMinutes: z.number().int().min(0).max(60).default(10),
-    slotIntervalMinutes: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30)]).default(15),
-    currency: z.union([z.literal('CAD'), z.literal('USD')]).default('CAD'),
-    timezone: z.string().default('America/Toronto'),
-    introPriceDefaultLabel: z.string().nullable().default(null),
-    firstVisitDiscountEnabled: z.boolean().default(false),
-  }),
+vi.mock('@/libs/bookingConfig', async importOriginal => ({
+  ...await importOriginal<typeof import('@/libs/bookingConfig')>(),
   getBookingConfigForSalon,
   resolveBookingConfigFromSettings,
 }));

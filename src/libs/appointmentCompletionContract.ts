@@ -71,7 +71,7 @@ export type CompletePayload = z.infer<typeof completeAppointmentSchema>;
 export type CompletionValidationIssue = { path: string; message: string };
 
 /** Safe owner-facing feedback: never echo submitted values or database errors. */
-export function completionValidationIssues(issues: Array<{ path: Array<string | number> }>): CompletionValidationIssue[] {
+export function completionValidationIssues(issues: Array<{ path: PropertyKey[] }>): CompletionValidationIssue[] {
   return issues.map(({ path }) => {
     const field = String(path.at(-1) ?? '');
     const item = path[0] === 'finalItems' && typeof path[1] === 'number' ? `Item ${path[1] + 1}` : 'Services & items';
@@ -103,6 +103,6 @@ export function completionValidationIssues(issues: Array<{ path: Array<string | 
       expectedBalanceCents: 'The balance is invalid. Reload the appointment before recording payment.',
       paymentStatusIntent: 'Check the complimentary appointment selection.',
     };
-    return { path: path.join('.'), message: messages[field] ?? 'Check the appointment details before completing.' };
+    return { path: path.map(String).join('.'), message: messages[field] ?? 'Check the appointment details before completing.' };
   });
 }

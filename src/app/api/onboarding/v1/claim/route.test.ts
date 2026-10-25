@@ -32,7 +32,7 @@ describe('onboarding claim authentication boundary', () => {
   it('returns 401 before reading a request body or querying business choices', async () => {
     mocks.currentUser.mockResolvedValue(null);
     const request = new Request('http://localhost/api/onboarding/v1/claim', { method: 'POST', body: 'not-json' });
-    const readBody = vi.spyOn(request, 'json');
+    const readBody = vi.spyOn(request.body!, 'getReader');
     const response = await POST(request);
 
     expect(response.status).toBe(401);
@@ -95,6 +95,22 @@ describe('onboarding claim authentication boundary', () => {
     expect(mocks.resolveClerkAdmin).toHaveBeenCalledWith('verified-owner');
     expect(mocks.resolveClerkAdmin.mock.invocationCallOrder[0]).toBeLessThan(mocks.claim.mock.invocationCallOrder[0]!);
     expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({ clerkUserId: 'verified-owner', email: 'owner@example.test' }), expect.any(Object));
+  });
+
+  it('rejects an oversized authenticated stream before schema parsing or account reconciliation', async () => {
+    mocks.currentUser.mockResolvedValue({
+      id: 'verified-owner',
+      primaryEmailAddressId: 'primary',
+      emailAddresses: [{ id: 'primary', emailAddress: 'owner@example.test', verification: { status: 'verified' } }],
+      phoneNumbers: [],
+    });
+    const request = new Request('http://localhost/api/onboarding/v1/claim', { method: 'POST', body: 'x'.repeat(4_000_001) });
+    const response = await POST(request);
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: { code: 'REQUEST_TOO_LARGE' } });
+    expect(mocks.resolveClerkAdmin).not.toHaveBeenCalled();
+    expect(mocks.claim).not.toHaveBeenCalled();
   });
 
   it('does not reconcile an account for an invalid save payload', async () => {

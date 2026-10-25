@@ -173,7 +173,7 @@ export const communicationSettingsSchema = z.object({
       message: 'Quiet hours start and end must differ',
     }),
   events: z
-    .record(z.enum(COMMUNICATION_EVENT_TYPES), eventSettingsSchema)
+    .partialRecord(z.enum(COMMUNICATION_EVENT_TYPES), eventSettingsSchema)
     .default(() => ({ ...DEFAULT_COMMUNICATION_EVENT_SETTINGS }))
     .transform(stored => ({
       // Total record: unknown/absent events fall back to their default rather
@@ -207,7 +207,7 @@ export const communicationSettingsUpdateSchema = z
     killSwitch: z.boolean().optional(),
     quietHours: quietHoursSchema.strict().optional(),
     events: z
-      .record(z.enum(COMMUNICATION_EVENT_TYPES), eventSettingsSchema.strict())
+      .partialRecord(z.enum(COMMUNICATION_EVENT_TYPES), eventSettingsSchema.strict())
       .optional(),
     reminders: z
       .object({
