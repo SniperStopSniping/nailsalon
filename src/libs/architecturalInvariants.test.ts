@@ -226,6 +226,17 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
   // the relative spelling.
   const allSrcFiles = new Set(walkTsFiles());
   const fileExists = (candidate: string) => MODULE_SET_FILES.has(candidate) || allSrcFiles.has(candidate);
+  const offlineRuntimeFiles = [...allSrcFiles]
+    .filter(file => !isTestOrStoryFile(file) && !file.includes('/__evals__/'))
+    .sort();
+  // Keep the exhaustive AST scan inside timed tests. A growing repository
+  // exceeds one aggregate deadline under coverage, so spread the unchanged
+  // work across deterministic, disjoint cases with the normal test budget.
+  const offlineScanBatchCount = 32;
+  const offlineScanBatches = Array.from({ length: offlineScanBatchCount }, (_, index) => ({
+    batch: index + 1,
+    files: offlineRuntimeFiles.filter((_, fileIndex) => fileIndex % offlineScanBatchCount === index),
+  }));
 
   function findOfflineEvaluationImports(files: Iterable<string>, readSource: (file: string) => string): string[] {
     const offenders: string[] = [];
@@ -300,8 +311,15 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
     expect(findOfflineEvaluationImports(['src/libs/runtime-fixture.ts'], () => source)).toEqual([]);
   });
 
-  it('offline customer evaluation fixtures never enter application runtime imports', () => {
-    expect(findOfflineEvaluationImports(allSrcFiles, read)).toEqual([]);
+  it('offline graph scan batches cover every eligible source exactly once', () => {
+    const coveredFiles = offlineScanBatches.flatMap(batch => batch.files);
+
+    expect(coveredFiles.toSorted()).toEqual(offlineRuntimeFiles);
+    expect(new Set(coveredFiles).size).toBe(offlineRuntimeFiles.length);
+  });
+
+  it.each(offlineScanBatches)(`offline customer evaluation fixtures never enter application runtime imports (batch $batch/${offlineScanBatchCount})`, ({ files }) => {
+    expect(findOfflineEvaluationImports(files, read)).toEqual([]);
   });
 
   it('no production file outside the set imports any set member except through an authorized edge', () => {
