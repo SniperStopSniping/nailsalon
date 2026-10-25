@@ -44,6 +44,8 @@ const harness = vi.hoisted(() => ({
   queryRespond: (async () => ({ rows: [] })) as (queryText: string) => Promise<unknown>,
   poolInstances: [] as Array<{ ended: boolean }>,
   physicalConnects: 0,
+  markerQueries: [] as unknown[],
+  poolQueries: [] as unknown[],
   leasedClients: [] as Array<{ release: ReturnType<typeof vi.fn> }>,
 }));
 
@@ -78,9 +80,12 @@ vi.mock('pg', async () => {
     }
 
     query(text: string | { text: string }): Promise<unknown> {
-      return typeof text === 'string'
-        ? harness.markerRespond(text)
-        : harness.queryRespond(text.text);
+      const queryText = typeof text === 'string' ? text : text.text;
+      if (queryText.includes('current_database()')) {
+        return harness.queryRespond(queryText);
+      }
+      harness.markerQueries.push(text);
+      return harness.markerRespond(queryText);
     }
   }
 
@@ -96,7 +101,8 @@ vi.mock('pg', async () => {
       harness.poolInstances.push(this);
     }
 
-    async query(text: string): Promise<unknown> {
+    async query(text: string | { text: string }): Promise<unknown> {
+      harness.poolQueries.push(text);
       // Our fake never keeps an idle client around, so — like a real
       // pg-pool asked for a client with none idle — every call here
       // simulates opening a brand-new physical connection, which is
@@ -114,7 +120,7 @@ vi.mock('pg', async () => {
       });
       // Attestation passed for this connection — now actually answer the
       // real query, decoupled from the marker check above.
-      return harness.queryRespond(text);
+      return harness.queryRespond(typeof text === 'string' ? text : text.text);
     }
 
     async end() {
@@ -189,6 +195,8 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     process.env = { ...originalEnvironment };
     harness.poolInstances = [];
     harness.physicalConnects = 0;
+    harness.markerQueries = [];
+    harness.poolQueries = [];
     harness.leasedClients = [];
     harness.queryRespond = async () => ({ rows: [] });
     resetGlobalDatabaseState();
@@ -432,10 +440,19 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     setProductionEnv();
     harness.markerRespond = validProductionMarker;
 
-    const { db, usesRuntimePostgres } = await import('./DB');
+    const { db, usesRuntimePostgres, pingRuntimeDatabase } = await import('./DB');
 
     expect(db).toBeDefined();
     expect(usesRuntimePostgres).toBe(true);
+    expect(harness.poolQueries).toEqual([{ text: 'SELECT 1', query_timeout: 5000 }]);
+    expect(harness.markerQueries).toEqual([expect.objectContaining({ query_timeout: 5000 })]);
+
+    await pingRuntimeDatabase();
+
+    expect(harness.poolQueries).toEqual([
+      { text: 'SELECT 1', query_timeout: 5000 },
+      { text: 'SELECT 1', query_timeout: 5000 },
+    ]);
     expect(harness.poolInstances).toHaveLength(1);
     expect(harness.poolInstances[0]?.ended).toBe(false);
   });

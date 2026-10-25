@@ -2,10 +2,15 @@
  * Native PostgreSQL regressions for the physical Client pre-connect cooldown.
  * This suite uses the same strictly attested disposable target as D5 and
  * performs only read-only session checks, SELECTs, and SERIALIZABLE read-only
- * transactions. Synthetic typed verifier failures exercise recovery behavior;
+ * transactions. New deadline controls redirect only the test client's marker
+ * read to a sleeping SELECT, an explicit marker value, or a server-side DO
+ * block raising SQLSTATE 42501 (no grants or schema mutations). The permission
+ * control proves classification of a real server rejection, not privilege
+ * enforcement. A socket control destroys only that fixture client's stream.
+ * Synthetic typed verifier failures exercise recovery behavior;
  * they do not represent a real provider outage or a wrong live database.
  */
-import type { PoolClient, PoolConfig } from 'pg';
+import type { PoolClient, PoolConfig, QueryConfig } from 'pg';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -23,10 +28,11 @@ import { readRuntimeDatabaseBindingStatus } from './runtimeDatabaseBinding.serve
 import { RuntimeDatabaseGuardError } from './runtimeDatabaseGuard';
 import { createRuntimeDatabaseCooldownClient } from './runtimeDatabasePoolClient';
 import { createRuntimeDatabaseVerificationCooldown } from './runtimeDatabasePoolRecovery';
+import { createGuardedRuntimeDatabasePoolVerifier, pingRuntimePostgres, RUNTIME_DATABASE_READ_TIMEOUT_MS } from './runtimeDatabasePoolVerifier.server';
 
 vi.mock('server-only', () => ({}));
 
-const EXPECTED_TESTS = 7;
+const EXPECTED_TESTS = 12;
 const COOLDOWN_MS = 5_000;
 const rawUrl = process.env.CONCURRENCY_TEST_DATABASE_URL;
 const required = process.env.D5_POOL_COOLDOWN_REQUIRED === 'true';
@@ -153,6 +159,105 @@ function createPoolHarness(
       clock = time;
     },
     releaseVerifierGate: () => releaseVerifierGate?.(),
+  };
+}
+
+type DeadlineMode = 'healthy' | 'stalled-marker' | 'socket-error' | 'wrong-marker' | 'permission-rejection' | 'stalled-ping';
+
+/** Real pg-pool, real runtime verifier, and native pg query_timeout behavior. */
+function createDeadlineHarness(initialMode: DeadlineMode) {
+  if (!target || !expectedServer) {
+    throw new Error('The strictly attested disposable PostgreSQL target is unavailable.');
+  }
+  let mode = initialMode;
+  let clock = 0;
+  const counts = { connections: 0, markers: 0, applicationQueries: 0, removed: 0 };
+  const driverErrors: unknown[] = [];
+  const cooldown = createRuntimeDatabaseVerificationCooldown({
+    classify: error => error instanceof RuntimeDatabaseGuardError
+      ? error
+      : typedFailure('DATABASE_UNAVAILABLE'),
+    cooldownMs: COOLDOWN_MS,
+    now: () => clock,
+  });
+  const config = {
+    connectionString: target.connectionString,
+    max: 1,
+    // Match the runtime physical/acquisition window; queued requests must not
+    // expire before the separate 5s marker read can release its failed lease.
+    connectionTimeoutMillis: 15000,
+    Client: createRuntimeDatabaseCooldownClient(cooldown),
+    verify: createGuardedRuntimeDatabasePoolVerifier({
+      connectionString: target.connectionString,
+      environment: 'production',
+      fingerprint: 'strict-disposable-fixture',
+      host: target.host,
+    }, cooldown),
+  } as PoolConfig & { verify: (client: PoolClient, callback: (error?: Error) => void) => void };
+  const pool = new pg.Pool(config);
+  pool.on('remove', () => {
+    counts.removed++;
+  });
+  pool.on('connect', (client) => {
+    counts.connections++;
+    const nativeQuery = client.query.bind(client);
+    // This adapter exists only inside the test harness. It leaves the real
+    // driver's timeout/error/release machinery and the actual runtime guard
+    // intact, while making a marker SELECT deliberately stall or reject.
+    client.query = ((query: string | { text: string; query_timeout?: number }, ...args: unknown[]) => {
+      const text = typeof query === 'string' ? query : query.text;
+      if (text === 'SELECT environment FROM public.luster_environment LIMIT 2') {
+        counts.markers++;
+        const markerConfig = typeof query === 'string' ? { text: query } : query;
+        return attestDisposableDatabaseSession({
+          query: ((sessionQuery: string) => {
+            const boundedQuery: QueryConfig & { query_timeout: number } = {
+              text: sessionQuery,
+              query_timeout: RUNTIME_DATABASE_READ_TIMEOUT_MS,
+            };
+            return nativeQuery(boundedQuery);
+          }) as typeof client.query,
+        }, target!, expectedServer!).then(async () => {
+          let markerSql = 'SELECT \'production\' AS environment';
+          if (mode === 'stalled-marker' || mode === 'socket-error') {
+            markerSql = 'SELECT \'production\' AS environment FROM pg_sleep(30)';
+          } else if (mode === 'wrong-marker') {
+            markerSql = 'SELECT \'development\' AS environment';
+          } else if (mode === 'permission-rejection') {
+            markerSql = 'DO $$ BEGIN RAISE EXCEPTION USING ERRCODE = \'42501\', MESSAGE = \'fixture permission rejection\'; END $$';
+          }
+          const pending = nativeQuery({ ...markerConfig, text: markerSql });
+          if (mode === 'socket-error') {
+            // Exercise pg's actual socket error path, with the verifier's
+            // temporary listener as the sole listener during this query.
+            expect(client.listenerCount('error')).toBe(1);
+
+            const socket = (client as unknown as { connection: { stream: { destroy: (error: Error) => void } } }).connection.stream;
+            setImmediate(() => socket.destroy(new Error('private fixture socket detail')));
+          }
+          return pending;
+        }).catch((error: unknown) => {
+          driverErrors.push(error);
+          throw error;
+        });
+      }
+      counts.applicationQueries++;
+      if (mode === 'stalled-ping' && text === 'SELECT 1') {
+        return nativeQuery({ ...(typeof query === 'string' ? {} : query), text: 'SELECT 1 FROM pg_sleep(30)' }, ...args as []);
+      }
+      return nativeQuery(query, ...args as []);
+    }) as typeof client.query;
+  });
+  return {
+    pool,
+    counts,
+    driverErrors,
+    setMode: (next: DeadlineMode) => {
+      mode = next;
+    },
+    expireCooldown: () => {
+      clock += COOLDOWN_MS + 1;
+    },
   };
 }
 
@@ -460,6 +565,114 @@ suite('runtime PostgreSQL physical connection cooldown', () => {
       expect(await readRuntimeDatabaseBindingStatus(bindingDescriptor, harness.pool)).toBe('matched');
       expect(harness.counts).toEqual({ physicalConnections: 2, verifierAttempts: 2 });
       expect(harness.pool.idleCount).toBe(1);
+    } finally {
+      await harness.pool.end();
+    }
+    executedTests++;
+  });
+
+  // These two tests deliberately wait for the production 5s query deadline.
+  // Their per-case 15s budget includes connection/setup/cleanup; the measured
+  // rejection bound below remains asserted, without changing suite defaults.
+  it('expires a real stalled marker read, removes its client, blocks a queued burst, and recovers on the same pool', async () => {
+    attemptedTests++;
+    const harness = createDeadlineHarness('stalled-marker');
+    try {
+      const started = Date.now();
+      const attempts = Array.from({ length: 8 }, () => expectGuardRejection(
+        harness.pool.query('SELECT 42::int AS result'),
+        'DATABASE_UNAVAILABLE',
+      ));
+      const errors = await Promise.all(attempts);
+
+      expect(Date.now() - started).toBeGreaterThanOrEqual(RUNTIME_DATABASE_READ_TIMEOUT_MS - 100);
+      expect(Date.now() - started).toBeLessThan(10000);
+      expect(errors.every(error => error === errors[0])).toBe(true);
+      expect(harness.driverErrors).toHaveLength(1);
+      expect(harness.driverErrors[0]).toMatchObject({ message: 'Query read timeout' });
+      expect(harness.counts).toEqual({ connections: 1, markers: 1, applicationQueries: 0, removed: 1 });
+      expect(harness.pool.totalCount).toBe(0);
+      expect(harness.pool.waitingCount).toBe(0);
+
+      harness.setMode('healthy');
+      harness.expireCooldown();
+
+      expect((await harness.pool.query('SELECT 42::int AS result')).rows).toEqual([{ result: 42 }]);
+      expect(harness.counts).toEqual({ connections: 2, markers: 2, applicationQueries: 1, removed: 1 });
+    } finally {
+      await harness.pool.end();
+    }
+    executedTests++;
+  }, 15000);
+
+  it('bounds the native startup/readiness ping and discards its timed-out client', async () => {
+    attemptedTests++;
+    const harness = createDeadlineHarness('stalled-ping');
+    try {
+      const started = Date.now();
+
+      await expect(pingRuntimePostgres(harness.pool)).rejects.toMatchObject({ message: 'Query read timeout' });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(RUNTIME_DATABASE_READ_TIMEOUT_MS - 100);
+      expect(Date.now() - started).toBeLessThan(10000);
+      expect(harness.pool.totalCount).toBe(0);
+      expect(harness.counts.removed).toBe(1);
+
+      harness.setMode('healthy');
+      await pingRuntimePostgres(harness.pool);
+
+      expect(harness.counts).toEqual({ connections: 2, markers: 2, applicationQueries: 2, removed: 1 });
+      expect(harness.pool.idleCount).toBe(1);
+    } finally {
+      await harness.pool.end();
+    }
+    executedTests++;
+  }, 15000);
+
+  it('handles an actual socket error while verifying, destroys the client, and recovers after cooldown', async () => {
+    attemptedTests++;
+    const harness = createDeadlineHarness('socket-error');
+    try {
+      const error = await expectGuardRejection(harness.pool.query('SELECT 1'), 'DATABASE_UNAVAILABLE');
+
+      expect(error.message).not.toContain('private fixture socket detail');
+      expect(harness.pool.totalCount).toBe(0);
+      expect(harness.counts).toEqual({ connections: 1, markers: 1, applicationQueries: 0, removed: 1 });
+      expect(harness.driverErrors).toHaveLength(1);
+
+      await expectGuardRejection(harness.pool.query('SELECT 1'), 'DATABASE_UNAVAILABLE');
+
+      expect(harness.counts.connections).toBe(1);
+
+      harness.setMode('healthy');
+      harness.expireCooldown();
+      await pingRuntimePostgres(harness.pool);
+
+      expect(harness.counts).toEqual({ connections: 2, markers: 2, applicationQueries: 1, removed: 1 });
+    } finally {
+      await harness.pool.end();
+    }
+    executedTests++;
+  });
+
+  it.each(['wrong-marker', 'permission-rejection'] as const)('keeps the real runtime verifier fail-closed for %s before and after cooldown', async (mode) => {
+    attemptedTests++;
+    const harness = createDeadlineHarness(mode);
+    try {
+      await expectGuardRejection(harness.pool.query('SELECT 1'), 'DATABASE_ATTESTATION_REJECTED');
+      await expectGuardRejection(harness.pool.query('SELECT 1'), 'DATABASE_ATTESTATION_REJECTED');
+
+      expect(harness.counts).toEqual({ connections: 1, markers: 1, applicationQueries: 0, removed: 1 });
+
+      harness.expireCooldown();
+      await expectGuardRejection(harness.pool.query('SELECT 1'), 'DATABASE_ATTESTATION_REJECTED');
+
+      expect(harness.counts).toEqual({ connections: 2, markers: 2, applicationQueries: 0, removed: 2 });
+      expect(harness.pool.totalCount).toBe(0);
+
+      if (mode === 'permission-rejection') {
+        expect(harness.driverErrors).toHaveLength(2);
+        expect(harness.driverErrors[0]).toMatchObject({ code: '42501' });
+      }
     } finally {
       await harness.pool.end();
     }

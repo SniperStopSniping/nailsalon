@@ -50,7 +50,7 @@ test('Calendar PostgreSQL regressions are required and cannot silently skip', ()
   assert.equal(binding['continue-on-error'], undefined);
   assert.match(binding.run, /set -euo pipefail/);
   assert.ok(binding.run.includes('src/libs/runtimeDatabasePoolClient.integration.test.ts'));
-  assert.ok(binding.run.includes('RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=7 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0'));
+  assert.ok(binding.run.includes('RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=12 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0'));
   const outbox = jobs['google-outbox-postgres'];
   assert.equal(outbox.needs, 'secret-scan');
   assert.equal(outbox.env.GOOGLE_OUTBOX_PG_REQUIRED, 'true');

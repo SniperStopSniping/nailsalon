@@ -1,9 +1,7 @@
-import { sql } from 'drizzle-orm';
-
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { isClientLifecycleSchemaReady } from '@/libs/clientLifecycleSchema';
 import type { LifecycleReadinessSqlHandle } from '@/libs/clientLifecycleSchemaCore';
-import { db, getRuntimeDatabaseBindingStatus } from '@/libs/DB';
+import { db, getRuntimeDatabaseBindingStatus, pingRuntimeDatabase } from '@/libs/DB';
 import { type DepositsReadinessSqlHandle, isDepositsSchemaReady } from '@/libs/depositsSchema';
 import { expectedBillingPlanEnv, resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import { isResendSenderVerified } from '@/libs/resendHealth';
@@ -114,7 +112,7 @@ export async function GET(): Promise<Response> {
   // 1. Database check (critical)
   // ---------------------------------------------------------------------------
   try {
-    await db.execute(sql`SELECT 1`);
+    await pingRuntimeDatabase();
     checks.db = true;
   } catch {
     checks.db = false;

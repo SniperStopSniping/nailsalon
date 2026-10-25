@@ -2121,7 +2121,7 @@ jobs:
             src/libs/runtimeDatabasePoolClient.integration.test.ts \
             | tee runtime-database-pool-cooldown-postgres.log
           grep -Fqx \
-            'RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=7 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0' \
+            'RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=12 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0' \
             runtime-database-pool-cooldown-postgres.log
 
       - name: Run D5 Calendar claim and revert races and prove zero skips
