@@ -60,8 +60,23 @@ const ORGANIZATION_SIGN_IN_AGAIN_MESSAGE = 'We couldn’t activate your business
 const ORGANIZATION_SESSION_ENDED_MESSAGE = 'Your sign-in session ended. Sign in again to continue.';
 const ENDED_SESSION_STATUSES = new Set(['abandoned', 'ended', 'expired', 'removed', 'replaced', 'revoked']);
 
-type AccountHandoff = { sessionId: string | null; pendingOperations: number; recoveryInFlight: boolean };
-const createAccountHandoff = (): AccountHandoff => ({ sessionId: null, pendingOperations: 0, recoveryInFlight: false });
+export type AccountHandoffLease = { isCurrent: () => boolean; finish: () => void };
+type AccountHandoff = {
+  sessionId: string | null;
+  pendingOperations: number;
+  recoveryInFlight: boolean;
+  parentLease: AccountHandoffLease | null;
+  sameDocumentCompletion: boolean;
+  requiresNavigation: boolean;
+};
+const createAccountHandoff = (): AccountHandoff => ({
+  sessionId: null,
+  pendingOperations: 0,
+  recoveryInFlight: false,
+  parentLease: null,
+  sameDocumentCompletion: false,
+  requiresNavigation: false,
+});
 
 type CompletedSessionNavigation = (input: {
   session: { id: string; status: string; currentTask?: unknown };
@@ -103,6 +118,7 @@ export type PremiumAccountGateProps = {
   errorMessage: string | null;
   locale: string;
   needsSessionEmailVerification: boolean;
+  onAccountHandoffStart?: () => AccountHandoffLease;
   onCancel: () => void;
   onSessionEmailVerified?: () => void;
   providers: OnboardingAuthProviderAvailability;
@@ -115,6 +131,7 @@ export function PremiumAccountGate({
   errorMessage,
   locale,
   needsSessionEmailVerification,
+  onAccountHandoffStart,
   onCancel,
   onSessionEmailVerified,
   providers,
@@ -143,7 +160,7 @@ export function PremiumAccountGate({
     new URLSearchParams(window.location.search).has('sso'));
   const [pendingTask, setPendingTask] = useState<PendingSessionTask | null>(null);
   const [finalization, setFinalization] = useState<{ attempt: AccountHandoff; deadline: number; expired: boolean } | null>(null);
-  const [, refreshOperations] = useState(0);
+  const [operationsVersion, refreshOperations] = useState(0);
 
   const orgAttemptedKeysRef = useRef(new Set<string>());
   const orgResolutionInFlightKeysRef = useRef(new Set<string>());
@@ -165,26 +182,60 @@ export function PremiumAccountGate({
 
   const onboardingRoute = getOnboardingIntegrationRoute(locale);
   const claimUrl = `${onboardingRoute}?claim=1`;
+  const ownsHandoff = useCallback((attempt: AccountHandoff) => (
+    mountedRef.current && accountHandoffRef.current === attempt
+    && (!attempt.parentLease || attempt.parentLease.isCurrent())
+  ), []);
+  const acquireParentLease = useCallback((attempt: AccountHandoff) => {
+    if (!attempt.parentLease) {
+      attempt.parentLease = onAccountHandoffStart?.() ?? null;
+    }
+  }, [onAccountHandoffStart]);
   const beginAccountHandoff = useCallback(() => {
     organizationFocusWaitRef.current?.cancel();
     const attempt = createAccountHandoff();
+    // Acquire before an SDK call can emit active auth to the parent.
+    acquireParentLease(attempt);
+    attempt.pendingOperations = 1;
     accountHandoffRef.current = attempt;
     return attempt;
-  }, []);
+  }, [acquireParentLease]);
+
+  const finishSameDocumentHandoff = useCallback((attempt: AccountHandoff) => {
+    const session = clerk.session;
+    if (ownsHandoff(attempt) && attempt.sameDocumentCompletion && !attempt.requiresNavigation
+      && attempt.pendingOperations === 0 && !navigationStartedRef.current
+      && session?.id === attempt.sessionId && session.status === 'active'
+      && !session.currentTask && !pendingTaskRef.current) {
+      attempt.parentLease?.finish();
+    }
+  }, [clerk, ownsHandoff]);
+  const finishAuthOperation = useCallback((attempt: AccountHandoff | null) => {
+    if (attempt) {
+      attempt.pendingOperations -= 1;
+      finishSameDocumentHandoff(attempt);
+    }
+  }, [finishSameDocumentHandoff]);
+  useEffect(() => {
+    // A transient undefined accessor can outlast the awaited SDK operation.
+    // Only a later concrete active event may finish that successful operation.
+    finishSameDocumentHandoff(accountHandoffRef.current);
+  }, [finishSameDocumentHandoff, operationsVersion]);
 
   const isCurrentAccountHandoff = useCallback((attempt: AccountHandoff, sessionId: string | null) => {
     const observed = observedSessionRef.current as { id?: unknown; status?: unknown } | null;
     const current = clerk.session;
-    return mountedRef.current && accountHandoffRef.current === attempt && Boolean(sessionId)
+    return ownsHandoff(attempt) && Boolean(sessionId)
       && (!current || (current.id === sessionId && !ENDED_SESSION_STATUSES.has(current.status)))
       && (!observed || (observed.id === sessionId
         && !(typeof observed.status === 'string' && ENDED_SESSION_STATUSES.has(observed.status))));
-  }, [clerk]);
+  }, [clerk, ownsHandoff]);
 
   const completedSessionNavigation = useCallback((
     sessionId: string | null,
     attempt = accountHandoffRef.current,
   ): CompletedSessionNavigation => {
+    attempt.requiresNavigation = true;
     if (sessionId && accountHandoffRef.current === attempt && !attempt.sessionId) {
       attempt.sessionId = sessionId;
     }
@@ -205,9 +256,10 @@ export function PremiumAccountGate({
   }, [claimUrl, isCurrentAccountHandoff]);
 
   const enterFinalizing = useCallback((sessionId: string | null, attempt = accountHandoffRef.current, restartDeadline = false) => {
-    if (!mountedRef.current || accountHandoffRef.current !== attempt) {
+    if (!ownsHandoff(attempt)) {
       return;
     }
+    acquireParentLease(attempt);
     if (sessionId) {
       attempt.sessionId = sessionId;
     }
@@ -215,7 +267,7 @@ export function PremiumAccountGate({
       ? current
       : { attempt, deadline: Date.now() + FINALIZATION_RECOVERY_MS, expired: false });
     setStep({ kind: 'finalizing' });
-  }, []);
+  }, [acquireParentLease, ownsHandoff]);
 
   const trackHandoffOperation = useCallback(async <T,>(attempt: AccountHandoff, operation: () => Promise<T>): Promise<T> => {
     attempt.pendingOperations += 1;
@@ -223,11 +275,11 @@ export function PremiumAccountGate({
       return await operation();
     } finally {
       attempt.pendingOperations -= 1;
-      if (mountedRef.current && accountHandoffRef.current === attempt) {
+      if (ownsHandoff(attempt)) {
         refreshOperations(value => value + 1);
       }
     }
-  }, []);
+  }, [ownsHandoff]);
 
   const finalizingAttempt = finalization?.attempt;
   const finalizingDeadline = finalization?.deadline;
@@ -256,6 +308,15 @@ export function PremiumAccountGate({
     setFormError(null);
     setStatusNote(null);
   }, []);
+
+  // Child callback effects may activate a session before the parent passive
+  // effects run. Fence that callback document before activation is possible.
+  useLayoutEffect(() => {
+    if (ssoCallback) {
+      acquireParentLease(accountHandoffRef.current);
+      accountHandoffRef.current.requiresNavigation = true;
+    }
+  }, [acquireParentLease, ssoCallback]);
 
   const moveToStep = useCallback((next: GateStep) => {
     setStep(next);
@@ -321,7 +382,11 @@ export function PremiumAccountGate({
       const invalidated = Boolean(expected && (!observed || observed.id !== expected
         || (typeof observed.status === 'string' && ENDED_SESSION_STATUSES.has(observed.status))));
       if (invalidated) {
-        accountHandoffRef.current = createAccountHandoff();
+        const replacement = createAccountHandoff();
+        // Replacement invalidates old callbacks but is not permission to save
+        // this device's draft under a different account.
+        replacement.parentLease = accountHandoffRef.current.parentLease;
+        accountHandoffRef.current = replacement;
         setFinalization(null);
         setBusy(false);
       }
@@ -392,6 +457,7 @@ export function PremiumAccountGate({
         && rawTask.taskKey === task.taskKey
         && mountedRef.current
         && accountHandoffRef.current === attempt
+        && (!attempt.parentLease || attempt.parentLease.isCurrent())
         && current?.sessionId === task.sessionId
         && current.taskKey === task.taskKey;
     };
@@ -448,6 +514,7 @@ export function PremiumAccountGate({
           };
           function check() {
             if (!mountedRef.current || accountHandoffRef.current !== attempt
+              || (attempt.parentLease && !attempt.parentLease.isCurrent())
               || navigationStartedRef.current || signOutInFlightRef.current) {
               finish(false);
               return;
@@ -526,7 +593,7 @@ export function PremiumAccountGate({
       });
     } finally {
       attempt.pendingOperations -= 1;
-      if (mountedRef.current && accountHandoffRef.current === attempt) {
+      if (ownsHandoff(attempt)) {
         refreshOperations(value => value + 1);
       }
       orgResolutionInFlightKeysRef.current.delete(taskKey);
@@ -540,7 +607,7 @@ export function PremiumAccountGate({
         setPendingTask({ ...current });
       }
     }
-  }, [clerk, completedSessionNavigation, enterFinalizing, salonName]);
+  }, [clerk, completedSessionNavigation, enterFinalizing, ownsHandoff, salonName]);
 
   // A pending session with the choose-organization task never shows a
   // generic Clerk screen: the business shell is resolved server-side, named
@@ -606,11 +673,11 @@ export function PremiumAccountGate({
       }
     } finally {
       attempt.recoveryInFlight = false;
-      if (mountedRef.current && accountHandoffRef.current === attempt) {
+      if (ownsHandoff(attempt)) {
         setBusy(false);
       }
     }
-  }, [clerk, completedSessionNavigation, enterFinalizing, finalization, isCurrentAccountHandoff, needsSessionEmailVerification, step.kind, trackHandoffOperation]);
+  }, [clerk, completedSessionNavigation, enterFinalizing, finalization, isCurrentAccountHandoff, needsSessionEmailVerification, ownsHandoff, step.kind, trackHandoffOperation]);
 
   const signInAgain = useCallback(async (sessionId: string) => {
     const current = pendingTaskRef.current;
@@ -651,6 +718,8 @@ export function PremiumAccountGate({
       return;
     }
     setBusy(true);
+    const attempt = beginAccountHandoff();
+    attempt.requiresNavigation = true;
     clearTransient();
     setStep({ kind: 'sso', provider });
     try {
@@ -676,6 +745,9 @@ export function PremiumAccountGate({
         });
       }
     } catch (error) {
+      if (!ownsHandoff(attempt)) {
+        return;
+      }
       setBusy(false);
       setStep({ kind: 'providers' });
       setFormError(describeClerkError(
@@ -684,8 +756,10 @@ export function PremiumAccountGate({
           ? 'We couldn’t open Apple sign-in. Try again.'
           : 'We couldn’t open Google sign-in. Try again.',
       ));
+    } finally {
+      finishAuthOperation(attempt);
     }
-  }, [busy, claimUrl, clearTransient, intent, onboardingRoute, signIn, signUp]);
+  }, [beginAccountHandoff, busy, claimUrl, clearTransient, finishAuthOperation, intent, onboardingRoute, ownsHandoff, signIn, signUp]);
 
   const submitEmail = useCallback(async (event: FormEvent) => {
     event.preventDefault();
@@ -726,7 +800,7 @@ export function PremiumAccountGate({
           emailAddress: step.email,
           password: passwordValue,
         });
-        if (!mountedRef.current || accountHandoffRef.current !== attempt) {
+        if (!ownsHandoff(attempt)) {
           return;
         }
         if (error) {
@@ -757,6 +831,9 @@ export function PremiumAccountGate({
           }
         } else {
           const verification = await signUp.verifications.sendEmailCode();
+          if (!ownsHandoff(attempt)) {
+            return;
+          }
           if (verification.error) {
             throw verification.error;
           }
@@ -767,22 +844,26 @@ export function PremiumAccountGate({
         if (!signIn || !setActive) {
           return;
         }
+        const attempt = beginAccountHandoff();
+        operationAttempt = attempt;
         const result = await signIn.create({
           identifier: step.email,
           password: passwordValue,
           strategy: 'password',
         });
+        if (!ownsHandoff(attempt)) {
+          return;
+        }
         if (result.status === 'complete') {
-          const attempt = beginAccountHandoff();
-          operationAttempt = attempt;
           enterFinalizing(result.createdSessionId, attempt);
           await trackHandoffOperation(attempt, () => setActive({ session: result.createdSessionId }));
+          attempt.sameDocumentCompletion = true;
         } else {
           setFormError('We couldn’t finish signing you in. Try again.');
         }
       }
     } catch (error) {
-      if (!mountedRef.current || (operationAttempt && accountHandoffRef.current !== operationAttempt)) {
+      if (!mountedRef.current || (operationAttempt && !ownsHandoff(operationAttempt))) {
         return;
       }
       setFormError(describeClerkError(
@@ -792,9 +873,10 @@ export function PremiumAccountGate({
           : 'We couldn’t sign you in. Check your password and try again.',
       ));
     } finally {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setBusy(false);
       }
+      finishAuthOperation(operationAttempt);
     }
   }, [
     beginAccountHandoff,
@@ -802,8 +884,10 @@ export function PremiumAccountGate({
     clearTransient,
     completedSessionNavigation,
     enterFinalizing,
+    finishAuthOperation,
     isCurrentAccountHandoff,
     moveToStep,
+    ownsHandoff,
     passwordValue,
     setActive,
     signIn,
@@ -825,7 +909,7 @@ export function PremiumAccountGate({
       const attempt = beginAccountHandoff();
       operationAttempt = attempt;
       const { error } = await signUp.verifications.verifyEmailCode({ code });
-      if (!mountedRef.current || accountHandoffRef.current !== attempt) {
+      if (!ownsHandoff(attempt)) {
         return;
       }
       if (error) {
@@ -863,15 +947,16 @@ export function PremiumAccountGate({
         setFormError('We couldn’t finish creating your account. Your work is safe on this device. Try again to continue.');
       }
     } catch (error) {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setFormError(describeClerkError(error, 'We couldn’t verify your email. Try again.'));
       }
     } finally {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setBusy(false);
       }
+      finishAuthOperation(operationAttempt);
     }
-  }, [beginAccountHandoff, busy, clearTransient, codeValue, completedSessionNavigation, enterFinalizing, isCurrentAccountHandoff, signUp, step, trackHandoffOperation]);
+  }, [beginAccountHandoff, busy, clearTransient, codeValue, completedSessionNavigation, enterFinalizing, finishAuthOperation, isCurrentAccountHandoff, ownsHandoff, signUp, step, trackHandoffOperation]);
 
   const submitSessionCode = useCallback(async (event: FormEvent) => {
     event.preventDefault();
@@ -883,28 +968,34 @@ export function PremiumAccountGate({
     clearTransient();
     let operationAttempt: AccountHandoff | null = null;
     try {
+      const attempt = beginAccountHandoff();
+      operationAttempt = attempt;
+      attempt.sessionId = clerk.session?.id ?? null;
       const result = await sessionEmail.attemptVerification({ code });
+      if (!ownsHandoff(attempt)) {
+        return;
+      }
       if (result.verification.status !== 'verified') {
         setFormError('That code didn’t finish verification. Send a new code and try again.');
         return;
       }
-      const attempt = beginAccountHandoff();
-      operationAttempt = attempt;
-      enterFinalizing(clerk.session?.id ?? null, attempt);
+      enterFinalizing(attempt.sessionId, attempt);
       await trackHandoffOperation(attempt, () => user.reload());
-      if (mountedRef.current && accountHandoffRef.current === attempt) {
+      if (ownsHandoff(attempt)) {
         onSessionEmailVerified?.();
+        attempt.sameDocumentCompletion = true;
       }
     } catch (error) {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setFormError(describeClerkError(error, 'That code doesn’t match. Check the newest email and try again.'));
       }
     } finally {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setBusy(false);
       }
+      finishAuthOperation(operationAttempt);
     }
-  }, [beginAccountHandoff, busy, clearTransient, clerk, codeValue, enterFinalizing, onSessionEmailVerified, sessionEmail, trackHandoffOperation, user]);
+  }, [beginAccountHandoff, busy, clearTransient, clerk, codeValue, enterFinalizing, finishAuthOperation, onSessionEmailVerified, ownsHandoff, sessionEmail, trackHandoffOperation, user]);
 
   const resendCode = useCallback(async () => {
     if (busy || Date.now() < resendAvailableAt) {
@@ -965,31 +1056,36 @@ export function PremiumAccountGate({
     clearTransient();
     let operationAttempt: AccountHandoff | null = null;
     try {
+      const attempt = beginAccountHandoff();
+      operationAttempt = attempt;
       const result = await signIn.attemptFirstFactor({
         code,
         strategy: 'reset_password_email_code',
       });
+      if (!ownsHandoff(attempt)) {
+        return;
+      }
       if (result.status === 'needs_new_password') {
         setPasswordValue('');
         moveToStep({ email: step.email, kind: 'reset-password' });
       } else if (result.status === 'complete' && setActive) {
-        const attempt = beginAccountHandoff();
-        operationAttempt = attempt;
         enterFinalizing(result.createdSessionId, attempt);
         await trackHandoffOperation(attempt, () => setActive({ session: result.createdSessionId }));
+        attempt.sameDocumentCompletion = true;
       } else {
         setFormError('That code didn’t finish verification. Send a new code and try again.');
       }
     } catch (error) {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setFormError(describeClerkError(error, 'That code doesn’t match. Check the newest email and try again.'));
       }
     } finally {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setBusy(false);
       }
+      finishAuthOperation(operationAttempt);
     }
-  }, [beginAccountHandoff, busy, clearTransient, codeValue, enterFinalizing, moveToStep, setActive, signIn, step, trackHandoffOperation]);
+  }, [beginAccountHandoff, busy, clearTransient, codeValue, enterFinalizing, finishAuthOperation, moveToStep, ownsHandoff, setActive, signIn, step, trackHandoffOperation]);
 
   const submitNewPassword = useCallback(async (event: FormEvent) => {
     event.preventDefault();
@@ -1000,25 +1096,30 @@ export function PremiumAccountGate({
     clearTransient();
     let operationAttempt: AccountHandoff | null = null;
     try {
+      const attempt = beginAccountHandoff();
+      operationAttempt = attempt;
       const result = await signIn.resetPassword({ password: passwordValue });
+      if (!ownsHandoff(attempt)) {
+        return;
+      }
       if (result.status === 'complete') {
-        const attempt = beginAccountHandoff();
-        operationAttempt = attempt;
         enterFinalizing(result.createdSessionId, attempt);
         await trackHandoffOperation(attempt, () => setActive({ session: result.createdSessionId }));
+        attempt.sameDocumentCompletion = true;
       } else {
         setFormError('We couldn’t finish updating your password. Try again.');
       }
     } catch (error) {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setFormError(describeClerkError(error, 'We couldn’t save that password. Choose a different one.'));
       }
     } finally {
-      if (mountedRef.current && (!operationAttempt || accountHandoffRef.current === operationAttempt)) {
+      if (mountedRef.current && (!operationAttempt || ownsHandoff(operationAttempt))) {
         setBusy(false);
       }
+      finishAuthOperation(operationAttempt);
     }
-  }, [beginAccountHandoff, busy, clearTransient, enterFinalizing, passwordValue, setActive, signIn, step, trackHandoffOperation]);
+  }, [beginAccountHandoff, busy, clearTransient, enterFinalizing, finishAuthOperation, ownsHandoff, passwordValue, setActive, signIn, step, trackHandoffOperation]);
 
   const chooseOrganization = useCallback(async (organizationId: string) => {
     const currentTask = pendingTaskRef.current;
@@ -1054,11 +1155,11 @@ export function PremiumAccountGate({
         setFormError('We couldn’t open that business. Try again.');
       }
     } finally {
-      if (mountedRef.current && accountHandoffRef.current === attempt) {
+      if (ownsHandoff(attempt)) {
         setBusy(false);
       }
     }
-  }, [busy, clearTransient, clerk, completedSessionNavigation, enterFinalizing, isCurrentAccountHandoff, pendingTask, step, trackHandoffOperation]);
+  }, [busy, clearTransient, clerk, completedSessionNavigation, enterFinalizing, isCurrentAccountHandoff, ownsHandoff, pendingTask, step, trackHandoffOperation]);
 
   const recoveryAttempt = step.kind === 'finalizing' && finalization?.expired
     && finalization.attempt === accountHandoffRef.current
@@ -1076,7 +1177,21 @@ export function PremiumAccountGate({
     && pendingTaskRef.current?.sessionId === recoveryTask.sessionId
     && pendingTaskRef.current.taskKey === recoveryTask.taskKey;
 
+  const cancel = () => {
+    organizationFocusWaitRef.current?.cancel();
+    accountHandoffRef.current = createAccountHandoff();
+    onCancel();
+  };
+
   if (ssoCallback) {
+    const callbackAttempt = accountHandoffRef.current;
+    const navigate = (url: string) => {
+      if (!ownsHandoff(callbackAttempt) || navigationStartedRef.current) {
+        return;
+      }
+      navigationStartedRef.current = true;
+      window.location.assign(url);
+    };
     return (
       <GateShell>
         <div className="onboarding-gate__panel is-quiet" data-entrance="1">
@@ -1089,13 +1204,13 @@ export function PremiumAccountGate({
           </p>
           <HandleSSOCallback
             navigateToApp={({ decorateUrl }) => {
-              window.location.assign(decorateUrl(claimUrl));
+              navigate(decorateUrl(claimUrl));
             }}
             navigateToSignIn={() => {
-              window.location.assign(`${onboardingRoute}?auth=sign-in`);
+              navigate(`${onboardingRoute}?auth=sign-in`);
             }}
             navigateToSignUp={() => {
-              window.location.assign(`${onboardingRoute}?auth=sign-up&clerk-sign-up=failed`);
+              navigate(`${onboardingRoute}?auth=sign-up&clerk-sign-up=failed`);
             }}
           />
         </div>
@@ -1122,7 +1237,7 @@ export function PremiumAccountGate({
           resendAvailableAt={resendAvailableAt}
           statusNote={statusNote}
         />
-        <GateFooterNote onCancel={onCancel} />
+        <GateFooterNote onCancel={cancel} />
       </GateShell>
     );
   }
@@ -1605,7 +1720,7 @@ export function PremiumAccountGate({
           )
         : null}
 
-      <GateFooterNote label={isEarlySave ? 'Back' : 'Return to Review'} onCancel={onCancel} />
+      <GateFooterNote label={isEarlySave ? 'Back' : 'Return to Review'} onCancel={cancel} />
     </GateShell>
   );
 }

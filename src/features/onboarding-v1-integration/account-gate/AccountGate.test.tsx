@@ -5,7 +5,7 @@ import { onTestFinished } from 'vitest';
 import { initializeStarter } from '../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { createDefaultOnboardingState } from '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import type { OnboardingAuthProviderAvailability } from '../auth-providers';
-import { PremiumAccountGate } from './AccountGate';
+import { type AccountHandoffLease, PremiumAccountGate } from './AccountGate';
 
 const mocks = vi.hoisted(() => ({
   clerk: {
@@ -100,6 +100,7 @@ const renderGate = (overrides: {
   configureDraft?: (draft: ReturnType<typeof buildDraft>) => void;
   errorMessage?: string | null;
   needsSessionEmailVerification?: boolean;
+  onAccountHandoffStart?: () => AccountHandoffLease;
   onSessionEmailVerified?: () => void;
   providers?: OnboardingAuthProviderAvailability;
 } = {}) => {
@@ -113,6 +114,7 @@ const renderGate = (overrides: {
       errorMessage={overrides.errorMessage ?? null}
       locale="en"
       needsSessionEmailVerification={overrides.needsSessionEmailVerification ?? false}
+      onAccountHandoffStart={overrides.onAccountHandoffStart}
       onCancel={() => undefined}
       onSessionEmailVerified={overrides.onSessionEmailVerified}
       providers={overrides.providers ?? ALL_PROVIDERS}
@@ -1066,6 +1068,279 @@ describe('PremiumAccountGate', () => {
     await waitFor(() => expect(onSessionEmailVerified).toHaveBeenCalledTimes(1));
 
     expect(reload).toHaveBeenCalledTimes(2);
+  });
+
+  describe('parent activation lease', () => {
+    const active = { id: 'sess_lease', status: 'active', currentTask: null };
+    let assign: ReturnType<typeof vi.fn>;
+    let emit: (session: unknown) => void;
+
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      let reject!: (reason: unknown) => void;
+      const promise = new Promise<T>((done, fail) => {
+        resolve = done;
+        reject = fail;
+      });
+      return { promise, resolve, reject };
+    }
+
+    function parentLease() {
+      let current = true;
+      const finish = vi.fn(() => {
+        current = false;
+      });
+      const start = vi.fn(() => ({ isCurrent: () => current, finish }));
+      return { start, finish, cancel: () => {
+        current = false;
+      } };
+    }
+
+    async function passwordForm(start: () => AccountHandoffLease, existing = false) {
+      mocks.signIn.create.mockReset();
+      if (existing) {
+        mocks.signIn.create.mockResolvedValueOnce({ status: 'needs_first_factor' });
+      } else {
+        mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+      }
+      renderGate({ onAccountHandoffStart: start });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }));
+      fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'lease@example.test' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+      await screen.findByLabelText('Password');
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'synthetic-lease-password' } });
+    }
+
+    beforeEach(() => {
+      const originalLocation = window.location;
+      assign = vi.fn();
+      Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, assign } });
+      onTestFinished(() => {
+        Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+      });
+      mocks.clerk.addListener.mockImplementation((listener) => {
+        emit = (session) => {
+          mocks.clerk.session = session;
+          listener({ session });
+        };
+        return () => undefined;
+      });
+      mocks.setActiveSignIn.mockReset();
+      mocks.clerk.setActive.mockReset();
+    });
+
+    it('acquires before signup password/finalize and retains ownership for decorated navigation', async () => {
+      const lease = parentLease();
+      await passwordForm(lease.start);
+      mocks.signUp.password.mockImplementationOnce(async () => {
+        mocks.signUp.createdSessionId = active.id;
+        mocks.signUp.status = 'complete';
+        return { error: null };
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create account and continue' }));
+      await waitFor(() => expect(mocks.signUp.finalize).toHaveBeenCalledOnce());
+
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(mocks.signUp.password.mock.invocationCallOrder[0]!);
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(mocks.signUp.finalize.mock.invocationCallOrder[0]!);
+      expect(lease.finish).not.toHaveBeenCalled();
+
+      const navigate = mocks.signUp.finalize.mock.calls[0]![0].navigate;
+      act(() => navigate({ session: active, decorateUrl: (url: string) => `${url}&lease=synthetic` }));
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&lease=synthetic');
+      expect(lease.finish).not.toHaveBeenCalled();
+    });
+
+    it('acquires a new lease before email verification can finalize a signup', async () => {
+      const lease = parentLease();
+      await passwordForm(lease.start);
+      fireEvent.click(screen.getByRole('button', { name: 'Create account and continue' }));
+      await screen.findByLabelText('Verification code');
+      fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '424242' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+      await waitFor(() => expect(mocks.signUp.finalize).toHaveBeenCalledOnce());
+
+      expect(lease.start).toHaveBeenCalledTimes(2);
+      expect(lease.start.mock.invocationCallOrder[1]).toBeLessThan(mocks.signUp.verifications.verifyEmailCode.mock.invocationCallOrder[0]!);
+      expect(lease.finish).not.toHaveBeenCalled();
+    });
+
+    it.each(['sign-in', 'sign-up'] as const)('acquires before OAuth %s dispatch and never releases a failed redirect operation', async (authMode) => {
+      const lease = parentLease();
+      mocks.signUp.sso.mockResolvedValueOnce({ error: new Error('Synthetic redirect failure') });
+      mocks.signIn.authenticateWithRedirect.mockRejectedValueOnce(new Error('Synthetic redirect failure'));
+      renderGate({ authMode, onAccountHandoffStart: lease.start });
+      fireEvent.click(screen.getByRole('button', { name: 'Continue with Google' }));
+      await screen.findByRole('alert');
+
+      const dispatch = authMode === 'sign-up' ? mocks.signUp.sso : mocks.signIn.authenticateWithRedirect;
+
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(dispatch.mock.invocationCallOrder[0]!);
+      expect(lease.finish).not.toHaveBeenCalled();
+    });
+
+    it('acquires before pending organization activation and does not release its navigation lease', async () => {
+      const lease = parentLease();
+      mocks.clerk.session = { ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: mocks.getToken };
+      mocks.resolveOrganization.mockResolvedValueOnce({ created: false, organizations: [{ id: 'org_lease', name: 'Lease studio' }] });
+      mocks.clerk.setActive.mockResolvedValueOnce(undefined);
+      renderGate({ onAccountHandoffStart: lease.start });
+      await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledOnce());
+
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(mocks.getToken.mock.invocationCallOrder[0]!);
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(mocks.clerk.setActive.mock.invocationCallOrder[0]!);
+      expect(lease.finish).not.toHaveBeenCalled();
+    });
+
+    it('releases legacy sign-in only after the successful activation settles', async () => {
+      const lease = parentLease();
+      const activation = deferred<void>();
+      await passwordForm(lease.start, true);
+      mocks.signIn.create.mockResolvedValueOnce({ status: 'complete', createdSessionId: active.id });
+      mocks.setActiveSignIn.mockReturnValueOnce(activation.promise);
+      fireEvent.click(screen.getByRole('button', { name: 'Log in and save my site' }));
+      await waitFor(() => expect(mocks.setActiveSignIn).toHaveBeenCalledOnce());
+      act(() => emit(active));
+
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(mocks.signIn.create.mock.invocationCallOrder[1]!);
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(mocks.setActiveSignIn.mock.invocationCallOrder[0]!);
+      expect(lease.finish).not.toHaveBeenCalled();
+
+      await act(async () => activation.resolve());
+
+      expect(lease.finish).toHaveBeenCalledOnce();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('retains a settled legacy lease through undefined until the same active session returns', async () => {
+      const lease = parentLease();
+      const activation = deferred<void>();
+      await passwordForm(lease.start, true);
+      mocks.signIn.create.mockResolvedValueOnce({ status: 'complete', createdSessionId: active.id });
+      mocks.setActiveSignIn.mockReturnValueOnce(activation.promise);
+      fireEvent.click(screen.getByRole('button', { name: 'Log in and save my site' }));
+      await waitFor(() => expect(mocks.setActiveSignIn).toHaveBeenCalledOnce());
+      act(() => emit(undefined));
+      await act(async () => activation.resolve());
+
+      expect(lease.finish).not.toHaveBeenCalled();
+
+      await act(async () => emit(active));
+
+      expect(lease.finish).toHaveBeenCalledOnce();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it.each(['complete', 'needs_new_password'] as const)('acquires before reset-code activation and password reset (%s)', async (status) => {
+      const lease = parentLease();
+      await passwordForm(lease.start, true);
+      mocks.signIn.create.mockResolvedValueOnce({ status: 'needs_first_factor' });
+      fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
+      await screen.findByLabelText('Verification code');
+      mocks.signIn.attemptFirstFactor.mockReset().mockResolvedValueOnce({ status, createdSessionId: active.id });
+      mocks.setActiveSignIn.mockImplementation(async () => {
+        mocks.clerk.session = active;
+      });
+      fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '424242' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+      await waitFor(() => expect(mocks.signIn.attemptFirstFactor).toHaveBeenCalledOnce());
+
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(mocks.signIn.attemptFirstFactor.mock.invocationCallOrder[0]!);
+
+      if (status === 'needs_new_password') {
+        await screen.findByLabelText('New password');
+
+        expect(lease.finish).not.toHaveBeenCalled();
+
+        mocks.signIn.resetPassword.mockReset().mockResolvedValueOnce({ status: 'complete', createdSessionId: active.id });
+        fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'synthetic-reset-password' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Save password and continue' }));
+        await waitFor(() => expect(mocks.signIn.resetPassword).toHaveBeenCalledOnce());
+
+        expect(lease.start.mock.invocationCallOrder[1]).toBeLessThan(mocks.signIn.resetPassword.mock.invocationCallOrder[0]!);
+      }
+      await waitFor(() => expect(lease.finish).toHaveBeenCalledOnce());
+
+      expect(lease.start.mock.invocationCallOrder.at(-1)).toBeLessThan(mocks.setActiveSignIn.mock.invocationCallOrder[0]!);
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('acquires before session-email verification and releases only after its reload settles', async () => {
+      const lease = parentLease();
+      const reload = deferred<void>();
+      const attemptVerification = vi.fn().mockResolvedValue({ verification: { status: 'verified' } });
+      mocks.clerk.session = active;
+      mocks.userState.user = {
+        primaryEmailAddress: {
+          attemptVerification,
+          emailAddress: 'lease@example.test',
+          prepareVerification: vi.fn().mockResolvedValue({}),
+          verification: { status: 'unverified' },
+        },
+        reload: vi.fn().mockReturnValue(reload.promise),
+      };
+      const onVerified = vi.fn();
+      renderGate({ needsSessionEmailVerification: true, onAccountHandoffStart: lease.start, onSessionEmailVerified: onVerified });
+      fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '424242' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+      await waitFor(() => expect(attemptVerification).toHaveBeenCalledOnce());
+
+      expect(lease.start.mock.invocationCallOrder[0]).toBeLessThan(attemptVerification.mock.invocationCallOrder[0]!);
+      expect(lease.finish).not.toHaveBeenCalled();
+      expect(onVerified).not.toHaveBeenCalled();
+
+      await act(async () => reload.resolve());
+
+      expect(onVerified).toHaveBeenCalledOnce();
+      expect(lease.finish).toHaveBeenCalledOnce();
+    });
+
+    it.each(['failure', 'replacement', 'cancelled'] as const)('never releases legacy sign-in after %s', async (outcome) => {
+      const lease = parentLease();
+      const activation = deferred<void>();
+      await passwordForm(lease.start, true);
+      mocks.signIn.create.mockResolvedValueOnce({ status: 'complete', createdSessionId: active.id });
+      mocks.setActiveSignIn.mockReturnValueOnce(activation.promise);
+      fireEvent.click(screen.getByRole('button', { name: 'Log in and save my site' }));
+      await waitFor(() => expect(mocks.setActiveSignIn).toHaveBeenCalledOnce());
+
+      if (outcome === 'replacement') {
+        act(() => emit({ ...active, id: 'sess_other' }));
+      } else {
+        act(() => emit(active));
+      }
+      if (outcome === 'cancelled') {
+        lease.cancel();
+      }
+      await act(async () => {
+        if (outcome === 'failure') {
+          activation.reject(new Error('Late activation failure'));
+        } else {
+          activation.resolve();
+        }
+      });
+
+      expect(lease.finish).not.toHaveBeenCalled();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('rejects a completed signup callback after the parent cancels its lease', async () => {
+      const lease = parentLease();
+      await passwordForm(lease.start);
+      mocks.signUp.password.mockImplementationOnce(async () => {
+        mocks.signUp.createdSessionId = active.id;
+        mocks.signUp.status = 'complete';
+        return { error: null };
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Create account and continue' }));
+      await waitFor(() => expect(mocks.signUp.finalize).toHaveBeenCalledOnce());
+      const navigate = mocks.signUp.finalize.mock.calls[0]![0].navigate;
+      lease.cancel();
+      act(() => navigate({ session: active, decorateUrl: (url: string) => `${url}&stale=synthetic` }));
+
+      expect(assign).not.toHaveBeenCalled();
+      expect(lease.finish).not.toHaveBeenCalled();
+    });
   });
 
   describe('completed-session navigation', () => {

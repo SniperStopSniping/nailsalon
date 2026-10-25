@@ -12,8 +12,11 @@ import { OnboardingV1Integration } from '@/features/onboarding-v1-integration/On
 import en from '@/locales/en.json';
 
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
+import { reconcileV1StarterDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/v1-starter-recipes';
 import { SITE_BUILDER_STORAGE_KEY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
+import { applyOnboardingSitePresentation } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-document-presentation';
+import { deriveSiteLibraryContext, deriveSitePlanToggles } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-library-context';
 import { ONBOARDING_STORAGE_KEY, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 
 // Real application components, isolated synthetic identity and API responses.
@@ -23,7 +26,12 @@ const dashboard = params.get('screen') === 'dashboard';
 const claimResponseLoss = params.get('scenario') === 'claim-response-loss';
 const finalizationRecovery = params.get('scenario') === 'finalization-recovery';
 const authContext = params.get('scenario') === 'auth-context';
-const accountScenario = finalizationRecovery || authContext || params.get('scenario') === 'organization-focus';
+const activationHandoff = params.get('scenario') === 'activation-handoff';
+const accountScenario = finalizationRecovery || authContext || activationHandoff || params.get('scenario') === 'organization-focus';
+if (activationHandoff) {
+  const generation = Number(sessionStorage.getItem('fixture-activation-document') ?? '0') + 1;
+  sessionStorage.setItem('fixture-activation-document', String(generation));
+}
 const claimedScenario = params.get('scenario') === 'claimed' || sessionStorage.getItem('fixture-claimed') === 'yes';
 if (params.get('scenario') === 'claimed') {
   sessionStorage.setItem('fixture-claimed', 'yes');
@@ -60,7 +68,20 @@ if (!sessionStorage.getItem('fixture-seeded')) {
     state.progress.currentScreen = 'save_progress';
   }
   saveOnboardingState(state);
-  localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(initializeStarter('one_page', { siteId: 'local-site', siteName: state.profile.businessName })));
+  const starter = initializeStarter('one_page', { siteId: 'local-site', siteName: state.profile.businessName });
+  // Seed the same accepted document a real owner already has on entering the
+  // account gate. Otherwise returning to onboarding would first reconcile a
+  // generic starter's empty optional sections, obscuring draft preservation.
+  const document = activationHandoff
+    ? reconcileV1StarterDocument(applyOnboardingSitePresentation(starter, {
+      aboutPreset: state.recipe.aboutPreset,
+      galleryLayout: state.gallery.layout,
+    }), {
+      context: deriveSiteLibraryContext(state, starter),
+      toggles: deriveSitePlanToggles(state),
+    }).document
+    : starter;
+  localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(document));
   saveOnboardingIntegrationFlow(claimedScenario
     ? {
         ...createOnboardingIntegrationFlow(),
@@ -91,6 +112,12 @@ export function AuthContextMountProbe({ children }: { children: ReactNode }) {
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, options) => {
   const url = String(input);
+  if (activationHandoff && url.startsWith('/api/')) {
+    // Identify the actual originating document at the intercepted HTTP boundary.
+    const headers = new Headers(options?.headers);
+    headers.set('x-fixture-document', sessionStorage.getItem('fixture-activation-document')!);
+    return nativeFetch(input, { ...options, headers });
+  }
   if (accountScenario && url === '/api/onboarding/v1/organization') {
     // Count even caught provisioning attempts at the browser HTTP boundary.
     return nativeFetch(input, options);
