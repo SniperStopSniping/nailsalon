@@ -11,18 +11,22 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
   attestDisposableDatabaseSession,
+  DISPOSABLE_DATABASE_NAME,
+  DISPOSABLE_DATABASE_PORT,
+  DISPOSABLE_DATABASE_USER,
   type DisposableDatabaseServerExpectation,
   type DisposableDatabaseTarget,
   requireDisposableDatabaseTarget,
   resolveDisposableDatabaseServerExpectation,
 } from './disposableDatabaseTarget';
+import { readRuntimeDatabaseBindingStatus } from './runtimeDatabaseBinding.server';
 import { RuntimeDatabaseGuardError } from './runtimeDatabaseGuard';
 import { createRuntimeDatabaseCooldownClient } from './runtimeDatabasePoolClient';
 import { createRuntimeDatabaseVerificationCooldown } from './runtimeDatabasePoolRecovery';
 
 vi.mock('server-only', () => ({}));
 
-const EXPECTED_TESTS = 4;
+const EXPECTED_TESTS = 7;
 const COOLDOWN_MS = 5_000;
 const rawUrl = process.env.CONCURRENCY_TEST_DATABASE_URL;
 const required = process.env.D5_POOL_COOLDOWN_REQUIRED === 'true';
@@ -387,6 +391,75 @@ suite('runtime PostgreSQL physical connection cooldown', () => {
         physicalConnections: 2,
         verifierAttempts: 2,
       });
+    } finally {
+      await harness.pool.end();
+    }
+    executedTests++;
+  });
+
+  // Independent fixture metadata, not parsed from the pool URL or discovered
+  // from the session under test. The D5 service is deliberately loopback-only.
+  const expectedBinding = {
+    host: '127.0.0.1',
+    port: DISPOSABLE_DATABASE_PORT,
+    database: DISPOSABLE_DATABASE_NAME,
+    sessionUser: DISPOSABLE_DATABASE_USER,
+    currentUser: DISPOSABLE_DATABASE_USER,
+  };
+  const bindingDescriptor = JSON.stringify(expectedBinding);
+
+  it('compares the real guarded lease to independent fixture metadata and returns every lease', async () => {
+    attemptedTests++;
+    const harness = createPoolHarness('healthy', { max: 1 });
+    try {
+      expect(await readRuntimeDatabaseBindingStatus(bindingDescriptor, harness.pool)).toBe('matched');
+      expect(harness.pool.idleCount).toBe(1);
+
+      for (const field of ['host', 'port', 'database', 'sessionUser', 'currentUser'] as const) {
+        const mismatched = JSON.stringify({ ...expectedBinding, [field]: field === 'port' ? 5433 : 'other' });
+
+        expect(await readRuntimeDatabaseBindingStatus(mismatched, harness.pool)).toBe('mismatched');
+        expect(harness.pool.idleCount).toBe(1);
+      }
+
+      expect(harness.counts).toEqual({ physicalConnections: 1, verifierAttempts: 1 });
+      expect((await harness.pool.query('SELECT 42::int AS result')).rows).toEqual([{ result: 42 }]);
+    } finally {
+      await harness.pool.end();
+    }
+    executedTests++;
+  });
+
+  it('does not open a real PostgreSQL connection for absent or malformed binding metadata', async () => {
+    attemptedTests++;
+    const harness = createPoolHarness('healthy');
+    try {
+      for (const descriptor of [undefined, '', '{', JSON.stringify({ ...expectedBinding, password: 'fixture' })]) {
+        expect(await readRuntimeDatabaseBindingStatus(descriptor, harness.pool)).toBe('unavailable');
+      }
+
+      expect(harness.counts).toEqual({ physicalConnections: 0, verifierAttempts: 0 });
+      expect(harness.pool.totalCount).toBe(0);
+    } finally {
+      await harness.pool.end();
+    }
+    executedTests++;
+  });
+
+  it('reports unavailable when the actual guarded pool rejects identity and recovers only after verification', async () => {
+    attemptedTests++;
+    const harness = createPoolHarness('identity-failure', { max: 1 });
+    try {
+      expect(await readRuntimeDatabaseBindingStatus(bindingDescriptor, harness.pool)).toBe('unavailable');
+      expect(await readRuntimeDatabaseBindingStatus(bindingDescriptor, harness.pool)).toBe('unavailable');
+      expect(harness.counts).toEqual({ physicalConnections: 1, verifierAttempts: 1 });
+
+      harness.setMode('healthy');
+      harness.setClock(COOLDOWN_MS + 1);
+
+      expect(await readRuntimeDatabaseBindingStatus(bindingDescriptor, harness.pool)).toBe('matched');
+      expect(harness.counts).toEqual({ physicalConnections: 2, verifierAttempts: 2 });
+      expect(harness.pool.idleCount).toBe(1);
     } finally {
       await harness.pool.end();
     }

@@ -14,6 +14,7 @@ import * as schema from '@/models/Schema';
 import { deriveBookingCategory } from './bookingCategory';
 import { Env } from './Env';
 import { resolvePGliteRuntimeDataSource } from './pgliteRuntime';
+import { readRuntimeDatabaseBindingStatus, type RuntimeDatabaseBindingStatus } from './runtimeDatabaseBinding.server';
 import {
   createRuntimeDatabasePoolVerifier,
   requireMatchingCachedDatabaseTarget,
@@ -398,6 +399,14 @@ export const db = drizzle;
 
 export type DatabaseSessionHandle = typeof db;
 export const usesRuntimePostgres = Boolean(runtimeTarget);
+
+/** Status only; the expectation must come independently from approved provider metadata. */
+export async function getRuntimeDatabaseBindingStatus(): Promise<RuntimeDatabaseBindingStatus> {
+  return readRuntimeDatabaseBindingStatus(
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING,
+    runtimeTarget ? globalForDb.pgPool ?? null : null,
+  );
+}
 
 /**
  * Run work on one dedicated database session. PostgreSQL advisory locks are

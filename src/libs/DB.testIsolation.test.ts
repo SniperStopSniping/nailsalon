@@ -74,10 +74,20 @@ describe('database test isolation', () => {
     globals.pgliteSeeded = true;
 
     try {
-      const { db, usesRuntimePostgres } = await import('./DB');
+      const { db, usesRuntimePostgres, getRuntimeDatabaseBindingStatus } = await import('./DB');
 
       expect(db).toBe(drizzleDatabase);
       expect(usesRuntimePostgres).toBe(false);
+
+      process.env.LUSTER_EXPECTED_DATABASE_BINDING = JSON.stringify({
+        host: 'approved.example.test',
+        port: 5432,
+        database: 'approved_db',
+        sessionUser: 'login_role',
+        currentUser: 'effective_role',
+      });
+
+      expect(await getRuntimeDatabaseBindingStatus()).toBe('unavailable');
       expect(pgliteConstructor).toHaveBeenCalledOnce();
       expect(globals.pgliteClient).toBeDefined();
       expect(drizzlePglite).toHaveBeenCalledWith(globals.pgliteClient, expect.any(Object));

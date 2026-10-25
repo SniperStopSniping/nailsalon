@@ -44,6 +44,7 @@ const harness = vi.hoisted(() => ({
   queryRespond: (async () => ({ rows: [] })) as (queryText: string) => Promise<unknown>,
   poolInstances: [] as Array<{ ended: boolean }>,
   physicalConnects: 0,
+  leasedClients: [] as Array<{ release: ReturnType<typeof vi.fn> }>,
 }));
 
 type VerifyFn = (
@@ -64,6 +65,9 @@ vi.mock('pg', async () => {
   const { EventEmitter } = await import('node:events');
 
   class FakeClient extends EventEmitter {
+    host = 'actual.example.test';
+    port = 5432;
+    release = vi.fn();
     connect(callback?: (error?: Error) => void): Promise<void> | void {
       harness.physicalConnects += 1;
       if (callback) {
@@ -73,8 +77,10 @@ vi.mock('pg', async () => {
       return Promise.resolve();
     }
 
-    query(text: string): Promise<unknown> {
-      return harness.markerRespond(text);
+    query(text: string | { text: string }): Promise<unknown> {
+      return typeof text === 'string'
+        ? harness.markerRespond(text)
+        : harness.queryRespond(text.text);
     }
   }
 
@@ -116,7 +122,13 @@ vi.mock('pg', async () => {
     }
 
     async connect() {
-      throw new Error('FakePool.connect() is not used by this suite.');
+      const client = new this.Client();
+      await client.connect();
+      await new Promise<void>((resolve, reject) => {
+        this.verify(client, error => error ? reject(error) : resolve());
+      });
+      harness.leasedClients.push(client);
+      return client;
     }
   }
 
@@ -177,6 +189,7 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     process.env = { ...originalEnvironment };
     harness.poolInstances = [];
     harness.physicalConnects = 0;
+    harness.leasedClients = [];
     harness.queryRespond = async () => ({ rows: [] });
     resetGlobalDatabaseState();
     vi.useRealTimers();
@@ -341,6 +354,78 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     // re-attempting attestation and keeps failing it, forever.
     expect(harness.poolInstances).toHaveLength(1);
     expect(harness.poolInstances[0]?.ended).toBe(false);
+  });
+
+  it('reads binding from the guarded leased client even after DATABASE_URL changes', async () => {
+    setProductionEnv();
+    harness.markerRespond = validProductionMarker;
+    const { getRuntimeDatabaseBindingStatus } = await import('./DB');
+    harness.queryRespond = vi.fn(async () => ({ rows: [{
+      database_name: 'actual_db',
+      session_user_name: 'actual_login',
+      current_user_name: 'actual_role',
+    }] }));
+    process.env.DATABASE_URL = 'postgresql://other.example.test/other_db';
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = JSON.stringify({
+      host: 'actual.example.test',
+      port: 5432,
+      database: 'actual_db',
+      sessionUser: 'actual_login',
+      currentUser: 'actual_role',
+    });
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('matched');
+    expect(harness.poolInstances).toHaveLength(1);
+    expect(harness.leasedClients).toHaveLength(1);
+    expect(harness.leasedClients[0]?.release).toHaveBeenCalledExactlyOnceWith(false);
+    expect(harness.queryRespond).toHaveBeenCalledExactlyOnceWith(
+      'SELECT current_database() AS database_name, session_user AS session_user_name, current_user AS current_user_name',
+    );
+
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = JSON.stringify({
+      host: 'other.example.test',
+      port: 5432,
+      database: 'other_db',
+      sessionUser: 'actual_login',
+      currentUser: 'actual_role',
+    });
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('mismatched');
+    expect(harness.poolInstances).toHaveLength(1);
+  });
+
+  it('does not acquire an extra connection for absent or invalid binding configuration', async () => {
+    setProductionEnv();
+    harness.markerRespond = validProductionMarker;
+    const { getRuntimeDatabaseBindingStatus } = await import('./DB');
+    const bootstrapConnections = harness.physicalConnects;
+    delete process.env.LUSTER_EXPECTED_DATABASE_BINDING;
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('unavailable');
+
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = '{malformed';
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('unavailable');
+    expect(harness.physicalConnects).toBe(bootstrapConnections);
+    expect(harness.leasedClients).toHaveLength(0);
+  });
+
+  it('cannot bypass a rejected runtime guard to obtain binding identities', async () => {
+    setProductionEnv();
+    harness.markerRespond = wrongDatabaseMarker;
+    const { getRuntimeDatabaseBindingStatus } = await import('./DB');
+    harness.queryRespond = vi.fn(async () => ({ rows: [] }));
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = JSON.stringify({
+      host: 'actual.example.test',
+      port: 5432,
+      database: 'actual_db',
+      sessionUser: 'actual_login',
+      currentUser: 'actual_role',
+    });
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('unavailable');
+    expect(harness.queryRespond).not.toHaveBeenCalled();
+    expect(harness.leasedClients).toHaveLength(0);
   });
 
   it('healthy boot keeps the existing fast path: the module-load bootstrap succeeds and its pool is never disposed', async () => {

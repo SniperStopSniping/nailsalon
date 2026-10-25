@@ -41,6 +41,16 @@ test('Calendar PostgreSQL regressions are required and cannot silently skip', ()
   assert.ok(calendar.run.includes('src/libs/deposits/deposits.d5Calendar.concurrency.integration.test.ts'));
   assert.ok(calendar.run.includes('D5_REAL_POSTGRES_TESTS_EXECUTED=3 D5_REAL_POSTGRES_TESTS_SKIPPED=0'));
   assert.equal(calendar.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  const binding = deposits.steps.find(step => step.name === 'Run runtime PostgreSQL pool cooldown and binding regressions and prove zero skips');
+  assert.ok(binding, 'The guarded pool and binding cases must remain required');
+  assert.equal(binding.env.D5_POOL_COOLDOWN_REQUIRED, 'true');
+  assert.equal(binding.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  assert.equal(binding.env.LUSTER_DISPOSABLE_POSTGRES_NETWORK, '${{ job.services.postgres.network }}');
+  assert.equal(binding.if, undefined);
+  assert.equal(binding['continue-on-error'], undefined);
+  assert.match(binding.run, /set -euo pipefail/);
+  assert.ok(binding.run.includes('src/libs/runtimeDatabasePoolClient.integration.test.ts'));
+  assert.ok(binding.run.includes('RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=7 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0'));
   const outbox = jobs['google-outbox-postgres'];
   assert.equal(outbox.needs, 'secret-scan');
   assert.equal(outbox.env.GOOGLE_OUTBOX_PG_REQUIRED, 'true');

@@ -8,11 +8,13 @@ vi.mock('server-only', () => ({}));
 
 const {
   executeMock,
+  databaseBindingMock,
   isRedisAvailableMock,
   schemaReadyMock,
   schemaDriftStatusMock,
 } = vi.hoisted(() => ({
   executeMock: vi.fn(),
+  databaseBindingMock: vi.fn(),
   isRedisAvailableMock: vi.fn(),
   schemaReadyMock: vi.fn(),
   schemaDriftStatusMock: vi.fn(),
@@ -23,6 +25,7 @@ const { isResendSenderVerifiedMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/libs/DB', () => ({
+  getRuntimeDatabaseBindingStatus: databaseBindingMock,
   db: {
     execute: executeMock,
   },
@@ -50,10 +53,12 @@ describe('GET /api/health', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    databaseBindingMock.mockResolvedValue('matched');
     isResendSenderVerifiedMock.mockResolvedValue(false);
     schemaReadyMock.mockResolvedValue(true);
     schemaDriftStatusMock.mockResolvedValue('ready');
     process.env = { ...originalEnv };
+    delete process.env.LUSTER_EXPECTED_DATABASE_BINDING;
     delete process.env.CLOUDINARY_CLOUD_NAME;
     delete process.env.CLOUDINARY_API_KEY;
     delete process.env.CLOUDINARY_API_SECRET;
@@ -107,6 +112,61 @@ describe('GET /api/health', () => {
 
   afterEach(() => {
     process.env = originalEnv;
+  });
+
+  it('preserves the unset-config response and does not invoke the binding diagnostic', async () => {
+    executeMock.mockResolvedValue([]);
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body).not.toHaveProperty('databaseBinding');
+    expect(databaseBindingMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['matched', 'mismatched', 'unavailable'] as const)('publishes only %s and preserves the pre-existing HTTP status and checks', async (bindingStatus) => {
+    executeMock.mockResolvedValue([]);
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    const before = await GET();
+    const beforeBody = await before.json();
+
+    expect(before.status).toBe(200);
+    expect(beforeBody.status).toBe('ok');
+
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = 'private provider metadata';
+    databaseBindingMock.mockResolvedValue(bindingStatus);
+    const after = await GET();
+    const afterBody = await after.json();
+
+    expect(after.status).toBe(before.status);
+    expect(afterBody).toEqual({ ...beforeBody, timestamp: expect.any(String), databaseBinding: bindingStatus });
+    expect(JSON.stringify(afterBody)).not.toContain('private provider metadata');
+    expect(databaseBindingMock).toHaveBeenCalledExactlyOnceWith();
+  });
+
+  it('does not perform another diagnostic query when the normal database check fails', async () => {
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = 'private provider metadata';
+    executeMock.mockRejectedValue(new Error('database unavailable'));
+    const response = await GET();
+
+    expect((await response.json()).databaseBinding).toBe('unavailable');
+    expect(databaseBindingMock).not.toHaveBeenCalled();
+  });
+
+  it('returns unavailable without disclosing unexpected diagnostic errors', async () => {
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = 'private provider metadata';
+    executeMock.mockResolvedValue([]);
+    databaseBindingMock.mockRejectedValue(new Error('secret database identity'));
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.databaseBinding).toBe('unavailable');
+    expect(JSON.stringify(body)).not.toContain('secret database identity');
   });
 
   it('returns expanded env status using the actual Cloudinary variable names', async () => {
