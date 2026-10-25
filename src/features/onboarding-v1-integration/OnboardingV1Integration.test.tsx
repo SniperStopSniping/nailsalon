@@ -569,7 +569,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
       render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
       await interaction.click(await screen.findByRole('button', { name: 'Continue with email' }));
       fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'owner@example.com' } });
-      await interaction.click(screen.getByRole('button', { name: 'Continue', exact: true }));
+      await interaction.click(screen.getByRole('button', { name: /^Continue$/u }));
       fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'synthetic-legacy-password' } });
       await interaction.click(screen.getByRole('button', { name: 'Log in and save my site' }));
       await waitFor(() => expect(mocks.setActiveSignIn).toHaveBeenCalledOnce());
@@ -607,7 +607,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
       render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
       await interaction.click(await screen.findByRole('button', { name: 'Continue with email' }));
       fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'owner@example.com' } });
-      await interaction.click(screen.getByRole('button', { name: 'Continue', exact: true }));
+      await interaction.click(screen.getByRole('button', { name: /^Continue$/u }));
       fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'synthetic-signup-password' } });
       await interaction.click(screen.getByRole('button', { name: 'Create account and continue' }));
       await waitFor(() => expect(mocks.signUp.finalize).toHaveBeenCalledOnce());
@@ -616,7 +616,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
       expect(mocks.claim).not.toHaveBeenCalled();
 
       const navigate = mocks.signUp.finalize.mock.calls[0]![0].navigate;
-      await interaction.click(screen.getByRole('button', { name: 'Back', exact: true }));
+      await interaction.click(screen.getByRole('button', { name: /^Back$/u }));
       act(() => navigate({ session, decorateUrl: (url: string) => `${url}&cancelled=synthetic` }));
       await act(async () => finalized.resolve({ error: null }));
 
