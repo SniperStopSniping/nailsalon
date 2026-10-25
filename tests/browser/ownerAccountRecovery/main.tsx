@@ -1,10 +1,12 @@
 import '@/styles/global.css';
 
 import { NextIntlClientProvider } from 'next-intl';
+import { type ReactNode, StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { OwnerAdminFeatureFlagsContext } from '@/app/[locale]/admin/OwnerAdminFeatureFlags';
 import AdminPage from '@/app/[locale]/admin/page';
+import { FreshOnboardingAuthBoundary } from '@/features/onboarding-v1-integration/account-gate/FreshOnboardingAuthBoundary';
 import { createOnboardingIntegrationFlow, saveOnboardingIntegrationFlow } from '@/features/onboarding-v1-integration/flow-storage';
 import { OnboardingV1Integration } from '@/features/onboarding-v1-integration/OnboardingV1Integration';
 import en from '@/locales/en.json';
@@ -12,7 +14,7 @@ import en from '@/locales/en.json';
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { SITE_BUILDER_STORAGE_KEY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
-import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
+import { ONBOARDING_STORAGE_KEY, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 
 // Real application components, isolated synthetic identity and API responses.
 // No customer data, account provisioning, messages or payments.
@@ -20,7 +22,8 @@ const params = new URLSearchParams(location.search);
 const dashboard = params.get('screen') === 'dashboard';
 const claimResponseLoss = params.get('scenario') === 'claim-response-loss';
 const finalizationRecovery = params.get('scenario') === 'finalization-recovery';
-const accountScenario = finalizationRecovery || params.get('scenario') === 'organization-focus';
+const authContext = params.get('scenario') === 'auth-context';
+const accountScenario = finalizationRecovery || authContext || params.get('scenario') === 'organization-focus';
 const claimedScenario = params.get('scenario') === 'claimed' || sessionStorage.getItem('fixture-claimed') === 'yes';
 if (params.get('scenario') === 'claimed') {
   sessionStorage.setItem('fixture-claimed', 'yes');
@@ -70,6 +73,21 @@ if (!sessionStorage.getItem('fixture-seeded')) {
       : { ...createOnboardingIntegrationFlow(), phase: 'failure', errorCode: 'OWNER_ACCOUNT_CONFLICT', errorMessage: 'Sign in with the Luster account already connected to this email.' });
   sessionStorage.setItem('fixture-seeded', 'yes');
 }
+if (authContext && !sessionStorage.getItem('fixture-auth-context-original-draft')) {
+  sessionStorage.setItem('fixture-auth-context-original-draft', JSON.stringify({
+    state: localStorage.getItem(ONBOARDING_STORAGE_KEY),
+    document: localStorage.getItem(SITE_BUILDER_STORAGE_KEY),
+  }));
+}
+
+export function AuthContextMountProbe({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    const generations = JSON.parse(sessionStorage.getItem('fixture-auth-context-mounts') ?? '[]') as number[];
+    generations.push(Number(sessionStorage.getItem('fixture-auth-context-generation')));
+    sessionStorage.setItem('fixture-auth-context-mounts', JSON.stringify(generations));
+  }, []);
+  return children;
+}
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, options) => {
   const url = String(input);
@@ -95,7 +113,15 @@ window.fetch = async (input, options) => {
 createRoot(document.getElementById('root')!).render(
   <NextIntlClientProvider locale="en" messages={en}>
     <OwnerAdminFeatureFlagsContext.Provider value={{ onboardingV1IntegrationEnabled: true, sectionLibraryV1Enabled: false }}>
-      {dashboard ? <AdminPage /> : <OnboardingV1Integration locale="en" />}
+      {authContext
+        ? (
+            <StrictMode>
+              <FreshOnboardingAuthBoundary>
+                <AuthContextMountProbe><OnboardingV1Integration locale="en" /></AuthContextMountProbe>
+              </FreshOnboardingAuthBoundary>
+            </StrictMode>
+          )
+        : dashboard ? <AdminPage /> : <OnboardingV1Integration locale="en" />}
     </OwnerAdminFeatureFlagsContext.Provider>
   </NextIntlClientProvider>,
 );

@@ -1,8 +1,9 @@
 // Isolated browser adapter. No Clerk account is created or contacted.
 const params = new URLSearchParams(location.search);
 const finalizationRecovery = params.get('scenario') === 'finalization-recovery';
+const authContext = params.get('scenario') === 'auth-context';
 const organizationFocus = params.get('scenario') === 'organization-focus';
-const resumed = (finalizationRecovery || organizationFocus) && params.has('claim');
+const resumed = (finalizationRecovery || organizationFocus || authContext) && params.has('claim');
 type Session = { id: string; status: string; currentTask: { key: string } | null; lastActiveOrganizationId: string; getToken?: () => Promise<string> };
 type Navigate = (input: { session: Session; decorateUrl: (url: string) => string }) => void;
 const session: Session = { id: 'fixture-recovery-session', status: 'active', currentTask: null, lastActiveOrganizationId: 'fixture-existing-org' };
@@ -24,13 +25,13 @@ const pendingOrganization: Session = { ...session, status: 'pending', currentTas
   saveOrganizationState();
   return 'fixture-token';
 } };
-const decorateUrl = (url: string) => `${url}&scenario=${organizationFocus ? 'organization-focus' : 'finalization-recovery'}&fixtureDecorated=1`;
-export const useAuth = () => ({ isLoaded: true, isSignedIn: !(finalizationRecovery || organizationFocus) || resumed, userId: 'fixture-owner', getToken: async () => 'fixture-token' });
+const decorateUrl = (url: string) => `${url}&scenario=${authContext ? 'auth-context' : organizationFocus ? 'organization-focus' : 'finalization-recovery'}&fixtureDecorated=1`;
+export const useAuth = () => ({ isLoaded: true, isSignedIn: !(finalizationRecovery || organizationFocus || authContext) || resumed, userId: 'fixture-owner', getToken: async () => 'fixture-token' });
 export const useUser = () => ({ isLoaded: true, user: { id: 'fixture-owner', primaryEmailAddress: { emailAddress: 'owner@example.test', verification: { status: 'verified' } } } });
 const clerk = {
   session: resumed ? session : organizationFocus ? pendingOrganization : null as Session | null,
   addListener: (listener: (state: { session: Session }) => void) => {
-    if (finalizationRecovery || organizationFocus) {
+    if (finalizationRecovery || organizationFocus || authContext) {
       listeners.add(listener);
     }
     return () => listeners.delete(listener);
@@ -87,7 +88,7 @@ if (organizationFocus) {
 export const useClerk = () => clerk;
 export const useSignIn = () => ({
   isLoaded: true,
-  signIn: finalizationRecovery
+  signIn: finalizationRecovery || authContext
     ? { create: async () => {
         throw Object.assign(new Error('Synthetic identifier not found'), { errors: [{ code: 'form_identifier_not_found' }] });
       } }
@@ -96,6 +97,14 @@ export const useSignIn = () => ({
 const signUp = {
   createdSessionId: null as string | null,
   finalize: async (options?: { navigate: Navigate }) => {
+    if (authContext) {
+      // Simulated account completion; SDK option persistence is verified separately.
+      count('finalize');
+      clerk.session = session;
+      listeners.forEach(listener => listener({ session }));
+      options?.navigate({ session, decorateUrl });
+      return { error: null };
+    }
     if (!finalizationRecovery) {
       return { error: null };
     }
@@ -109,7 +118,7 @@ const signUp = {
     return { error: null };
   },
   password: async () => {
-    if (finalizationRecovery) {
+    if (finalizationRecovery || authContext) {
       count('password');
       signUp.createdSessionId = session.id;
       signUp.status = 'complete';
