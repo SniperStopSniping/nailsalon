@@ -29,7 +29,7 @@ import {
  */
 
 const optionalText = z
-  .union([z.string(), z.null(), z.undefined()])
+  .string().nullish()
   .transform(value => (typeof value === 'string' ? (value.trim() || null) : null));
 
 export const capabilityWriteSchema = z.object({

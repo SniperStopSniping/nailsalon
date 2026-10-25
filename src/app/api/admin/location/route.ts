@@ -10,8 +10,8 @@ import { salonLocationSchema } from '@/models/Schema';
 export const dynamic = 'force-dynamic';
 
 const optionalTextField = z
-  .union([z.string(), z.null(), z.undefined()])
-  .transform(value => {
+  .string().nullish()
+  .transform((value) => {
     const trimmed = typeof value === 'string' ? value.trim() : '';
     return trimmed.length > 0 ? trimmed : null;
   });

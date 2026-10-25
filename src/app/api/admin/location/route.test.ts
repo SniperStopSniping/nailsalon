@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET, PATCH } from './route';
+
 const {
   requireAdmin,
   getSalonBySlug,
@@ -62,8 +64,6 @@ vi.mock('@/libs/queries', () => ({
   getSalonBySlug,
   getActiveLocationsBySalonId,
 }));
-
-import { GET, PATCH } from './route';
 
 describe('admin location route', () => {
   beforeEach(() => {
@@ -162,6 +162,25 @@ describe('admin location route', () => {
       action: 'settings_updated',
     }));
     expect(body.data.created).toBe(true);
+  });
+
+  it('accepts a name-only location and writes omitted address fields as null', async () => {
+    getActiveLocationsBySalonId.mockResolvedValue([]);
+    const response = await PATCH(new Request('http://localhost/api/admin/location?salonSlug=salon-a', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Main Studio' }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+      name: 'Main Studio',
+      address: null,
+      city: null,
+      state: null,
+      zipCode: null,
+    }));
   });
 
   it('updates the existing primary location for the authorized salon admin', async () => {

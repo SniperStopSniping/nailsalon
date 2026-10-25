@@ -157,6 +157,14 @@ describe('PATCH /api/salon/add-ons/[id]', () => {
     expect(row!.priceCents).toBe(1000);
   });
 
+  it('accepts an omitted price label and writes null without changing the price', async () => {
+    const response = await PATCH(...patchRequest(ADD_ON_ID, { ...VALID_BODY, priceDisplayText: undefined }));
+    const [row] = await db.select().from(schema.addOnSchema).where(eq(schema.addOnSchema.id, ADD_ON_ID));
+
+    expect(response.status).toBe(200);
+    expect(row).toMatchObject({ id: ADD_ON_ID, salonId: SALON_ID, priceCents: 1000, priceDisplayText: null });
+  });
+
   it('updates the same record instead of creating another copy', async () => {
     const before = await countAddOns();
 
