@@ -573,6 +573,7 @@ jobs:
               migrations/0111_other_service_categories.sql) ;;
               migrations/0112_ai_operator_expense_budget.sql) ;;
               migrations/0113_salon_deletion_cleanup.sql) ;;
+              migrations/0114_daniela_automation.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1030,6 +1031,22 @@ jobs:
             exit 1
           fi
 
+          # Private Daniela automation: additive, exact SQL and journal packet.
+          if ! git diff --quiet "$base" -- migrations/0114_daniela_automation.sql; then
+            if git cat-file -e "$base:migrations/0114_daniela_automation.sql" 2>/dev/null \
+              || [ "$(git diff --name-status "$base" -- migrations/0114_daniela_automation.sql)" != $'A\t'"migrations/0114_daniela_automation.sql" ] \
+              || [ "$(git hash-object migrations/0114_daniela_automation.sql)" != "284d07636a5455938d42ff841710dd32cb0bbab0" ]; then
+              echo "::error::Private automation SQL must be new at its pinned postimage."
+              exit 1
+            fi
+          fi
+          expected_0114_journal='{"breakpoints":true,"idx":113,"tag":"0114_daniela_automation","version":"7","when":1793044800000}'
+          actual_0114_journal="$(jq -cS '.entries[] | select(.tag == "0114_daniela_automation")' migrations/meta/_journal.json)"
+          if [ "$actual_0114_journal" != "$expected_0114_journal" ]; then
+            echo "::error::Private automation journal entry does not match the pinned postimage."
+            exit 1
+          fi
+
           # AI setup SQL may be introduced only at these exact postimages.
           # Already-shipped SQL stays immutable, including additive rewrites.
           while read -r file expected_blob; do
@@ -1140,6 +1157,7 @@ jobs:
               0111_other_service_categories) ;;
               0112_ai_operator_expense_budget) ;;
               0113_salon_deletion_cleanup) ;;
+              0114_daniela_automation) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1164,6 +1182,7 @@ jobs:
               /api/deposits/holds/reap) ;;
               /api/deposits/reconcile) ;;
               /api/communications/dispatch) ;;
+              /api/private/daniela/process) ;;
               /api/voice/maintenance) ;;
               /api/network-no-show/reconcile) ;;
               # D3 (2026-09-14): billing crons, dark until BILLING_* switches flip
