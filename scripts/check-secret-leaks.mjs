@@ -57,6 +57,9 @@ const SAFE_ASSIGNMENT_FINGERPRINTS = new Set([
 ]);
 
 const SAFE_URL_FINGERPRINTS = new Set([
+  // Exact authored negative URL in the disposable refund target-parser fixture.
+  // Path + credential-URL rule + literal only; mutations and nearby URLs stay scanned.
+  'bbe208103f3c566d73639fb225209ab80746e0fbbd43c545aca2bbdd706f888e',
   // Infra PR 1 loopback-only disposable E2E PostgreSQL URL in CI.yml.
   'd83b516a6b3e77930d099e6456cd9b0d0f93c42a439a57db0b4c5f0c351eb84c',
   // Same synthetic loopback-only disposable URL at the matched booking CI path.

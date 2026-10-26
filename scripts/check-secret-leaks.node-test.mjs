@@ -1122,3 +1122,58 @@ test('French exact-copy waiver requires a complete same-line literal RHS in full
     }
   });
 });
+
+const REFUND_TARGET_FIXTURE_PATH = 'src/libs/billing/topupRefundBookkeeping.concurrency.integration.test.ts';
+
+function refundTargetFixtureUrl() {
+  return credentialUrl('postgres', 'qa', 'password', '127.0.0.1:55432', '/luster_refund_test');
+}
+
+for (const mode of ['tree', 'range']) {
+  function scanRefundFixture(repository, base, fixturePath = REFUND_TARGET_FIXTURE_PATH) {
+    if (mode === 'tree') {
+      return scan(repository);
+    }
+    commit(repository, 'test: add refund target URL fixture');
+    // Preserve the history boundary: removed final content must still be scanned.
+    write(repository, fixturePath, '// fixture removed from final tree\n');
+    const head = commit(repository, 'test: remove refund target URL fixture');
+    return scan(repository, ['--base', base, '--head', head]);
+  }
+
+  test(`${mode}: accepts only the exact authored negative refund target URL`, () => {
+    withRepository((repository) => {
+      const base = git(repository, ['rev-parse', 'HEAD']);
+      const value = refundTargetFixtureUrl();
+      assert.equal(createHash('sha256').update(value).digest('hex'), 'abe390b7e53e7687c7b684a2b6967023e3dce193d5275aa6589703e4d8a9563b');
+      write(repository, REFUND_TARGET_FIXTURE_PATH, `const invalidTarget = '${value}';\n`);
+      expectPass(scanRefundFixture(repository, base));
+    });
+  });
+
+  for (const mutation of ['password', 'host', 'database', 'path', 'adjacent']) {
+    test(`${mode}: refund fixture exception rejects and redacts ${mutation} changes`, () => {
+      withRepository((repository) => {
+        const base = git(repository, ['rev-parse', 'HEAD']);
+        const original = refundTargetFixtureUrl();
+        const changed = mutation === 'password'
+          ? original.replace(':password@', `:Changed${SECRET_BODY}@`)
+          : mutation === 'host'
+            ? original.replace('127.0.0.1', '203.0.113.9')
+            : mutation === 'database'
+              ? original.replace('/luster_refund_test', '/different_refund_test')
+              : original;
+        const fixturePath = mutation === 'path'
+          ? 'src/libs/billing/movedRefundBookkeeping.integration.test.ts'
+          : REFUND_TARGET_FIXTURE_PATH;
+        const adjacent = credentialUrl('postgres', 'qa', `Adjacent${SECRET_BODY}`, '127.0.0.1:55432', '/luster_refund_test');
+        write(repository, fixturePath, `const invalidTarget = '${changed}';\n${mutation === 'adjacent' ? `const adjacentTarget = '${adjacent}';\n` : ''}`);
+        expectFinding(
+          scanRefundFixture(repository, base, fixturePath),
+          'DATABASE_URL_CREDENTIALS',
+          mutation === 'adjacent' ? [original, adjacent, SECRET_BODY] : [changed, SECRET_BODY],
+        );
+      });
+    });
+  }
+}
