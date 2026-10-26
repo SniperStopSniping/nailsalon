@@ -109,7 +109,10 @@ const stripeMock = vi.hoisted(() => ({
   // writing anything.
   prices: { retrieve: vi.fn() },
 }));
-vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
+vi.mock('@/libs/stripe', async () => {
+  const { createStripeOperationGuard } = await import('@/libs/stripeOperationIsolation');
+  return { stripe: stripeMock, assertStripeOperationIsolation: createStripeOperationGuard('sk_test_synthetic_checkout') };
+});
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }));
 
 // `lastOfferKey` records the offer resolveStripePriceIdForTopup was just
@@ -144,6 +147,12 @@ beforeAll(async () => {
 const originalVercel = process.env.VERCEL;
 
 beforeEach(() => {
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('VITEST', undefined);
+  vi.stubEnv('GITHUB_ACTIONS', undefined);
+  vi.stubEnv('CI', undefined);
+  vi.stubEnv('APP_ENV', 'preview');
+  vi.stubEnv('VERCEL_ENV', undefined);
   envHolder.BILLING_DEPLOYMENT_MARKER = undefined;
   envHolder.BILLING_TOPUPS_ENABLED = 'true';
   envHolder.BILLING_TAX_COLLECTION_ENABLED = undefined;
@@ -173,6 +182,7 @@ beforeEach(() => {
       active: true,
       type: 'one_time',
       currency: 'cad',
+      livemode: false,
       unit_amount: offer?.priceCents ?? null,
     };
   });
@@ -182,6 +192,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   if (originalVercel === undefined) {
     delete process.env.VERCEL;
   } else {
@@ -318,6 +329,7 @@ describe('top-up checkout (§9.2)', () => {
         active: false,
         type: 'one_time',
         currency: 'cad',
+        livemode: false,
         unit_amount: 2000,
       });
 
@@ -337,6 +349,7 @@ describe('top-up checkout (§9.2)', () => {
         active: true,
         type: 'recurring',
         currency: 'cad',
+        livemode: false,
         unit_amount: 2000,
       });
 
@@ -355,6 +368,7 @@ describe('top-up checkout (§9.2)', () => {
         active: true,
         type: 'one_time',
         currency: 'usd',
+        livemode: false,
         unit_amount: 2000,
       });
 
@@ -374,6 +388,7 @@ describe('top-up checkout (§9.2)', () => {
         active: true,
         type: 'one_time',
         currency: 'cad',
+        livemode: false,
         unit_amount: 1,
       });
 
@@ -1427,6 +1442,7 @@ describe('X5 — checkout redirect origin', () => {
   it('a HOSTED runtime with NO NEXT_PUBLIC_APP_URL fails masked before reserving anything — no Stripe session, no attempt, no purchase', async () => {
     envHolder.NEXT_PUBLIC_APP_URL = undefined;
     process.env.VERCEL = '1';
+    process.env.VERCEL_ENV = 'preview';
     await seedSalon('s_t_origin_missing');
 
     const response = await postCheckout({ salonId: 's_t_origin_missing', topupOfferKey: 'topup_100_2026_10' });
@@ -1442,6 +1458,7 @@ describe('X5 — checkout redirect origin', () => {
   it('the hosted refusal is reported to Sentry and leaks no origin detail to the caller', async () => {
     envHolder.NEXT_PUBLIC_APP_URL = undefined;
     process.env.VERCEL = '1';
+    process.env.VERCEL_ENV = 'preview';
     await seedSalon('s_t_origin_sentry');
     const sentry = await import('@sentry/nextjs');
     // This file has no per-test Sentry reset, so pin the LAST capture rather
@@ -1461,6 +1478,7 @@ describe('X5 — checkout redirect origin', () => {
   it('never falls back to the PRODUCTION domain for a Preview deployment', async () => {
     envHolder.NEXT_PUBLIC_APP_URL = undefined;
     process.env.VERCEL = '1';
+    process.env.VERCEL_ENV = 'preview';
     process.env.VERCEL_PROJECT_PRODUCTION_URL = 'isla-nail-studio.vercel.app';
     await seedSalon('s_t_origin_preview');
     try {

@@ -9,7 +9,7 @@ import { resolveBillingAppOrigin } from '@/libs/billing/billingAppOrigin';
 import { resolveOrCreateBillingCustomer } from '@/libs/billing/billingCustomer';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
-import { stripe } from '@/libs/stripe';
+import { assertStripeOperationIsolation, stripe } from '@/libs/stripe';
 import { aiCreditPurchaseSchema as purchases } from '@/models/Schema';
 
 import { AI_CREDIT_PACKS, type AiCreditPackKey, type AiCreditPlanEnv } from './catalog';
@@ -130,6 +130,7 @@ export async function createAiCreditCheckout(actor: SetupActor, input: { packKey
     throw new AiCreditError('NOT_CONFIGURED', 'AI credit purchases are not available yet.');
   }
   const planEnv = aiCreditPlanEnv();
+  assertStripeOperationIsolation(planEnv);
   const pack = AI_CREDIT_PACKS[input.packKey];
   const priceId = aiCreditStripePrice(input.packKey, planEnv);
   const origin = resolveBillingAppOrigin();

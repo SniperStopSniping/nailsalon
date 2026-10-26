@@ -12,6 +12,7 @@ import 'server-only';
 import Stripe from 'stripe';
 
 import { Env } from '@/libs/Env';
+import { createStripeOperationGuard } from '@/libs/stripeOperationIsolation';
 
 /**
  * The pinned Stripe API version, and the SINGLE SOURCE OF TRUTH for it across
@@ -40,7 +41,10 @@ export const EXPECTED_STRIPE_API_VERSION = '2024-06-20' as const;
 // unsigned at build time, and it changes behaviour on the billing path (a
 // previously-hanging call would begin aborting). `maxNetworkRetries` is left at
 // the SDK default (1).
-export const stripe = new Stripe(Env.STRIPE_SECRET_KEY, {
+const stripeCredential = Env.STRIPE_SECRET_KEY;
+export const assertStripeOperationIsolation = createStripeOperationGuard(stripeCredential);
+
+export const stripe = new Stripe(stripeCredential, {
   apiVersion: EXPECTED_STRIPE_API_VERSION,
   typescript: true,
 });

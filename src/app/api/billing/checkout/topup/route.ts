@@ -47,7 +47,7 @@ import { getTopupOffer } from '@/libs/billing/topupOffers';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
-import { stripe } from '@/libs/stripe';
+import { assertStripeOperationIsolation, stripe } from '@/libs/stripe';
 import { billingCheckoutAttemptSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
 
 // Stripe's own hard bound on Checkout Session `expires_at`: it must be
@@ -143,6 +143,10 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    // Recheck operation isolation against the actual cached client's mode
+    // before the first provider call or customer/attempt/purchase creation.
+    const expectedLivemode = assertStripeOperationIsolation(Env.BILLING_PLAN_ENV);
+
     // P3b: verify the resolved price LIVE, before any durable write — a
     // stale env-mapped price id (rotated/archived in Stripe, or simply
     // pointing at the wrong amount) must never silently create an attempt or
@@ -159,6 +163,7 @@ export async function POST(request: NextRequest) {
       || verifiedPrice.type !== 'one_time'
       || verifiedPrice.currency !== 'cad'
       || verifiedPrice.unit_amount !== offer.priceCents
+      || verifiedPrice.livemode !== expectedLivemode
     ) {
       Sentry.captureMessage('billing.topup_price_mismatch', {
         level: 'error',

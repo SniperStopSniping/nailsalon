@@ -17,7 +17,7 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -57,7 +57,10 @@ const stripeMock = vi.hoisted(() => ({
   // anything — always resolved to the single price id this suite uses.
   prices: { retrieve: vi.fn() },
 }));
-vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
+vi.mock('@/libs/stripe', async () => {
+  const { createStripeOperationGuard } = await import('@/libs/stripeOperationIsolation');
+  return { stripe: stripeMock, assertStripeOperationIsolation: createStripeOperationGuard('sk_test_synthetic_checkout') };
+});
 
 const fulfillmentGate = vi.hoisted(() => ({
   entered: null as (() => void) | null,
@@ -141,6 +144,13 @@ suite('top-up checkout — real-lock concurrency', () => {
   });
 
   beforeEach(async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VITEST', undefined);
+    vi.stubEnv('GITHUB_ACTIONS', undefined);
+    vi.stubEnv('CI', undefined);
+    vi.stubEnv('APP_ENV', 'preview');
+    vi.stubEnv('VERCEL_ENV', undefined);
+    vi.stubEnv('VERCEL', undefined);
     await pool.query('TRUNCATE salon CASCADE');
     await db.insert(schema.salonSchema).values([
       { id: 'topup-s1', name: 'Top-up S1', slug: 'topup-s1', plan: 'single_salon' },
@@ -165,9 +175,12 @@ suite('top-up checkout — real-lock concurrency', () => {
       active: true,
       type: 'one_time',
       currency: 'cad',
+      livemode: false,
       unit_amount: 2000,
     }));
   });
+
+  afterEach(() => vi.unstubAllEnvs());
 
   afterAll(async () => {
     await pool?.end();
