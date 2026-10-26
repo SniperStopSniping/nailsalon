@@ -2459,6 +2459,66 @@ jobs:
           grep -Fqx 'BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_EXECUTED=3 BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'FOUNDING_CORE_POSTGRES_TESTS_EXECUTED=7 FOUNDING_CORE_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
 
+  sms-refund-bookkeeping-postgres:
+    name: SMS refund bookkeeping PostgreSQL concurrency
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_DB: luster_refund_ci
+          POSTGRES_USER: qa
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - '127.0.0.1:5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U qa -d luster_refund_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://qa@127.0.0.1:5432/luster_refund_ci
+      SMS_REFUND_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: HUSKY=0 npm ci
+      - name: Attest the refund test service address
+        shell: bash
+        env:
+          PG_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          test -n "$PG_CONTAINER_ID"
+          docker inspect --format '{{json .NetworkSettings.Networks}}' "$PG_CONTAINER_ID" | node -e '
+            const fs = require("node:fs");
+            const net = require("node:net");
+            const networks = JSON.parse(fs.readFileSync(0, "utf8"));
+            const addresses = [...new Set(Object.values(networks).map(value => value.IPAddress).filter(Boolean))];
+            if (addresses.length !== 1 || net.isIP(addresses[0]) !== 4) {
+              throw new Error("REFUND_TEST_SERVICE_ADDRESS_UNAVAILABLE");
+            }
+            fs.appendFileSync(process.env.GITHUB_ENV, `SMS_REFUND_EXPECTED_SERVER_ADDRESS=${addresses[0]}\n`);
+          '
+      - name: Prove duplicate zero-debit refunds retain one durable adjustment
+        shell: bash
+        run: |
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs run --maxWorkers=1 --no-file-parallelism --retry=0 \
+            src/libs/billing/topupRefundBookkeeping.concurrency.integration.test.ts \
+            | tee sms-refund-bookkeeping-postgres.log
+          grep -Fqx 'SMS_ZERO_REFUND_POSTGRES_TESTS_EXECUTED=1 SMS_ZERO_REFUND_POSTGRES_TESTS_SKIPPED=0' sms-refund-bookkeeping-postgres.log
+
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency
     needs: secret-scan

@@ -309,27 +309,15 @@ export async function applyTopupChargeRefunded(input: {
     return null;
   }
   return db.transaction(async (tx) => {
-    const result = await reverseTopup(tx, {
+    // Refund projection and blocking audit share reverseTopup's locked
+    // transaction, including observations that cannot debit spent credits.
+    return reverseTopup(tx, {
       topupPurchaseId: purchase.id,
       kind: 'refund',
       stripeRef: input.refundId,
       cumulativeRefundedCents: input.cumulativeRefundedCents,
       now: input.now,
     });
-    // `reversed > 0` only when reverseTopup's own idempotency key
-    // (topup-reversal:{refundId}:{grantLedgerId}) inserted a NEW ledger row —
-    // a replayed refund event resolves to 0 here, so this cannot double-log.
-    if (result.reversed > 0) {
-      await logAuditEventTx(tx, {
-        salonId: purchase.salonId,
-        ...WEBHOOK_ACTOR,
-        action: 'billing_topup_reversed',
-        entityType: 'sms_topup_purchase',
-        entityId: purchase.id,
-        metadata: { kind: 'refund', reversedCredits: result.reversed, shortfall: result.shortfall },
-      });
-    }
-    return result;
   });
 }
 
