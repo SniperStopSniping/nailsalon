@@ -1638,7 +1638,7 @@ jobs:
     # Preserve the live ruleset context; success requires the application job
     # and every browser matrix member. A failed/cancelled shard cannot pass.
     name: Run all tests (20.x)
-    needs: [test-core, test-components, monitoring-node24, deposits-postgres-concurrency, google-outbox-postgres]
+    needs: [test-core, test-components, monitoring-node24, deposits-postgres-concurrency, google-outbox-postgres, sms-refund-bookkeeping-postgres]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -1649,12 +1649,14 @@ jobs:
           MONITORING_RESULT: ${{ needs.monitoring-node24.result }}
           DEPOSITS_POSTGRES_RESULT: ${{ needs.deposits-postgres-concurrency.result }}
           GOOGLE_OUTBOX_RESULT: ${{ needs.google-outbox-postgres.result }}
+          SMS_REFUND_RESULT: ${{ needs.sms-refund-bookkeeping-postgres.result }}
         run: |
           test "$CORE_RESULT" = success
           test "$COMPONENTS_RESULT" = success
           test "$MONITORING_RESULT" = success
           test "$DEPOSITS_POSTGRES_RESULT" = success
           test "$GOOGLE_OUTBOX_RESULT" = success
+          test "$SMS_REFUND_RESULT" = success
 
   uiqi-release-conditions:
     name: UIQI release conditions

@@ -114,7 +114,7 @@ test('CI services use the reviewed digest-pinned Docker Official Images from the
     redis: 'mirror.gcr.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499',
   };
   const services = Object.values(jobs).flatMap(job => Object.entries(job.services ?? {}));
-  assert.equal(services.filter(([name]) => name === 'postgres').length, 11);
+  assert.equal(services.filter(([name]) => name === 'postgres').length, 12);
   assert.equal(services.filter(([name]) => name === 'redis').length, 1);
   for (const [name, service] of services) {
     assert.ok(Object.hasOwn(approvedImages, name), `Unreviewed CI service: ${name}`);
@@ -141,7 +141,7 @@ test('required aggregates reject failed, skipped, cancelled and missing evidence
   }
   assert.equal(jobs['full-vitest'].name, 'Full Vitest Suite');
   assert.equal(jobs.test.name, 'Run all tests (20.x)');
-  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24', 'deposits-postgres-concurrency', 'google-outbox-postgres']);
+  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24', 'deposits-postgres-concurrency', 'google-outbox-postgres', 'sms-refund-bookkeeping-postgres']);
   assert.equal(jobs['full-vitest'].needs, 'full-vitest-shards');
 });
 
@@ -157,6 +157,64 @@ test('the required aggregate includes Node 24 monitoring evidence with zero skip
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
   assert.equal(jobs.test.steps[0].env.MONITORING_RESULT, '${{ needs.monitoring-node24.result }}');
   assert.match(jobs.test.steps[0].run, /test "\$MONITORING_RESULT" = success/);
+});
+
+test('SMS refund native evidence is exact-head, isolated, zero-skip and required by the aggregate', () => {
+  const id = 'sms-refund-bookkeeping-postgres';
+  const job = jobs[id];
+  assert.equal(job.needs, 'secret-scan');
+  assert.equal(job['timeout-minutes'], 10);
+  assert.deepEqual(job.permissions, { contents: 'read' });
+  assert.equal(job['continue-on-error'], undefined);
+  assert.equal(job.if, undefined);
+  for (const step of job.steps) {
+    assert.equal(step['continue-on-error'], undefined);
+  }
+  const checkout = job.steps.find(step => step.uses === 'actions/checkout@v4');
+  assert.equal(checkout.with.ref, '${{ github.event.pull_request.head.sha || github.sha }}');
+  assert.equal(checkout.with['persist-credentials'], false);
+  assert.equal(job.steps.find(step => step.uses === 'actions/setup-node@v4').with['node-version'], '24.x');
+  assert.equal(job.services.postgres.image, 'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea');
+  assert.deepEqual(job.services.postgres.ports, ['127.0.0.1:5432:5432']);
+  assert.deepEqual(job.services.postgres.env, { POSTGRES_DB: 'luster_refund_ci', POSTGRES_USER: 'qa', POSTGRES_HOST_AUTH_METHOD: 'trust' });
+  assert.deepEqual(job.env, {
+    CONCURRENCY_TEST_DATABASE_URL: 'postgresql://qa@127.0.0.1:5432/luster_refund_ci',
+    SMS_REFUND_DISPOSABLE_DATABASE_CONFIRMED: 'true',
+  });
+  const identity = job.steps.find(step => step.name === 'Attest the refund test service address');
+  assert.equal(identity.env.PG_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  assert.match(identity.run, /set -euo pipefail/);
+  assert.ok(identity.run.includes('docker inspect --format \'{{json .NetworkSettings.Networks}}\' "$PG_CONTAINER_ID"'));
+  assert.match(identity.run, /SMS_REFUND_EXPECTED_SERVER_ADDRESS/);
+  // Execute the actual inline metadata parser: never infer the server's address
+  // from the client URL or an operator-supplied expected value.
+  const parser = identity.run.match(/node -e '([\s\S]+)'/)[1];
+  const directory = mkdtempSync(path.join(tmpdir(), 'refund-ci-address-'));
+  try {
+    const file = path.join(directory, 'github-env');
+    const inspect = input => spawnSync(process.execPath, ['-e', parser], {
+      input: JSON.stringify(input),
+      encoding: 'utf8',
+      env: { GITHUB_ENV: file, NODE_OPTIONS: process.env.NODE_OPTIONS },
+    });
+    assert.equal(inspect({ network: { IPAddress: '172.19.0.3' } }).status, 0);
+    assert.equal(readFileSync(file, 'utf8'), 'SMS_REFUND_EXPECTED_SERVER_ADDRESS=172.19.0.3\n');
+    for (const invalid of [{}, { network: { IPAddress: 'not-an-ip' } }, { one: { IPAddress: '172.19.0.3' }, two: { IPAddress: '172.19.0.4' } }]) {
+      assert.notEqual(inspect(invalid).status, 0);
+      assert.equal(readFileSync(file, 'utf8'), 'SMS_REFUND_EXPECTED_SERVER_ADDRESS=172.19.0.3\n');
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  const race = job.steps.find(step => step.name === 'Prove duplicate zero-debit refunds retain one durable adjustment');
+  assert.match(race.run, /set -euo pipefail/);
+  assert.ok(race.run.includes('node node_modules/vitest/vitest.mjs run --maxWorkers=1 --no-file-parallelism --retry=0'));
+  assert.ok(race.run.includes('src/libs/billing/topupRefundBookkeeping.concurrency.integration.test.ts'));
+  assert.ok(race.run.includes('grep -Fqx \'SMS_ZERO_REFUND_POSTGRES_TESTS_EXECUTED=1 SMS_ZERO_REFUND_POSTGRES_TESTS_SKIPPED=0\''));
+  assert.doesNotMatch(race.run, /\|\|\s*true|--retry=[1-9]/);
+  assert.ok(jobs.test.needs.includes(id));
+  assert.equal(jobs.test.steps[0].env.SMS_REFUND_RESULT, '${{ needs.sms-refund-bookkeeping-postgres.result }}');
+  assert.match(jobs.test.steps[0].run, /test "\$SMS_REFUND_RESULT" = success/);
 });
 
 test('the required Node 24 job also exercises the bundled Redis URL parser', () => {
@@ -356,7 +414,7 @@ test('every PostgreSQL CI job runs on the package Node 24 engine', () => {
   assert.equal(manifest.engines.node, '24.x');
 
   const postgresJobs = Object.entries(jobs).filter(([, job]) => Object.hasOwn(job.services ?? {}, 'postgres'));
-  assert.equal(postgresJobs.length, 11);
+  assert.equal(postgresJobs.length, 12);
   for (const [id, job] of postgresJobs) {
     const setupNode = job.steps.find(step => step.uses === 'actions/setup-node@v4');
     assert.ok(setupNode, `${id} must set up Node.js`);
