@@ -27,7 +27,12 @@ The optional “Ring me first” addition is outside this replacement. The exist
 - `sheets`: two entries `{ spreadsheetId, tab, role }`, exactly one `primary` and one `inbound`. Match the real main CRM/Sheet1 and TEST CRM/CRM identifiers, not names alone.
 - `telegramChatId`: the existing authorized destination.
 
-Dedicated secret variables: `DANIELA_TWILIO_AUTH_TOKEN`, `DANIELA_GOOGLE_CLIENT_ID`, `DANIELA_GOOGLE_CLIENT_SECRET`, `DANIELA_GOOGLE_REFRESH_TOKEN`, and `DANIELA_TELEGRAM_BOT_TOKEN`. The Google refresh token must already grant Sheets access to both documents; n8n-managed OAuth credentials may need a fresh authorized grant for this app. Do not reuse a Calendar-only token or expose credentials in source, PRs, logs or screenshots. `DANIELA_CAMPAIGN_ENABLED=true` enables campaign admission; unset pauses it independently. The scheduled endpoint uses the existing `CRON_SECRET` bearer convention.
+Dedicated secret variables: `DANIELA_TWILIO_AUTH_TOKEN`, `DANIELA_TELEGRAM_BOT_TOKEN`, and one of these Google connections:
+
+- Preferred for this private installation: `DANIELA_GOOGLE_SERVICE_ACCOUNT_JSON`, containing a dedicated Google service-account key. Grant that service account Editor access to the two named workbooks only, without domain-wide delegation, user impersonation or project IAM roles. Keep both workbooks private. The token request uses the fixed Google endpoint and Sheets scope; downloaded JSON cannot change that endpoint. Store the key as a sensitive Production-only Vercel variable. Never reuse the Calendar service account.
+- Existing alternative: `DANIELA_GOOGLE_CLIENT_ID`, `DANIELA_GOOGLE_CLIENT_SECRET`, and `DANIELA_GOOGLE_REFRESH_TOKEN`. The refresh token must already grant Sheets access to both documents. n8n-managed OAuth credentials are not portable to Luster, and a Calendar-only token is insufficient.
+
+An explicitly supplied service account takes precedence; invalid service-account configuration fails closed without falling back to OAuth. Do not expose credentials in source, PRs, logs or screenshots. `DANIELA_CAMPAIGN_ENABLED=true` enables campaign admission; unset pauses it independently. The scheduled endpoint uses the existing `CRON_SECRET` bearer convention.
 
 ## Migration and acceptance
 

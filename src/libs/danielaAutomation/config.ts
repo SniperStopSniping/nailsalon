@@ -2,6 +2,7 @@ import 'server-only';
 
 import { z } from 'zod';
 
+import { hasGoogleCredentials } from './googleAuth';
 import { normalizePhone } from './policy';
 
 const phone = z.string().refine(value => normalizePhone(value) === value);
@@ -46,8 +47,7 @@ export function getDanielaConfig(): DanielaConfig | null {
     }
     if (mode === 'live' && (process.env.VERCEL_ENV !== 'production'
       || process.env.DANIELA_N8N_CUTOVER_CONFIRMED !== 'true'
-      || !process.env.DANIELA_GOOGLE_CLIENT_ID || !process.env.DANIELA_GOOGLE_CLIENT_SECRET
-      || !process.env.DANIELA_GOOGLE_REFRESH_TOKEN || !process.env.DANIELA_TELEGRAM_BOT_TOKEN)) {
+      || !hasGoogleCredentials() || !process.env.DANIELA_TELEGRAM_BOT_TOKEN)) {
       return null;
     }
     return { ...parsed.data, mode, authToken, campaignEnabled: process.env.DANIELA_CAMPAIGN_ENABLED === 'true' };
