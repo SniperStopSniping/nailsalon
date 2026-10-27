@@ -34,6 +34,7 @@ it('escapes the automatic greeting as text rather than TwiML', () => {
   const xml = greetingTwiml('Hello <Dial> & goodbye');
 
   expect(xml).toContain('Hello &lt;Dial&gt; &amp; goodbye');
+  expect(xml).toContain('<Say voice="Polly.Joanna">');
   expect(xml).toContain('<Hangup/>');
 });
 

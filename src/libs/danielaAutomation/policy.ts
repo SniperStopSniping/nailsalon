@@ -51,7 +51,7 @@ export function xmlEscape(value: string): string {
 }
 
 export function greetingTwiml(greeting: string): string {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say>${xmlEscape(greeting)}</Say><Hangup/></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Joanna">${xmlEscape(greeting)}</Say><Hangup/></Response>`;
 }
 
 export const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';

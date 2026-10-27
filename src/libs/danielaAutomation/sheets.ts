@@ -146,13 +146,20 @@ export function contactColumns(contact: Contact): Record<string, string> {
     lastinboundiso: contact.lastInboundAt?.toISOString() || '',
     lastinboundmessagesid: contact.lastInboundSid || '',
     lastmsg: contact.lastMessage || '',
-    source: contact.lastSource || '',
+    ...(contact.lastSource ? { source: contact.lastSource === 'call' ? 'Phone call / missed call' : 'SMS' } : {}),
     bookingpromoattemptedat: contact.promoAttemptedAt?.toISOString() || '',
     bookingpromosentat: contact.promoAcceptedAt?.toISOString() || '',
     optout: contact.providerOptOut ? 'TRUE' : 'FALSE',
     blocked: contact.blocked ? 'TRUE' : 'FALSE',
     status: contact.providerOptOut ? 'opted_out' : contact.lastBookingAt ? 'booking_sent' : 'inbound',
-    awaitingreplyuntil: contact.lastBookingAt ? new Date(contact.lastBookingAt.getTime() + 72 * 3600_000).toISOString() : '',
+    ...(contact.lastBookingAt
+      ? {
+          lastoutboundtype: 'booking_link',
+          lastoutboundiso: contact.lastBookingAt.toISOString(),
+          awaitingreplytype: 'booking_inquiry',
+          awaitingreplyuntil: new Date(contact.lastBookingAt.getTime() + 72 * 3600_000).toISOString(),
+        }
+      : {}),
   };
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 
-import { syncContact } from './sheets';
+import { contactColumns, syncContact } from './sheets';
 import type { Contact } from './store';
 
 vi.mock('server-only', () => ({}));
@@ -19,6 +19,27 @@ const contact = {
   blocked: false,
   providerOptOut: false,
 } as Contact;
+
+it('keeps the existing booking-context columns and source labels', () => {
+  expect(contactColumns({ ...contact, lastSource: 'call', lastBookingAt: new Date('2026-10-26T15:00:00Z') })).toMatchObject({
+    source: 'Phone call / missed call',
+    lastoutboundtype: 'booking_link',
+    lastoutboundiso: '2026-10-26T15:00:00.000Z',
+    awaitingreplytype: 'booking_inquiry',
+    awaitingreplyuntil: '2026-10-29T15:00:00.000Z',
+  });
+  expect(contactColumns(contact).source).toBe('SMS');
+});
+
+it('preserves existing context when a migrated contact has no known booking or source', () => {
+  const columns = contactColumns({ ...contact, lastSource: null });
+
+  expect(columns).not.toHaveProperty('source');
+  expect(columns).not.toHaveProperty('lastoutboundtype');
+  expect(columns).not.toHaveProperty('lastoutboundiso');
+  expect(columns).not.toHaveProperty('awaitingreplytype');
+  expect(columns).not.toHaveProperty('awaitingreplyuntil');
+});
 
 it('writes RAW values only to recognized cells and preserves owner notes', async () => {
   const fetcher = vi.fn(async () => Response.json({}));
