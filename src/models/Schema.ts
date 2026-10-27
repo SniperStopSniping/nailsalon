@@ -5918,3 +5918,71 @@ export const salonDeletionCleanupSchema = pgTable('salon_deletion_cleanup', {
   due: index('salon_deletion_cleanup_due').on(table.nextAttemptAt).where(sql`${table.completedAt} IS NULL`),
   countsValid: check('salon_deletion_cleanup_counts_valid', sql`${table.rowsDeleted} >= 0 AND ${table.mediaTotal} >= 0 AND ${table.mediaRemoved} >= 0 AND ${table.mediaRemoved} <= ${table.mediaTotal} AND ${table.attempts} >= 0 AND jsonb_typeof(${table.pendingAssets}) = 'array' AND ${table.mediaRemoved} + jsonb_array_length(${table.pendingAssets}) = ${table.mediaTotal}`),
 }));
+
+// Private Isla/Daniela n8n replacement. Separate from shared Luster SMS billing.
+export const danielaAutomationStateSchema = pgTable('daniela_automation_state', {
+  workerToken: text('worker_token'),
+  workerExpiresAt: timestamp('worker_expires_at', { mode: 'date', withTimezone: true }),
+  salonId: text('salon_id').primaryKey().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  importedAt: timestamp('imported_at', { mode: 'date', withTimezone: true }),
+  lastSheetReadAt: timestamp('last_sheet_read_at', { mode: 'date', withTimezone: true }),
+});
+
+export const danielaContactSchema = pgTable('daniela_contact', {
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  phone: text('phone').notNull(),
+  blocked: boolean('blocked').notNull().default(false),
+  providerOptOut: boolean('provider_opt_out').notNull().default(false),
+  consentUpdatedAt: timestamp('consent_updated_at', { mode: 'date', withTimezone: true }),
+  campaignEligible: boolean('campaign_eligible').notNull().default(false),
+  inboundOnly: boolean('inbound_only').notNull().default(false),
+  rowOrder: integer('row_order').notNull().default(2147483647),
+  lastBookingAt: timestamp('last_booking_at', { mode: 'date', withTimezone: true }),
+  promoAttemptedAt: timestamp('promo_attempted_at', { mode: 'date', withTimezone: true }),
+  promoAcceptedAt: timestamp('promo_accepted_at', { mode: 'date', withTimezone: true }),
+  lastInboundAt: timestamp('last_inbound_at', { mode: 'date', withTimezone: true }),
+  lastInboundSid: text('last_inbound_sid'),
+  lastMessage: text('last_message'),
+  lastSource: text('last_source'),
+  sheetDirty: boolean('sheet_dirty').notNull().default(false),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  pk: primaryKey({ columns: [table.salonId, table.phone] }),
+  phoneValid: check('daniela_contact_phone_valid', sql`${table.phone} ~ '^[+]1[2-9][0-9]{2}[2-9][0-9]{6}$'`),
+}));
+
+export const danielaInboundSchema = pgTable('daniela_inbound', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  providerSid: text('provider_sid').notNull(),
+  kind: text('kind', { enum: ['call', 'sms'] }).notNull(),
+  phone: text('phone'),
+  body: text('body'),
+  outcome: text('outcome').notNull(),
+  receivedAt: timestamp('received_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  telegramState: text('telegram_state', { enum: ['pending', 'sending', 'sent', 'uncertain'] }).notNull().default('pending'),
+  telegramAttemptedAt: timestamp('telegram_attempted_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  eventOnce: uniqueIndex('daniela_inbound_event_once').on(table.salonId, table.kind, table.providerSid),
+  pending: index('daniela_inbound_pending').on(table.salonId, table.telegramState),
+}));
+
+export const danielaSendSchema = pgTable('daniela_send', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  phone: text('phone').notNull(),
+  purpose: text('purpose', { enum: ['booking', 'promo'] }).notNull(),
+  body: text('body').notNull(),
+  slot: text('slot'),
+  state: text('state', { enum: ['pending', 'sending', 'accepted', 'delivered', 'failed', 'unknown', 'suppressed', 'shadow'] }).notNull().default('pending'),
+  providerSid: text('provider_sid'),
+  errorCode: text('error_code'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  attemptedAt: timestamp('attempted_at', { mode: 'date', withTimezone: true }),
+  acceptedAt: timestamp('accepted_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  contactFk: foreignKey({ columns: [table.salonId, table.phone], foreignColumns: [danielaContactSchema.salonId, danielaContactSchema.phone], name: 'daniela_send_contact_fk' }).onDelete('cascade'),
+  slotOnce: uniqueIndex('daniela_send_slot_once').on(table.salonId, table.slot),
+  providerOnce: uniqueIndex('daniela_send_provider_once').on(table.providerSid),
+  due: index('daniela_send_due').on(table.salonId, table.state, table.createdAt),
+}));

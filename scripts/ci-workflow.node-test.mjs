@@ -62,6 +62,13 @@ test('Calendar PostgreSQL regressions are required and cannot silently skip', ()
   assert.equal(jobs.test.steps[0].env.GOOGLE_OUTBOX_RESULT, '${{ needs.google-outbox-postgres.result }}');
 });
 
+test('required application evidence executes the offline Playwright watchdog contracts', () => {
+  const gate = jobs['test-core'].steps.find(step => step.name === 'Test CI evidence and cancellation contracts');
+  assert.ok(gate.run.includes('scripts/install-playwright.node-test.mjs'));
+  assert.equal(gate.if, undefined);
+  assert.equal(gate['continue-on-error'], undefined);
+});
+
 test('CI services use the reviewed digest-pinned Docker Official Images from the Google cache', () => {
   const approvedImages = {
     postgres: 'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',

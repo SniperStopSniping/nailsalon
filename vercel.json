@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/private/daniela/process",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/voice/maintenance",
       "schedule": "11 4 * * *"
     },

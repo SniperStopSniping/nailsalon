@@ -206,7 +206,7 @@ jobs:
           echo 'INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1'
 
       - name: Test CI evidence and cancellation contracts
-        run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
+        run: node --test scripts/ci-workflow.node-test.mjs scripts/install-playwright.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
 
       # The deposits ladder is additive by construction. These paths carry the
       # SaaS billing surface, dependency manifests, migration set, deploy
@@ -357,6 +357,9 @@ jobs:
               # Identical reviewed graph after protected main's 1.144.0
               # release; only the three root version fields changed.
               95a5d51e3c9fd0bde85d21fc288077db849ef5a0:ac97375ebeff51fd225f1e1831243e131a5c50ef) ;;
+              # Same registered graph after main 1.144.1; verified diff is
+              # limited to package.json and package-lock root version labels.
+              0999737f8b22586308f691af285f1b698e5d67e0:d48e7806aa03c0565387a94e852b3a080ba0d077) ;;
               *)
                 echo "::error::Dependency manifests must match a reviewed security-refresh pair."
                 printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
@@ -573,6 +576,7 @@ jobs:
               migrations/0111_other_service_categories.sql) ;;
               migrations/0112_ai_operator_expense_budget.sql) ;;
               migrations/0113_salon_deletion_cleanup.sql) ;;
+              migrations/0114_daniela_automation.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1030,6 +1034,22 @@ jobs:
             exit 1
           fi
 
+          # Private Daniela automation: additive, exact SQL and journal packet.
+          if ! git diff --quiet "$base" -- migrations/0114_daniela_automation.sql; then
+            if git cat-file -e "$base:migrations/0114_daniela_automation.sql" 2>/dev/null \
+              || [ "$(git diff --name-status "$base" -- migrations/0114_daniela_automation.sql)" != $'A\t'"migrations/0114_daniela_automation.sql" ] \
+              || [ "$(git hash-object migrations/0114_daniela_automation.sql)" != "284d07636a5455938d42ff841710dd32cb0bbab0" ]; then
+              echo "::error::Private automation SQL must be new at its pinned postimage."
+              exit 1
+            fi
+          fi
+          expected_0114_journal='{"breakpoints":true,"idx":113,"tag":"0114_daniela_automation","version":"7","when":1793044800000}'
+          actual_0114_journal="$(jq -cS '.entries[] | select(.tag == "0114_daniela_automation")' migrations/meta/_journal.json)"
+          if [ "$actual_0114_journal" != "$expected_0114_journal" ]; then
+            echo "::error::Private automation journal entry does not match the pinned postimage."
+            exit 1
+          fi
+
           # AI setup SQL may be introduced only at these exact postimages.
           # Already-shipped SQL stays immutable, including additive rewrites.
           while read -r file expected_blob; do
@@ -1140,6 +1160,7 @@ jobs:
               0111_other_service_categories) ;;
               0112_ai_operator_expense_budget) ;;
               0113_salon_deletion_cleanup) ;;
+              0114_daniela_automation) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1164,6 +1185,7 @@ jobs:
               /api/deposits/holds/reap) ;;
               /api/deposits/reconcile) ;;
               /api/communications/dispatch) ;;
+              /api/private/daniela/process) ;;
               /api/voice/maintenance) ;;
               /api/network-no-show/reconcile) ;;
               # D3 (2026-09-14): billing crons, dark until BILLING_* switches flip
