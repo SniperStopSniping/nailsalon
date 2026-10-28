@@ -503,7 +503,8 @@ jobs:
               migrations/0111_other_service_categories.sql) ;;
               migrations/0112_ai_operator_expense_budget.sql) ;;
               migrations/0113_salon_deletion_cleanup.sql) ;;
-              # Exact sweep prerequisite only; concurrent 0114 ordering is unresolved.
+              # Exact reviewed Daniela/sweep prerequisite suffix; SQL is pinned below.
+              migrations/0114_daniela_automation.sql) ;;
               migrations/0115_topup_reconciliation_sweep.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
@@ -991,28 +992,44 @@ jobs:
           migrations/0112_ai_operator_expense_budget.sql eebc64176f6a19b50f4d232837588e1e2c1e5645
           AI_SETUP_MIGRATIONS
 
-          # TOPUP_CURSOR_MIGRATION_BEGIN: admit this one reviewed prerequisite.
-          # This is not permission to insert concurrent 0114 or renumber history.
+          # TOPUP_CURSOR_MIGRATION_BEGIN: admit only this reviewed ordered suffix.
+          # Drizzle selects by timestamp: 0114 must precede 0115 before either
+          # is applied. An installed 0115-first ledger needs a forward repair;
+          # this source packet never rewrites shipped SQL or journal history.
           node --input-type=module - "$base" <<'TOPUP_CURSOR_MIGRATION'
           import assert from 'node:assert/strict';
           import { execFileSync } from 'node:child_process';
           import { createHash } from 'node:crypto';
           import { readFileSync } from 'node:fs';
           const base = process.argv[2];
-          const file = 'migrations/0115_topup_reconciliation_sweep.sql';
-          const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
-          const expected = { idx: 113, version: '7', when: 1793224800000, tag: '0115_topup_reconciliation_sweep', breakpoints: true };
-          const entries = JSON.parse(readFileSync('migrations/meta/_journal.json', 'utf8')).entries;
-          assert.deepEqual(entries.filter(entry => entry.tag === expected.tag), [expected]);
-          assert.deepEqual(entries[113], expected);
-          assert.equal(entries.length, 114, '0114/0115 journal ordering requires separate review');
-          assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), '3ca58901ca6539365ff541bb07c0b446b8543c83227aadcb27841f78690f87e6');
-          if (git('diff', '--name-only', base, '--', file)) {
-            assert.throws(() => git('cat-file', '-e', `${base}:${file}`), 'Already-shipped sweep SQL is immutable');
-            assert.equal(git('diff', '--name-status', base, '--', file), `A\t${file}`);
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+          const expected = [
+            { idx: 113, version: '7', when: 1793044800000, tag: '0114_daniela_automation', breakpoints: true },
+            { idx: 114, version: '7', when: 1793224800000, tag: '0115_topup_reconciliation_sweep', breakpoints: true },
+          ];
+          const sql = [
+            ['migrations/0114_daniela_automation.sql', '3118d2a122c6ba140e3a391f25ceed7ea493e8cb74affdbce253644c80066281'],
+            ['migrations/0115_topup_reconciliation_sweep.sql', '3ca58901ca6539365ff541bb07c0b446b8543c83227aadcb27841f78690f87e6'],
+          ];
+          const journal = JSON.parse(readFileSync('migrations/meta/_journal.json', 'utf8'));
+          const { entries } = journal;
+          assert.equal(entries.length, 115, 'Only the reviewed 0114/0115 suffix is admitted');
+          assert.deepEqual(entries.slice(113), expected, '0114 must precede 0115 at their original timestamps');
+          assert.equal(new Set(entries.map(entry => entry.idx)).size, entries.length, 'Migration indexes must be unique');
+          assert.equal(new Set(entries.map(entry => entry.tag)).size, entries.length, 'Migration tags must be unique');
+          for (let index = 1; index < entries.length; index++) {
+            assert.ok(entries[index - 1].when < entries[index].when, 'Migration timestamps must increase strictly');
+          }
+          for (const [file, hash] of sql) {
+            assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), hash, `${file} must match the reviewed SQL`);
+            if (git('diff', '--name-only', base, '--', file)) {
+              assert.throws(() => git('cat-file', '-e', `${base}:${file}`), 'Already-shipped SQL is immutable');
+              assert.equal(git('diff', '--name-status', base, '--', file), `A\t${file}`);
+            }
           }
           const previous = JSON.parse(git('show', `${base}:migrations/meta/_journal.json`));
-          assert.deepEqual(entries.slice(0, previous.entries.length), previous.entries, 'Existing journal prefix is immutable');
+          assert.deepEqual(entries.slice(0, previous.entries.length), previous.entries, 'Existing journal prefix is immutable; installed 0115-first requires forward repair');
+          assert.deepEqual({ ...journal, entries: undefined }, { ...previous, entries: undefined }, 'Journal header is immutable');
           TOPUP_CURSOR_MIGRATION
           # TOPUP_CURSOR_MIGRATION_END
 
@@ -1097,6 +1114,7 @@ jobs:
               0111_other_service_categories) ;;
               0112_ai_operator_expense_budget) ;;
               0113_salon_deletion_cleanup) ;;
+              0114_daniela_automation) ;;
               0115_topup_reconciliation_sweep) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"

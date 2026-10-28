@@ -844,55 +844,85 @@ test('cursor evidence rejects partial, skipped or falsely successful reports', a
   assert.throws(() => requireCursorResults(skipped));
 });
 
-test('only the exact new 0115 packet is admitted and ordering collisions fail closed', () => {
+test('only the exact ordered 0114/0115 migration suffix is admitted', () => {
   const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
   const packet = run.match(/node --input-type=module - "\$base" <<'TOPUP_CURSOR_MIGRATION'\n([\s\S]*?)\nTOPUP_CURSOR_MIGRATION/)[1];
-  const directory = mkdtempSync(path.join(tmpdir(), 'cursor-migration-gate-'));
+  const paths = run.match(/while read -r file; do[\s\S]*?done <<< "\$\(git diff --name-only "\$base" -- migrations vercel.json\)"/)[0];
+  const directory = mkdtempSync(path.join(tmpdir(), 'ordered-migration-gate-'));
   const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
-  const file = 'migrations/0115_topup_reconciliation_sweep.sql';
-  const source = readFileSync(new URL(`../${file}`, import.meta.url));
+  const files = ['migrations/0114_daniela_automation.sql', 'migrations/0115_topup_reconciliation_sweep.sql'];
+  const sources = files.map(file => readFileSync(new URL(`../${file}`, import.meta.url)));
   const journal = JSON.parse(readFileSync(new URL('../migrations/meta/_journal.json', import.meta.url)));
   const save = value => writeFileSync(path.join(directory, 'migrations/meta/_journal.json'), JSON.stringify(value));
+  const commit = (message) => {
+    git('add', '.');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', message);
+    return git('rev-parse', 'HEAD');
+  };
   let base;
   const check = () => spawnSync(process.execPath, ['--input-type=module', '-', base], { cwd: directory, input: packet, stdio: ['pipe', 'pipe', 'pipe'] }).status;
+  const checkPaths = () => spawnSync('bash', ['-eu', '-c', paths], { cwd: directory, env: { ...process.env, base }, stdio: 'pipe' }).status;
   try {
     git('init', '-q');
     mkdirSync(path.join(directory, 'migrations/meta'), { recursive: true });
     save({ ...journal, entries: journal.entries.slice(0, 113) });
-    git('add', '.');
-    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic base');
-    base = git('rev-parse', 'HEAD');
-    writeFileSync(path.join(directory, file), source);
+    base = commit('synthetic base through 0113');
+    for (const [index, file] of files.entries()) {
+      writeFileSync(path.join(directory, file), sources[index]);
+    }
     save(journal);
     git('add', '.');
-    assert.equal(check(), 0);
-    writeFileSync(path.join(directory, file), `${source}\n-- changed\n`);
-    assert.notEqual(check(), 0);
-    writeFileSync(path.join(directory, file), source);
-    for (const change of [
-      value => value.entries.pop(),
-      value => value.entries.push(value.entries[113]),
-      value => value.entries[113].idx++,
-      value => value.entries[113].when++,
-      value => value.entries[0].when++,
-      value => value.entries.splice(113, 0, { ...value.entries[113], tag: '0114_daniela_automation' }),
+    assert.equal(check(), 0, 'exact reviewed SQL and ordered suffix pass from 0113');
+    assert.equal(checkPaths(), 0, 'both reviewed SQL paths are admitted');
+    const unknown = path.join(directory, 'migrations/0116_unreviewed.sql');
+    writeFileSync(unknown, '-- synthetic unreviewed migration\n');
+    git('add', '.');
+    assert.notEqual(checkPaths(), 0, 'an additional SQL path fails closed');
+    rmSync(unknown);
+    git('add', '.');
+    for (const [index, file] of files.entries()) {
+      const current = path.join(directory, file);
+      writeFileSync(current, `${sources[index]}\n-- changed\n`);
+      assert.notEqual(check(), 0, `${file} rejects changed bytes`);
+      rmSync(current);
+      assert.notEqual(check(), 0, `${file} is required`);
+      writeFileSync(current, sources[index]);
+    }
+    for (const [reason, change] of [
+      ['missing 0114', value => value.entries.splice(113, 1)],
+      ['missing 0115', value => value.entries.pop()],
+      ['0115 before 0114', value => value.entries.splice(113, 2, value.entries[114], value.entries[113])],
+      ['duplicate suffix', value => value.entries.push(value.entries[114])],
+      ['unknown suffix', value => value.entries[114].tag = '0116_unreviewed'],
+      ['wrong 0114 index', value => value.entries[113].idx++],
+      ['wrong 0115 index', value => value.entries[114].idx--],
+      ['changed 0114 timestamp', value => value.entries[113].when++],
+      ['changed 0115 timestamp', value => value.entries[114].when++],
+      ['duplicate historical index', value => value.entries[0].idx = value.entries[1].idx],
+      ['duplicate historical tag', value => value.entries[0].tag = value.entries[1].tag],
+      ['non-increasing timestamps', value => value.entries[1].when = value.entries[0].when],
+      ['changed prefix', value => value.entries[0].when++],
+      ['changed header', value => value.version = 'unreviewed'],
     ]) {
       const invalid = structuredClone(journal);
       change(invalid);
       save(invalid);
-      assert.notEqual(check(), 0);
+      assert.notEqual(check(), 0, reason);
     }
+    save({ ...journal, entries: [...journal.entries.slice(0, 113), { ...journal.entries[114], idx: 113 }] });
+    base = commit('synthetic installed 0115-first history');
     save(journal);
-    git('add', '.');
-    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic shipped packet');
-    base = git('rev-parse', 'HEAD');
+    assert.notEqual(check(), 0, 'an installed 0115-first history requires forward repair');
+    save(journal);
+    base = commit('synthetic ordered shipped packet');
     assert.equal(check(), 0, 'an unchanged shipped packet remains valid');
-    writeFileSync(path.join(directory, file), `${source}\n-- changed shipped identity\n`);
-    git('add', '.');
-    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic different shipped bytes');
-    base = git('rev-parse', 'HEAD');
-    writeFileSync(path.join(directory, file), source);
-    assert.notEqual(check(), 0, 'even approved bytes cannot rewrite an already-shipped migration');
+    for (const [index, file] of files.entries()) {
+      writeFileSync(path.join(directory, file), `${sources[index]}\n-- different shipped identity\n`);
+      base = commit(`synthetic changed shipped SQL ${index}`);
+      writeFileSync(path.join(directory, file), sources[index]);
+      assert.notEqual(check(), 0, 'approved bytes cannot rewrite an already-shipped migration');
+      base = commit(`restore synthetic fixture SQL ${index}`);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
