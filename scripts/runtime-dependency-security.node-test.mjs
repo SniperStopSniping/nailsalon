@@ -20,7 +20,7 @@ test('runtime dependencies resolve to the reviewed, patched lockfile versions', 
     [require, 'form-data', 'node_modules/form-data', [4, 0, 6]],
     [require, 'nanoid', 'node_modules/nanoid', [3, 3, 18]],
     [require, 'shell-quote', 'node_modules/shell-quote', [1, 8, 5]],
-    [twilioRequire, 'qs', 'node_modules/qs', [6, 16, 0]],
+    [twilioRequire, 'qs', 'node_modules/qs', [6, 16, 1]],
     [twilioRequire, 'follow-redirects', 'node_modules/follow-redirects', [1, 16, 1]],
   ]) {
     const version = loader(`${name}/package.json`).version;
@@ -29,6 +29,20 @@ test('runtime dependencies resolve to the reviewed, patched lockfile versions', 
     const comparison = parts.findIndex((part, index) => part !== minimum[index]);
     assert.ok(comparison === -1 || parts[comparison] > minimum[comparison], `${name} must be patched`);
   }
+});
+
+test('qs handles object values in comma arrays without losing ordinary serialization', () => {
+  const qs = twilioRequire('qs');
+  for (const encodeValuesOnly of [false, true]) {
+    for (const value of [{ toString: 'fixture' }, Object.assign(Object.create(null), { label: 'fixture' })]) {
+      const input = { values: [value] };
+      const result = qs.stringify(input, { arrayFormat: 'comma', encodeValuesOnly });
+      assert.equal(decodeURIComponent(result), 'values=[object Object]');
+      assert.equal(input.values[0], value);
+    }
+    assert.equal(decodeURIComponent(qs.stringify({ values: ['first', 'second'] }, { arrayFormat: 'comma', encodeValuesOnly })), 'values=first,second');
+  }
+  assert.equal(qs.stringify({ values: ['first', 'second'] }, { arrayFormat: 'repeat' }), 'values=first&values=second');
 });
 
 // Real installed SDK + Axios HTTP adapter, pointed only at a loopback server.
