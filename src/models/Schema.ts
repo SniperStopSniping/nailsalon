@@ -4403,6 +4403,23 @@ export const billingCheckoutAttemptSchema = pgTable(
 );
 export type BillingCheckoutAttempt = typeof billingCheckoutAttemptSchema.$inferSelect;
 
+// Technical singleton only: never contains customer or payment evidence.
+export const billingTopupReconciliationSweepSchema = pgTable('billing_topup_reconciliation_sweep', {
+  scope: text('scope').primaryKey(),
+  cursorAttemptId: text('cursor_attempt_id'),
+  highWaterAttemptId: text('high_water_attempt_id'),
+  leaseToken: text('lease_token'),
+  leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }),
+}, table => ({
+  globalScope: check('billing_topup_reconciliation_sweep_global_scope', sql`${table.scope} = 'global'`),
+  cursorBounds: check('billing_topup_reconciliation_sweep_cursor_bounds', sql`
+    (${table.highWaterAttemptId} IS NULL AND ${table.cursorAttemptId} IS NULL)
+    OR (${table.highWaterAttemptId} IS NOT NULL AND (${table.cursorAttemptId} IS NULL
+      OR ${table.cursorAttemptId} <= ${table.highWaterAttemptId}))
+  `),
+  leasePair: check('billing_topup_reconciliation_sweep_lease_pair', sql`(${table.leaseToken} IS NULL) = (${table.leaseExpiresAt} IS NULL)`),
+}));
+
 export const smsCreditLedgerSchema = pgTable(
   'sms_credit_ledger',
   {
