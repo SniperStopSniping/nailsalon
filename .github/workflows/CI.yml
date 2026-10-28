@@ -503,6 +503,8 @@ jobs:
               migrations/0111_other_service_categories.sql) ;;
               migrations/0112_ai_operator_expense_budget.sql) ;;
               migrations/0113_salon_deletion_cleanup.sql) ;;
+              # Exact sweep prerequisite only; concurrent 0114 ordering is unresolved.
+              migrations/0115_topup_reconciliation_sweep.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -989,6 +991,31 @@ jobs:
           migrations/0112_ai_operator_expense_budget.sql eebc64176f6a19b50f4d232837588e1e2c1e5645
           AI_SETUP_MIGRATIONS
 
+          # TOPUP_CURSOR_MIGRATION_BEGIN: admit this one reviewed prerequisite.
+          # This is not permission to insert concurrent 0114 or renumber history.
+          node --input-type=module - "$base" <<'TOPUP_CURSOR_MIGRATION'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const base = process.argv[2];
+          const file = 'migrations/0115_topup_reconciliation_sweep.sql';
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
+          const expected = { idx: 113, version: '7', when: 1793224800000, tag: '0115_topup_reconciliation_sweep', breakpoints: true };
+          const entries = JSON.parse(readFileSync('migrations/meta/_journal.json', 'utf8')).entries;
+          assert.deepEqual(entries.filter(entry => entry.tag === expected.tag), [expected]);
+          assert.deepEqual(entries[113], expected);
+          assert.equal(entries.length, 114, '0114/0115 journal ordering requires separate review');
+          assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), '3ca58901ca6539365ff541bb07c0b446b8543c83227aadcb27841f78690f87e6');
+          if (git('diff', '--name-only', base, '--', file)) {
+            assert.throws(() => git('cat-file', '-e', `${base}:${file}`), 'Already-shipped sweep SQL is immutable');
+            assert.equal(git('diff', '--name-status', base, '--', file), `A\t${file}`);
+          }
+          const previous = JSON.parse(git('show', `${base}:migrations/meta/_journal.json`));
+          assert.deepEqual(entries.slice(0, previous.entries.length), previous.entries, 'Existing journal prefix is immutable');
+          TOPUP_CURSOR_MIGRATION
+          # TOPUP_CURSOR_MIGRATION_END
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -1070,6 +1097,7 @@ jobs:
               0111_other_service_categories) ;;
               0112_ai_operator_expense_budget) ;;
               0113_salon_deletion_cleanup) ;;
+              0115_topup_reconciliation_sweep) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1634,11 +1662,67 @@ jobs:
           grep -Fqx '# pass 1' timezone-node24.log
           grep -Fqx '# skipped 0' timezone-node24.log
 
+  topup-cursor-postgres:
+    name: Durable top-up cursor PostgreSQL (18 cases, zero skips)
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - name: Freeze exact cursor source before dependency hooks
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test -d .git && test ! -L .git
+          test -f .git/HEAD && test ! -L .git/HEAD
+          test -f .git/config && test ! -L .git/config
+          test -f .git/index && test ! -L .git/index
+          test "$(cat .git/HEAD)" = "$EXPECTED_SOURCE_SHA"
+          env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=0 GIT_OPTIONAL_LOCKS=0 /usr/bin/git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files -z | xargs -0 sha256sum > "$RUNNER_TEMP/topup-cursor-source.sha256"
+          sha256sum package.json package-lock.json > "$RUNNER_TEMP/topup-cursor-inputs.sha256"
+          sha256sum .git/HEAD .git/config .git/index > "$RUNNER_TEMP/topup-cursor-git.sha256"
+      # Host dependency lifecycle hooks are NOT network-isolated. No provider
+      # secrets are supplied. Only the later fixture containers deny IP egress.
+      - name: Install exact dependencies
+        run: HUSKY=0 npm ci
+      - name: Require owned Unix PostgreSQL cursor coverage
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Read hashes/HEAD directly after hooks, before any code execution;
+          # do not invoke Git helpers from potentially changed metadata.
+          sha256sum --check "$RUNNER_TEMP/topup-cursor-source.sha256" > /dev/null
+          sha256sum --check "$RUNNER_TEMP/topup-cursor-inputs.sha256"
+          sha256sum --check "$RUNNER_TEMP/topup-cursor-git.sha256"
+          test "$(cat .git/HEAD)" = "$EXPECTED_SOURCE_SHA"
+          node scripts/run-topup-cursor-postgres.mjs 2>&1 | tee "$RUNNER_TEMP/topup-cursor-postgres.log"
+          grep -Fqx 'TOPUP_CURSOR_POSTGRES_TESTS_EXECUTED=18 TOPUP_CURSOR_POSTGRES_TESTS_SKIPPED=0' "$RUNNER_TEMP/topup-cursor-postgres.log"
+      - name: Retain synthetic cursor PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topup-cursor-postgres
+          path: ${{ runner.temp }}/topup-cursor-postgres-summary.json
+          if-no-files-found: error
+          retention-days: 7
+
   test:
     # Preserve the live ruleset context; success requires the application job
     # and every browser matrix member. A failed/cancelled shard cannot pass.
     name: Run all tests (20.x)
-    needs: [test-core, test-components, monitoring-node24, deposits-postgres-concurrency, google-outbox-postgres, sms-refund-bookkeeping-postgres]
+    needs: [test-core, test-components, monitoring-node24, deposits-postgres-concurrency, google-outbox-postgres, sms-refund-bookkeeping-postgres, topup-cursor-postgres]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -1650,6 +1734,7 @@ jobs:
           DEPOSITS_POSTGRES_RESULT: ${{ needs.deposits-postgres-concurrency.result }}
           GOOGLE_OUTBOX_RESULT: ${{ needs.google-outbox-postgres.result }}
           SMS_REFUND_RESULT: ${{ needs.sms-refund-bookkeeping-postgres.result }}
+          TOPUP_CURSOR_RESULT: ${{ needs.topup-cursor-postgres.result }}
         run: |
           test "$CORE_RESULT" = success
           test "$COMPONENTS_RESULT" = success
@@ -1657,6 +1742,7 @@ jobs:
           test "$DEPOSITS_POSTGRES_RESULT" = success
           test "$GOOGLE_OUTBOX_RESULT" = success
           test "$SMS_REFUND_RESULT" = success
+          test "$TOPUP_CURSOR_RESULT" = success
 
   uiqi-release-conditions:
     name: UIQI release conditions

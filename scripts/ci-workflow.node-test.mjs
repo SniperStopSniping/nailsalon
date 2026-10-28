@@ -1,7 +1,7 @@
 /* eslint-disable no-template-curly-in-string -- GitHub expressions are literal workflow contracts. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -141,7 +141,7 @@ test('required aggregates reject failed, skipped, cancelled and missing evidence
   }
   assert.equal(jobs['full-vitest'].name, 'Full Vitest Suite');
   assert.equal(jobs.test.name, 'Run all tests (20.x)');
-  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24', 'deposits-postgres-concurrency', 'google-outbox-postgres', 'sms-refund-bookkeeping-postgres']);
+  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24', 'deposits-postgres-concurrency', 'google-outbox-postgres', 'sms-refund-bookkeeping-postgres', 'topup-cursor-postgres']);
   assert.equal(jobs['full-vitest'].needs, 'full-vitest-shards');
 });
 
@@ -808,4 +808,180 @@ test('the required Node 24 job verifies scoped release-plugin Lodash without ski
   assert.ok(step.run.includes('grep -Fqx \'# tests 2\''));
   assert.ok(step.run.includes('grep -Fqx \'# pass 2\''));
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
+test('durable cursor PostgreSQL is mandatory, isolated and cannot silently skip', () => {
+  const job = jobs['topup-cursor-postgres'];
+  assert.equal(job.needs, 'secret-scan');
+  assert.deepEqual(job.permissions, { contents: 'read' });
+  assert.equal(job.steps.find(step => step.uses === 'actions/checkout@v4').with['persist-credentials'], false);
+  const run = job.steps.find(step => step.name === 'Require owned Unix PostgreSQL cursor coverage').run;
+  assert.match(run, /set -euo pipefail/);
+  assert.match(run, /node scripts\/run-topup-cursor-postgres\.mjs/);
+  assert.match(run, /TOPUP_CURSOR_POSTGRES_TESTS_EXECUTED=18 TOPUP_CURSOR_POSTGRES_TESTS_SKIPPED=0/);
+  assert.equal(jobs.test.steps[0].env.TOPUP_CURSOR_RESULT, '${{ needs.topup-cursor-postgres.result }}');
+  const runner = readFileSync(new URL('./run-topup-cursor-postgres.mjs', import.meta.url), 'utf8');
+  assert.match(runner, /--network=none/);
+  assert.match(runner, /CURSOR_IP_TRANSPORT_FORBIDDEN/);
+  assert.match(runner, /socket, '\.s\.PGSQL\.5432'/);
+  assert.match(runner, /session_user/);
+  assert.match(runner, /address:null/);
+  assert.match(runner, /listen:''/);
+  assert.match(runner, /data:/);
+  assert.match(runner, /--tmpfs.*\/subject\/\.git:ro/);
+  assert.ok(!runner.includes('CONCURRENCY_TEST_DATABASE_URL'));
+});
+
+test('cursor evidence rejects partial, skipped or falsely successful reports', async () => {
+  const { requireCursorResults } = await import('./run-topup-cursor-postgres.mjs');
+  const valid = { success: true, numTotalTests: 18, numPassedTests: 18, numPendingTests: 0, numFailedTests: 0, testResults: [{ assertionResults: Array.from({ length: 18 }, () => ({ status: 'passed' })) }] };
+  assert.doesNotThrow(() => requireCursorResults(valid));
+  for (const patch of [{ success: false }, { numTotalTests: 17 }, { numPassedTests: 17 }, { numPendingTests: 1 }, { numFailedTests: 1 }]) {
+    assert.throws(() => requireCursorResults({ ...valid, ...patch }));
+  }
+  const skipped = structuredClone(valid);
+  skipped.testResults[0].assertionResults[0].status = 'pending';
+  assert.throws(() => requireCursorResults(skipped));
+});
+
+test('only the exact new 0115 packet is admitted and ordering collisions fail closed', () => {
+  const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
+  const packet = run.match(/node --input-type=module - "\$base" <<'TOPUP_CURSOR_MIGRATION'\n([\s\S]*?)\nTOPUP_CURSOR_MIGRATION/)[1];
+  const directory = mkdtempSync(path.join(tmpdir(), 'cursor-migration-gate-'));
+  const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
+  const file = 'migrations/0115_topup_reconciliation_sweep.sql';
+  const source = readFileSync(new URL(`../${file}`, import.meta.url));
+  const journal = JSON.parse(readFileSync(new URL('../migrations/meta/_journal.json', import.meta.url)));
+  const save = value => writeFileSync(path.join(directory, 'migrations/meta/_journal.json'), JSON.stringify(value));
+  let base;
+  const check = () => spawnSync(process.execPath, ['--input-type=module', '-', base], { cwd: directory, input: packet, stdio: ['pipe', 'pipe', 'pipe'] }).status;
+  try {
+    git('init', '-q');
+    mkdirSync(path.join(directory, 'migrations/meta'), { recursive: true });
+    save({ ...journal, entries: journal.entries.slice(0, 113) });
+    git('add', '.');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic base');
+    base = git('rev-parse', 'HEAD');
+    writeFileSync(path.join(directory, file), source);
+    save(journal);
+    git('add', '.');
+    assert.equal(check(), 0);
+    writeFileSync(path.join(directory, file), `${source}\n-- changed\n`);
+    assert.notEqual(check(), 0);
+    writeFileSync(path.join(directory, file), source);
+    for (const change of [
+      value => value.entries.pop(),
+      value => value.entries.push(value.entries[113]),
+      value => value.entries[113].idx++,
+      value => value.entries[113].when++,
+      value => value.entries[0].when++,
+      value => value.entries.splice(113, 0, { ...value.entries[113], tag: '0114_daniela_automation' }),
+    ]) {
+      const invalid = structuredClone(journal);
+      change(invalid);
+      save(invalid);
+      assert.notEqual(check(), 0);
+    }
+    save(journal);
+    git('add', '.');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic shipped packet');
+    base = git('rev-parse', 'HEAD');
+    assert.equal(check(), 0, 'an unchanged shipped packet remains valid');
+    writeFileSync(path.join(directory, file), `${source}\n-- changed shipped identity\n`);
+    git('add', '.');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic different shipped bytes');
+    base = git('rev-parse', 'HEAD');
+    writeFileSync(path.join(directory, file), source);
+    assert.notEqual(check(), 0, 'even approved bytes cannot rewrite an already-shipped migration');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('cursor CI freezes source before hooks and rechecks it before isolated execution', () => {
+  const job = jobs['topup-cursor-postgres'];
+  const freeze = job.steps.findIndex(step => step.name === 'Freeze exact cursor source before dependency hooks');
+  const install = job.steps.findIndex(step => step.name === 'Install exact dependencies');
+  const execute = job.steps.findIndex(step => step.name === 'Require owned Unix PostgreSQL cursor coverage');
+  assert.ok(freeze < install && install < execute);
+  assert.match(job.steps[freeze].run, /topup-cursor-source\.sha256/);
+  assert.match(job.steps[execute].run, /sha256sum --check "\$RUNNER_TEMP\/topup-cursor-source\.sha256"/);
+  assert.match(job.steps[execute].run, /cat \.git\/HEAD/);
+  assert.equal(job.steps[execute].env.EXPECTED_SOURCE_SHA, '${{ github.event.pull_request.head.sha || github.sha }}');
+  assert.equal(job.steps.find(step => step.uses === 'actions/upload-artifact@v4').with.path, '${{ runner.temp }}/topup-cursor-postgres-summary.json');
+});
+
+test('cursor readiness waits for two consecutive final-server probes', async () => {
+  const { waitForFinalPostgres } = await import('./run-topup-cursor-postgres.mjs');
+  const probes = [false, true, false, true, true];
+  let consumed = 0;
+  waitForFinalPostgres(() => probes[consumed++], () => {});
+  assert.equal(consumed, 5);
+  assert.throws(() => waitForFinalPostgres(() => false, () => {}));
+  const runner = readFileSync(new URL('./run-topup-cursor-postgres.mjs', import.meta.url), 'utf8');
+  assert.match(runner, /cat \/proc\/1\/comm/);
+  assert.match(runner, /postgres; exec pg_isready/);
+});
+
+test('cursor evidence never retains unexpected identity, raw diagnostic or result fields', async () => {
+  const { projectCursorIdentity, projectCursorResult, projectPgDiagnostics } = await import('./run-topup-cursor-postgres.mjs');
+  const identity = { db: 'topup_reconcile_fixture_test', session_user: 'cursor_ci_fixture', current_user: 'cursor_ci_fixture', address: null, port: '5432', listen: '', data: '/var/lib/postgresql/data/owned', version: '160000' };
+  assert.equal(projectCursorIdentity(identity, identity.db).versionMajor, 16);
+  assert.throws(() => projectCursorIdentity({ ...identity, address: '127.0.0.1' }, identity.db));
+  assert.throws(() => projectCursorIdentity({ ...identity, secret: 'SYNTHETIC_SECRET' }, identity.db));
+  const projection = projectCursorResult({ success: false, numTotalTests: 18, numPassedTests: 17, numPendingTests: 0, numFailedTests: 1, failureMessages: ['SYNTHETIC_SECRET'] });
+  assert.equal(JSON.stringify(projection).includes('SYNTHETIC_SECRET'), false);
+  assert.throws(() => projectCursorResult({ ...projection, numPassedTests: 'SYNTHETIC_SECRET' }));
+  const diagnostic = projectPgDiagnostics('FATAL: SYNTHETIC_SECRET\nERROR: private payload\ndatabase system is ready to accept connections');
+  assert.deepEqual(diagnostic, { fatalMessages: 1, errorMessages: 1, readyMessages: 1, shutdownMessages: 0, rawLogRetained: false });
+  assert.equal(JSON.stringify(diagnostic).includes('SYNTHETIC_SECRET'), false);
+});
+
+test('cursor evidence reads reject oversized or redirected files', async () => {
+  const { readBoundedCursorJson } = await import('./run-topup-cursor-postgres.mjs');
+  const directory = mkdtempSync(path.join(tmpdir(), 'cursor-evidence-bound-'));
+  try {
+    const file = path.join(directory, 'result.json');
+    writeFileSync(file, '{"safe":true}');
+    assert.deepEqual(readBoundedCursorJson(file, 1024), { safe: true });
+    assert.throws(() => readBoundedCursorJson(file, 2));
+    const redirected = path.join(directory, 'redirect.json');
+    symlinkSync(file, redirected);
+    assert.throws(() => readBoundedCursorJson(redirected, 1024));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('cursor artifact producers are stopped and ownership checked before reads', async () => {
+  const { quiesceOwnedCursorTest } = await import('./run-topup-cursor-postgres.mjs');
+  const id = 'a'.repeat(64);
+  const owner = 'synthetic-cursor-owner';
+  for (const stopFails of [false, true]) {
+    const calls = [];
+    let running = true;
+    const call = (args) => {
+      calls.push(args[0]);
+      if (args[0] === 'inspect') {
+        return JSON.stringify([{ Id: id, Config: { Labels: { 'luster-cursor-owner': owner } }, State: { Running: running, Restarting: false, Pid: running ? 123 : 0, ExitCode: running ? 0 : 143 } }]);
+      }
+      if (args[0] === 'stop' && stopFails) {
+        throw new Error('Synthetic stop timeout');
+      }
+      running = false;
+      return id;
+    };
+    assert.equal(quiesceOwnedCursorTest(id, owner, call), 143);
+    assert.deepEqual(calls, stopFails ? ['inspect', 'stop', 'kill', 'inspect'] : ['inspect', 'stop', 'inspect']);
+  }
+  const calls = [];
+  assert.throws(() => quiesceOwnedCursorTest(id, owner, (args) => {
+    calls.push(args[0]);
+    return JSON.stringify([{ Id: id, Config: { Labels: { 'luster-cursor-owner': 'different-owner' } } }]);
+  }));
+  assert.deepEqual(calls, ['inspect']);
+  const runner = readFileSync(new URL('./run-topup-cursor-postgres.mjs', import.meta.url), 'utf8');
+  assert.ok(runner.indexOf('const finalExitCode = quiesceOwnedCursorTest') < runner.indexOf('report.identity = projectCursorIdentity'));
+  assert.match(runner, /constants\.O_NOFOLLOW \| constants\.O_NONBLOCK/);
+  assert.match(runner, /Buffer\.alloc\(maximumBytes \+ 1\)/);
 });
