@@ -32,6 +32,12 @@ vi.mock('@/libs/DB', () => ({
 
 const envHolder = vi.hoisted(() => ({
   BILLING_PLAN_ENV: 'test' as const,
+  BILLING_STRIPE_PRICE_IDS: JSON.stringify({
+    env: 'test',
+    offers: {},
+    topups: { topup_100_2026_10: 'price_syntheticconcurrency100' },
+    coupons: {},
+  }),
   BILLING_TOPUPS_ENABLED: 'true' as string | undefined,
   NEXT_PUBLIC_APP_URL: 'https://app.test',
 }));
@@ -82,7 +88,7 @@ vi.mock('@/libs/billing/creditGrants', async (importOriginal) => {
 
 vi.mock('@/libs/billing/stripePriceMap', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/billing/stripePriceMap')>();
-  return { ...actual, resolveStripePriceIdForTopup: () => 'price_topup_concurrency' };
+  return { ...actual, resolveStripePriceIdForTopup: () => 'price_syntheticconcurrency100' };
 });
 
 const RAW_URL = process.env.CONCURRENCY_TEST_DATABASE_URL ?? '';
@@ -385,6 +391,14 @@ suite('top-up checkout — real-lock concurrency', () => {
       sessionId,
       paymentStatus: 'paid',
       paymentIntentId: 'pi_topup_expiry_completion_race',
+      verifiedEvidence: {
+        amountTotal: 2000,
+        currency: 'cad',
+        metadataSalonId: 'topup-s1',
+        metadataPurchaseId: 'stp_topup_expiry_completion_race',
+        metadataAttemptId: 'bca_topup_expiry_completion_race',
+        priceId: 'price_syntheticconcurrency100',
+      },
     });
     await fulfillmentEntered.promise;
 

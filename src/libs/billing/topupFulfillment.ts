@@ -17,7 +17,7 @@ import type Stripe from 'stripe';
 import { logAuditEventTx } from '@/libs/auditLog';
 import { completeAttempt, expireAttempt } from '@/libs/billing/checkoutAttempts';
 import { fulfillTopupPurchase, reverseTopup } from '@/libs/billing/creditGrants';
-import { resolveTopupOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
+import { classifyTopupPriceEvidence } from '@/libs/billing/stripePriceMap';
 import { db } from '@/libs/DB';
 import { stripe } from '@/libs/stripe';
 import { billingCheckoutAttemptSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
@@ -50,6 +50,8 @@ export const TOPUP_EVIDENCE_MISMATCH_REASONS = new Set([
   'TOPUP_PURCHASE_ID_MISMATCH',
   'TOPUP_ATTEMPT_ID_MISMATCH',
   'TOPUP_OFFER_PRICE_MISMATCH',
+  'TOPUP_PRICE_CONFIGURATION_INVALID',
+  'TOPUP_EVIDENCE_MISSING',
 ]);
 
 export function isTopupEvidenceMismatchReason(reason: string | undefined): boolean {
@@ -98,15 +100,15 @@ function logTopupPriceCrossCheckSkippedOnce(): void {
   }
   topupPriceCrossCheckUnconfiguredLogged = true;
   // eslint-disable-next-line no-console
-  console.info('[billing] topup price cross-check skipped: price map unconfigured for this environment (G02)');
+  console.info('[billing] topup price cross-check skipped: offer price unconfigured for this environment (G02)');
 }
 
 /**
  * Compare verified Stripe evidence against the LOCKED purchase row (and its
  * bound checkout attempt, when one is found). Returns the first mismatch
  * reason found, or null when the evidence is consistent. The offer/price
- * check is skipped (never a mismatch) when the reverse lookup cannot
- * identify an offer for the price id — see the module-level rationale.
+ * check is skipped only when this offer has no configured price. Invalid
+ * configuration, missing configured prices and mismatches are held.
  */
 function checkTopupEvidence(
   evidence: TopupVerifiedEvidence,
@@ -128,13 +130,15 @@ function checkTopupEvidence(
   if (attemptId !== null && evidence.metadataAttemptId !== attemptId) {
     return 'TOPUP_ATTEMPT_ID_MISMATCH';
   }
-  if (evidence.priceId !== null) {
-    const resolvedOfferKey = resolveTopupOfferFromStripePriceId(evidence.priceId);
-    if (resolvedOfferKey === null) {
-      logTopupPriceCrossCheckSkippedOnce();
-    } else if (resolvedOfferKey !== purchase.topupOfferKey) {
-      return 'TOPUP_OFFER_PRICE_MISMATCH';
-    }
+  const priceStatus = classifyTopupPriceEvidence(purchase.topupOfferKey, evidence.priceId);
+  if (priceStatus === 'invalid_configuration') {
+    return 'TOPUP_PRICE_CONFIGURATION_INVALID';
+  }
+  if (priceStatus === 'mismatch') {
+    return 'TOPUP_OFFER_PRICE_MISMATCH';
+  }
+  if (priceStatus === 'unconfigured') {
+    logTopupPriceCrossCheckSkippedOnce();
   }
   return null;
 }
@@ -144,10 +148,10 @@ function checkTopupEvidence(
  * sms_topup. Paid evidence moves the purchase to 'paid' exactly once (CAS
  * from checkout_created) and fulfills; an unpaid async completion records
  * the payment intent and waits — a later paid event fulfills through the
- * same CAS. `verifiedEvidence`, when supplied, is cross-checked against the
- * locked purchase BEFORE the CAS status write — a mismatch fulfils NOTHING
- * and leaves the purchase exactly as it was (PR #195's CAS/status logic is
- * otherwise untouched).
+ * same CAS. A paid event requires `verifiedEvidence`, which is checked against the
+ * locked purchase BEFORE the CAS status write. A mismatch makes no grant or
+ * status transition; a previously missing payment-intent ID can be backfilled
+ * before the evidence check.
  */
 export async function applyTopupSessionCompleted(input: {
   sessionId: string;
@@ -173,19 +177,20 @@ export async function applyTopupSessionCompleted(input: {
     if (input.paymentStatus !== 'paid') {
       return { fulfilled: false, reason: 'AWAITING_PAYMENT_EVIDENCE' };
     }
-    if (input.verifiedEvidence) {
-      const [attempt] = await tx
-        .select({ id: billingCheckoutAttemptSchema.id })
-        .from(billingCheckoutAttemptSchema)
-        .where(and(
-          eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, input.sessionId),
-          eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
-        ))
-        .limit(1);
-      const mismatch = checkTopupEvidence(input.verifiedEvidence, purchase, attempt?.id ?? null);
-      if (mismatch !== null) {
-        return { fulfilled: false, reason: mismatch };
-      }
+    if (!input.verifiedEvidence) {
+      return { fulfilled: false, reason: 'TOPUP_EVIDENCE_MISSING' };
+    }
+    const [attempt] = await tx
+      .select({ id: billingCheckoutAttemptSchema.id })
+      .from(billingCheckoutAttemptSchema)
+      .where(and(
+        eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, input.sessionId),
+        eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
+      ))
+      .limit(1);
+    const mismatch = checkTopupEvidence(input.verifiedEvidence, purchase, attempt?.id ?? null);
+    if (mismatch !== null) {
+      return { fulfilled: false, reason: mismatch };
     }
     await tx.update(smsTopupPurchaseSchema)
       .set({ status: 'paid' })
