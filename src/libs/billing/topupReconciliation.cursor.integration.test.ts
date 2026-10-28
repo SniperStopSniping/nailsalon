@@ -22,11 +22,23 @@ const holder = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock('@/libs/DB', () => ({ get db() {
   return holder.db;
 } }));
-vi.mock('@/libs/Env', () => ({ Env: {} }));
+const billingFixture = vi.hoisted(() => {
+  const priceId = 'price_CursorFixture100Paid';
+  return {
+    priceId,
+    env: {
+      BILLING_PLAN_ENV: 'test',
+      BILLING_STRIPE_PRICE_IDS: JSON.stringify({
+        env: 'test',
+        topups: { topup_100_paid_2026_08: priceId },
+      }),
+    },
+  };
+});
+vi.mock('@/libs/Env', () => ({ Env: billingFixture.env }));
 const stripeMock = vi.hoisted(() => ({ checkout: { sessions: { retrieve: vi.fn() } } }));
 vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
 vi.mock('@sentry/nextjs', () => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
-vi.mock('@/libs/billing/stripePriceMap', () => ({ resolveTopupOfferFromStripePriceId: () => null }));
 
 const socket = process.env.TOPUP_CURSOR_TEST_SOCKET;
 const database = process.env.TOPUP_CURSOR_TEST_DATABASE;
@@ -83,7 +95,7 @@ async function seedBound(id: string, state: 'paid' | 'expired' | 'open') {
     currency: 'cad',
     metadata: { salonId: 'cursor-salon', purchaseId, attemptId: id },
     payment_intent: state === 'paid' ? `pi_cursor_${id}` : null,
-    line_items: { data: [] },
+    line_items: { data: state === 'paid' ? [{ price: { id: billingFixture.priceId } }] : [] },
   };
 }
 
@@ -125,6 +137,10 @@ describePostgres('durable top-up reconciliation cursor (real PostgreSQL)', () =>
     const db = drizzle(pool, { schema });
     await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
     holder.db = db;
+    const { classifyTopupPriceEvidence } = await import('./stripePriceMap');
+
+    expect(classifyTopupPriceEvidence('topup_100_paid_2026_08', billingFixture.priceId)).toBe('matched');
+
     ({ reconcileHeldTopups: reconcile } = await import('./topupReconciliation'));
   }, 20000);
 
