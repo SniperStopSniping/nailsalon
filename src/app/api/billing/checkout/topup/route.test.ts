@@ -12,7 +12,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { getTopupOffer } from '@/libs/billing/topupOffers';
 import * as schema from '@/models/Schema';
@@ -865,7 +865,11 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
   }
 
   it('grants exactly once on verified paid evidence, replay-safe', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementationOnce(() => {});
+    onTestFinished(() => info.mockRestore());
     const { completed } = await buyAndPay('s_t_fulfill');
+
+    expect(info.mock.calls).toEqual([['[billing] topup price cross-check skipped: offer price unconfigured for this environment (G02)']]);
 
     expect(await purchasedBalance('s_t_fulfill')).toBe(100);
 

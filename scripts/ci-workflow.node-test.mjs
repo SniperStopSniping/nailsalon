@@ -432,8 +432,8 @@ test('the required Node 24 job exercises the installed patched SMS and image dep
   const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched runtime dependencies and SMS transport with zero skips');
   assert.match(step.run, /set -euo pipefail/);
   assert.ok(step.run.includes('node --test --test-reporter=tap scripts/runtime-dependency-security.node-test.mjs'));
-  assert.ok(step.run.includes('grep -Fqx \'# tests 10\''));
-  assert.ok(step.run.includes('grep -Fqx \'# pass 10\''));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 11\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 11\''));
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
 });
 

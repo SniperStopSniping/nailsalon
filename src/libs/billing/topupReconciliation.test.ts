@@ -11,7 +11,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -137,7 +137,11 @@ describe('reconcileHeldTopups (G06)', () => {
       paidSession('cs_topupq_paid', 'topupq-s1', purchaseId!, attemptId),
     );
 
+    const info = vi.spyOn(console, 'info').mockImplementationOnce(() => {});
+    onTestFinished(() => info.mockRestore());
     const first = await reconcileHeldTopups({});
+
+    expect(info.mock.calls).toEqual([['[billing] topup price cross-check skipped: offer price unconfigured for this environment (G02)']]);
 
     expect(first.examined).toBe(1);
     expect(first.fulfilled).toBe(1);

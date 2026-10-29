@@ -1623,8 +1623,8 @@ jobs:
         run: |
           set -euo pipefail
           node --test --test-reporter=tap scripts/runtime-dependency-security.node-test.mjs | tee runtime-dependency-security.log
-          grep -Fqx '# tests 10' runtime-dependency-security.log
-          grep -Fqx '# pass 10' runtime-dependency-security.log
+          grep -Fqx '# tests 11' runtime-dependency-security.log
+          grep -Fqx '# pass 11' runtime-dependency-security.log
           grep -Fqx '# skipped 0' runtime-dependency-security.log
 
       - name: Verify patched release tooling dependencies with zero skips
