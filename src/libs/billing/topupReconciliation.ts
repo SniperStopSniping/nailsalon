@@ -29,7 +29,6 @@
 import 'server-only';
 
 import * as Sentry from '@sentry/nextjs';
-import { and, eq, inArray } from 'drizzle-orm';
 
 import {
   applyTopupSessionCompleted,
@@ -38,10 +37,21 @@ import {
   isTopupEvidenceMismatchReason,
   retrieveTopupCheckoutSession,
 } from '@/libs/billing/topupFulfillment';
-import { db } from '@/libs/DB';
-import { billingCheckoutAttemptSchema } from '@/models/Schema';
+import {
+  acquireTopupSweepLease,
+  checkpointTopupSweep,
+  finishTopupSweep,
+  MAX_TOPUP_EXAMINATION_LIMIT,
+  releaseTopupSweepLease,
+  renewTopupSweepLease,
+  selectTopupSweepCandidates,
+  type TopupSweepCandidate,
+  type TopupSweepLease,
+  TopupSweepLeaseLostError,
+  validateTopupExaminationLimit,
+} from '@/libs/billing/topupReconciliationSweep';
 
-const DEFAULT_EXAMINATION_LIMIT = 200;
+const DEFAULT_EXAMINATION_LIMIT = MAX_TOPUP_EXAMINATION_LIMIT;
 
 export type TopupReconciliationAnomaly = {
   attemptId: string;
@@ -50,6 +60,8 @@ export type TopupReconciliationAnomaly = {
 };
 
 export type TopupReconciliationSummary = {
+  /** Another invocation owns the sweep; this run did not examine candidates. */
+  leaseBusy?: true;
   examined: number;
   fulfilled: number;
   expired: number;
@@ -82,29 +94,10 @@ export async function reconcileHeldTopups(
   const now = input.now ?? new Date();
   const limit = input.limit ?? DEFAULT_EXAMINATION_LIMIT;
 
-  const heldRows = await db
-    .select({
-      id: billingCheckoutAttemptSchema.id,
-      salonId: billingCheckoutAttemptSchema.salonId,
-      stripeCheckoutSessionId: billingCheckoutAttemptSchema.stripeCheckoutSessionId,
-      expiresAt: billingCheckoutAttemptSchema.expiresAt,
-      createdAt: billingCheckoutAttemptSchema.createdAt,
-    })
-    .from(billingCheckoutAttemptSchema)
-    .where(and(
-      eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
-      inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
-    ))
-    .orderBy(billingCheckoutAttemptSchema.id);
-
-  const countBySalon = new Map<string, number>();
-  for (const row of heldRows) {
-    countBySalon.set(row.salonId, (countBySalon.get(row.salonId) ?? 0) + 1);
+  validateTopupExaminationLimit(limit);
+  if (!Number.isFinite(now.getTime())) {
+    throw new RangeError('Top-up reconciliation now must be a valid date');
   }
-
-  const candidates = heldRows
-    .filter(row => (countBySalon.get(row.salonId) ?? 0) > 1 || row.expiresAt.getTime() < now.getTime())
-    .slice(0, limit);
 
   const summary: TopupReconciliationSummary = {
     examined: 0,
@@ -115,33 +108,64 @@ export async function reconcileHeldTopups(
     anomalies: [],
   };
 
-  for (const candidate of candidates) {
-    summary.examined += 1;
+  const lease = await acquireTopupSweepLease();
+  if (!lease) {
+    return { ...summary, leaseBusy: true };
+  }
 
-    if (candidate.stripeCheckoutSessionId === null) {
-      // PR #195 invariant: age is never evidence of a Stripe-side outcome
-      // for a row that never reached Stripe. List it for an operator.
-      summary.unbound.push({
-        attemptId: candidate.id,
-        salonId: candidate.salonId,
-        createdAt: candidate.createdAt,
-      });
-      continue;
+  try {
+    const candidates = await selectTopupSweepCandidates(lease, now, limit);
+    for (const candidate of candidates) {
+      await renewTopupSweepLease(lease);
+      await examineCandidate(candidate, summary, now, lease);
+      // Includes unbound, open and anomaly results. Never pre-advance a page:
+      // a crash or failed checkpoint leaves this item available for safe replay.
+      await checkpointTopupSweep(lease, candidate.id);
     }
+    await finishTopupSweep(lease, now);
+  } finally {
+    await releaseTopupSweepLease(lease);
+  }
+  return summary;
+}
 
-    let session: Awaited<ReturnType<typeof retrieveTopupCheckoutSession>>;
+async function examineCandidate(
+  candidate: TopupSweepCandidate,
+  summary: TopupReconciliationSummary,
+  now: Date,
+  lease: TopupSweepLease,
+): Promise<void> {
+  summary.examined += 1;
+
+  if (candidate.stripeCheckoutSessionId === null) {
+    // PR #195 invariant: age is never evidence of a Stripe-side outcome
+    // for a row that never reached Stripe. List it for an operator.
+    summary.unbound.push({
+      attemptId: candidate.id,
+      salonId: candidate.salonId,
+      createdAt: candidate.createdAt,
+    });
+    return;
+  }
+
+  let session: Awaited<ReturnType<typeof retrieveTopupCheckoutSession>>;
+  try {
+    session = await retrieveTopupCheckoutSession(candidate.stripeCheckoutSessionId);
+  } catch {
+    reportAnomaly(summary, {
+      attemptId: candidate.id,
+      sessionId: candidate.stripeCheckoutSessionId,
+      reason: 'SESSION_UNRETRIEVABLE',
+    });
+    return;
+  }
+
+  // Recheck after external I/O. A later process pause can still race expiry;
+  // the financial handler's own idempotency remains the final safety boundary.
+  await renewTopupSweepLease(lease);
+
+  if (session.payment_status === 'paid') {
     try {
-      session = await retrieveTopupCheckoutSession(candidate.stripeCheckoutSessionId);
-    } catch {
-      reportAnomaly(summary, {
-        attemptId: candidate.id,
-        sessionId: candidate.stripeCheckoutSessionId,
-        reason: 'SESSION_UNRETRIEVABLE',
-      });
-      continue;
-    }
-
-    if (session.payment_status === 'paid') {
       const verifiedEvidence = extractTopupVerifiedEvidenceFromSession(session);
       const paymentIntentId = typeof session.payment_intent === 'string'
         ? session.payment_intent
@@ -157,8 +181,8 @@ export async function reconcileHeldTopups(
         summary.fulfilled += 1;
       } else if (isTopupEvidenceMismatchReason(result.reason)) {
         // Verified evidence disagreed with the locked purchase — held for a
-        // human, exactly like the webhook's own held_anomaly path. Nothing
-        // was written.
+        // human, exactly like the webhook's own held_anomaly path. No credits
+        // are granted; payment-intent metadata may already have been backfilled.
         reportAnomaly(summary, {
           attemptId: candidate.id,
           sessionId: candidate.stripeCheckoutSessionId,
@@ -171,39 +195,49 @@ export async function reconcileHeldTopups(
           reason: result.reason ?? 'TOPUP_FULFILLMENT_UNRESOLVED',
         });
       }
-      continue;
-    }
-
-    if (session.status === 'expired') {
-      try {
-        const result = await applyTopupSessionExpired(candidate.stripeCheckoutSessionId);
-        if (result.expired) {
-          summary.expired += 1;
-        }
-      } catch {
-        // The precreated purchase row genuinely does not exist yet (a
-        // racing checkout TX2) — retryable next pass, not an operator page.
-        reportAnomaly(summary, {
-          attemptId: candidate.id,
-          sessionId: candidate.stripeCheckoutSessionId,
-          reason: 'TOPUP_PURCHASE_NOT_FOUND',
-        });
+    } catch (error) {
+      if (error instanceof TopupSweepLeaseLostError) {
+        throw error;
       }
-      continue;
+      // A completed failed examination must not pin every later row. Atomic,
+      // idempotent fulfillment can be retried next sweep; report only a bounded
+      // reason because arbitrary exception text can contain provider/DB secrets.
+      reportAnomaly(summary, {
+        attemptId: candidate.id,
+        sessionId: candidate.stripeCheckoutSessionId,
+        reason: 'TOPUP_EXAMINATION_FAILED',
+      });
     }
-
-    if (session.status === 'open') {
-      // Still a live checkout — never resolved by age alone.
-      summary.left_open += 1;
-      continue;
-    }
-
-    reportAnomaly(summary, {
-      attemptId: candidate.id,
-      sessionId: candidate.stripeCheckoutSessionId,
-      reason: `UNEXPECTED_SESSION_STATE:${String(session.status)}:${String(session.payment_status)}`,
-    });
+    return;
   }
 
-  return summary;
+  if (session.status === 'expired') {
+    try {
+      const result = await applyTopupSessionExpired(candidate.stripeCheckoutSessionId);
+      if (result.expired) {
+        summary.expired += 1;
+      }
+    } catch {
+      // The precreated purchase row genuinely does not exist yet (a
+      // racing checkout TX2) — retryable next pass, not an operator page.
+      reportAnomaly(summary, {
+        attemptId: candidate.id,
+        sessionId: candidate.stripeCheckoutSessionId,
+        reason: 'TOPUP_PURCHASE_NOT_FOUND',
+      });
+    }
+    return;
+  }
+
+  if (session.status === 'open') {
+    // Still a live checkout — never resolved by age alone.
+    summary.left_open += 1;
+    return;
+  }
+
+  reportAnomaly(summary, {
+    attemptId: candidate.id,
+    sessionId: candidate.stripeCheckoutSessionId,
+    reason: `UNEXPECTED_SESSION_STATE:${String(session.status)}:${String(session.payment_status)}`,
+  });
 }

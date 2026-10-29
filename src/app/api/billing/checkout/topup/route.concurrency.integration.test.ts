@@ -17,7 +17,7 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -32,6 +32,12 @@ vi.mock('@/libs/DB', () => ({
 
 const envHolder = vi.hoisted(() => ({
   BILLING_PLAN_ENV: 'test' as const,
+  BILLING_STRIPE_PRICE_IDS: JSON.stringify({
+    env: 'test',
+    offers: {},
+    topups: { topup_100_2026_10: 'price_syntheticconcurrency100' },
+    coupons: {},
+  }),
   BILLING_TOPUPS_ENABLED: 'true' as string | undefined,
   NEXT_PUBLIC_APP_URL: 'https://app.test',
 }));
@@ -57,7 +63,10 @@ const stripeMock = vi.hoisted(() => ({
   // anything — always resolved to the single price id this suite uses.
   prices: { retrieve: vi.fn() },
 }));
-vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
+vi.mock('@/libs/stripe', async () => {
+  const { createStripeOperationGuard } = await import('@/libs/stripeOperationIsolation');
+  return { stripe: stripeMock, assertStripeOperationIsolation: createStripeOperationGuard('sk_test_synthetic_checkout') };
+});
 
 const fulfillmentGate = vi.hoisted(() => ({
   entered: null as (() => void) | null,
@@ -79,7 +88,7 @@ vi.mock('@/libs/billing/creditGrants', async (importOriginal) => {
 
 vi.mock('@/libs/billing/stripePriceMap', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/billing/stripePriceMap')>();
-  return { ...actual, resolveStripePriceIdForTopup: () => 'price_topup_concurrency' };
+  return { ...actual, resolveStripePriceIdForTopup: () => 'price_syntheticconcurrency100' };
 });
 
 const RAW_URL = process.env.CONCURRENCY_TEST_DATABASE_URL ?? '';
@@ -141,6 +150,13 @@ suite('top-up checkout — real-lock concurrency', () => {
   });
 
   beforeEach(async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VITEST', undefined);
+    vi.stubEnv('GITHUB_ACTIONS', undefined);
+    vi.stubEnv('CI', undefined);
+    vi.stubEnv('APP_ENV', 'preview');
+    vi.stubEnv('VERCEL_ENV', undefined);
+    vi.stubEnv('VERCEL', undefined);
     await pool.query('TRUNCATE salon CASCADE');
     await db.insert(schema.salonSchema).values([
       { id: 'topup-s1', name: 'Top-up S1', slug: 'topup-s1', plan: 'single_salon' },
@@ -165,9 +181,12 @@ suite('top-up checkout — real-lock concurrency', () => {
       active: true,
       type: 'one_time',
       currency: 'cad',
+      livemode: false,
       unit_amount: 2000,
     }));
   });
+
+  afterEach(() => vi.unstubAllEnvs());
 
   afterAll(async () => {
     await pool?.end();
@@ -372,6 +391,14 @@ suite('top-up checkout — real-lock concurrency', () => {
       sessionId,
       paymentStatus: 'paid',
       paymentIntentId: 'pi_topup_expiry_completion_race',
+      verifiedEvidence: {
+        amountTotal: 2000,
+        currency: 'cad',
+        metadataSalonId: 'topup-s1',
+        metadataPurchaseId: 'stp_topup_expiry_completion_race',
+        metadataAttemptId: 'bca_topup_expiry_completion_race',
+        priceId: 'price_syntheticconcurrency100',
+      },
     });
     await fulfillmentEntered.promise;
 

@@ -7,12 +7,16 @@ import { GET } from './route';
 vi.mock('server-only', () => ({}));
 
 const {
+  pingRuntimeDatabaseMock,
   executeMock,
+  databaseBindingMock,
   isRedisAvailableMock,
   schemaReadyMock,
   schemaDriftStatusMock,
 } = vi.hoisted(() => ({
-  executeMock: vi.fn(),
+  pingRuntimeDatabaseMock: vi.fn(),
+  executeMock: vi.fn().mockResolvedValue([]),
+  databaseBindingMock: vi.fn(),
   isRedisAvailableMock: vi.fn(),
   schemaReadyMock: vi.fn(),
   schemaDriftStatusMock: vi.fn(),
@@ -23,9 +27,9 @@ const { isResendSenderVerifiedMock } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/libs/DB', () => ({
-  db: {
-    execute: executeMock,
-  },
+  getRuntimeDatabaseBindingStatus: databaseBindingMock,
+  pingRuntimeDatabase: pingRuntimeDatabaseMock,
+  db: { execute: executeMock },
 }));
 
 vi.mock('@/core/redis/redisClient', () => ({
@@ -50,10 +54,12 @@ describe('GET /api/health', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    databaseBindingMock.mockResolvedValue('matched');
     isResendSenderVerifiedMock.mockResolvedValue(false);
     schemaReadyMock.mockResolvedValue(true);
     schemaDriftStatusMock.mockResolvedValue('ready');
     process.env = { ...originalEnv };
+    delete process.env.LUSTER_EXPECTED_DATABASE_BINDING;
     delete process.env.CLOUDINARY_CLOUD_NAME;
     delete process.env.CLOUDINARY_API_KEY;
     delete process.env.CLOUDINARY_API_SECRET;
@@ -109,8 +115,64 @@ describe('GET /api/health', () => {
     process.env = originalEnv;
   });
 
+  it('preserves the unset-config response and does not invoke the binding diagnostic', async () => {
+    pingRuntimeDatabaseMock.mockResolvedValue([]);
+    const response = await GET();
+    const body = await response.json();
+
+    expect(pingRuntimeDatabaseMock).toHaveBeenCalledExactlyOnceWith();
+    expect(body).not.toHaveProperty('databaseBinding');
+    expect(databaseBindingMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['matched', 'mismatched', 'unavailable'] as const)('publishes only %s and preserves the pre-existing HTTP status and checks', async (bindingStatus) => {
+    pingRuntimeDatabaseMock.mockResolvedValue([]);
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    const before = await GET();
+    const beforeBody = await before.json();
+
+    expect(before.status).toBe(200);
+    expect(beforeBody.status).toBe('ok');
+
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = 'private provider metadata';
+    databaseBindingMock.mockResolvedValue(bindingStatus);
+    const after = await GET();
+    const afterBody = await after.json();
+
+    expect(after.status).toBe(before.status);
+    expect(afterBody).toEqual({ ...beforeBody, timestamp: expect.any(String), databaseBinding: bindingStatus });
+    expect(JSON.stringify(afterBody)).not.toContain('private provider metadata');
+    expect(databaseBindingMock).toHaveBeenCalledExactlyOnceWith();
+  });
+
+  it('does not perform another diagnostic query when the normal database check fails', async () => {
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = 'private provider metadata';
+    pingRuntimeDatabaseMock.mockRejectedValue(new Error('database unavailable'));
+    const response = await GET();
+
+    expect((await response.json()).databaseBinding).toBe('unavailable');
+    expect(databaseBindingMock).not.toHaveBeenCalled();
+  });
+
+  it('returns unavailable without disclosing unexpected diagnostic errors', async () => {
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = 'private provider metadata';
+    pingRuntimeDatabaseMock.mockResolvedValue([]);
+    databaseBindingMock.mockRejectedValue(new Error('secret database identity'));
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.databaseBinding).toBe('unavailable');
+    expect(JSON.stringify(body)).not.toContain('secret database identity');
+  });
+
   it('returns expanded env status using the actual Cloudinary variable names', async () => {
-    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
     isRedisAvailableMock.mockResolvedValue(true);
 
     process.env.CLOUDINARY_CLOUD_NAME = 'demo-cloud';
@@ -205,7 +267,7 @@ describe('GET /api/health', () => {
   });
 
   it('returns degraded when the database is unreachable', async () => {
-    executeMock.mockRejectedValue(new Error('db down'));
+    pingRuntimeDatabaseMock.mockRejectedValue(new Error('db down'));
     isRedisAvailableMock.mockResolvedValue(false);
 
     const response = await GET();
@@ -226,7 +288,7 @@ describe('GET /api/health', () => {
   // later successful call (the provider recovering) flips status back to
   // 'ok' without any special-casing.
   it('reports non-ready for a provider-unavailable classification (quota/connection outage), not just a generic error', async () => {
-    executeMock.mockRejectedValue(new RuntimeDatabaseGuardError('DATABASE_UNAVAILABLE'));
+    pingRuntimeDatabaseMock.mockRejectedValue(new RuntimeDatabaseGuardError('DATABASE_UNAVAILABLE'));
     isRedisAvailableMock.mockResolvedValue(false);
 
     const response = await GET();
@@ -238,7 +300,7 @@ describe('GET /api/health', () => {
   });
 
   it('reports non-ready for a wrong-database (attestation-rejected) classification', async () => {
-    executeMock.mockRejectedValue(new RuntimeDatabaseGuardError('DATABASE_ATTESTATION_REJECTED'));
+    pingRuntimeDatabaseMock.mockRejectedValue(new RuntimeDatabaseGuardError('DATABASE_ATTESTATION_REJECTED'));
     isRedisAvailableMock.mockResolvedValue(false);
 
     const response = await GET();
@@ -250,14 +312,14 @@ describe('GET /api/health', () => {
   });
 
   it('reports ready again once a recovered provider lets the next probe succeed — no special recovery handling needed here', async () => {
-    executeMock.mockRejectedValueOnce(new RuntimeDatabaseGuardError('DATABASE_UNAVAILABLE'));
+    pingRuntimeDatabaseMock.mockRejectedValueOnce(new RuntimeDatabaseGuardError('DATABASE_UNAVAILABLE'));
     isRedisAvailableMock.mockResolvedValue(false);
 
     const degraded = await GET();
 
     expect(degraded.status).toBe(503);
 
-    executeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValueOnce([{ '?column?': 1 }]);
     const recovered = await GET();
     const recoveredBody = await recovered.json();
 
@@ -265,7 +327,7 @@ describe('GET /api/health', () => {
   });
 
   it('returns 503 in hosted Production when lifecycle schema is not ready', async () => {
-    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
     schemaReadyMock.mockResolvedValue(false);
     isRedisAvailableMock.mockResolvedValue(true);
     isResendSenderVerifiedMock.mockResolvedValue(true);
@@ -300,7 +362,7 @@ describe('GET /api/health', () => {
   });
 
   it('keeps database health separate from a private readiness error', async () => {
-    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
     schemaReadyMock.mockRejectedValue(
       new Error('private catalog detail must not escape'),
     );
@@ -323,7 +385,7 @@ describe('GET /api/health', () => {
   // full readiness when the expected migration tail is newer than what the
   // database has applied.
   it('returns 503 in hosted Production when schema drift is not ready', async () => {
-    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
     isRedisAvailableMock.mockResolvedValue(true);
     isResendSenderVerifiedMock.mockResolvedValue(true);
     schemaDriftStatusMock.mockResolvedValue('not_ready');
@@ -371,7 +433,7 @@ describe('GET /api/health', () => {
   // exactly how a real `behind` incident gets ignored. `ahead` must stay
   // visible in the body without paging.
   it('reports schemaDrift: ahead in the body but does NOT degrade status in hosted Production', async () => {
-    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
     isRedisAvailableMock.mockResolvedValue(true);
     isResendSenderVerifiedMock.mockResolvedValue(true);
     schemaDriftStatusMock.mockResolvedValue('ahead');
@@ -406,7 +468,7 @@ describe('GET /api/health', () => {
     // Pins the boundary of the MAJOR-2 exclusion: `behind` (surfaced to the
     // route as generic "not_ready") is the actual incident class and MUST
     // still page. Only `ahead` gets the exemption.
-    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
     isRedisAvailableMock.mockResolvedValue(true);
     isResendSenderVerifiedMock.mockResolvedValue(true);
     schemaDriftStatusMock.mockResolvedValue('not_ready');
@@ -439,7 +501,7 @@ describe('GET /api/health', () => {
     // Preview/local environments may legitimately run ahead of an
     // un-migrated database during development. Only real production gates
     // overall status on this — the same scoping clientLifecycleSchema uses.
-    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
     schemaDriftStatusMock.mockResolvedValue('not_ready');
     isResendSenderVerifiedMock.mockResolvedValue(true);
 
@@ -464,7 +526,7 @@ describe('GET /api/health', () => {
   });
 
   it('reports schemaDrift: unavailable, and still degrades production, when the probe throws', async () => {
-    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
     schemaDriftStatusMock.mockRejectedValue(
       new Error('drizzle.__drizzle_migrations detail must not escape'),
     );
@@ -485,7 +547,7 @@ describe('GET /api/health', () => {
   // booleans, never per-switch detail or a secret-presence flag.
   describe('billing (G23/G34)', () => {
     it('reports dark: true under the default test env (no switch, no secret)', async () => {
-      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
 
       const body = await (await GET()).json();
 
@@ -497,7 +559,7 @@ describe('GET /api/health', () => {
       ['BILLING_TOPUPS_ENABLED'],
       ['PUBLIC_PRICING_ENABLED'],
     ] as const)('reports dark: false once %s is enabled', async (envVar) => {
-      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
       process.env[envVar] = 'true';
 
       const body = await (await GET()).json();
@@ -506,7 +568,7 @@ describe('GET /api/health', () => {
     });
 
     it('reports dark: false once the billing webhook secret is provisioned', async () => {
-      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
       process.env.STRIPE_BILLING_WEBHOOK_SECRET = 'whsec_billing';
 
       const body = await (await GET()).json();
@@ -517,7 +579,7 @@ describe('GET /api/health', () => {
     // G14 — automatic-tax architecture (§3.7): the new flag is part of the
     // same dark-posture computation as the three switches and the secret.
     it('reports dark: false once BILLING_TAX_COLLECTION_ENABLED is enabled, with every other control at its default', async () => {
-      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
       process.env.BILLING_TAX_COLLECTION_ENABLED = 'true';
 
       const body = await (await GET()).json();
@@ -526,7 +588,7 @@ describe('GET /api/health', () => {
     });
 
     it('reports planEnvMatchesRuntime: true for the test mapping (BILLING_PLAN_ENV=test under the test runtime)', async () => {
-      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
       process.env.BILLING_PLAN_ENV = 'test';
 
       const body = await (await GET()).json();
@@ -535,7 +597,7 @@ describe('GET /api/health', () => {
     });
 
     it('reports planEnvMatchesRuntime: false when BILLING_PLAN_ENV does not match the resolved runtime', async () => {
-      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
       process.env.BILLING_PLAN_ENV = 'prod';
 
       const body = await (await GET()).json();
@@ -544,7 +606,7 @@ describe('GET /api/health', () => {
     });
 
     it('never exposes per-switch detail or a secret-presence flag — exactly two keys', async () => {
-      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      pingRuntimeDatabaseMock.mockResolvedValue([{ '?column?': 1 }]);
 
       const body = await (await GET()).json();
 

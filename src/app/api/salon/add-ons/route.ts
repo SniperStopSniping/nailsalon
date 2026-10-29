@@ -32,7 +32,7 @@ type ErrorResponse = {
 };
 
 const optionalText = z
-  .union([z.string(), z.null(), z.undefined()])
+  .string().nullish()
   .transform(value => (typeof value === 'string' ? (value.trim() || null) : null));
 
 const createAddOnSchema = z.object({

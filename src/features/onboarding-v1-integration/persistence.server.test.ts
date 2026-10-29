@@ -1160,6 +1160,104 @@ describe.sequential('account-backed onboarding persistence', () => {
     });
   });
 
+  it.each(['solo', 'multi_tech'] as const)('saves later new-client answers for an early %s account claim', async (structure) => {
+    const suffix = `later_clients_${structure}`;
+    const owner = identity(suffix);
+    const initialInput = request(suffix, { businessType: structure === 'multi_tech' ? 'salon_team' : 'home_based' });
+
+    expect(initialInput.snapshot.profile.bookingPreferences.newClientStatus).toBeNull();
+
+    const initial = await claimOnboardingDraft(owner, initialInput, handle());
+    if (initial.kind !== 'success') {
+      throw new Error('Expected early account save.');
+    }
+    const [before] = await database.select().from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.salonId, initial.data.salonId));
+
+    expect(before!.acceptingNewClients).toBe(false);
+
+    const continuedInput = structuredClone(initialInput);
+    continuedInput.anonymousDraftToken = opaque(`${suffix}_later`);
+    continuedInput.target = {
+      continuationClaimId: initial.data.claimId,
+      existingSiteStrategy: 'continue_onboarding_draft',
+      expectedRevision: initial.data.revision,
+      expectedSiteId: initial.data.siteId,
+      mode: 'existing_business',
+      salonId: initial.data.salonId,
+    };
+    continuedInput.snapshot.profile.bookingPreferences.newClientStatus = 'yes';
+    const continued = await claimOnboardingDraft(owner, continuedInput, handle());
+
+    expect(continued.kind).toBe('success');
+
+    const [after] = await database.select().from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.id, before!.id));
+
+    expect(after!.acceptingNewClients).toBe(true);
+    expect(after).toEqual({ ...before, acceptingNewClients: true, updatedAt: expect.any(Date) });
+  });
+
+  it.each(['missing_binding', 'different_technician', 'multiple_staff', 'inactive_staff', 'dashboard_status', 'published'] as const)(
+    'preserves team technician data when continuation has %s',
+    async (scenario) => {
+      const suffix = `team_guard_${scenario}`;
+      const owner = identity(suffix);
+      const initialInput = request(suffix, { businessType: 'salon_team' });
+      const initial = await claimOnboardingDraft(owner, initialInput, handle());
+      if (initial.kind !== 'success') {
+        throw new Error('Expected early account save.');
+      }
+      const [technician] = await database.select().from(schema.technicianSchema)
+        .where(eq(schema.technicianSchema.salonId, initial.data.salonId));
+      if (scenario === 'missing_binding' || scenario === 'different_technician') {
+        const [salon] = await database.select().from(schema.salonSchema)
+          .where(eq(schema.salonSchema.id, initial.data.salonId));
+        await database.update(schema.salonSchema).set({
+          settings: {
+            ...salon!.settings,
+            onboardingOwnership: scenario === 'missing_binding' ? undefined : { primaryTechnicianId: crypto.randomUUID() },
+          } as NonNullable<typeof salon>['settings'],
+        }).where(eq(schema.salonSchema.id, initial.data.salonId));
+      }
+      if (scenario === 'multiple_staff') {
+        await database.insert(schema.technicianSchema).values({ id: crypto.randomUUID(), salonId: initial.data.salonId, name: 'Existing colleague', acceptingNewClients: false });
+      }
+      if (scenario === 'inactive_staff') {
+        await database.update(schema.technicianSchema).set({ isActive: false })
+          .where(eq(schema.technicianSchema.id, technician!.id));
+      }
+      if (scenario === 'dashboard_status') {
+        await database.update(schema.technicianSchema).set({ acceptingNewClients: true })
+          .where(eq(schema.technicianSchema.id, technician!.id));
+      }
+      if (scenario === 'published') {
+        await database.update(schema.salonSchema).set({ publicationStatus: 'published' })
+          .where(eq(schema.salonSchema.id, initial.data.salonId));
+      }
+      const before = await database.select().from(schema.technicianSchema)
+        .where(eq(schema.technicianSchema.salonId, initial.data.salonId)).orderBy(asc(schema.technicianSchema.id));
+      const continuedInput = structuredClone(initialInput);
+      continuedInput.anonymousDraftToken = opaque(`${suffix}_later`);
+      continuedInput.target = {
+        continuationClaimId: initial.data.claimId,
+        existingSiteStrategy: 'continue_onboarding_draft',
+        expectedRevision: initial.data.revision,
+        expectedSiteId: initial.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      };
+      continuedInput.snapshot.profile.bookingPreferences.newClientStatus = scenario === 'dashboard_status' ? 'no' : 'yes';
+
+      expect((await claimOnboardingDraft(owner, continuedInput, handle())).kind).toBe('success');
+
+      const after = await database.select().from(schema.technicianSchema)
+        .where(eq(schema.technicianSchema.salonId, initial.data.salonId)).orderBy(asc(schema.technicianSchema.id));
+
+      expect(after).toEqual(before);
+    },
+  );
+
   it('saves an edited unpublished URL to the same site and restores it after a fresh sign-in', async () => {
     const owner = identity('continued_url');
     const initialInput = request('continued_url');

@@ -44,6 +44,9 @@ const harness = vi.hoisted(() => ({
   queryRespond: (async () => ({ rows: [] })) as (queryText: string) => Promise<unknown>,
   poolInstances: [] as Array<{ ended: boolean }>,
   physicalConnects: 0,
+  markerQueries: [] as unknown[],
+  poolQueries: [] as unknown[],
+  leasedClients: [] as Array<{ release: ReturnType<typeof vi.fn> }>,
 }));
 
 type VerifyFn = (
@@ -64,6 +67,9 @@ vi.mock('pg', async () => {
   const { EventEmitter } = await import('node:events');
 
   class FakeClient extends EventEmitter {
+    host = 'actual.example.test';
+    port = 5432;
+    release = vi.fn();
     connect(callback?: (error?: Error) => void): Promise<void> | void {
       harness.physicalConnects += 1;
       if (callback) {
@@ -73,8 +79,13 @@ vi.mock('pg', async () => {
       return Promise.resolve();
     }
 
-    query(text: string): Promise<unknown> {
-      return harness.markerRespond(text);
+    query(text: string | { text: string }): Promise<unknown> {
+      const queryText = typeof text === 'string' ? text : text.text;
+      if (queryText.includes('current_database()')) {
+        return harness.queryRespond(queryText);
+      }
+      harness.markerQueries.push(text);
+      return harness.markerRespond(queryText);
     }
   }
 
@@ -90,7 +101,8 @@ vi.mock('pg', async () => {
       harness.poolInstances.push(this);
     }
 
-    async query(text: string): Promise<unknown> {
+    async query(text: string | { text: string }): Promise<unknown> {
+      harness.poolQueries.push(text);
       // Our fake never keeps an idle client around, so — like a real
       // pg-pool asked for a client with none idle — every call here
       // simulates opening a brand-new physical connection, which is
@@ -108,7 +120,7 @@ vi.mock('pg', async () => {
       });
       // Attestation passed for this connection — now actually answer the
       // real query, decoupled from the marker check above.
-      return harness.queryRespond(text);
+      return harness.queryRespond(typeof text === 'string' ? text : text.text);
     }
 
     async end() {
@@ -116,7 +128,13 @@ vi.mock('pg', async () => {
     }
 
     async connect() {
-      throw new Error('FakePool.connect() is not used by this suite.');
+      const client = new this.Client();
+      await client.connect();
+      await new Promise<void>((resolve, reject) => {
+        this.verify(client, error => error ? reject(error) : resolve());
+      });
+      harness.leasedClients.push(client);
+      return client;
     }
   }
 
@@ -177,6 +195,9 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     process.env = { ...originalEnvironment };
     harness.poolInstances = [];
     harness.physicalConnects = 0;
+    harness.markerQueries = [];
+    harness.poolQueries = [];
+    harness.leasedClients = [];
     harness.queryRespond = async () => ({ rows: [] });
     resetGlobalDatabaseState();
     vi.useRealTimers();
@@ -343,14 +364,95 @@ describe('DB.ts runtime pool recovery (mocked pg, real DB.ts + guard wiring)', (
     expect(harness.poolInstances[0]?.ended).toBe(false);
   });
 
+  it('reads binding from the guarded leased client even after DATABASE_URL changes', async () => {
+    setProductionEnv();
+    harness.markerRespond = validProductionMarker;
+    const { getRuntimeDatabaseBindingStatus } = await import('./DB');
+    harness.queryRespond = vi.fn(async () => ({ rows: [{
+      database_name: 'actual_db',
+      session_user_name: 'actual_login',
+      current_user_name: 'actual_role',
+    }] }));
+    process.env.DATABASE_URL = 'postgresql://other.example.test/other_db';
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = JSON.stringify({
+      host: 'actual.example.test',
+      port: 5432,
+      database: 'actual_db',
+      sessionUser: 'actual_login',
+      currentUser: 'actual_role',
+    });
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('matched');
+    expect(harness.poolInstances).toHaveLength(1);
+    expect(harness.leasedClients).toHaveLength(1);
+    expect(harness.leasedClients[0]?.release).toHaveBeenCalledExactlyOnceWith(false);
+    expect(harness.queryRespond).toHaveBeenCalledExactlyOnceWith(
+      'SELECT current_database() AS database_name, session_user AS session_user_name, current_user AS current_user_name',
+    );
+
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = JSON.stringify({
+      host: 'other.example.test',
+      port: 5432,
+      database: 'other_db',
+      sessionUser: 'actual_login',
+      currentUser: 'actual_role',
+    });
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('mismatched');
+    expect(harness.poolInstances).toHaveLength(1);
+  });
+
+  it('does not acquire an extra connection for absent or invalid binding configuration', async () => {
+    setProductionEnv();
+    harness.markerRespond = validProductionMarker;
+    const { getRuntimeDatabaseBindingStatus } = await import('./DB');
+    const bootstrapConnections = harness.physicalConnects;
+    delete process.env.LUSTER_EXPECTED_DATABASE_BINDING;
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('unavailable');
+
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = '{malformed';
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('unavailable');
+    expect(harness.physicalConnects).toBe(bootstrapConnections);
+    expect(harness.leasedClients).toHaveLength(0);
+  });
+
+  it('cannot bypass a rejected runtime guard to obtain binding identities', async () => {
+    setProductionEnv();
+    harness.markerRespond = wrongDatabaseMarker;
+    const { getRuntimeDatabaseBindingStatus } = await import('./DB');
+    harness.queryRespond = vi.fn(async () => ({ rows: [] }));
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING = JSON.stringify({
+      host: 'actual.example.test',
+      port: 5432,
+      database: 'actual_db',
+      sessionUser: 'actual_login',
+      currentUser: 'actual_role',
+    });
+
+    expect(await getRuntimeDatabaseBindingStatus()).toBe('unavailable');
+    expect(harness.queryRespond).not.toHaveBeenCalled();
+    expect(harness.leasedClients).toHaveLength(0);
+  });
+
   it('healthy boot keeps the existing fast path: the module-load bootstrap succeeds and its pool is never disposed', async () => {
     setProductionEnv();
     harness.markerRespond = validProductionMarker;
 
-    const { db, usesRuntimePostgres } = await import('./DB');
+    const { db, usesRuntimePostgres, pingRuntimeDatabase } = await import('./DB');
 
     expect(db).toBeDefined();
     expect(usesRuntimePostgres).toBe(true);
+    expect(harness.poolQueries).toEqual([{ text: 'SELECT 1', query_timeout: 5000 }]);
+    expect(harness.markerQueries).toEqual([expect.objectContaining({ query_timeout: 5000 })]);
+
+    await pingRuntimeDatabase();
+
+    expect(harness.poolQueries).toEqual([
+      { text: 'SELECT 1', query_timeout: 5000 },
+      { text: 'SELECT 1', query_timeout: 5000 },
+    ]);
     expect(harness.poolInstances).toHaveLength(1);
     expect(harness.poolInstances[0]?.ended).toBe(false);
   });

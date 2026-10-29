@@ -67,7 +67,13 @@ export function readSourceFiles(repoRelativePaths: string[]): Map<string, string
 
 function parse(sourceText: string, repoRelativePath: string): ts.SourceFile {
   const kind = repoRelativePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-  return ts.createSourceFile(repoRelativePath, sourceText, ts.ScriptTarget.Latest, true, kind);
+  // These guards inspect child syntax only: parent links and JSDoc trees
+  // cannot contribute runtime imports or a directive. Avoid constructing
+  // them for every source file in the repository-wide boundary scans.
+  return ts.createSourceFile(repoRelativePath, sourceText, {
+    languageVersion: ts.ScriptTarget.Latest,
+    jsDocParsingMode: ts.JSDocParsingMode.ParseNone,
+  }, false, kind);
 }
 
 type ModuleSyntax = {

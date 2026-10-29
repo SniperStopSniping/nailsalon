@@ -3,6 +3,7 @@ import type { EventEmitter } from 'node:events';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
+import { StrictMode } from 'react';
 import { onTestFinished } from 'vitest';
 
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
@@ -11,7 +12,7 @@ import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v
 import { goToScreen } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/routing';
 import { loadOnboardingState, ONBOARDING_STORAGE_KEY, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import type { OnboardingAuthProviderAvailability } from './auth-providers';
-import { OnboardingIntegrationRequestError } from './client';
+import { OnboardingClaimTransportError, OnboardingIntegrationRequestError } from './client';
 import type { OnboardingClaimSuccess } from './contracts';
 import { loadDeviceSetups } from './device-setups';
 import {
@@ -38,11 +39,15 @@ type MockedClerkUser = {
 
 const mocks = vi.hoisted(() => ({
   auth: { isLoaded: true, isSignedIn: false },
+  authListeners: new Set<() => void>(),
+  deferAccountGate: false,
+  ssoCallbackProps: null as null | { navigateToApp: (input: { decorateUrl: (url: string) => string }) => void },
+  resourceListeners: new Set<(resources: { session: unknown }) => void>(),
   claim: vi.fn(),
   claimMedia: vi.fn(),
   cleanupMedia: vi.fn(),
   clerk: {
-    addListener: vi.fn(() => () => undefined),
+    addListener: vi.fn<(listener: (resources: { session: unknown }) => void) => () => void>(),
     session: null as unknown,
     setActive: vi.fn(),
     signOut: vi.fn(),
@@ -56,9 +61,22 @@ const mocks = vi.hoisted(() => ({
   savePlan: vi.fn(),
   publish: vi.fn(),
   prepareArtwork: vi.fn(),
+  resolveOrganization: vi.fn(),
   status: vi.fn(),
   signIn: { authenticateWithRedirect: vi.fn(), create: vi.fn() },
-  signUp: { create: vi.fn(), prepareEmailAddressVerification: vi.fn() },
+  setActiveSignIn: vi.fn(),
+  signUp: {
+    createdSessionId: null as string | null,
+    finalize: vi.fn(),
+    password: vi.fn(),
+    sso: vi.fn(),
+    status: null as null | string,
+    verifications: {
+      emailAddress: { status: 'unverified' as string },
+      sendEmailCode: vi.fn(),
+      verifyEmailCode: vi.fn(),
+    },
+  },
   userState: { isLoaded: true, user: null as unknown },
 }));
 
@@ -76,14 +94,38 @@ const verifiedClerkUser = (): NonNullable<MockedClerkUser> => ({
 vi.mock('@/libs/billing/foundingLifetime', () => ({ isFoundingLifetimeOfferOpen: () => true }));
 vi.mock('@/libs/publishWebsiteClient', () => ({ publishSalon: (...args: unknown[]) => mocks.publish(...args) }));
 
-vi.mock('@clerk/nextjs', () => ({
-  AuthenticateWithRedirectCallback: () => null,
-  useAuth: () => mocks.auth,
-  useClerk: () => mocks.clerk,
-  useSignIn: () => ({ isLoaded: true, setActive: vi.fn(), signIn: mocks.signIn }),
-  useSignUp: () => ({ isLoaded: true, setActive: vi.fn(), signUp: mocks.signUp }),
-  useUser: () => mocks.userState,
+vi.mock('@clerk/nextjs', async () => {
+  const { useSyncExternalStore } = await import('react');
+  const subscribe = (listener: () => void) => {
+    mocks.authListeners.add(listener);
+    return () => {
+      mocks.authListeners.delete(listener);
+    };
+  };
+  return {
+    HandleSSOCallback: (props: typeof mocks.ssoCallbackProps) => {
+      mocks.ssoCallbackProps = props;
+      return null;
+    },
+    useAuth: () => useSyncExternalStore(subscribe, () => mocks.auth),
+    useClerk: () => mocks.clerk,
+    useSignUp: () => ({ signUp: mocks.signUp }),
+    useUser: () => useSyncExternalStore(subscribe, () => mocks.userState),
+  };
+});
+
+vi.mock('@clerk/nextjs/legacy', () => ({
+  useSignIn: () => ({ isLoaded: true, setActive: mocks.setActiveSignIn, signIn: mocks.signIn }),
 }));
+
+vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/components/DeferredSetupContent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/components/DeferredSetupContent')>();
+  return {
+    DeferredSetupContent: (props: { children: ReactNode; label?: string }) => mocks.deferAccountGate && props.label === 'Opening secure account options…'
+      ? <div role="status">{props.label}</div>
+      : <actual.DeferredSetupContent {...props} />,
+  };
+});
 
 vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider', () => ({
   CustomDesignAssetProvider: ({ children }: { children: ReactNode }) => children,
@@ -111,7 +153,7 @@ vi.mock('./client', async (importOriginal) => {
     claimOnboardingDraft: (...args: unknown[]) => mocks.claim(...args),
     prepareOnboardingCanva: (...args: unknown[]) => mocks.prepareArtwork(...args),
     getOnboardingDraftClaimStatus: (...args: unknown[]) => mocks.status(...args),
-    resolveOnboardingOrganization: vi.fn(),
+    resolveOnboardingOrganization: (...args: unknown[]) => mocks.resolveOrganization(...args),
     saveOnboardingPlanIntent: (...args: unknown[]) => mocks.savePlan(...args),
   };
 });
@@ -206,6 +248,19 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.userState.isLoaded = true;
     mocks.userState.user = null;
     mocks.clerk.session = null;
+    mocks.authListeners.clear();
+    mocks.resourceListeners.clear();
+    mocks.deferAccountGate = false;
+    mocks.ssoCallbackProps = null;
+    mocks.clerk.addListener.mockReset().mockImplementation((listener) => {
+      mocks.resourceListeners.add(listener);
+      listener({ session: mocks.clerk.session });
+      return () => {
+        mocks.resourceListeners.delete(listener);
+      };
+    });
+    mocks.clerk.setActive.mockReset();
+    mocks.resolveOrganization.mockReset();
     mocks.clerk.signOut.mockReset().mockResolvedValue(undefined);
     mocks.lab.acceptOnboardingPresentation.mockReset().mockReturnValue(null);
     mocks.claim.mockReset();
@@ -216,7 +271,15 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.publish.mockReset().mockResolvedValue({ publicationStatus: 'published' });
     mocks.status.mockReset().mockResolvedValue({ claim: null });
     mocks.signIn.create.mockReset();
-    mocks.signUp.create.mockReset();
+    mocks.setActiveSignIn.mockReset();
+    mocks.signUp.finalize.mockReset();
+    mocks.signUp.password.mockReset();
+    mocks.signUp.sso.mockReset();
+    mocks.signUp.createdSessionId = null;
+    mocks.signUp.status = null;
+    mocks.signUp.verifications.emailAddress.status = 'unverified';
+    mocks.signUp.verifications.sendEmailCode.mockReset();
+    mocks.signUp.verifications.verifyEmailCode.mockReset();
     seedAcceptedReview();
     saveOnboardingIntegrationFlow({
       ...createOnboardingIntegrationFlow(),
@@ -261,6 +324,306 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(screen.queryByRole('button', { name: 'Continue with Google' })).not.toBeInTheDocument();
     expect(screen.queryByText('Continue with Apple')).not.toBeInTheDocument();
     expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { organizationRequired: false, verified: true },
+    { organizationRequired: true, verified: true },
+    { organizationRequired: true, verified: false },
+  ])('preserves the owner draft through one auth handoff (organization=$organizationRequired, verified=$verified)', async ({ organizationRequired, verified }) => {
+    const interaction = userEvent.setup();
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
+    const originalLocation = window.location;
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, assign } });
+    onTestFinished(() => {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    });
+
+    const user = verifiedClerkUser();
+    user.primaryEmailAddress.verification.status = verified ? 'verified' : 'unverified';
+    const activeSession = { currentTask: null, id: 'sess_fresh_owner', status: 'active', user };
+    const pendingSession = {
+      ...activeSession,
+      currentTask: { key: 'choose-organization' },
+      getToken: vi.fn().mockResolvedValue('synthetic-session-token'),
+      status: 'pending',
+    };
+    type Navigate = (params: {
+      decorateUrl: (url: string) => string;
+      session: typeof activeSession | typeof pendingSession;
+    }) => Promise<void> | void;
+    const decorateUrl = vi.fn((url: string) => `${url}&handoff=synthetic`);
+    const emitSession = (session: typeof activeSession | typeof pendingSession) => {
+      mocks.clerk.session = session;
+      for (const listener of mocks.resourceListeners) {
+        listener({ session });
+      }
+    };
+    let initialNavigate: Navigate | undefined;
+    mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+    mocks.signUp.password.mockImplementation(async () => {
+      mocks.signUp.createdSessionId = activeSession.id;
+      mocks.signUp.status = 'complete';
+      return { error: null };
+    });
+    mocks.resolveOrganization.mockResolvedValue({ created: true, organizations: [{ id: 'org_fresh', name: state.profile.businessName }] });
+    mocks.signUp.finalize.mockImplementation(async ({ navigate }: { navigate?: Navigate }) => {
+      initialNavigate = navigate;
+      if (organizationRequired) {
+        await navigate?.({ decorateUrl, session: pendingSession });
+
+        expect(assign).not.toHaveBeenCalled();
+
+        emitSession(pendingSession);
+      } else {
+        // Clerk documents navigation before its public session accessors update.
+        await navigate?.({ decorateUrl, session: activeSession });
+        emitSession(activeSession);
+      }
+      return { error: null };
+    });
+    mocks.clerk.setActive.mockImplementation(async ({ navigate }: { navigate?: Navigate }) => {
+      await navigate?.({ decorateUrl, session: activeSession });
+      emitSession(activeSession);
+      // Signup finalization may settle after organization activation; it must
+      // not cause a second navigation or an early claim using stale hooks.
+      await initialNavigate?.({ decorateUrl, session: activeSession });
+    });
+    mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await interaction.click(await screen.findByRole('button', { name: 'Continue with email' }));
+    await interaction.type(screen.getByLabelText('Email address'), 'owner@example.com');
+    await interaction.click(screen.getByRole('button', { name: 'Continue' }));
+    await interaction.type(await screen.findByLabelText('Password'), 'synthetic-password-for-test');
+    const draftBefore = loadOnboardingState().state;
+    const keyBefore = loadOnboardingIntegrationFlow().claimIdempotencyKey;
+    const documentBefore = window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY);
+    await interaction.click(screen.getByRole('button', { name: 'Create account and continue' }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&handoff=synthetic'));
+
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(loadOnboardingState().state).toEqual(draftBefore);
+    expect(loadOnboardingIntegrationFlow().claimIdempotencyKey).toBe(keyBefore);
+    expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).toBe(documentBefore);
+    expect(mocks.resolveOrganization).toHaveBeenCalledTimes(organizationRequired ? 1 : 0);
+
+    // Model the fresh document reached by supported navigation, with the
+    // provider's settled identity. This is not live Clerk/browser evidence.
+    view.unmount();
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    window.history.replaceState({}, '', '/en/onboarding-v1?claim=1&handoff=synthetic');
+    mocks.auth = { isLoaded: true, isSignedIn: true };
+    mocks.userState = { isLoaded: false, user: null };
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(mocks.claim).not.toHaveBeenCalled();
+
+    await act(async () => {
+      mocks.userState = { isLoaded: true, user };
+      for (const listener of mocks.authListeners) {
+        listener();
+      }
+    });
+    if (verified) {
+      expect(await screen.findByRole('heading', { level: 1, name: 'Your progress is saved' })).toBeVisible();
+      expect(mocks.claim).toHaveBeenCalledTimes(1);
+      expect(mocks.claim.mock.calls[0]?.[0]).toMatchObject({ idempotencyKey: keyBefore });
+      expect(loadOnboardingIntegrationFlow().savedSiteOwnerId).toBe(user.id);
+    } else {
+      expect(await screen.findByRole('heading', { level: 1, name: 'Check your email' })).toBeVisible();
+      expect(mocks.claim).not.toHaveBeenCalled();
+      expect(user.primaryEmailAddress.prepareVerification).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  describe('activation ownership in the parent controller', () => {
+    function deferred<T>() {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    }
+
+    function captureNavigation() {
+      const originalLocation = window.location;
+      const assign = vi.fn();
+      Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, assign } });
+      const restore = () => {
+        Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+      };
+      onTestFinished(restore);
+      return { assign, restore };
+    }
+
+    function emitIdentity(user: NonNullable<MockedClerkUser>, session: unknown) {
+      mocks.clerk.session = session;
+      mocks.auth = { isLoaded: true, isSignedIn: true };
+      mocks.userState = { isLoaded: true, user };
+      for (const listener of mocks.resourceListeners) {
+        listener({ session });
+      }
+      for (const listener of mocks.authListeners) {
+        listener();
+      }
+    }
+
+    function earlySave() {
+      const state = loadOnboardingState().state;
+      saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
+      mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
+      mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+      mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+    }
+
+    it('reserves active SSO auth before the deferred gate mounts and claims only in its destination document', async () => {
+      earlySave();
+      window.history.replaceState({}, '', '/en/onboarding-v1?sso=1');
+      const user = verifiedClerkUser();
+      const session = { id: 'sess_sso_lease', status: 'active', currentTask: null };
+      mocks.auth = { isLoaded: true, isSignedIn: true };
+      mocks.userState = { isLoaded: true, user };
+      mocks.clerk.session = session;
+      mocks.deferAccountGate = true;
+      const { assign, restore } = captureNavigation();
+      const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
+
+      expect(screen.getByText('Opening secure account options…')).toHaveAttribute('role', 'status');
+      expect(mocks.ssoCallbackProps).toBeNull();
+      expect(mocks.claim).not.toHaveBeenCalled();
+      expect(mocks.status).not.toHaveBeenCalled();
+
+      mocks.deferAccountGate = false;
+      view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+      await screen.findByRole('heading', { name: 'Finishing sign-in…' });
+
+      expect(mocks.ssoCallbackProps).not.toBeNull();
+      expect(mocks.claim).not.toHaveBeenCalled();
+
+      act(() => mocks.ssoCallbackProps!.navigateToApp({ decorateUrl: url => `${url}&sso-complete=synthetic` }));
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&sso-complete=synthetic');
+      expect(mocks.claim).not.toHaveBeenCalled();
+
+      view.unmount();
+      restore();
+      window.history.replaceState({}, '', '/en/onboarding-v1?claim=1&sso-complete=synthetic');
+      render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+      expect(await screen.findByRole('heading', { name: 'Your progress is saved' })).toBeVisible();
+      expect(mocks.claim).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the resumed gate mounted through undefined active hooks before organization navigation', async () => {
+      const resume = savedResumeDraft();
+      const user = verifiedClerkUser();
+      const active = { id: 'sess_resumed_lease', status: 'active', currentTask: null };
+      mocks.clerk.session = { ...active, status: 'pending', currentTask: { key: 'choose-organization' }, getToken: vi.fn().mockResolvedValue('synthetic-session-token') };
+      const activation = deferred<void>();
+      mocks.clerk.setActive.mockReturnValueOnce(activation.promise);
+      mocks.resolveOrganization.mockResolvedValue({ created: false, organizations: [{ id: 'org_resumed_lease', name: 'Resumed studio' }] });
+      const { assign } = captureNavigation();
+      render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} initialResumeDraft={resume} locale="en" />);
+      await waitFor(() => expect(mocks.clerk.setActive).toHaveBeenCalledOnce());
+      await act(async () => emitIdentity(user, undefined));
+
+      expect(screen.getByRole('heading', { name: 'Setting up your account…' })).toBeVisible();
+      expect(screen.queryByText('Preparing your saved website…')).not.toBeInTheDocument();
+      expect(mocks.status).not.toHaveBeenCalled();
+      expect(mocks.claim).not.toHaveBeenCalled();
+
+      await act(async () => activation.resolve());
+
+      expect(screen.getByRole('heading', { name: 'Setting up your account…' })).toBeVisible();
+      expect(mocks.status).not.toHaveBeenCalled();
+
+      const navigate = mocks.clerk.setActive.mock.calls[0]![0].navigate;
+      act(() => {
+        emitIdentity(user, active);
+        navigate({ session: active, decorateUrl: (url: string) => `${url}&resume=synthetic` });
+      });
+
+      expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&resume=synthetic');
+      expect(mocks.claim).not.toHaveBeenCalled();
+      expect(mocks.status).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])('waits for settled legacy activation and resets busy before continuing (email verified: %s)', async (verified) => {
+      earlySave();
+      const user = verifiedClerkUser();
+      user.primaryEmailAddress.verification.status = verified ? 'verified' : 'unverified';
+      const session = { id: 'sess_legacy_lease', status: 'active', currentTask: null };
+      const activation = deferred<void>();
+      mocks.setActiveSignIn.mockReturnValueOnce(activation.promise);
+      mocks.signIn.create.mockResolvedValueOnce({ status: 'needs_first_factor' }).mockResolvedValueOnce({ status: 'complete', createdSessionId: session.id });
+      const interaction = userEvent.setup();
+      render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+      await interaction.click(await screen.findByRole('button', { name: 'Continue with email' }));
+      fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'owner@example.com' } });
+      await interaction.click(screen.getByRole('button', { name: /^Continue$/u }));
+      fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'synthetic-legacy-password' } });
+      await interaction.click(screen.getByRole('button', { name: 'Log in and save my site' }));
+      await waitFor(() => expect(mocks.setActiveSignIn).toHaveBeenCalledOnce());
+      await act(async () => emitIdentity(user, session));
+
+      expect(mocks.claim).not.toHaveBeenCalled();
+      expect(mocks.status).not.toHaveBeenCalled();
+
+      await act(async () => activation.resolve());
+
+      if (verified) {
+        expect(await screen.findByRole('heading', { name: 'Your progress is saved' })).toBeVisible();
+        expect(mocks.claim).toHaveBeenCalledOnce();
+      } else {
+        expect(await screen.findByRole('heading', { name: 'Check your email' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Verify and save my site' })).toBeEnabled();
+        expect(mocks.claim).not.toHaveBeenCalled();
+      }
+    });
+
+    it('cancels a delayed signup navigation when the owner returns to review', async () => {
+      earlySave();
+      const user = verifiedClerkUser();
+      const session = { id: 'sess_cancelled_lease', status: 'active', currentTask: null };
+      const finalized = deferred<{ error: null }>();
+      mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+      mocks.signUp.password.mockImplementation(async () => {
+        mocks.signUp.createdSessionId = session.id;
+        mocks.signUp.status = 'complete';
+        return { error: null };
+      });
+      mocks.signUp.finalize.mockReturnValueOnce(finalized.promise);
+      const { assign } = captureNavigation();
+      const interaction = userEvent.setup();
+      render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+      await interaction.click(await screen.findByRole('button', { name: 'Continue with email' }));
+      fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'owner@example.com' } });
+      await interaction.click(screen.getByRole('button', { name: /^Continue$/u }));
+      fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'synthetic-signup-password' } });
+      await interaction.click(screen.getByRole('button', { name: 'Create account and continue' }));
+      await waitFor(() => expect(mocks.signUp.finalize).toHaveBeenCalledOnce());
+      await act(async () => emitIdentity(user, session));
+
+      expect(mocks.claim).not.toHaveBeenCalled();
+
+      const navigate = mocks.signUp.finalize.mock.calls[0]![0].navigate;
+      await interaction.click(screen.getByRole('button', { name: /^Back$/u }));
+      act(() => navigate({ session, decorateUrl: (url: string) => `${url}&cancelled=synthetic` }));
+      await act(async () => finalized.resolve({ error: null }));
+
+      expect(assign).not.toHaveBeenCalled();
+      expect(mocks.claim).not.toHaveBeenCalled();
+      expect(loadOnboardingIntegrationFlow().phase).toBe('onboarding');
+    });
   });
 
   it('keeps a signed-in owner with an unverified email inside verification without claiming', async () => {
@@ -322,6 +685,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.auth.isSignedIn = true;
     const user = verifiedClerkUser();
     mocks.userState.user = user;
+    mocks.clerk.session = { id: 'sess_email_verification', status: 'active', currentTask: null };
     user.primaryEmailAddress.attemptVerification.mockResolvedValue({ verification: { status: 'verified' } });
     mocks.claim
       .mockRejectedValueOnce(new OnboardingIntegrationRequestError('Verify your email.', {
@@ -437,6 +801,188 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     await waitFor(() => {
       expect(loadOnboardingState().state.progress.currentScreen).toBe('business');
     });
+  });
+
+  it.each(['committed', 'not-saved', 'owner-mismatch', 'status-network', 'fingerprint-mismatch', 'stale-revision', 'media-failure', 'strict-committed'] as const)('reconciles an uncertain claim response: %s', async (scenario) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
+    const real = await vi.importActual<typeof import('./client')>('./client');
+    mocks.claim.mockImplementation(real.claimOnboardingDraft);
+    mocks.status.mockImplementation(real.getOnboardingDraftClaimStatus);
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+    if (scenario === 'media-failure') {
+      mocks.claimMedia.mockRejectedValue(new Error('Media finalization unavailable'));
+    }
+    const requests: { path: string; body: Record<string, unknown> }[] = [];
+    let submittedFingerprint: string | null = null;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push({ path, body });
+      if (path === '/api/onboarding/v1/claim') {
+        submittedFingerprint = fingerprintOnboardingPayload(body.snapshot as Parameters<typeof fingerprintOnboardingPayload>[0]);
+        // Server commit is represented only by what the authenticated status endpoint returns.
+        throw new TypeError('Load failed');
+      }
+      if (path === '/api/onboarding/v1/status') {
+        if (scenario === 'status-network') {
+          throw new TypeError('Load failed');
+        }
+        if (scenario === 'stale-revision') {
+          return Response.json({ error: { code: 'CLAIM_REVISION_STALE', message: 'An older revision cannot resume.' } }, { status: 409 });
+        }
+        if (scenario === 'owner-mismatch') {
+          return Response.json({ error: { code: 'DRAFT_ALREADY_CLAIMED', message: 'This draft has already been saved to a different Luster account.' } }, { status: 409 });
+        }
+        return Response.json({ data: { claim: ['committed', 'fingerprint-mismatch', 'media-failure', 'strict-committed'].includes(scenario) ? { ...savedSite, created: false, payloadFingerprint: scenario === 'fingerprint-mismatch' ? 'mismatched' : submittedFingerprint } : null } });
+      }
+      throw new Error('Unexpected mocked fetch path');
+    }));
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    const keyBefore = loadOnboardingIntegrationFlow().claimIdempotencyKey;
+    const tokenBefore = loadOnboardingState().state.anonymousDraftId;
+    const component = <OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />;
+    render(scenario === 'strict-committed' ? <StrictMode>{component}</StrictMode> : component);
+    if (scenario === 'committed' || scenario === 'strict-committed') {
+      expect(await screen.findByRole('heading', { name: 'Your progress is saved' })).toBeVisible();
+    } else if (scenario === 'media-failure') {
+      await waitFor(() => expect(loadOnboardingIntegrationFlow().phase).toBe('media_failure'));
+
+      expect(loadOnboardingIntegrationFlow().savedSite?.siteId).toBe(savedSite.siteId);
+    } else if (scenario === 'owner-mismatch') {
+      expect(await screen.findByRole('heading', { name: 'This setup is connected to another account' })).toBeVisible();
+    } else {
+      expect(await screen.findByRole('heading', { name: 'We couldn’t finish saving your site' })).toBeVisible();
+      expect(mocks.claimMedia).not.toHaveBeenCalled();
+      expect(screen.queryByText('Load failed')).not.toBeInTheDocument();
+    }
+
+    expect(requests.map(r => r.path)).toEqual(['/api/onboarding/v1/claim', '/api/onboarding/v1/status']);
+    expect(requests[1]?.body).toEqual({ anonymousDraftToken: tokenBefore });
+    expect(loadOnboardingIntegrationFlow().claimIdempotencyKey).toBe(keyBefore);
+    expect(loadOnboardingState().state.anonymousDraftId).toBe(tokenBefore);
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    if (scenario === 'stale-revision') {
+      expect(loadOnboardingIntegrationFlow().errorCode).toBe('CLAIM_REVISION_STALE');
+    }
+    if (scenario === 'fingerprint-mismatch') {
+      expect(loadOnboardingIntegrationFlow().errorCode).toBe('CLAIM_RECOVERY_MISMATCH');
+    }
+  });
+
+  it('bounds uncertain-response reconciliation to one read and aborts after eight seconds', async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockRejectedValue(new OnboardingClaimTransportError());
+    // Even a stalled fetch implementation that ignores abort cannot hold the UI forever.
+    mocks.status.mockImplementation(() => new Promise(() => {}));
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mocks.status).toHaveBeenCalledOnce();
+
+    const signal = mocks.status.mock.calls[0]?.[1]?.signal as AbortSignal;
+
+    expect(signal.aborted).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+
+    expect(signal.aborted).toBe(true);
+    expect(screen.getByRole('heading', { name: 'We couldn’t finish saving your site' })).toBeVisible();
+    expect(mocks.claim).toHaveBeenCalledOnce();
+    expect(mocks.status).toHaveBeenCalledOnce();
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+  });
+
+  it.each(['signed-out', 'different-owner', 'unmounted'] as const)('aborts and discards reconciliation after %s', async (change) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockRejectedValueOnce(new OnboardingClaimTransportError()).mockResolvedValue(ownedBusinessConflict);
+    let resolveStatus: (value: { claim: OnboardingClaimSuccess }) => void = () => {};
+    mocks.status.mockImplementation(() => new Promise((resolve) => {
+      resolveStatus = resolve;
+    }));
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledOnce());
+    const signal = mocks.status.mock.calls[0]?.[1]?.signal as AbortSignal;
+    if (change === 'unmounted') {
+      view.unmount();
+    } else {
+      mocks.auth.isSignedIn = change !== 'signed-out';
+      mocks.userState.user = change === 'signed-out' ? null : { ...verifiedClerkUser(), id: 'different-owner' };
+      view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    }
+
+    expect(signal.aborted).toBe(true);
+
+    await act(async () => {
+      resolveStatus({ claim: savedSite });
+    });
+
+    expect(loadOnboardingIntegrationFlow().savedSite).toBeNull();
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.status).toHaveBeenCalledOnce();
+  });
+
+  it.each(['unmount', 'account-round-trip'] as const)('discards a pending claim after %s', async (change) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    let rejectClaim: (error: Error) => void = () => {};
+    mocks.claim.mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectClaim = reject;
+    }));
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await waitFor(() => expect(mocks.claim).toHaveBeenCalledOnce());
+    if (change === 'unmount') {
+      view.unmount();
+    } else {
+      mocks.userState.user = { ...verifiedClerkUser(), id: 'different-owner' };
+      view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+      mocks.userState.user = verifiedClerkUser();
+      view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    }
+    const flowAtUnmount = loadOnboardingIntegrationFlow();
+    mocks.claim.mockResolvedValue(ownedBusinessConflict);
+    await act(async () => {
+      rejectClaim(new OnboardingClaimTransportError());
+    });
+
+    expect(mocks.status).not.toHaveBeenCalled();
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    if (change === 'unmount') {
+      expect(loadOnboardingIntegrationFlow()).toEqual(flowAtUnmount);
+    } else {
+      expect(loadOnboardingIntegrationFlow().savedSite).toBeNull();
+    }
+  });
+
+  it('does not reconcile a known server claim rejection', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockRejectedValue(new OnboardingIntegrationRequestError('The server refused this save.', { code: 'SAVE_FAILED', status: 500 }));
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { name: 'We couldn’t finish saving your site' })).toBeVisible();
+    expect(mocks.status).not.toHaveBeenCalled();
+    expect(mocks.claim).toHaveBeenCalledOnce();
   });
 
   it('keeps ordinary request failures retryable without requesting email verification', async () => {
@@ -728,6 +1274,39 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     })));
   });
 
+  it.each(['salonId', 'siteId'] as const)('rejects same-fingerprint recovery for another %s', async (field) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const draft = savedResumeDraft();
+    window.localStorage.clear();
+    window.history.replaceState({}, '', `/en/onboarding-v1?resume=review&site=${draft.siteId}&revision=${draft.verifiedRevision}`);
+    mocks.status.mockResolvedValueOnce({ claim: savedSite });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} initialResumeDraft={draft} locale="en" />);
+    await waitFor(() => expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite));
+    mocks.lab.acceptOnboardingPresentation.mockReturnValue(draft.document as never);
+    mocks.claim.mockRejectedValue(new OnboardingClaimTransportError());
+    mocks.status.mockImplementation(async () => ({
+      claim: {
+        ...savedSite,
+        [field]: '00000000-0000-4000-8000-000000000099',
+        payloadFingerprint: fingerprintOnboardingPayload(mocks.claim.mock.calls[0]![0].snapshot),
+      },
+    }));
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Finish setup' }));
+    await waitFor(() => expect(loadOnboardingIntegrationFlow().errorCode).toBe('CLAIM_RECOVERY_MISMATCH'));
+
+    expect(mocks.claim).toHaveBeenCalledOnce();
+    expect(mocks.claim.mock.calls[0]![0].target).toMatchObject({
+      mode: 'existing_business',
+      salonId: savedSite.salonId,
+      expectedSiteId: savedSite.siteId,
+    });
+    expect(mocks.status).toHaveBeenCalledTimes(2);
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite);
+  });
+
   it('blocks stale resume content when a newer revision was saved in another session', async () => {
     mocks.auth.isSignedIn = true;
     mocks.userState.user = verifiedClerkUser();
@@ -818,6 +1397,33 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(loadOnboardingState().state.progress.currentScreen).toBe('booking_preferences');
     expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite);
     expect(loadOnboardingIntegrationFlow().phase).toBe('onboarding');
+  });
+
+  it('still recovers the same interrupted key after a fresh mount', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
+    const originalFlow = loadOnboardingIntegrationFlow();
+    mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await screen.findByRole('heading', { name: 'Your progress is saved' });
+
+    expect(mocks.status).not.toHaveBeenCalled();
+
+    view.unmount();
+    // A fresh document may load an interrupted record with this same key.
+    saveOnboardingIntegrationFlow({ ...originalFlow, phase: 'saving' });
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await screen.findByRole('heading', { name: 'Your progress is saved' });
+
+    expect(mocks.status).toHaveBeenCalledOnce();
+    expect(mocks.claim).toHaveBeenCalledOnce();
+    expect(loadOnboardingIntegrationFlow().claimIdempotencyKey).toBe(originalFlow.claimIdempotencyKey);
+    expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite);
   });
 
   it('ignores an interrupted-save status response after the account changes', async () => {

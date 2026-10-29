@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { readBoundedJsonBody } from '@/libs/boundedJsonBody';
 import { getSalonBySlug } from '@/libs/queries';
 import { guardSalonApiRoute, isOnlineBookingEnabled } from '@/libs/salonStatus';
 
@@ -33,26 +34,9 @@ export async function readCustomerJson(request: Request): Promise<unknown> {
   if (!request.headers.get('content-type')?.startsWith('application/json') || !request.body) {
     return null;
   }
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
   try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) {
-        break;
-      }
-      length += chunk.value.length;
-      if (length > 30_000) {
-        await reader.cancel();
-        return null;
-      }
-      chunks.push(chunk.value);
-    }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return await readBoundedJsonBody(request, 30_000);
   } catch {
     return null;
-  } finally {
-    reader.releaseLock();
   }
 }

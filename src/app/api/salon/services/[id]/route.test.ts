@@ -173,6 +173,20 @@ describe('PATCH /api/salon/services/[id]', () => {
     expect(row?.introPriceLabel).toBe('$55');
   });
 
+  it('normalizes omitted optional text to null on the existing service row', async () => {
+    holder.adminSalon = { id: SALON_ID, slug: SALON_SLUG };
+    const response = await PATCH(...patchRequest(SERVICE_ID, {
+      ...VALID_BODY,
+      description: undefined,
+      priceDisplayText: undefined,
+      introPriceLabel: undefined,
+    }));
+    const row = await getServiceRow(SERVICE_ID);
+
+    expect(response.status).toBe(200);
+    expect(row).toMatchObject({ id: SERVICE_ID, salonId: SALON_ID, price: 5500, description: null, priceDisplayText: null, introPriceLabel: null });
+  });
+
   it('persists the $55 repair (price, cleared display text, relabeled badge) and bumps updatedAt', async () => {
     holder.adminSalon = { id: SALON_ID, slug: SALON_SLUG };
     const before = await getServiceRow(SERVICE_ID);

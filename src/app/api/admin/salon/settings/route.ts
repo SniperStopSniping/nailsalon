@@ -17,7 +17,7 @@ import { z } from 'zod';
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { resolveSalonBillingDisplay } from '@/libs/billing/salonBillingDisplay';
-import { bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { bookingConfigPatchSchema, bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   bookingExperienceAppearanceUpdateSchema,
   bookingPolicyUpdateSchema,
@@ -87,7 +87,7 @@ export const dynamic = 'force-dynamic';
 const adminUpdateSchema = z.object({
   reviewsEnabled: z.boolean().optional(),
   rewardsEnabled: z.boolean().optional(),
-  bookingConfig: bookingConfigSchema.partial().optional(),
+  bookingConfig: bookingConfigPatchSchema.optional(),
   bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
   communications: communicationSettingsUpdateSchema.optional(),
   salonEmailNotifications: salonEmailNotificationSettingsUpdateSchema.optional(),

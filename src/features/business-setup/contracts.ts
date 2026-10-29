@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { websiteDetailsSchema } from '@/features/custom-sites/website-details';
-import { bookingConfigSchema } from '@/libs/bookingConfig.shared';
+import { bookingConfigPatchSchema, bookingConfigSchema } from '@/libs/bookingConfig.shared';
 import type { resolveBookingExperience } from '@/libs/bookingExperience';
 import { bookingPolicyUpdateSchema } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
@@ -75,7 +75,7 @@ const uploadOperationSchema = z.discriminatedUnion('type', [
   websiteDetailsOperation,
   z.object({ type: z.literal('business'), values: businessSchema.omit({ workMode: true }).partial() }).strict(),
   z.object({ type: z.literal('hours'), values: hoursSchema }).strict(),
-  z.object({ type: z.literal('booking'), values: bookingConfigSchema.pick({ currency: true }).partial().strict() }).strict(),
+  z.object({ type: z.literal('booking'), values: bookingConfigPatchSchema.pick({ currency: true }).strict() }).strict(),
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
 ]);
 export const setupOperationSchema = z.discriminatedUnion('type', [
@@ -93,9 +93,9 @@ export const setupOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('import_upload'), referenceIds: z.array(z.string().uuid()).min(1).max(6), operations: z.array(uploadOperationSchema).min(1).max(30) }).strict(),
   z.object({ type: z.literal('design_brief'), values: designBriefSchema }).strict(),
   z.object({ type: z.literal('custom_frontend'), artifactId: z.string().uuid() }).strict(),
-  z.object({ type: z.literal('business'), values: businessSchema.partial() }).strict(),
+  z.object({ type: z.literal('business'), values: businessSchema.partial().extend({ workMode: businessSchema.shape.workMode.removeDefault().optional() }) }).strict(),
   z.object({ type: z.literal('hours'), values: hoursSchema }).strict(),
-  z.object({ type: z.literal('booking'), values: bookingConfigSchema.pick({ currency: true, timezone: true, minimumNoticeMinutes: true, bufferMinutes: true, slotIntervalMinutes: true, confirmationMode: true }).partial().strict() }).strict(),
+  z.object({ type: z.literal('booking'), values: bookingConfigPatchSchema.pick({ currency: true, timezone: true, minimumNoticeMinutes: true, bufferMinutes: true, slotIntervalMinutes: true, confirmationMode: true }).strict() }).strict(),
   z.object({ type: z.literal('service'), values: setupServiceSchema }).strict(),
   z.object({ type: z.literal('confirm_services'), ids: z.array(id).min(1).max(200) }).strict(),
   z.object({ type: z.literal('design'), style: z.enum(CUSTOMER_SITE_STYLE_PRESETS), palette: z.enum(CUSTOMER_SITE_PALETTE_PRESETS), layout: z.enum(['quick_book', 'editorial']) }).strict(),

@@ -502,7 +502,7 @@ describe('Preview service-image fixture behavior', () => {
         has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'TRIGGER') AS can_trigger`);
 
       expect(privileges.rows[0]).toEqual({ can_select: true, can_insert: false, can_update: false, can_delete: false, can_truncate: false, can_reference: false, can_trigger: false });
-      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(113);
+      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(115);
 
       for (const statement of [
         'INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (\'denied\', 0)',
@@ -699,6 +699,52 @@ describe('Preview service-image fixture behavior', () => {
     }
   // Each case migrates the full schema, applies the fixture and exercises a
   // refused reset. Give it the same bounded DDL budget as the other rehearsals.
+  }, 30_000);
+
+  it('preserves Daniela automation rows during refused resets and leaves an unrelated tenant intact', async () => {
+    const { client, database } = await migratedDatabase();
+    const salonId = FIXTURE.salons[0]!.id;
+    const unrelatedSalonId = 'synthetic-unrelated-daniela-salon';
+    const contactInsert = 'INSERT INTO daniela_contact (salon_id, phone) VALUES ($1, \'+14165559300\')';
+    try {
+      await runFixture('apply', fixtureEnvironment(), database);
+      await client.query('INSERT INTO salon (id, name, slug) VALUES ($1, $2, $3)', [unrelatedSalonId, 'Synthetic Unrelated Automation', 'synthetic-unrelated-daniela']);
+      await client.query('INSERT INTO daniela_automation_state (salon_id, worker_token) VALUES ($1, $2)', [unrelatedSalonId, 'synthetic-unrelated-token']);
+      const unrelatedBefore = await client.query('SELECT * FROM daniela_automation_state WHERE salon_id = $1', [unrelatedSalonId]);
+
+      for (const [table, insert] of [
+        ['daniela_automation_state', 'INSERT INTO daniela_automation_state (salon_id) VALUES ($1)'],
+        ['daniela_contact', contactInsert],
+        ['daniela_inbound', 'INSERT INTO daniela_inbound (id, salon_id, provider_sid, kind, outcome) VALUES (\'protected-daniela-inbound\', $1, \'synthetic-inbound-sid\', \'sms\', \'preserved\')'],
+        ['daniela_send', 'INSERT INTO daniela_send (id, salon_id, phone, purpose, body) VALUES (\'protected-daniela-send\', $1, \'+14165559300\', \'synthetic-test\', \'Synthetic preserved message\')'],
+      ] as const) {
+        if (table === 'daniela_send') {
+          await client.query(contactInsert, [salonId]);
+        }
+        await client.query(insert, [salonId]);
+        const writesBefore = database.writes.length;
+
+        await expectCode(runFixture('reset', fixtureEnvironment(), database), 'COLLISION_REJECTED');
+
+        expect(database.writes).toHaveLength(writesBefore);
+        expect(await countRows(client, `SELECT count(*) FROM ${table} WHERE salon_id = $1`, [salonId])).toBe(1);
+        expect(await countRows(client, 'SELECT count(*) FROM service WHERE salon_id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)])).toBe(12);
+        expect((await client.query('SELECT * FROM daniela_automation_state WHERE salon_id = $1', [unrelatedSalonId])).rows).toEqual(unrelatedBefore.rows);
+
+        await client.query(`DELETE FROM ${table} WHERE salon_id = $1`, [salonId]);
+        if (table === 'daniela_send') {
+          await client.query('DELETE FROM daniela_contact WHERE salon_id = $1', [salonId]);
+        }
+      }
+
+      await runFixture('reset', fixtureEnvironment(), database);
+
+      expect(await countRows(client, 'SELECT count(*) FROM salon WHERE id = ANY($1::text[])', [FIXTURE.salons.map(row => row.id)])).toBe(0);
+      expect((await client.query('SELECT * FROM daniela_automation_state WHERE salon_id = $1', [unrelatedSalonId])).rows).toEqual(unrelatedBefore.rows);
+      expect(await countRows(client, 'SELECT count(*) FROM salon WHERE id = $1', [unrelatedSalonId])).toBe(1);
+    } finally {
+      await client.close();
+    }
   }, 30_000);
 
   it('preserves an AI wallet account instead of cascading it away during fixture reset', async () => {

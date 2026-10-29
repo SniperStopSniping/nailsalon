@@ -226,6 +226,33 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
   // the relative spelling.
   const allSrcFiles = new Set(walkTsFiles());
   const fileExists = (candidate: string) => MODULE_SET_FILES.has(candidate) || allSrcFiles.has(candidate);
+  const offlineRuntimeFiles = [...allSrcFiles]
+    .filter(file => !isTestOrStoryFile(file) && !file.includes('/__evals__/'))
+    .sort();
+  // Keep the exhaustive AST scan inside timed tests. A growing repository
+  // exceeds one aggregate deadline under coverage, so spread the unchanged
+  // work across deterministic, disjoint cases with the normal test budget.
+  const offlineScanBatchCount = 32;
+  const offlineScanBatches = Array.from({ length: offlineScanBatchCount }, (_, index) => ({
+    batch: index + 1,
+    files: offlineRuntimeFiles.filter((_, fileIndex) => fileIndex % offlineScanBatchCount === index),
+  }));
+
+  function findOfflineEvaluationImports(files: Iterable<string>, readSource: (file: string) => string): string[] {
+    const offenders: string[] = [];
+    for (const file of files) {
+      if (isTestOrStoryFile(file) || file.includes('/__evals__/')) {
+        continue;
+      }
+      for (const specifier of getValueImportSpecifiers(readSource(file), file)) {
+        const resolved = resolveModuleSpecifier(file, specifier, fileExists);
+        if (resolved?.startsWith('src/libs/customerAssistant/__evals__/')) {
+          offenders.push(`${file} imports ${resolved}`);
+        }
+      }
+    }
+    return offenders;
+  }
 
   it('the module set really does have at least one importer among itself + tests (non-vacuous)', () => {
     // catalogResolverCore.ts imports catalogDomain.ts — an internal edge —
@@ -260,21 +287,39 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
     expect(isAuthorized('src/libs/catalogSubmissionReconciliation.server.ts', 'src/libs/catalogResolverCore.ts')).toBe(false);
   });
 
-  it('offline customer evaluation fixtures never enter application runtime imports', () => {
-    const offenders: string[] = [];
-    for (const file of allSrcFiles) {
-      if (isTestOrStoryFile(file) || file.includes('/__evals__/')) {
-        continue;
-      }
-      for (const specifier of getValueImportSpecifiers(read(file), file)) {
-        const resolved = resolveModuleSpecifier(file, specifier, fileExists);
-        if (resolved?.startsWith('src/libs/customerAssistant/__evals__/')) {
-          offenders.push(`${file} imports ${resolved}`);
-        }
-      }
-    }
+  it.each([
+    `import { cases } from '@/libs/customerAssistant/__evals__/nailBookingCases';`,
+    `export { cases } from './customerAssistant/__evals__/nailBookingCases';`,
+    String.raw`const load = () => import('@/libs/customerAssistant/__\u0065vals__/nailBookingCases');`,
+    'const load = () => require(`./customerAssistant/__evals__/nailBookingCases`);',
+  ])('detects an offline fixture runtime import with the repository guard: %s', (source) => {
+    const file = 'src/libs/runtime-fixture.ts';
 
-    expect(offenders).toEqual([]);
+    expect(findOfflineEvaluationImports([file], () => source)).toEqual([
+      `${file} imports src/libs/customerAssistant/__evals__/nailBookingCases.ts`,
+    ]);
+  });
+
+  it('keeps erased type imports and JSDoc examples outside the runtime guard', () => {
+    const source = `
+      /** @example import { cases } from '@/libs/customerAssistant/__evals__/nailBookingCases'; */
+      import type { Case } from '@/libs/customerAssistant/__evals__/nailBookingCases';
+      export { type Case } from '@/libs/customerAssistant/__evals__/nailBookingCases';
+      type CaseModule = import('@/libs/customerAssistant/__evals__/nailBookingCases');
+    `;
+
+    expect(findOfflineEvaluationImports(['src/libs/runtime-fixture.ts'], () => source)).toEqual([]);
+  });
+
+  it('offline graph scan batches cover every eligible source exactly once', () => {
+    const coveredFiles = offlineScanBatches.flatMap(batch => batch.files);
+
+    expect(coveredFiles.toSorted()).toEqual(offlineRuntimeFiles);
+    expect(new Set(coveredFiles).size).toBe(offlineRuntimeFiles.length);
+  });
+
+  it.each(offlineScanBatches)(`offline customer evaluation fixtures never enter application runtime imports (batch $batch/${offlineScanBatchCount})`, ({ files }) => {
+    expect(findOfflineEvaluationImports(files, read)).toEqual([]);
   });
 
   it('no production file outside the set imports any set member except through an authorized edge', () => {

@@ -3,7 +3,7 @@ import 'server-only';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { drizzle as drizzlePg, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
@@ -14,15 +14,16 @@ import * as schema from '@/models/Schema';
 import { deriveBookingCategory } from './bookingCategory';
 import { Env } from './Env';
 import { resolvePGliteRuntimeDataSource } from './pgliteRuntime';
+import { readRuntimeDatabaseBindingStatus, type RuntimeDatabaseBindingStatus } from './runtimeDatabaseBinding.server';
 import {
-  createRuntimeDatabasePoolVerifier,
   requireMatchingCachedDatabaseTarget,
   requireRuntimeDatabaseTarget,
   RuntimeDatabaseGuardError,
   type RuntimePostgresTarget,
 } from './runtimeDatabaseGuard';
 import { createRuntimeDatabaseCooldownClient } from './runtimeDatabasePoolClient';
-import { createRuntimeDatabaseVerificationCooldown, type RuntimeDatabaseVerificationCooldown } from './runtimeDatabasePoolRecovery';
+import { createRuntimeDatabaseVerificationCooldown } from './runtimeDatabasePoolRecovery';
+import { createGuardedRuntimeDatabasePoolVerifier, pingRuntimePostgres } from './runtimeDatabasePoolVerifier.server';
 
 type VerifiedPoolConfig = PoolConfig & {
   // pg-pool supports a per-client verifier, but @types/pg does not currently
@@ -197,44 +198,10 @@ function classifyPostgresRuntimeFailure(error: unknown): RuntimeDatabaseGuardErr
 const POSTGRES_RUNTIME_RECONNECT_COOLDOWN_MS = 5_000;
 
 /**
- * Wraps the real per-connection live-attestation verifier with the bounded
- * cooldown above. pg-pool invokes `verify` for every NEW physical
- * connection it opens — not once for the whole pool's lifetime — which is
- * what already lets a live, never-destroyed Pool self-heal once the
- * provider recovers: the next query that needs a fresh connection
- * re-attempts it, and this re-attests it, with no other code involved. The
- * cooldown only bounds HOW OFTEN a failing target may attempt a fresh
- * round-trip; it never changes WHETHER a connection is accepted — the real
- * verifier underneath still runs on every attempt that clears the cooldown,
- * so a genuinely wrong database keeps failing every single one, forever.
- */
-function createGuardedPoolVerifier(
-  target: RuntimePostgresTarget,
-  cooldown: RuntimeDatabaseVerificationCooldown,
-): VerifiedPoolConfig['verify'] {
-  const verify = createRuntimeDatabasePoolVerifier(target);
-
-  return (client, callback) => {
-    void cooldown.guard(() => new Promise<void>((resolve, reject) => {
-      verify(client, (error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    })).then(
-      () => callback(),
-      (error: unknown) => callback(classifyPostgresRuntimeFailure(error)),
-    );
-  };
-}
-
-/**
  * Builds the runtime Postgres Pool and Drizzle handle. Construction itself
  * never touches the network — `new Pool()` is synchronous — so this can
  * never fail on a provider outage, and callers never need to catch it. Live
- * attestation happens per physical connection (see createGuardedPoolVerifier
+ * attestation happens per physical connection (see createGuardedRuntimeDatabasePoolVerifier
  * above), exactly the way every OTHER connection this pool ever opens is
  * already attested.
  */
@@ -258,7 +225,7 @@ function createPostgresRuntimeConnection(
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
     Client: createRuntimeDatabaseCooldownClient(cooldown),
-    verify: createGuardedPoolVerifier(target, cooldown),
+    verify: createGuardedRuntimeDatabasePoolVerifier(target, cooldown),
   };
   const pool = new Pool(poolConfig);
 
@@ -338,7 +305,7 @@ if (runtimeTarget) {
     // even long after this module finished loading — retries through the
     // SAME cooldown-gated verifier and recovers on its own once the
     // provider is back, with no redeploy required.
-    await connection.pool.query('SELECT 1').catch(() => undefined);
+    await pingRuntimePostgres(connection.pool).catch(() => undefined);
   }
 } else {
   if (
@@ -398,6 +365,25 @@ export const db = drizzle;
 
 export type DatabaseSessionHandle = typeof db;
 export const usesRuntimePostgres = Boolean(runtimeTarget);
+
+/** Bound only the PostgreSQL liveness read; other readiness checks have their own behavior. */
+export async function pingRuntimeDatabase(): Promise<void> {
+  if (runtimeTarget) {
+    // pool.query releases with the error and destroys a timed-out client,
+    // instead of returning a possibly still-busy session to the idle pool.
+    await pingRuntimePostgres(globalForDb.pgPool!);
+    return;
+  }
+  await db.execute(sql`SELECT 1`);
+}
+
+/** Status only; the expectation must come independently from approved provider metadata. */
+export async function getRuntimeDatabaseBindingStatus(): Promise<RuntimeDatabaseBindingStatus> {
+  return readRuntimeDatabaseBindingStatus(
+    process.env.LUSTER_EXPECTED_DATABASE_BINDING,
+    runtimeTarget ? globalForDb.pgPool ?? null : null,
+  );
+}
 
 /**
  * Run work on one dedicated database session. PostgreSQL advisory locks are

@@ -75,11 +75,18 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+      - name: Test generated assignment attribution
+        if: matrix.node-version == '24.x'
+        run: node --test scripts/compare-generated-clerk-secret-finding.node-test.mjs
       - run: npm run build
       - name: Verify deployed voice WebSocket packaging and masked send
         run: node scripts/verify-voice-websocket-build.mjs
       - name: Scan production client bundles and runtime credentials
+        id: client_secret_scan
         run: npm run security:check-secrets -- --tree
+      - name: Attribute generated Clerk scanner finding
+        if: failure() && steps.client_secret_scan.outcome == 'failure'
+        run: timeout --signal=TERM 45s node --max-old-space-size=256 scripts/compare-generated-clerk-secret-finding.mjs
 
   full-vitest-shards:
     name: Vitest shard ${{ matrix.shard }}/3
@@ -205,8 +212,16 @@ jobs:
           npm ls --all --json > "$RUNNER_TEMP/installed-dependency-graph.json"
           echo 'INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1'
 
+      - name: Verify release dependency registration with zero skips
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/dependency-pair.node-test.mjs scripts/release-pair-registration.node-test.mjs | tee release-dependency-pairs.tap
+          grep -Fqx '# tests 22' release-dependency-pairs.tap
+          grep -Fqx '# pass 22' release-dependency-pairs.tap
+          grep -Fqx '# skipped 0' release-dependency-pairs.tap
+
       - name: Test CI evidence and cancellation contracts
-        run: node --test scripts/ci-workflow.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
+        run: node --test scripts/ci-workflow.node-test.mjs scripts/install-playwright.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
 
       # The deposits ladder is additive by construction. These paths carry the
       # SaaS billing surface, dependency manifests, migration set, deploy
@@ -278,92 +293,7 @@ jobs:
           # Dependency manifests remain frozen except these reviewed exact
           # manifest/lock pairs. Neither a generic version range nor an
           # unrelated dependency refresh can ride along with a security fix.
-          if ! git diff --quiet "$base" -- package.json package-lock.json; then
-            dependency_manifest_blob="$(git hash-object package.json)"
-            dependency_lock_blob="$(git hash-object package-lock.json)"
-            case "$dependency_manifest_blob:$dependency_lock_blob" in
-              # Clerk 6.39.6: GHSA-vqx2-fgx2-5wq9 + GHSA-w24r-5266-9c3c.
-              158fcdce964972ec67f578e56bddba4db1408596:94fa39b23421c3eafeeddff7aac5fe50d6e71fa8) ;;
-              # Next 15.5.25 / React 19.2.8: patched App Router request handling
-              # (GHSA-m99w-x7hq-7vfj), with compatible intl/UI/test dependencies.
-              2566f6f2a1cb093ce512627a1568265c57aa8895:8d44f4449583e8d5d8bcc3cf6e844d9f47610578) ;;
-              # Voice receptionist: ws runtime sideband + matching TypeScript
-              # types on the current main manifests; payment dependencies unchanged.
-              f7c4952389da41ef8ad7a16fc3c71ccd785140f3:75eb90cb75b577a9b9ea9b9f84a1ec928ad20e34) ;;
-              # Node 24 monitoring compatibility: Sentry 8.55.2, its resolved
-              # dependency graph and the native regression command only.
-              2d308eb94fc47228b1f8cefb95e5109674a6c7b6:16a00768b1248501e221a5af2350d2a49a27d3d4) ;;
-              # Same reviewed graph after main's 1.142.4 release-version bump.
-              81033b57a45e03fa3fb84b35435d5c511c945dc6:9c7d5702e010a55e897258fee728c517b20d0593) ;;
-              # Remaining bundled Node 24 URL parser: ioredis 5.11.1 and only
-              # its resolved dependency closure; application settings unchanged.
-              2658646d2addf8fe450503e0366a1b30d3a37d16:2b018033b1df3bbc21bfd1858b764a6fe2d14e64) ;;
-              # Same reviewed Redis graph after main's 1.142.5 version bump.
-              36b6eb8cc244742e3f00ca9e6371e83580bbd907:f30136fcafe073d34bb76a50cadeaf8d83c2a31b) ;;
-              # Cloudinary 2.9.0: native URL parsing and promises; removes only
-              # the SDK's unused Q dependency. Upload/cleanup rules unchanged.
-              676faa4e87813eb9500b132e5b5034947fb607ea:9d6a655a476d1beaea9c5f3ed3dee6a0b0012ca2) ;;
-              # Readability regression checks: explicitly pin the already-resolved
-              # development-only axe-core 4.10.1; resolved package graph unchanged.
-              5f3f0c31d902dd4ff5494d02d536de4cf04784ad:ac14f583f5e9bde0910231da97b64d28e24b252b) ;;
-              # Sharp 0.35.5: patched production SVG/native image decoders
-              # (GHSA-wq5f-xc86-pv6w); Next deduplicated, Storybook dev-only.
-              ea2893563cf943de48bbd6ba91881946fe4c9f98:da93db3e2a143e0b8694b3231265f4e8b8885d5a) ;;
-              # Same reviewed Sharp graph after main's 1.142.36 version bump.
-              f5212c5c05d6cf9a89a3e63c2643f03bbf223d75:3500380b6019dbab17b1c137064ee1c1e3963eda) ;;
-              # Node 24 runtime pin: package metadata only; dependency graph unchanged.
-              30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b:8e1b8a6010053efb7bd0fb883f4674537829cdd0) ;;
-              # Compatible SMS transport, multipart, ID and editor-parser fixes;
-              # Cloudinary alone resolves patched lodash despite the dev-tool pin.
-              b7e4591c8df9d94b82b281587cec8f98b0f5439e:9576667ec691e6f5aba41486cfbbcf8e32d6b3ee) ;;
-              # Custom website builder: constrained JS/HTML parsers, PDF references
-              # and private-suffix isolation; Acorn retains main's 8.18.0 version.
-              ed0e8734ece6869797c94dfa57037955df0d02e5:433031ed9d0c705c548bc522e585e15d69648dba) ;;
-              # Same builder dependencies after main's 1.143.1 release bump.
-              7a219ff506106dca631528df8bf7877ca28c4b71:03917548fdcf78991dfd60a487783cfbdefa5ab0) ;;
-              # Identical reviewed builder dependency graph after main's 1.143.2
-              # release bump. Both manifests differ only in version fields.
-              021dfc548a7955ac279af6576c880b87ff36d87a:99e31ce606948ad4d522d0f3da2ec9d372b0db7d) ;;
-              # Prelaunch security refresh: Next 15.5.28, Sentry 10.76.2,
-              # patched PostCSS, and compatible dependency closure only.
-              e8611651650ec97880c8a67e05b795a26efaa6cb:8f5742e82fcd36ec2185235d4bfa08bd383a7966) ;;
-              # Same audited refresh with explicit Node24 deployment engine.
-              30c0c10fc47f7d1d372c39f8f46cdb31ae128d8b:8e1b8a6010053efb7bd0fb883f4674537829cdd0) ;;
-              # Local integration retains that patched graph and adds only the
-              # already reviewed AI parsing/PDF/private-suffix dependencies.
-              8c510528ccff7fa01b70bb29cb42dd6a32452ac2:f9473055446d79e1ccce710cd0924b3a677c5844) ;;
-              # Combined candidate: Drizzle ORM 0.45.4 + next-intl 4.14.9,
-              # retaining PR461 Node24, Sentry 10 and AI dependency graph.
-              415d1c90eb42ea7230692a3f241d6febe7e872d6:c7bb0015690ce967afed8f1776d28ced92d5f116) ;;
-              # Compatible development-only transitive security patches for
-              # cipher-base, elliptic, pbkdf2, sha.js and Handlebars.
-              415d1c90eb42ea7230692a3f241d6febe7e872d6:f0c9aa4940a835250395d2098565f07802bb950e) ;;
-              # Vitest4 toolchain migration: project-based Node/jsdom config,
-              # matching coverage/expect packages and Vite6; the compatible
-              # shared magic-string/source-map transitive pins move with it.
-              2c85781c86ede9f53b02c36bd36751a0bae4e5e4:960fa1603f11ff1a10084331ff43b95d8ea68a9e) ;;
-              # Separately reviewed Storybook and npm tar security pairs.
-              cf9ee4410133e7254924abfee7a7a70e0592a25b:c7279e61b579800514e86c260774a902c25b26b4) ;;
-              fcf749d8a0e3a531756b221ed60848df2b540355:1a0d21a18e49f9d77dcecde059cdbf20a788a621) ;;
-              # Local combined tooling graph: D security patches, Vitest4,
-              # Storybook local Webpack5.111.1 and npm10.9.9/tar7.5.22.
-              68378a97e8f7292264e15565a299b4b5c04e47b3:5467895180e9024f1227adf9b47b9c42ce7c4d4c) ;;
-              # Preserve distinct Next0.5.15 and Intl compiler0.5.23 SWC
-              # helper requirements with an explicit compatible peer provider.
-              72714ec554388ba617898e14c78a0556f475bc65:547a7f34a8855333a1cfbdebbdd32393b8be31c3) ;;
-              # Identical reviewed dependency graph after main's 1.143.3
-              # release metadata bump; only root version fields differ.
-              35b8e45ccdebc4b086e18b311539b23bab137e88:c8d051aa1953cbd1dc7320d366d5bb7f5a7f5a2b) ;;
-              # Identical reviewed graph after protected main's 1.144.0
-              # release; only the three root version fields changed.
-              95a5d51e3c9fd0bde85d21fc288077db849ef5a0:ac97375ebeff51fd225f1e1831243e131a5c50ef) ;;
-              *)
-                echo "::error::Dependency manifests must match a reviewed security-refresh pair."
-                printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
-                exit 1
-                ;;
-            esac
-          fi
+          node scripts/verify-dependency-pair.mjs
 
           # 1b. Billing checkout surface (Gate C2). Only the enumerated paths
           #     may change under src/app/api/billing, and the route itself
@@ -573,6 +503,9 @@ jobs:
               migrations/0111_other_service_categories.sql) ;;
               migrations/0112_ai_operator_expense_budget.sql) ;;
               migrations/0113_salon_deletion_cleanup.sql) ;;
+              # Exact reviewed Daniela/sweep prerequisite suffix; SQL is pinned below.
+              migrations/0114_daniela_automation.sql) ;;
+              migrations/0115_topup_reconciliation_sweep.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1059,6 +992,47 @@ jobs:
           migrations/0112_ai_operator_expense_budget.sql eebc64176f6a19b50f4d232837588e1e2c1e5645
           AI_SETUP_MIGRATIONS
 
+          # TOPUP_CURSOR_MIGRATION_BEGIN: admit only this reviewed ordered suffix.
+          # Drizzle selects by timestamp: 0114 must precede 0115 before either
+          # is applied. An installed 0115-first ledger needs a forward repair;
+          # this source packet never rewrites shipped SQL or journal history.
+          node --input-type=module - "$base" <<'TOPUP_CURSOR_MIGRATION'
+          import assert from 'node:assert/strict';
+          import { execFileSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const base = process.argv[2];
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+          const expected = [
+            { idx: 113, version: '7', when: 1793044800000, tag: '0114_daniela_automation', breakpoints: true },
+            { idx: 114, version: '7', when: 1793224800000, tag: '0115_topup_reconciliation_sweep', breakpoints: true },
+          ];
+          const sql = [
+            ['migrations/0114_daniela_automation.sql', '3118d2a122c6ba140e3a391f25ceed7ea493e8cb74affdbce253644c80066281'],
+            ['migrations/0115_topup_reconciliation_sweep.sql', '3ca58901ca6539365ff541bb07c0b446b8543c83227aadcb27841f78690f87e6'],
+          ];
+          const journal = JSON.parse(readFileSync('migrations/meta/_journal.json', 'utf8'));
+          const { entries } = journal;
+          assert.equal(entries.length, 115, 'Only the reviewed 0114/0115 suffix is admitted');
+          assert.deepEqual(entries.slice(113), expected, '0114 must precede 0115 at their original timestamps');
+          assert.equal(new Set(entries.map(entry => entry.idx)).size, entries.length, 'Migration indexes must be unique');
+          assert.equal(new Set(entries.map(entry => entry.tag)).size, entries.length, 'Migration tags must be unique');
+          for (let index = 1; index < entries.length; index++) {
+            assert.ok(entries[index - 1].when < entries[index].when, 'Migration timestamps must increase strictly');
+          }
+          for (const [file, hash] of sql) {
+            assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), hash, `${file} must match the reviewed SQL`);
+            if (git('diff', '--name-only', base, '--', file)) {
+              assert.throws(() => git('cat-file', '-e', `${base}:${file}`), 'Already-shipped SQL is immutable');
+              assert.equal(git('diff', '--name-status', base, '--', file), `A\t${file}`);
+            }
+          }
+          const previous = JSON.parse(git('show', `${base}:migrations/meta/_journal.json`));
+          assert.deepEqual(entries.slice(0, previous.entries.length), previous.entries, 'Existing journal prefix is immutable; installed 0115-first requires forward repair');
+          assert.deepEqual({ ...journal, entries: undefined }, { ...previous, entries: undefined }, 'Journal header is immutable');
+          TOPUP_CURSOR_MIGRATION
+          # TOPUP_CURSOR_MIGRATION_END
+
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
             # Shipped journal entries are IMMUTABLE, but later chartered
             # packets legitimately APPEND (0069/0070 below). A line-level or
@@ -1140,6 +1114,8 @@ jobs:
               0111_other_service_categories) ;;
               0112_ai_operator_expense_budget) ;;
               0113_salon_deletion_cleanup) ;;
+              0114_daniela_automation) ;;
+              0115_topup_reconciliation_sweep) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1214,6 +1190,9 @@ jobs:
       - name: Appointment sheet regression gate
         run: npm run test:appointment-regression
 
+      - name: Check all TypeScript diagnostics before framework build
+        run: npm run check-types
+
       - name: Build Next.js for E2E tests
         run: npm run build
         # PR-controlled builds validate the production bundle without provider
@@ -1287,6 +1266,14 @@ jobs:
         timeout-minutes: 38
         uses: ./.github/actions/install-playwright
 
+      - name: Verify Percy discovery browser override without provider traffic
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/percy-browser-override.node-test.mjs | tee percy-browser-override.tap
+          grep -Fqx '# tests 3' percy-browser-override.tap
+          grep -Fqx '# pass 3' percy-browser-override.tap
+          grep -Fqx '# skipped 0' percy-browser-override.tap
+
       # Functional visual assertions remain in Visual.e2e.ts for PRs, while
       # trusted main retains hosted snapshot publication.
       - name: Run E2E tests against disposable PostgreSQL
@@ -1294,7 +1281,7 @@ jobs:
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/quick-book-designs.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts tests/e2e/rebooking-reminders.e2e.ts
+        run: PLAYWRIGHT_JSON_OUTPUT_FILE=test-results/app24-e2e-results.json npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/quick-book-designs.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts tests/e2e/rebooking-reminders.e2e.ts --reporter=github,json
 
       - name: Verify authoritative L1 public booking in mobile Chromium and WebKit
         env:
@@ -1312,7 +1299,13 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
+          set -euo pipefail
           if [ -n "$PERCY_TOKEN" ]; then
+            PERCY_BROWSER_EXECUTABLE="$(node -e 'process.stdout.write(require("playwright").chromium.executablePath())')"
+            export PERCY_BROWSER_EXECUTABLE
+            test -n "$PERCY_BROWSER_EXECUTABLE"
+            test -f "$PERCY_BROWSER_EXECUTABLE"
+            test -x "$PERCY_BROWSER_EXECUTABLE"
             npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts
           else
             npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts tests/e2e/network-no-show-protection.e2e.ts tests/e2e/salon-no-show-records.e2e.ts
@@ -1384,17 +1377,31 @@ jobs:
         timeout-minutes: 3
         run: node node_modules/@playwright/test/cli.js test --config tests/browser/rendererIsolationHttps/playwright.config.ts --output=test-results/renderer-https-isolation
 
-      - name: Verify onboarding confirmation and booking notice
+      - name: Prepare onboarding lab dependencies and types
         if: matrix.suite == 'onboarding-owner'
         working-directory: prototypes/site-builder-v2-booking-integration-lab
-        # The full lab suite and both device/browser matrices share this step.
-        timeout-minutes: 15
+        timeout-minutes: 10
         run: |
           npm ci
           npm run typecheck
-          npm test -- --maxWorkers=2 --minWorkers=1
-          npx playwright test --config playwright.booking-preferences.config.ts
-          npx playwright test --config playwright.layout-previews.config.ts
+
+      - name: Verify onboarding lab unit tests
+        if: matrix.suite == 'onboarding-owner'
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        timeout-minutes: 8
+        run: npm test -- --maxWorkers=2 --minWorkers=1
+
+      - name: Verify onboarding confirmation and booking notice
+        if: matrix.suite == 'onboarding-owner'
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        timeout-minutes: 5
+        run: npx playwright test --config playwright.booking-preferences.config.ts
+
+      - name: Verify onboarding layout previews and recovery
+        if: matrix.suite == 'onboarding-owner'
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        timeout-minutes: 10
+        run: npx playwright test --config playwright.layout-previews.config.ts
 
       - name: Verify SMS components and plan access in desktop and mobile browsers
         if: matrix.suite == 'onboarding-owner'
@@ -1501,7 +1508,7 @@ jobs:
         if: matrix.suite == 'customer-booking'
         # Fixture-only browser contexts have no shared writes. Two workers keep
         # the expanded 24-design matrix bounded without reducing its coverage.
-        run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts quick-book.spec.ts media-layouts.spec.ts isla.spec.ts contrast.spec.ts --workers=2 --output=test-results/quick-book-compositions
+        run: node node_modules/playwright/cli.js test --config tests/browser/booking-theme/playwright.config.ts quick-book.spec.ts media-layouts.spec.ts isla.spec.ts contrast.spec.ts service-menu-layout.spec.ts --workers=2 --output=test-results/quick-book-compositions
 
       - name: Verify customer booking access and private management screens
         if: matrix.suite == 'customer-booking'
@@ -1553,7 +1560,10 @@ jobs:
         if: always()
         with:
           name: component-test-results-${{ matrix.suite }}
-          path: test-results/
+          path: |
+            test-results/
+            /tmp/luster-booking-confirmation-browser-results/
+            /tmp/luster-layout-preview-browser-results/
           retention-days: 7
 
   monitoring-node24:
@@ -1581,6 +1591,15 @@ jobs:
           grep -Fqx '# tests 18' monitoring-node24.log
           grep -Fqx '# pass 18' monitoring-node24.log
           grep -Fqx '# skipped 0' monitoring-node24.log
+      - name: Verify Checkly Axios request compatibility with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:checkly-axios:node24 | tee checkly-axios-node24.log
+          grep -Fqx '# tests 1' checkly-axios-node24.log
+          grep -Fqx '# pass 1' checkly-axios-node24.log
+          grep -Fqx '# skipped 0' checkly-axios-node24.log
+
       - name: Verify Redis URL compatibility with zero skips
         shell: bash
         run: |
@@ -1604,9 +1623,53 @@ jobs:
         run: |
           set -euo pipefail
           node --test --test-reporter=tap scripts/runtime-dependency-security.node-test.mjs | tee runtime-dependency-security.log
-          grep -Fqx '# tests 10' runtime-dependency-security.log
-          grep -Fqx '# pass 10' runtime-dependency-security.log
+          grep -Fqx '# tests 11' runtime-dependency-security.log
+          grep -Fqx '# pass 11' runtime-dependency-security.log
           grep -Fqx '# skipped 0' runtime-dependency-security.log
+
+      - name: Verify patched release tooling dependencies with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/tooling-dependency-security.node-test.mjs | tee tooling-dependency-security.log
+          grep -Fqx '# tests 3' tooling-dependency-security.log
+          grep -Fqx '# pass 3' tooling-dependency-security.log
+          grep -Fqx '# skipped 0' tooling-dependency-security.log
+
+      - name: Verify patched URI parser consumers with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/fast-uri-security.node-test.mjs | tee fast-uri-security.log
+          grep -Fqx '# tests 7' fast-uri-security.log
+          grep -Fqx '# pass 7' fast-uri-security.log
+          grep -Fqx '# skipped 0' fast-uri-security.log
+
+      - name: Verify scoped release-plugin Lodash with zero skips
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/release-tooling-lodash.node-test.mjs | tee release-plugin-lodash.tap
+          grep -Fqx '# tests 2' release-plugin-lodash.tap
+          grep -Fqx '# pass 2' release-plugin-lodash.tap
+          grep -Fqx '# skipped 0' release-plugin-lodash.tap
+
+      - name: Verify patched semantic-release lodash-es with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap scripts/release-tooling-lodash-es.node-test.mjs | tee release-tooling-lodash-es.log
+          grep -Fqx '# tests 2' release-tooling-lodash-es.log
+          grep -Fqx '# pass 2' release-tooling-lodash-es.log
+          grep -Fqx '# skipped 0' release-tooling-lodash-es.log
+
+      - name: Verify ws7 tooling receivers and Checkly options with zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u WS7_TEST_ARTIFACT -u WS7_TEST_NODE_MODULES node --max-old-space-size=256 --test --test-reporter=tap scripts/ws7-dependency-security.node-test.mjs | tee ws7-dependency-security.log
+          grep -Fqx '# tests 6' ws7-dependency-security.log
+          grep -Fqx '# pass 6' ws7-dependency-security.log
+          grep -Fqx '# skipped 0' ws7-dependency-security.log
 
       - name: Verify timezone rules and booking conversion on Node 24
         shell: bash
@@ -1617,11 +1680,67 @@ jobs:
           grep -Fqx '# pass 1' timezone-node24.log
           grep -Fqx '# skipped 0' timezone-node24.log
 
+  topup-cursor-postgres:
+    name: Durable top-up cursor PostgreSQL (18 cases, zero skips)
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - name: Freeze exact cursor source before dependency hooks
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test -d .git && test ! -L .git
+          test -f .git/HEAD && test ! -L .git/HEAD
+          test -f .git/config && test ! -L .git/config
+          test -f .git/index && test ! -L .git/index
+          test "$(cat .git/HEAD)" = "$EXPECTED_SOURCE_SHA"
+          env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=0 GIT_OPTIONAL_LOCKS=0 /usr/bin/git -c core.fsmonitor=false -c core.hooksPath=/dev/null ls-files -z | xargs -0 sha256sum > "$RUNNER_TEMP/topup-cursor-source.sha256"
+          sha256sum package.json package-lock.json > "$RUNNER_TEMP/topup-cursor-inputs.sha256"
+          sha256sum .git/HEAD .git/config .git/index > "$RUNNER_TEMP/topup-cursor-git.sha256"
+      # Host dependency lifecycle hooks are NOT network-isolated. No provider
+      # secrets are supplied. Only the later fixture containers deny IP egress.
+      - name: Install exact dependencies
+        run: HUSKY=0 npm ci
+      - name: Require owned Unix PostgreSQL cursor coverage
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Read hashes/HEAD directly after hooks, before any code execution;
+          # do not invoke Git helpers from potentially changed metadata.
+          sha256sum --check "$RUNNER_TEMP/topup-cursor-source.sha256" > /dev/null
+          sha256sum --check "$RUNNER_TEMP/topup-cursor-inputs.sha256"
+          sha256sum --check "$RUNNER_TEMP/topup-cursor-git.sha256"
+          test "$(cat .git/HEAD)" = "$EXPECTED_SOURCE_SHA"
+          node scripts/run-topup-cursor-postgres.mjs 2>&1 | tee "$RUNNER_TEMP/topup-cursor-postgres.log"
+          grep -Fqx 'TOPUP_CURSOR_POSTGRES_TESTS_EXECUTED=18 TOPUP_CURSOR_POSTGRES_TESTS_SKIPPED=0' "$RUNNER_TEMP/topup-cursor-postgres.log"
+      - name: Retain synthetic cursor PostgreSQL evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topup-cursor-postgres
+          path: ${{ runner.temp }}/topup-cursor-postgres-summary.json
+          if-no-files-found: error
+          retention-days: 7
+
   test:
     # Preserve the live ruleset context; success requires the application job
     # and every browser matrix member. A failed/cancelled shard cannot pass.
     name: Run all tests (20.x)
-    needs: [test-core, test-components, monitoring-node24, deposits-postgres-concurrency, google-outbox-postgres]
+    needs: [test-core, test-components, monitoring-node24, deposits-postgres-concurrency, google-outbox-postgres, sms-refund-bookkeeping-postgres, topup-cursor-postgres]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -1632,12 +1751,16 @@ jobs:
           MONITORING_RESULT: ${{ needs.monitoring-node24.result }}
           DEPOSITS_POSTGRES_RESULT: ${{ needs.deposits-postgres-concurrency.result }}
           GOOGLE_OUTBOX_RESULT: ${{ needs.google-outbox-postgres.result }}
+          SMS_REFUND_RESULT: ${{ needs.sms-refund-bookkeeping-postgres.result }}
+          TOPUP_CURSOR_RESULT: ${{ needs.topup-cursor-postgres.result }}
         run: |
           test "$CORE_RESULT" = success
           test "$COMPONENTS_RESULT" = success
           test "$MONITORING_RESULT" = success
           test "$DEPOSITS_POSTGRES_RESULT" = success
           test "$GOOGLE_OUTBOX_RESULT" = success
+          test "$SMS_REFUND_RESULT" = success
+          test "$TOPUP_CURSOR_RESULT" = success
 
   uiqi-release-conditions:
     name: UIQI release conditions
@@ -2022,7 +2145,7 @@ jobs:
     name: D5 deposits PostgreSQL concurrency (zero skips)
     needs: secret-scan
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 55
     permissions:
       contents: read
 
@@ -2092,7 +2215,7 @@ jobs:
             'D5_REAL_POSTGRES_TESTS_EXECUTED=6 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d5-postgres-concurrency.log
 
-      - name: Run runtime PostgreSQL pool cooldown regressions and prove zero skips
+      - name: Run runtime PostgreSQL pool cooldown and binding regressions and prove zero skips
         shell: bash
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
@@ -2104,7 +2227,7 @@ jobs:
             src/libs/runtimeDatabasePoolClient.integration.test.ts \
             | tee runtime-database-pool-cooldown-postgres.log
           grep -Fqx \
-            'RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=4 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0' \
+            'RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=12 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0' \
             runtime-database-pool-cooldown-postgres.log
 
       - name: Run D5 Calendar claim and revert races and prove zero skips
@@ -2228,7 +2351,8 @@ jobs:
           grep -Fqx 'CALENDAR_BLOCK_POSTGRES_TESTS_EXECUTED=11 CALENDAR_BLOCK_POSTGRES_TESTS_SKIPPED=0' calendar-block-postgres.log
 
       - name: Install mobile browser engines for the real customer booking journey
-        run: npx playwright install --with-deps chromium webkit
+        timeout-minutes: 38
+        uses: ./.github/actions/install-playwright
 
       - name: Verify Calendar read contention on real PostgreSQL with zero skips
         shell: bash
@@ -2440,6 +2564,66 @@ jobs:
           grep -Fqx 'BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_EXECUTED=10 BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_EXECUTED=3 BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'FOUNDING_CORE_POSTGRES_TESTS_EXECUTED=7 FOUNDING_CORE_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
+
+  sms-refund-bookkeeping-postgres:
+    name: SMS refund bookkeeping PostgreSQL concurrency
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_DB: luster_refund_ci
+          POSTGRES_USER: qa
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - '127.0.0.1:5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U qa -d luster_refund_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://qa@127.0.0.1:5432/luster_refund_ci
+      SMS_REFUND_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: HUSKY=0 npm ci
+      - name: Attest the refund test service address
+        shell: bash
+        env:
+          PG_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          test -n "$PG_CONTAINER_ID"
+          docker inspect --format '{{json .NetworkSettings.Networks}}' "$PG_CONTAINER_ID" | node -e '
+            const fs = require("node:fs");
+            const net = require("node:net");
+            const networks = JSON.parse(fs.readFileSync(0, "utf8"));
+            const addresses = [...new Set(Object.values(networks).map(value => value.IPAddress).filter(Boolean))];
+            if (addresses.length !== 1 || net.isIP(addresses[0]) !== 4) {
+              throw new Error("REFUND_TEST_SERVICE_ADDRESS_UNAVAILABLE");
+            }
+            fs.appendFileSync(process.env.GITHUB_ENV, `SMS_REFUND_EXPECTED_SERVER_ADDRESS=${addresses[0]}\n`);
+          '
+      - name: Prove duplicate zero-debit refunds retain one durable adjustment
+        shell: bash
+        run: |
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs run --maxWorkers=1 --no-file-parallelism --retry=0 \
+            src/libs/billing/topupRefundBookkeeping.concurrency.integration.test.ts \
+            | tee sms-refund-bookkeeping-postgres.log
+          grep -Fqx 'SMS_ZERO_REFUND_POSTGRES_TESTS_EXECUTED=1 SMS_ZERO_REFUND_POSTGRES_TESTS_SKIPPED=0' sms-refund-bookkeeping-postgres.log
 
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency

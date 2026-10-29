@@ -13,7 +13,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -824,7 +824,12 @@ describe('reconciliation route (§8.6, P4)', () => {
       line_items: { data: [] },
     });
 
+    const info = vi.spyOn(console, 'info').mockImplementationOnce(() => {});
+    onTestFinished(() => info.mockRestore());
     const response = await call();
+
+    expect(info.mock.calls).toEqual([['[billing] topup price cross-check skipped: offer price unconfigured for this environment (G02)']]);
+
     const body = await response.json();
 
     expect(response.status).toBe(200);

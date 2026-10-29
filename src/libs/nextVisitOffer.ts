@@ -21,7 +21,7 @@ export const nextVisitOfferSettingsSchema = z.object({
     context.addIssue({
       code: z.ZodIssueCode.too_big,
       maximum: 100,
-      type: 'number',
+      origin: 'number',
       inclusive: true,
       path: ['value'],
       message: 'Percentage discounts cannot exceed 100%',

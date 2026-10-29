@@ -19,7 +19,10 @@ vi.mock('@/libs/DB', () => ({ get db() {
 } }));
 vi.mock('@/libs/Env', () => ({ Env: { BILLING_PLAN_ENV: 'test', NEXT_PUBLIC_APP_URL: 'https://isolated.example.invalid', BILLING_DEPLOYMENT_MARKER: 'ai-credits-test' } }));
 const provider = vi.hoisted(() => ({ price: vi.fn(), create: vi.fn(), retrieve: vi.fn(), list: vi.fn(), expire: vi.fn(), customer: vi.fn(), charge: vi.fn(), dispute: vi.fn(), disputeList: vi.fn() }));
-vi.mock('@/libs/stripe', () => ({ stripe: { prices: { retrieve: provider.price }, checkout: { sessions: { create: provider.create, retrieve: provider.retrieve, list: provider.list, expire: provider.expire } }, charges: { retrieve: provider.charge }, disputes: { retrieve: provider.dispute, list: provider.disputeList } } }));
+vi.mock('@/libs/stripe', async () => {
+  const { createStripeOperationGuard } = await import('@/libs/stripeOperationIsolation');
+  return { assertStripeOperationIsolation: createStripeOperationGuard('sk_test_synthetic_checkout'), stripe: { prices: { retrieve: provider.price }, checkout: { sessions: { create: provider.create, retrieve: provider.retrieve, list: provider.list, expire: provider.expire } }, charges: { retrieve: provider.charge }, disputes: { retrieve: provider.dispute, list: provider.disputeList } } };
+});
 vi.mock('@/libs/billing/billingCustomer', () => ({ resolveOrCreateBillingCustomer: provider.customer }));
 const client = new PGlite();
 const database = drizzle(client, { schema });
@@ -32,6 +35,11 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('VITEST', undefined);
+  vi.stubEnv('GITHUB_ACTIONS', undefined);
+  vi.stubEnv('CI', undefined);
+  vi.stubEnv('VERCEL', '1');
   vi.stubEnv('APP_ENV', 'preview');
   vi.stubEnv('VERCEL_ENV', 'preview');
   vi.stubEnv('AI_CREDITS_ENABLED', 'true');
@@ -98,7 +106,7 @@ describe('AI checkout with isolated provider boundary', () => {
     expect(provider.create).not.toHaveBeenCalled();
   });
 
-  it.each([{ unit_amount: 1 }, { currency: 'usd' }, { livemode: true }, { active: false }, { type: 'recurring' }])('checks configured Stripe price evidence before writing a purchase: %j', async (difference) => {
+  it.each([{ unit_amount: 1 }, { currency: 'usd' }, { livemode: true }, { livemode: undefined }, { active: false }, { type: 'recurring' }])('checks configured Stripe price evidence before writing a purchase: %j', async (difference) => {
     const { actor, input } = await fixture();
     provider.price.mockResolvedValue({ active: true, type: 'one_time', currency: 'cad', unit_amount: 1000, livemode: false, ...difference });
 

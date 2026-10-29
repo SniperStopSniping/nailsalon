@@ -274,7 +274,7 @@ const profileSchema = z.object({
   preferredContact: z.enum(['text', 'call', 'instagram', 'email']).nullable(),
   profilePhotoItemId: nonEmptyText(160).nullable(),
   serviceMenu: z.object({
-    ownerOverridesByServiceId: z.record(z.object({
+    ownerOverridesByServiceId: z.record(z.string(), z.object({
       durationMinutes: z.number().int().min(1).max(1_440).optional(),
       priceCents: z.number().int().min(0).max(1_000_000).optional(),
     }).strict()),
@@ -535,7 +535,7 @@ const compiledSectionSchema = z.object({
   customDesignSettings: customDesignSettingsSchema.optional(),
   id: nonEmptyText(200),
   order: z.number().int().min(0),
-  presentation: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])),
+  presentation: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
   source: z.enum([
     'business_profile',
     'service_menu',

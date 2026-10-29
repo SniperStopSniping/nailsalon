@@ -1274,9 +1274,9 @@ describe('client lifecycle stabilization', () => {
     )).toBe(false);
   });
 
-  it('applies the booking-only eight-attempt exponential full-jitter policy', async () => {
+  it('applies the booking-only bounded exponential full-jitter policy', async () => {
     expect(BOOKING_TRANSACTION_RETRY_POLICY).toEqual({
-      maxAttempts: 8,
+      maxAttempts: 32,
       retryAdmissionWindowMs: 10_000,
       baseDelayMs: 50,
       maxDelayMs: 800,
@@ -1288,11 +1288,38 @@ describe('client lifecycle stabilization', () => {
     await expect(withClientLifecycleTransactionRetry(retry, {
       sleep,
       random: () => 1,
+      now: () => 0,
     }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toMatchObject({ code: '40001' });
 
-    expect(retry).toHaveBeenCalledTimes(8);
-    expect(sleep.mock.calls).toEqual([[50], [100], [200], [400], [800], [800], [800]]);
+    expect(retry).toHaveBeenCalledTimes(32);
+    expect(sleep.mock.calls).toEqual([[50], [100], [200], [400], ...Array.from({ length: 27 }, () => [800])]);
   });
+
+  it.each(['40001', '40P01'])(
+    'recovers after twelve rolled-back booking attempts while time remains for %s',
+    async (code) => {
+      let now = 0;
+      const operation = vi.fn(async (attempt: number) => {
+        now += 25;
+        if (attempt <= 12) {
+          throw databaseError(code);
+        }
+        return 'committed';
+      });
+      const sleep = vi.fn(async (milliseconds: number) => {
+        now += milliseconds;
+      });
+
+      await expect(withClientLifecycleTransactionRetry(operation, {
+        sleep,
+        random: () => 0.5,
+        now: () => now,
+      }, BOOKING_TRANSACTION_RETRY_POLICY)).resolves.toBe('committed');
+
+      expect(operation).toHaveBeenCalledTimes(13);
+      expect(now).toBeLessThan(BOOKING_TRANSACTION_RETRY_POLICY.retryAdmissionWindowMs);
+    },
+  );
 
   it('does not admit a booking retry past the ten-second window', async () => {
     let now = 0;
@@ -1312,6 +1339,66 @@ describe('client lifecycle stabilization', () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
+  it('bounds booking work when zero jitter and a stationary clock cannot exhaust the admission window', async () => {
+    const error = databaseError('40001');
+    const operation = vi.fn().mockRejectedValue(error);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(withClientLifecycleTransactionRetry(operation, {
+      sleep,
+      random: () => 0,
+      now: () => 0,
+    }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toBe(error);
+
+    expect(operation).toHaveBeenCalledTimes(32);
+    expect(sleep).toHaveBeenCalledTimes(31);
+    expect(sleep.mock.calls.every(([delay]) => delay === 0)).toBe(true);
+  });
+
+  it('waits for an admitted booking transaction to commit beyond the admission window', async () => {
+    let now = 0;
+    const operation = vi.fn(async (attempt: number) => {
+      if (attempt === 1) {
+        throw databaseError('40001');
+      }
+      now = 10_075;
+      return 'committed';
+    });
+
+    await expect(withClientLifecycleTransactionRetry(operation, {
+      sleep: async (milliseconds) => {
+        now += milliseconds;
+      },
+      random: () => 1,
+      now: () => now,
+    }, BOOKING_TRANSACTION_RETRY_POLICY)).resolves.toBe('committed');
+
+    expect(operation).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops sustained booking contention at the admission window before the work cap', async () => {
+    let now = 0;
+    const startedAttempts: number[] = [];
+    const error = databaseError('40001');
+    const operation = vi.fn(async () => {
+      startedAttempts.push(now);
+      now += 25;
+      throw error;
+    });
+
+    await expect(withClientLifecycleTransactionRetry(operation, {
+      sleep: async (milliseconds) => {
+        now += milliseconds;
+      },
+      random: () => 0.5,
+      now: () => now,
+    }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toBe(error);
+
+    expect(operation).toHaveBeenCalledTimes(27);
+    expect(now).toBe(9_850);
+    expect(startedAttempts.every(started => started < 10_000)).toBe(true);
+  });
+
   it('does not retry a non-retryable booking transaction error', async () => {
     const error = databaseError('23505');
     const operation = vi.fn().mockRejectedValue(error);
@@ -1324,5 +1411,23 @@ describe('client lifecycle stabilization', () => {
 
     expect(operation).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('does not admit a retry when sleep overshoots the booking window', async () => {
+    let now = 9_000;
+    const error = databaseError('40001');
+    const operation = vi.fn().mockRejectedValue(error);
+    const sleep = vi.fn(async () => {
+      now += 10_000;
+    });
+
+    await expect(withClientLifecycleTransactionRetry(operation, {
+      sleep,
+      random: () => 1,
+      now: () => now,
+    }, BOOKING_TRANSACTION_RETRY_POLICY)).rejects.toBe(error);
+
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(sleep).toHaveBeenCalledExactlyOnceWith(50);
   });
 });

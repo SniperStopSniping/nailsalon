@@ -802,28 +802,30 @@ body:has(.qbp-page) {
 .qbp-page .qbp-category-pill { min-height: 44px; padding: 8px 17px; font-size: 12px; font-weight: 450; border: 0 !important; background: #f1ece9 !important; color: var(--qbp-ink) !important; }
 .qbp-page .qbp-category-pill[aria-pressed='true'] { background: var(--qbp-accent) !important; color: #fff !important; }
 .qbp-page [data-testid='service-menu-list'], .qbp-page [data-testid='service-menu-grouped'] { padding: 0; background: transparent; border: 0; box-shadow: none; }
+/* Only Visual Grid adopts the approved responsive cards. Other menu layouts
+   retain the canonical renderer's row and image presentation. */
 .qbp-service-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .qbp-service-row, .qbp-service-row-cards { display: contents; }
 .qbp-service-row > [data-testid='service-inline-addons-panel'] { grid-column: 1 / -1; }
-.qbp-page [data-qbp-service] { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; min-height: 102px; padding: 0; border: 0 !important; border-radius: 13px; background: #fffdfb !important; box-shadow: none !important; grid-column: auto; }
-.qbp-page [data-qbp-service]::after { content: '›'; position: absolute; right: 10px; top: 50%; font-size: 22px; line-height: 1; transform: translateY(-50%); }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; min-height: 102px; padding: 0; border: 0 !important; border-radius: 13px; background: #fffdfb !important; box-shadow: none !important; grid-column: auto; }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service]::after { content: '›'; position: absolute; right: 10px; top: 50%; font-size: 22px; line-height: 1; transform: translateY(-50%); }
 .qbp-page [data-qbp-service][data-selected='true'] { outline: 2px solid var(--qbp-accent); outline-offset: -2px; }
-.qbp-page [data-qbp-service] [data-testid^='service-card-image-']:not(img) { height: 102px; min-height: 102px; width: 96px; border-radius: 11px; align-self: stretch; }
-.qbp-page [data-qbp-service] [data-testid^='service-card-content-'] { padding: 13px 26px 13px 0; min-height: 102px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
-.qbp-page [data-qbp-service] [data-testid^='service-card-content-'] > div:first-of-type { font-family: var(--qbp-body); font-size: 14px; font-weight: 550; line-height: 1.35; }
-.qbp-page [data-qbp-service] [data-testid^='service-card-meta-row-'] { margin: 0; padding: 0; justify-content: flex-start; gap: 12px; flex-wrap: wrap; align-items: center; }
-.qbp-page [data-qbp-service] [data-testid^='service-card-meta-row-'] > span { font-size: 12px; font-weight: 400; line-height: 1.35; color: var(--qbp-muted); }
-.qbp-page [data-qbp-service] [data-testid^='service-card-price-'] { font-weight: 550 !important; color: var(--qbp-ink) !important; }
-.qbp-page [data-qbp-service][data-qbp-has-image='false'] { grid-template-columns: minmax(0, 1fr); }
-.qbp-page [data-qbp-service][data-qbp-has-image='false'] [data-testid^='service-card-content-'] { padding: 16px 30px 16px 16px; min-height: 88px; }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] [data-testid^='service-card-image-']:not(img) { height: 102px; min-height: 102px; width: 96px; border-radius: 11px; align-self: stretch; }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] [data-testid^='service-card-content-'] { padding: 13px 26px 13px 0; min-height: 102px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] [data-testid^='service-card-content-'] > div:first-of-type { font-family: var(--qbp-body); font-size: 14px; font-weight: 550; line-height: 1.35; }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] [data-testid^='service-card-meta-row-'] { margin: 0; padding: 0; justify-content: flex-start; gap: 12px; flex-wrap: wrap; align-items: center; }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] [data-testid^='service-card-meta-row-'] > span { font-size: 12px; font-weight: 400; line-height: 1.35; color: var(--qbp-muted); }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] [data-testid^='service-card-price-'] { font-weight: 550 !important; color: var(--qbp-ink) !important; }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service][data-qbp-has-image='false'] { grid-template-columns: minmax(0, 1fr); }
+.qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service][data-qbp-has-image='false'] [data-testid^='service-card-content-'] { padding: 16px 30px 16px 16px; min-height: 88px; }
 @container approved-quick-book (min-width: 700px) {
-  .qbp-service-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-  .qbp-page [data-qbp-service] { display: flex; flex-direction: column; gap: 0; }
-  .qbp-page [data-qbp-service] [data-testid^='service-card-image-']:not(img) { height: 170px; min-height: 170px; width: 100%; border-radius: 12px; }
-  .qbp-page [data-qbp-service] [data-testid^='service-card-content-'] { padding: 16px 25px 18px 14px; min-height: 90px; }
-  .qbp-page [data-qbp-service]::after { top: auto; bottom: 19px; transform: none; }
+  .qbp-page [data-booking-menu-layout='visual_grid'] .qbp-service-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] { display: flex; flex-direction: column; gap: 0; }
+  .qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] [data-testid^='service-card-image-']:not(img) { height: 170px; min-height: 170px; width: 100%; border-radius: 12px; }
+  .qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service] [data-testid^='service-card-content-'] { padding: 16px 25px 18px 14px; min-height: 90px; }
+  .qbp-page [data-booking-menu-layout='visual_grid'] [data-qbp-service]::after { top: auto; bottom: 19px; transform: none; }
 }
-@container approved-quick-book (min-width: 1100px) { .qbp-service-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container approved-quick-book (min-width: 1100px) { .qbp-page [data-booking-menu-layout='visual_grid'] .qbp-service-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
 .qbp-page .qbp-category-pill > [aria-hidden='true'] { display: none; }
 

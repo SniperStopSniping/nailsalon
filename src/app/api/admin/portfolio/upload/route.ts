@@ -36,7 +36,7 @@ const presignSchema = z.object({
    * the file exists. The durable record is written with the photo row.
    */
   publicationRightsConfirmed: z.literal(true, {
-    errorMap: () => ({ message: PUBLICATION_RIGHTS_TEXT }),
+    error: PUBLICATION_RIGHTS_TEXT,
   }),
 });
 

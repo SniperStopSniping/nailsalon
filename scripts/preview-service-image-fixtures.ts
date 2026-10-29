@@ -29,8 +29,10 @@ const DATABASE_NAME = 'luster_preview';
 // The reviewed wallet/publication tail adds one direct salon edge. Its account
 // and every salon-owned wallet row prevent fixture reset, like saved AI work.
 // Reviewed deletion recovery is tenant-independent; prior reset fences remain.
-const FINAL_MIGRATION = '0113_salon_deletion_cleanup';
-const MIGRATION_COUNT = 113;
+// The reviewed Daniela tail adds four salon edges; its rows also prevent reset.
+// The following reconciliation cursor is global and adds no tenant edge.
+const FINAL_MIGRATION = '0115_topup_reconciliation_sweep';
+const MIGRATION_COUNT = 115;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -453,6 +455,11 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'custom_site_artifact', 'custom_site_artifact_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'custom_site_generation', 'custom_site_generation_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'ai_credit_account', 'ai_credit_account_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  // 0114 automation evidence remains protected by tenant-row reset refusals.
+  ['public', 'daniela_automation_state', 'daniela_automation_state_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'daniela_contact', 'daniela_contact_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'daniela_inbound', 'daniela_inbound_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'daniela_send', 'daniela_send_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
 ] as const satisfies readonly IncomingForeignKeyIdentity[];
 const FIXTURE_TARGET_ROWS: Record<string, readonly Row[]> = { salon: FIXTURE.salons, salon_location: FIXTURE.locations, service: FIXTURE.services, add_on: FIXTURE.addOns, technician: FIXTURE.technicians, admin_user: [FIXTURE.admin], service_add_on: FIXTURE.rules, technician_services: FIXTURE.assignments, admin_salon_membership: FIXTURE.memberships };
 function uniqueRelations(relations: ReadonlyArray<readonly [string, string]>): Array<readonly [string, string]> {

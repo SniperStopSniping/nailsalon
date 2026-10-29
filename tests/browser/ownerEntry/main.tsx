@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 import '@/styles/global.css';
 
-import { ClerkProvider } from '@clerk/clerk-react';
 import { enUS } from '@clerk/localizations';
+import { ClerkProvider } from '@clerk/react';
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 

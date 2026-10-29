@@ -28,6 +28,7 @@ const {
 
 vi.mock('@/libs/DB', () => ({
   db: { execute: executeMock },
+  pingRuntimeDatabase: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/core/redis/redisClient', () => ({

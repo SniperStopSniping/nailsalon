@@ -2100,7 +2100,10 @@ export type ClientLifecycleTransactionRetryPolicy = {
 };
 
 export const BOOKING_TRANSACTION_RETRY_POLICY: ClientLifecycleTransactionRetryPolicy = {
-  maxAttempts: 8,
+  // Independent salons can still conflict through PostgreSQL predicate locks.
+  // Allow additional contention retries without extending the admission window.
+  // A separate finite cap also bounds work when jitter and elapsed time are zero.
+  maxAttempts: 32,
   retryAdmissionWindowMs: 10_000,
   baseDelayMs: 50,
   maxDelayMs: 800,

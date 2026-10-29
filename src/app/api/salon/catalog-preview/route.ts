@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-import { requireAdminSalon } from '@/libs/adminAuth';
+import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
+import { readBoundedJsonBody, RequestBodyTooLarge } from '@/libs/boundedJsonBody';
 import { previewCatalogSelection } from '@/libs/ownerCatalogPreview.server';
 import type { CatalogPreviewResponse } from '@/types/admin';
 
@@ -25,7 +26,29 @@ const requestSchema = z.object({
  * `ownerCatalogPreview.server.ts`.
  */
 export async function POST(request: Request): Promise<Response> {
-  const validated = requestSchema.safeParse(await request.json().catch(() => null));
+  // Session first, then bounded JSON and salon scope, before collection parsing.
+  if (!await getAdminSession()) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  let input: unknown;
+  try {
+    // Same transport allowance as the canonical public booking preparation.
+    input = await readBoundedJsonBody(request, 30_000);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLarge) {
+      return Response.json({ error: { code: 'REQUEST_TOO_LARGE', message: 'The preview request is too large.' } }, { status: 413 });
+    }
+    throw error;
+  }
+  const scope = requestSchema.pick({ salonSlug: true }).safeParse(input);
+  if (!scope.success) {
+    return Response.json({ error: { code: 'VALIDATION_ERROR', message: 'Salon slug is required' } }, { status: 400 });
+  }
+  const { error, salon } = await requireAdminSalon(scope.data.salonSlug);
+  if (error || !salon) {
+    return error!;
+  }
+  const validated = requestSchema.safeParse(input);
   if (!validated.success) {
     return Response.json(
       { error: { code: 'VALIDATION_ERROR', message: validated.error.issues[0]?.message ?? 'Invalid preview request' } },
@@ -33,11 +56,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const { salonSlug, ...selection } = validated.data;
-  const { error, salon } = await requireAdminSalon(salonSlug);
-  if (error || !salon) {
-    return error!;
-  }
+  const selection = validated.data;
 
   const outcome = await previewCatalogSelection(salon.id, {
     serviceId: selection.serviceId,

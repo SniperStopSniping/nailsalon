@@ -11,7 +11,7 @@ for (const width of [320, 390, 1280]) {
     await page.getByRole('checkbox', { name: 'I confirm I have permission to publicly display this image.' }).check();
 
     await expect(choose).toBeEnabled();
-    expect(await choose.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
+    await expect.poll(() => choose.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(48);
     expect(await choose.evaluate(element => getComputedStyle(element).backgroundColor)).toBe('rgb(143, 49, 85)');
 
     const photo = page.getByRole('button', { name: 'French manicure review photo', exact: true });

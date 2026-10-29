@@ -10,6 +10,7 @@ import { BookTimeClient } from '@/app/(unauth)/book/time/BookTimeClient';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { resolveCustomerSitePalettePreset } from '@/libs/customerSitePresentation';
 import { isApprovedQuickBookLayout } from '@/libs/quickBookSiteLayout';
+import { resolveServiceMenuLayout } from '@/libs/serviceMenuLayout';
 
 import { isMediaQuickBookLayout } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/media-layouts';
 import { createQuickBookFixture } from './quick-book-fixture';
@@ -125,7 +126,7 @@ const bookingPage = {
   quickBookLayout: requestedLayout ?? 'clean_card',
   stylePack: 'default',
   tokenOverrides: null,
-  serviceMenuLayout: 'visual_grid',
+  serviceMenuLayout: resolveServiceMenuLayout(query.get('service-menu-layout')),
   quickBookProfile: {
     version: query.has('legacy-profile') ? 0 : 1,
     showTechName: Boolean(quickBookFixture),

@@ -49,6 +49,7 @@ import {
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/OnboardingApp';
 import { clearOnboardingState as clearLabOnboardingState, loadOnboardingState, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import { useLabDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useLabDocument';
+import type { AccountHandoffLease } from './account-gate/AccountGate';
 import {
   getOnboardingIntegrationRoute,
   hasAccountGateQuery,
@@ -62,6 +63,7 @@ import {
   checkOnboardingSiteSlugAvailability,
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
+  OnboardingClaimTransportError,
   OnboardingIntegrationRequestError,
   prepareOnboardingCanva,
   saveOnboardingPlanIntent,
@@ -97,6 +99,7 @@ import {
   cleanupVerifiedUnreferencedOnboardingMedia,
   collectPendingOnboardingMediaReferences,
 } from './media-claim-client';
+import { fingerprintOnboardingPayload } from './payload-fingerprint';
 import { ResumedOnboardingAssetRepository } from './resume-assets';
 import { hydrateInitialOnboardingResumeDraft } from './resume-client';
 import type { InitialOnboardingResumeDraft } from './resume-draft';
@@ -371,6 +374,10 @@ function OnboardingIntegrationController({
     && emailVerified && !serverEmailVerificationRequired && !changingAccount;
   const accountId = accountReady ? user!.id : null;
   const accountIdRef = useRef(accountId);
+  const accountEpochRef = useRef(0);
+  if (accountIdRef.current !== accountId) {
+    accountEpochRef.current += 1;
+  }
   accountIdRef.current = accountId;
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
@@ -382,6 +389,31 @@ function OnboardingIntegrationController({
   }, []);
   const repository = useCustomDesignAssetRepository();
   const [flow, setFlow] = usePersistentFlow();
+  // Reserve callback documents before the lazy account gate mounts. Its SDK
+  // may already expose active auth while that component is still loading.
+  const ssoHandoffRequiredRef = useRef(new URLSearchParams(window.location.search).has('sso'));
+  const [accountHandoff, setAccountHandoff] = useState<AccountHandoffLease | null>(null);
+  const accountHandoffRef = useRef<AccountHandoffLease | null>(null);
+  const startAccountHandoff = useCallback((): AccountHandoffLease => {
+    const lease: AccountHandoffLease = {
+      isCurrent: () => accountHandoffRef.current === lease,
+      finish: () => {
+        if (accountHandoffRef.current === lease) {
+          accountHandoffRef.current = null;
+          setAccountHandoff(null);
+        }
+      },
+    };
+    accountHandoffRef.current = lease;
+    ssoHandoffRequiredRef.current = false;
+    setAccountHandoff(lease);
+    return lease;
+  }, []);
+  const cancelAccountHandoff = useCallback(() => {
+    accountHandoffRef.current = null;
+    ssoHandoffRequiredRef.current = false;
+    setAccountHandoff(null);
+  }, []);
   const verifiedSavedSiteRef = useRef<{ ownerId: string; claimId: string } | null>(null);
   const verificationAccountRef = useRef(accountId);
   if (verificationAccountRef.current !== accountId) {
@@ -424,6 +456,16 @@ function OnboardingIntegrationController({
   const [planConfirmation, setPlanConfirmation] = useState<string | null>(null);
   const payloadRef = useRef(payload);
   const claimInFlightRef = useRef(false);
+  const locallyHandledClaimKeyRef = useRef<string | null>(null);
+  const claimReconciliationRef = useRef<AbortController | null>(null);
+  const controllerMountedRef = useRef(true);
+  useEffect(() => {
+    controllerMountedRef.current = true;
+    return () => {
+      controllerMountedRef.current = false;
+      claimReconciliationRef.current?.abort();
+    };
+  }, [accountId]);
   const mediaInFlightRef = useRef(false);
   const planInFlightRef = useRef(false);
   const resumeInFlightRef = useRef(false);
@@ -445,7 +487,7 @@ function OnboardingIntegrationController({
     payloadRef.current ?? getPayloadFromBrowser(lab.document), [lab.document]);
 
   useEffect(() => {
-    if (!accountId || !verificationSiteId || savedSiteVerified || currentVerificationFailure
+    if (accountHandoffRef.current || ssoHandoffRequiredRef.current || !accountId || !verificationSiteId || savedSiteVerified || currentVerificationFailure
       || claimInFlightRef.current || mediaInFlightRef.current) {
       return;
     }
@@ -488,7 +530,7 @@ function OnboardingIntegrationController({
       }
     })();
     return () => controller.abort();
-  }, [accountId, currentVerificationFailure, flow.phase, flow.savedSite, initialResumeDraft, resolvePayload, savedSiteVerified, setFlow, verificationSiteId]);
+  }, [accountHandoff, accountId, currentVerificationFailure, flow.phase, flow.savedSite, initialResumeDraft, resolvePayload, savedSiteVerified, setFlow, verificationSiteId]);
 
   const finishCoreClaim = useCallback(async (
     savedSite: OnboardingClaimSuccess,
@@ -582,7 +624,13 @@ function OnboardingIntegrationController({
     target?: IntegrationTarget,
     explicitIdempotencyKey?: string,
   ) => {
+    // Clerk can emit active auth before its decorated document handoff. Only
+    // the destination document (or a settled same-document sign-in) may save.
+    if (accountHandoffRef.current || ssoHandoffRequiredRef.current) {
+      return;
+    }
     const claimAccountId = accountIdRef.current;
+    const claimAccountEpoch = accountEpochRef.current;
     if (!claimAccountId) {
       setFlow(current => ({ ...current, phase: 'account' }));
       return;
@@ -609,6 +657,7 @@ function OnboardingIntegrationController({
     claimInFlightRef.current = true;
     const idempotencyKey = explicitIdempotencyKey
       ?? latestFlowRef.current.claimIdempotencyKey;
+    locallyHandledClaimKeyRef.current = idempotencyKey;
     setSavingStep('core');
     setSnapshotFixScreen(null);
     setFlow(current => ({
@@ -653,16 +702,75 @@ function OnboardingIntegrationController({
       }
       const resolvedTarget = target
         ?? continuationTargetForSavedSite(latestFlowRef.current.savedSite);
-      const result = await claimOnboardingDraft({
+      const request: OnboardingDraftClaimRequest = {
         anonymousDraftToken: currentPayload.state.anonymousDraftId,
         idempotencyKey,
         media: persisted.media,
         snapshot: persisted.snapshot,
         ...(resolvedTarget ? { target: resolvedTarget } : {}),
-      });
+      };
+      let result: Awaited<ReturnType<typeof claimOnboardingDraft>>;
+      try {
+        result = await claimOnboardingDraft(request);
+      } catch (error) {
+        if (!controllerMountedRef.current || accountEpochRef.current !== claimAccountEpoch) {
+          return;
+        }
+        if (!(error instanceof OnboardingClaimTransportError) || accountIdRef.current !== claimAccountId) {
+          throw error;
+        }
+        // Reconcile one uncertain response using the original token. Never
+        // replace the save or rotate its key just because its reply was lost.
+        const controller = new AbortController();
+        claimReconciliationRef.current = controller;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        let timedOut = false;
+        try {
+          const status = await Promise.race([
+            getOnboardingDraftClaimStatus(request.anonymousDraftToken, { signal: controller.signal }),
+            new Promise<never>((_resolve, reject) => {
+              timeout = setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+                reject(error);
+              }, 8_000);
+            }),
+          ]);
+          if (!controllerMountedRef.current || accountEpochRef.current !== claimAccountEpoch || controller.signal.aborted || accountIdRef.current !== claimAccountId) {
+            return;
+          }
+          if (!status.claim) {
+            throw error;
+          }
+          const recovered = status.claim;
+          if (recovered.payloadFingerprint !== fingerprintOnboardingPayload(request.snapshot)
+            || (resolvedTarget?.mode === 'existing_business'
+              && (recovered.salonId !== resolvedTarget.salonId
+                || (resolvedTarget.expectedSiteId && recovered.siteId !== resolvedTarget.expectedSiteId)))) {
+            throw new OnboardingIntegrationRequestError(
+              'This saved website does not match this setup. Your work is still safe on this device.',
+              { code: 'CLAIM_RECOVERY_MISMATCH', status: 409 },
+            );
+          }
+          result = { status: 'saved', value: recovered };
+        } catch (recoveryError) {
+          if (controller.signal.aborted && !timedOut) {
+            return;
+          }
+          // Keep server identity/ownership/revision errors intact; a second
+          // transport failure must not expose browser diagnostics or retry.
+          throw recoveryError instanceof OnboardingIntegrationRequestError ? recoveryError : error;
+        } finally {
+          clearTimeout(timeout);
+          controller.abort();
+          if (claimReconciliationRef.current === controller) {
+            claimReconciliationRef.current = null;
+          }
+        }
+      }
       // A reply to the previous account must never populate the next account's
       // picker (or a signed-out screen), even when it arrives after sign-out.
-      if (accountIdRef.current !== claimAccountId) {
+      if (!controllerMountedRef.current || accountEpochRef.current !== claimAccountEpoch || accountIdRef.current !== claimAccountId) {
         return;
       }
       if (result.status === 'conflict') {
@@ -675,7 +783,7 @@ function OnboardingIntegrationController({
       coreSavedSite = result.value;
       await finishCoreClaim(result.value, currentPayload, idempotencyKey, claimAccountId);
     } catch (error) {
-      if (accountIdRef.current !== claimAccountId) {
+      if (!controllerMountedRef.current || accountEpochRef.current !== claimAccountEpoch || accountIdRef.current !== claimAccountId) {
         return;
       }
       recordIntegrationEvent({ type: 'draft_claim_failed' });
@@ -721,14 +829,14 @@ function OnboardingIntegrationController({
       }));
     } finally {
       claimInFlightRef.current = false;
-      if (accountIdRef.current !== claimAccountId) {
+      if (controllerMountedRef.current && (accountEpochRef.current !== claimAccountEpoch || accountIdRef.current !== claimAccountId)) {
         setFlow(current => ({ ...current, phase: 'account' }));
       }
     }
   }, [existingCustomMediaByLogicalId, finishCoreClaim, initialResumeDraft, resolvePayload, setFlow, user]);
 
   useEffect(() => {
-    if (!authSettled || !accountReady || flow.phase !== 'account' || (verificationSiteId && !savedSiteVerified)) {
+    if (accountHandoffRef.current || ssoHandoffRequiredRef.current || !authSettled || !accountReady || flow.phase !== 'account' || (verificationSiteId && !savedSiteVerified)) {
       return;
     }
     const resumePhase = phaseAfterOnboardingReauthentication(flow, {
@@ -747,9 +855,12 @@ function OnboardingIntegrationController({
       type: authMode === 'sign-in' ? 'sign_in_completed' : 'sign_up_completed',
     }, true);
     void claim();
-  }, [accountReady, authMode, authSettled, claim, flow, resolvePayload, savedSiteVerified, setFlow, verificationSiteId]);
+  }, [accountHandoff, accountReady, authMode, authSettled, claim, flow, resolvePayload, savedSiteVerified, setFlow, verificationSiteId]);
 
   useEffect(() => {
+    if (accountHandoffRef.current || ssoHandoffRequiredRef.current) {
+      return;
+    }
     if (!shouldReturnInterruptedSaveToAccountGate({
       isLoaded: authSettled,
       isSignedIn: accountReady,
@@ -770,11 +881,12 @@ function OnboardingIntegrationController({
         : current.phase,
     }));
     pushAccountGateHistory(locale);
-  }, [accountReady, authSettled, flow.phase, isSignedIn, locale, setFlow]);
+  }, [accountHandoff, accountReady, authSettled, flow.phase, isSignedIn, locale, setFlow]);
 
   useEffect(() => {
     if (
-      !authSettled
+      accountHandoffRef.current || ssoHandoffRequiredRef.current
+      || !authSettled
       || !accountReady
       || flow.phase !== 'conflict'
       || currentConflict
@@ -783,7 +895,7 @@ function OnboardingIntegrationController({
       return;
     }
     void claim(undefined, flow.claimIdempotencyKey);
-  }, [accountReady, authSettled, claim, currentConflict, flow.claimIdempotencyKey, flow.phase]);
+  }, [accountHandoff, accountReady, authSettled, claim, currentConflict, flow.claimIdempotencyKey, flow.phase]);
 
   useEffect(() => {
     if (authMode === flow.authMode) {
@@ -793,6 +905,14 @@ function OnboardingIntegrationController({
   }, [authMode, flow.authMode, setFlow]);
 
   useEffect(() => {
+    if (accountHandoffRef.current || ssoHandoffRequiredRef.current) {
+      return undefined;
+    }
+    // A queued saving render can flush after this document's claim settled.
+    // Only a save not handled here needs interrupted-document recovery.
+    if (locallyHandledClaimKeyRef.current === flow.claimIdempotencyKey) {
+      return undefined;
+    }
     if (flow.savedSite && !savedSiteVerified) {
       return undefined;
     }
@@ -864,6 +984,7 @@ function OnboardingIntegrationController({
       resumeInFlightRef.current = false;
     };
   }, [
+    accountHandoff,
     accountId,
     accountReady,
     authSettled,
@@ -894,20 +1015,6 @@ function OnboardingIntegrationController({
     setFlow(current => ({ ...current, celebrationSeen: true }));
   }, [flow.celebrationSeen, flow.phase, setFlow]);
 
-  useEffect(() => {
-    if (flow.phase !== 'account') {
-      return undefined;
-    }
-    const handlePopState = () => {
-      if (hasAccountGateQuery(window.location.search)) {
-        return;
-      }
-      setFlow(current => ({ ...current, errorMessage: null, phase: 'onboarding' }));
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [flow.phase, setFlow]);
-
   const startSave = useCallback((nextPayload: OnboardingSavePayload) => {
     payloadRef.current = nextPayload;
     setPayload(nextPayload);
@@ -933,6 +1040,7 @@ function OnboardingIntegrationController({
   }, [accountReady, authSettled, claim, isSignedIn, locale, setFlow]);
 
   const returnToReview = useCallback(() => {
+    cancelAccountHandoff();
     if (flow.savedSite?.manualSetupLinked) {
       window.location.assign(`/${locale}/admin/business-setup?salon=${encodeURIComponent(flow.savedSite.salonSlug)}&mode=manual`);
       return;
@@ -953,7 +1061,22 @@ function OnboardingIntegrationController({
     }
     setFlow(current => ({ ...current, errorCode: null, errorMessage: null, phase: 'onboarding' }));
     window.history.replaceState({}, '', getOnboardingIntegrationRoute(locale));
-  }, [flow.savedSite, locale, setFlow, snapshotFixScreen]);
+  }, [cancelAccountHandoff, flow.savedSite, locale, setFlow, snapshotFixScreen]);
+
+  useEffect(() => {
+    if (flow.phase !== 'account') {
+      return undefined;
+    }
+    const handlePopState = () => {
+      if (!hasAccountGateQuery(window.location.search)) {
+        // Use the same edit transition as the visible Back button. Leaving
+        // save_progress mounted would immediately start another save.
+        returnToReview();
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [flow.phase, returnToReview]);
 
   const continueAfterEarlySave = useCallback(() => {
     const loaded = loadOnboardingState();
@@ -1030,6 +1153,7 @@ function OnboardingIntegrationController({
   }, [claim, currentConflict]);
 
   const changeAccount = useCallback(async () => {
+    cancelAccountHandoff();
     setChangingAccount(true);
     setConflict(null);
     try {
@@ -1038,7 +1162,7 @@ function OnboardingIntegrationController({
       setChangingAccount(false);
       setFlow(current => ({ ...current, phase: 'failure', errorCode: 'ACCOUNT_SIGN_OUT_FAILED', errorMessage: 'We couldn’t sign you out. Try again before choosing a business.' }));
     }
-  }, [clerk, locale, setFlow]);
+  }, [cancelAccountHandoff, clerk, locale, setFlow]);
 
   const editBusinessUrl = useCallback(() => {
     saveOnboardingState(goToScreen(loadOnboardingState().state, 'business'));
@@ -1139,10 +1263,10 @@ function OnboardingIntegrationController({
 
   const currentPayload = resolvePayload();
 
-  if (initialResumeDraft && !authSettled) {
+  if (!accountHandoff && !ssoHandoffRequiredRef.current && initialResumeDraft && !authSettled) {
     return <main className="onboarding-integration-loading" aria-busy="true">Preparing your saved website…</main>;
   }
-  if (accountReady && verificationSiteId && !savedSiteVerified
+  if (!accountHandoff && !ssoHandoffRequiredRef.current && accountReady && verificationSiteId && !savedSiteVerified
     && (initialResumeDraft || flow.phase !== 'onboarding')) {
     return currentVerificationFailure
       ? (
@@ -1178,7 +1302,7 @@ function OnboardingIntegrationController({
   }
   // Gate rendering itself, not just the post-render recovery effect. This
   // prevents a stale picker flashing during auth loading or session changes.
-  const visiblePhase = (initialResumeDraft || flow.phase !== 'onboarding') && !accountReady ? 'account' : flow.phase;
+  const visiblePhase = accountHandoff || ssoHandoffRequiredRef.current || ((initialResumeDraft || flow.phase !== 'onboarding') && !accountReady) ? 'account' : flow.phase;
   switch (visiblePhase) {
     case 'account':
       return currentPayload
@@ -1191,6 +1315,7 @@ function OnboardingIntegrationController({
                 locale={locale}
                 needsSessionEmailVerification={isSignedIn === true && userLoaded
                 && (!emailVerified || serverEmailVerificationRequired)}
+                onAccountHandoffStart={startAccountHandoff}
                 onCancel={returnToReview}
                 onSessionEmailVerified={completeSessionEmailVerification}
                 providers={authProviders}

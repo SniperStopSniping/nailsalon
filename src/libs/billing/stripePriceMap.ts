@@ -31,7 +31,7 @@ import { Env } from '@/libs/Env';
 
 import type { BillingOfferKey } from './billingOffers';
 import type { PromotionKey } from './promotions';
-import { getStripePriceCarrier, isConfiguredStripeId } from './stripePriceCarrier';
+import { getStripePriceCarrier, isConfiguredStripeId, parseStripePriceCarrier } from './stripePriceCarrier';
 import type { TopupOfferKey } from './topupOffers';
 
 export type BillingCatalogErrorCode = 'PRICE_UNCONFIGURED' | 'UNKNOWN_CATALOG_KEY';
@@ -184,4 +184,36 @@ export function resolveTopupOfferFromStripePriceId(priceId: string): TopupOfferK
     }
   }
   return reverseLookup(TOPUP_PRICE_IDS, priceId);
+}
+
+/** Compare payment evidence with this purchase's versioned offer price. */
+export function classifyTopupPriceEvidence(
+  offerKey: string,
+  priceId: string | null,
+): 'matched' | 'unconfigured' | 'mismatch' | 'invalid_configuration' {
+  if (!Object.prototype.hasOwnProperty.call(TOPUP_PRICE_IDS, offerKey)) {
+    return 'invalid_configuration';
+  }
+  const carrierResult = parseStripePriceCarrier(Env.BILLING_STRIPE_PRICE_IDS, billingEnv());
+  if (!carrierResult.ok) {
+    return 'invalid_configuration';
+  }
+
+  const key = offerKey as TopupOfferKey;
+  const carrier = carrierResult.carrier;
+  const expectedPrice = carrier?.topups[key] ?? TOPUP_PRICE_IDS[key][billingEnv()];
+  if (isConfiguredStripeId(expectedPrice)) {
+    return priceId === expectedPrice ? 'matched' : 'mismatch';
+  }
+
+  // A partial carrier can omit this offer, but a price known to belong to
+  // another offer must never be accepted as the unconfigured fallback.
+  if (priceId !== null) {
+    const mappedOffer = (carrier && reverseLookupCarrier<TopupOfferKey>(carrier.topups, priceId))
+      ?? reverseLookup(TOPUP_PRICE_IDS, priceId);
+    if (mappedOffer !== null && mappedOffer !== key) {
+      return 'mismatch';
+    }
+  }
+  return 'unconfigured';
 }

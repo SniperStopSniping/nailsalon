@@ -25,6 +25,7 @@ vi.mock('@clerk/nextjs/server', () => ({
   createRouteMatcher: () => () => false,
 }));
 
+import { ACTIVE_SALON_COOKIE } from './libs/tenantSlug';
 import middleware from './middleware';
 
 function request(path: string) {
@@ -61,5 +62,85 @@ describe('middleware — Clerk context for owner-authenticated APIs', () => {
     await middleware(request(path), event);
 
     expect(clerkMiddlewareFactory).not.toHaveBeenCalled();
+  });
+
+  it('preserves late Clerk cookies and request context when adding a salon cookie', async () => {
+    // Clerk's handshake appends headers after constructing NextResponse. Its
+    // cookies cache does not contain those headers, including duplicate names
+    // whose different paths must survive unchanged.
+    const response = NextResponse.redirect('https://identity.example/v1/client/handshake');
+    const originalCookies = [
+      'sdk_session=synthetic-session; Path=/; Secure; HttpOnly; SameSite=None',
+      'sdk_redirect_count=1; Path=/; Max-Age=3; Secure; SameSite=Lax',
+      'sdk_path_cookie=root; Path=/; Expires=Wed, 21 Oct 2037 07:28:00 GMT',
+      'sdk_path_cookie=account; Path=/account; Secure; HttpOnly',
+    ];
+    originalCookies.forEach(cookie => response.headers.append('Set-Cookie', cookie));
+    const originalCompanion = `existing=retained; Path=/; Expires=Wed, 21 Oct 2037 07:28:00 GMT,${ACTIVE_SALON_COOKIE}=previous-salon; Path=/`;
+    response.headers.set('x-middleware-set-cookie', originalCompanion);
+    response.headers.set('Cache-Control', 'private, no-store');
+    response.headers.set('x-middleware-override-headers', 'x-fixture-auth');
+    response.headers.set('x-middleware-request-x-fixture-auth', 'existing-context');
+
+    expect(response.cookies.getAll()).toEqual([]);
+
+    clerkMiddlewareFactory.mockImplementation(() => async () => response);
+
+    const result = await middleware(request('/api/admin/location?salonSlug=fixture-salon'), event);
+
+    expect(result).toBe(response);
+    expect(result.status).toBe(307);
+    expect(result.headers.get('Location')).toBe('https://identity.example/v1/client/handshake');
+    expect(result.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(result.headers.get('x-middleware-override-headers')).toBe('x-fixture-auth');
+    expect(result.headers.get('x-middleware-request-x-fixture-auth')).toBe('existing-context');
+
+    const resultCookies = result.headers.getSetCookie();
+
+    expect(resultCookies.slice(0, originalCookies.length)).toEqual(originalCookies);
+    expect(resultCookies).toHaveLength(originalCookies.length + 1);
+
+    const activeCookie = resultCookies.at(-1)!;
+
+    expect(activeCookie.startsWith(`${ACTIVE_SALON_COOKIE}=fixture-salon;`)).toBe(true);
+    expect(activeCookie).toContain('HttpOnly');
+    expect(activeCookie).toContain('Secure');
+    expect(activeCookie).toContain('SameSite=lax');
+    expect(result.cookies.get(ACTIVE_SALON_COOKIE)?.value).toBe('fixture-salon');
+    expect(result.headers.get('x-middleware-set-cookie')).toBe(`${originalCompanion},${activeCookie}`);
+  });
+
+  it('leaves late Clerk cookies untouched without salon context', async () => {
+    const response = NextResponse.redirect('https://identity.example/v1/client/handshake');
+    const cookie = 'sdk_session=synthetic-session; Path=/; Secure; HttpOnly';
+    response.headers.append('Set-Cookie', cookie);
+    response.headers.set('x-middleware-set-cookie', 'existing=retained; Path=/');
+    clerkMiddlewareFactory.mockImplementation(() => async () => response);
+
+    const result = await middleware(request('/api/admin/location'), event);
+
+    expect(result).toBe(response);
+    expect(result.headers.getSetCookie()).toEqual([cookie]);
+    expect(result.headers.get('x-middleware-set-cookie')).toBe('existing=retained; Path=/');
+  });
+
+  it('preserves the response body and creates the salon request-cookie companion', async () => {
+    const response = new NextResponse('body-kept', { status: 200 });
+    response.headers.append('Set-Cookie', 'sdk_session=synthetic-session; Path=/; HttpOnly');
+    const originalBody = response.body;
+    clerkMiddlewareFactory.mockImplementation(() => async () => response);
+
+    const result = await middleware(request('/api/admin/location?salonSlug=fixture-salon'), event);
+
+    expect(result).toBe(response);
+    expect(result.body).toBe(originalBody);
+    expect(result.status).toBe(200);
+    expect(await result.text()).toBe('body-kept');
+
+    const resultCookies = result.headers.getSetCookie();
+
+    expect(resultCookies).toHaveLength(2);
+    expect(resultCookies[0]).toBe('sdk_session=synthetic-session; Path=/; HttpOnly');
+    expect(result.headers.get('x-middleware-set-cookie')).toBe(resultCookies[1]);
   });
 });

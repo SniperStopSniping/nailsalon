@@ -1,0 +1,110 @@
+name: Exact-candidate booking PostgreSQL reliability
+
+on:
+  pull_request:
+    branches: [main]
+
+# Historical matched A/B evidence remains at component commits 9c6d328d and
+# a1fae0de. Combined candidates intentionally have a different dependency graph;
+# validate their own exact PR head and frozen lock, without a baseline waiver.
+
+permissions:
+  contents: read
+
+jobs:
+  booking-retry:
+    name: Candidate booking PostgreSQL (pass ${{ matrix.pass }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        pass: [1, 2, 3, 4]
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_DB: luster_e2e_ci_disposable
+          POSTGRES_USER: luster_e2e_ci
+          POSTGRES_PASSWORD: luster-e2e-ci-only-password
+        ports:
+          - '127.0.0.1:55432:5432'
+        options: >-
+          --health-cmd "pg_isready -U luster_e2e_ci -d luster_e2e_ci_disposable"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+      LUSTER_DISPOSABLE_DATABASE: 'true'
+      CUSTOMER_BOOKING_PG_REQUIRED: 'true'
+      BILLING_PLAN_ENV: test
+      CLERK_SECRET_KEY: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
+      STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      STRIPE_CONNECT_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: subject
+          persist-credentials: false
+      - name: Verify clean exact PR head and freeze dependency inputs
+        working-directory: subject
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          test -z "$(git status --porcelain)"
+          sha256sum package.json package-lock.json > "$RUNNER_TEMP/booking-inputs.sha256"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: subject/package-lock.json
+      - name: Validate parser contracts
+        working-directory: subject
+        run: node --test scripts/check-booking-scale-result.node-test.mjs
+      - name: Install exact subject dependencies
+        working-directory: subject
+        run: |
+          set -euo pipefail
+          HUSKY=0 npm ci
+          sha256sum --check "$RUNNER_TEMP/booking-inputs.sha256"
+          git diff --exit-code -- package.json package-lock.json
+      - name: Check runner resources
+        run: |
+          set -euo pipefail
+          test "$(df -Pk . | awk 'NR==2 {print $4}')" -ge 2097152
+          test "$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)" -ge 2097152
+      - name: Prepare attested fresh PostgreSQL
+        working-directory: subject
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: npm run db:prepare:e2e:ci
+      - name: Run complete creator suite once and validate original scale rounds
+        working-directory: subject
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          set +e
+          node node_modules/vitest/vitest.mjs run src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts --maxWorkers=1 --no-file-parallelism --retry=0 --testTimeout=120000 --hookTimeout=120000 | tee "$RUNNER_TEMP/booking-retry-output.txt"
+          test_exit=${PIPESTATUS[0]}
+          set -e
+          node scripts/check-booking-scale-result.mjs "$RUNNER_TEMP/booking-retry-output.txt" "$RUNNER_TEMP/booking-retry-summary.json" candidate "$test_exit"
+      - name: Upload numeric summary only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: booking-reliability-candidate-${{ matrix.pass }}
+          path: ${{ runner.temp }}/booking-retry-summary.json
+          if-no-files-found: error
+          retention-days: 7

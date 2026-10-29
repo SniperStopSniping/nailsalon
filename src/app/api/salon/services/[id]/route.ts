@@ -19,7 +19,7 @@ import {
 export const dynamic = 'force-dynamic';
 
 const optionalText = z
-  .union([z.string(), z.null(), z.undefined()])
+  .string().nullish()
   .transform((value) => {
     const trimmed = typeof value === 'string' ? value.trim() : '';
     return trimmed || null;

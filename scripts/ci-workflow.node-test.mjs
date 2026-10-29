@@ -1,8 +1,7 @@
 /* eslint-disable no-template-curly-in-string -- GitHub expressions are literal workflow contracts. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -42,6 +41,16 @@ test('Calendar PostgreSQL regressions are required and cannot silently skip', ()
   assert.ok(calendar.run.includes('src/libs/deposits/deposits.d5Calendar.concurrency.integration.test.ts'));
   assert.ok(calendar.run.includes('D5_REAL_POSTGRES_TESTS_EXECUTED=3 D5_REAL_POSTGRES_TESTS_SKIPPED=0'));
   assert.equal(calendar.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  const binding = deposits.steps.find(step => step.name === 'Run runtime PostgreSQL pool cooldown and binding regressions and prove zero skips');
+  assert.ok(binding, 'The guarded pool and binding cases must remain required');
+  assert.equal(binding.env.D5_POOL_COOLDOWN_REQUIRED, 'true');
+  assert.equal(binding.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  assert.equal(binding.env.LUSTER_DISPOSABLE_POSTGRES_NETWORK, '${{ job.services.postgres.network }}');
+  assert.equal(binding.if, undefined);
+  assert.equal(binding['continue-on-error'], undefined);
+  assert.match(binding.run, /set -euo pipefail/);
+  assert.ok(binding.run.includes('src/libs/runtimeDatabasePoolClient.integration.test.ts'));
+  assert.ok(binding.run.includes('RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_EXECUTED=12 RUNTIME_DATABASE_POOL_COOLDOWN_POSTGRES_TESTS_SKIPPED=0'));
   const outbox = jobs['google-outbox-postgres'];
   assert.equal(outbox.needs, 'secret-scan');
   assert.equal(outbox.env.GOOGLE_OUTBOX_PG_REQUIRED, 'true');
@@ -62,13 +71,50 @@ test('Calendar PostgreSQL regressions are required and cannot silently skip', ()
   assert.equal(jobs.test.steps[0].env.GOOGLE_OUTBOX_RESULT, '${{ needs.google-outbox-postgres.result }}');
 });
 
+test('required application evidence executes the offline Playwright watchdog contracts', () => {
+  const gate = jobs['test-core'].steps.find(step => step.name === 'Test CI evidence and cancellation contracts');
+  assert.ok(gate.run.includes('scripts/install-playwright.node-test.mjs'));
+  assert.equal(gate.if, undefined);
+  assert.equal(gate['continue-on-error'], undefined);
+});
+
+test('D5 browser setup is bounded and later PostgreSQL and mobile evidence remain required', () => {
+  const deposits = jobs['deposits-postgres-concurrency'];
+  const installer = deposits.steps.find(step => step.name === 'Install mobile browser engines for the real customer booking journey');
+  assert.ok(installer, 'D5 must install the engines needed by its mobile customer journey');
+  assert.equal(installer.uses, './.github/actions/install-playwright');
+  assert.equal(installer.run, undefined, 'D5 must use the bounded installer instead of an unbounded shell install');
+  assert.equal(installer['timeout-minutes'], 38);
+  assert.equal(deposits['timeout-minutes'], 55);
+  assert.equal(deposits.if, undefined);
+  assert.equal(deposits['continue-on-error'], undefined);
+  for (const step of [installer, ...[
+    'Verify Calendar read contention on real PostgreSQL with zero skips',
+    'Verify customer journey through real handlers and PostgreSQL in both mobile engines',
+    'Verify portfolio upload slot races on real PostgreSQL with zero skips',
+    'Verify scope-clean outbox mutants on real PostgreSQL with zero skips',
+    'Verify Next Visit offer races on real PostgreSQL with zero skips',
+  ].map((name) => {
+    const evidence = deposits.steps.find(step => step.name === name);
+    assert.ok(evidence, `D5 must retain required evidence: ${name}`);
+    assert.ok(deposits.steps.indexOf(evidence) > deposits.steps.indexOf(installer));
+    assert.match(evidence.run, /set -euo pipefail/);
+    assert.match(evidence.run, /npx vitest run/);
+    assert.match(evidence.run, /TESTS_SKIPPED=0/);
+    return evidence;
+  })]) {
+    assert.equal(step.if, undefined, `${step.name} must execute after successful prior steps`);
+    assert.equal(step['continue-on-error'], undefined, `${step.name} must fail the job on error`);
+  }
+});
+
 test('CI services use the reviewed digest-pinned Docker Official Images from the Google cache', () => {
   const approvedImages = {
     postgres: 'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea',
     redis: 'mirror.gcr.io/library/redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499',
   };
   const services = Object.values(jobs).flatMap(job => Object.entries(job.services ?? {}));
-  assert.equal(services.filter(([name]) => name === 'postgres').length, 11);
+  assert.equal(services.filter(([name]) => name === 'postgres').length, 12);
   assert.equal(services.filter(([name]) => name === 'redis').length, 1);
   for (const [name, service] of services) {
     assert.ok(Object.hasOwn(approvedImages, name), `Unreviewed CI service: ${name}`);
@@ -95,7 +141,7 @@ test('required aggregates reject failed, skipped, cancelled and missing evidence
   }
   assert.equal(jobs['full-vitest'].name, 'Full Vitest Suite');
   assert.equal(jobs.test.name, 'Run all tests (20.x)');
-  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24', 'deposits-postgres-concurrency', 'google-outbox-postgres']);
+  assert.deepEqual(jobs.test.needs, ['test-core', 'test-components', 'monitoring-node24', 'deposits-postgres-concurrency', 'google-outbox-postgres', 'sms-refund-bookkeeping-postgres', 'topup-cursor-postgres']);
   assert.equal(jobs['full-vitest'].needs, 'full-vitest-shards');
 });
 
@@ -111,6 +157,64 @@ test('the required aggregate includes Node 24 monitoring evidence with zero skip
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
   assert.equal(jobs.test.steps[0].env.MONITORING_RESULT, '${{ needs.monitoring-node24.result }}');
   assert.match(jobs.test.steps[0].run, /test "\$MONITORING_RESULT" = success/);
+});
+
+test('SMS refund native evidence is exact-head, isolated, zero-skip and required by the aggregate', () => {
+  const id = 'sms-refund-bookkeeping-postgres';
+  const job = jobs[id];
+  assert.equal(job.needs, 'secret-scan');
+  assert.equal(job['timeout-minutes'], 10);
+  assert.deepEqual(job.permissions, { contents: 'read' });
+  assert.equal(job['continue-on-error'], undefined);
+  assert.equal(job.if, undefined);
+  for (const step of job.steps) {
+    assert.equal(step['continue-on-error'], undefined);
+  }
+  const checkout = job.steps.find(step => step.uses === 'actions/checkout@v4');
+  assert.equal(checkout.with.ref, '${{ github.event.pull_request.head.sha || github.sha }}');
+  assert.equal(checkout.with['persist-credentials'], false);
+  assert.equal(job.steps.find(step => step.uses === 'actions/setup-node@v4').with['node-version'], '24.x');
+  assert.equal(job.services.postgres.image, 'mirror.gcr.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea');
+  assert.deepEqual(job.services.postgres.ports, ['127.0.0.1:5432:5432']);
+  assert.deepEqual(job.services.postgres.env, { POSTGRES_DB: 'luster_refund_ci', POSTGRES_USER: 'qa', POSTGRES_HOST_AUTH_METHOD: 'trust' });
+  assert.deepEqual(job.env, {
+    CONCURRENCY_TEST_DATABASE_URL: 'postgresql://qa@127.0.0.1:5432/luster_refund_ci',
+    SMS_REFUND_DISPOSABLE_DATABASE_CONFIRMED: 'true',
+  });
+  const identity = job.steps.find(step => step.name === 'Attest the refund test service address');
+  assert.equal(identity.env.PG_CONTAINER_ID, '${{ job.services.postgres.id }}');
+  assert.match(identity.run, /set -euo pipefail/);
+  assert.ok(identity.run.includes('docker inspect --format \'{{json .NetworkSettings.Networks}}\' "$PG_CONTAINER_ID"'));
+  assert.match(identity.run, /SMS_REFUND_EXPECTED_SERVER_ADDRESS/);
+  // Execute the actual inline metadata parser: never infer the server's address
+  // from the client URL or an operator-supplied expected value.
+  const parser = identity.run.match(/node -e '([\s\S]+)'/)[1];
+  const directory = mkdtempSync(path.join(tmpdir(), 'refund-ci-address-'));
+  try {
+    const file = path.join(directory, 'github-env');
+    const inspect = input => spawnSync(process.execPath, ['-e', parser], {
+      input: JSON.stringify(input),
+      encoding: 'utf8',
+      env: { GITHUB_ENV: file, NODE_OPTIONS: process.env.NODE_OPTIONS },
+    });
+    assert.equal(inspect({ network: { IPAddress: '172.19.0.3' } }).status, 0);
+    assert.equal(readFileSync(file, 'utf8'), 'SMS_REFUND_EXPECTED_SERVER_ADDRESS=172.19.0.3\n');
+    for (const invalid of [{}, { network: { IPAddress: 'not-an-ip' } }, { one: { IPAddress: '172.19.0.3' }, two: { IPAddress: '172.19.0.4' } }]) {
+      assert.notEqual(inspect(invalid).status, 0);
+      assert.equal(readFileSync(file, 'utf8'), 'SMS_REFUND_EXPECTED_SERVER_ADDRESS=172.19.0.3\n');
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  const race = job.steps.find(step => step.name === 'Prove duplicate zero-debit refunds retain one durable adjustment');
+  assert.match(race.run, /set -euo pipefail/);
+  assert.ok(race.run.includes('node node_modules/vitest/vitest.mjs run --maxWorkers=1 --no-file-parallelism --retry=0'));
+  assert.ok(race.run.includes('src/libs/billing/topupRefundBookkeeping.concurrency.integration.test.ts'));
+  assert.ok(race.run.includes('grep -Fqx \'SMS_ZERO_REFUND_POSTGRES_TESTS_EXECUTED=1 SMS_ZERO_REFUND_POSTGRES_TESTS_SKIPPED=0\''));
+  assert.doesNotMatch(race.run, /\|\|\s*true|--retry=[1-9]/);
+  assert.ok(jobs.test.needs.includes(id));
+  assert.equal(jobs.test.steps[0].env.SMS_REFUND_RESULT, '${{ needs.sms-refund-bookkeeping-postgres.result }}');
+  assert.match(jobs.test.steps[0].run, /test "\$SMS_REFUND_RESULT" = success/);
 });
 
 test('the required Node 24 job also exercises the bundled Redis URL parser', () => {
@@ -145,11 +249,11 @@ test('the required Node 24 aggregate verifies application timezone rules with ze
 
 test('dependency protection accepts reviewed pairs and rejects changed or mixed manifests', () => {
   const step = jobs['test-core'].steps.find(candidate => candidate.name === 'Deposits ladder protected surfaces');
-  assert.ok(step.run.includes('if ! git diff --quiet "$base" -- package.json package-lock.json; then'));
-  const statement = step.run.match(/case "\$dependency_manifest_blob:\$dependency_lock_blob" in[\s\S]*?esac/)?.[0];
-  assert.ok(statement);
-  const reviewed = [...statement.matchAll(/([a-f0-9]{40}):([a-f0-9]{40})\) ;;/g)].map(match => [match[1], match[2]]);
+  assert.ok(step.run.includes('node scripts/verify-dependency-pair.mjs'));
+  const registry = JSON.parse(readFileSync(new URL('./reviewed-dependency-pairs.json', import.meta.url), 'utf8'));
+  const reviewed = registry.pairs.map(pair => [pair.packageJson, pair.packageLock]);
   const monitoringPairs = [
+    ['6d84eee3528321bd75fd0f5aef836de6254c051d', 'e5621478f34ab837603dbb54a51ed42a19480a6f'], // Clerk Core3 Protect-compatible owner signup.
     ['e8611651650ec97880c8a67e05b795a26efaa6cb', '8f5742e82fcd36ec2185235d4bfa08bd383a7966'],
     ['b7e4591c8df9d94b82b281587cec8f98b0f5439e', '9576667ec691e6f5aba41486cfbbcf8e32d6b3ee'],
     ['f5212c5c05d6cf9a89a3e63c2643f03bbf223d75', '3500380b6019dbab17b1c137064ee1c1e3963eda'],
@@ -172,31 +276,24 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
     ['68378a97e8f7292264e15565a299b4b5c04e47b3', '5467895180e9024f1227adf9b47b9c42ce7c4d4c'],
     ['72714ec554388ba617898e14c78a0556f475bc65', '547a7f34a8855333a1cfbdebbdd32393b8be31c3'],
     ['95a5d51e3c9fd0bde85d21fc288077db849ef5a0', 'ac97375ebeff51fd225f1e1831243e131a5c50ef'],
+    ['967dd87bc5a80a153ad03a8de5393caae126b3f8', '6a498e509e23855a3444a5e01859138f8a12934b'],
+    ['0999737f8b22586308f691af285f1b698e5d67e0', 'd48e7806aa03c0565387a94e852b3a080ba0d077'],
   ];
   for (const pair of monitoringPairs) {
     assert.ok(reviewed.some(([manifest, lock]) => manifest === pair[0] && lock === pair[1]));
   }
-  const run = (manifest, lock) => spawnSync('bash', ['-eu', '-c', statement], {
-    env: { dependency_manifest_blob: manifest, dependency_lock_blob: lock },
-  }).status;
-  const currentPair = ['package.json', 'package-lock.json'].map((file) => {
-    const contents = readFileSync(new URL(`../${file}`, import.meta.url));
-    return createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex');
-  });
-  assert.equal(run(...currentPair), 0, 'The current manifest and lock contents must be a reviewed pair');
-  for (const [manifest, lock] of reviewed) {
-    assert.equal(run(manifest, lock), 0);
-    assert.notEqual(run('0'.repeat(40), lock), 0);
-    assert.notEqual(run(manifest, '0'.repeat(40)), 0);
-    // Several separately reviewed lock refreshes intentionally share one manifest.
-    // Reject cross-pairing only when both sides come from different reviewed pairs.
-    for (const [otherManifest, otherLock] of reviewed) {
-      if (otherManifest !== manifest && otherLock !== lock) {
-        assert.notEqual(run(manifest, otherLock), 0);
-      }
-    }
-  }
-  assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
+  const validation = spawnSync(process.execPath, ['scripts/verify-dependency-pair.mjs'], { encoding: 'utf8' });
+  assert.equal(validation.status, 0, validation.stderr);
+  const tests = jobs['test-core'].steps.find(candidate => candidate.name === 'Verify release dependency registration with zero skips');
+  assert.ok(tests.run.includes('scripts/dependency-pair.node-test.mjs'));
+  assert.ok(tests.run.includes('scripts/release-pair-registration.node-test.mjs'));
+  assert.equal(tests.if, undefined);
+  assert.equal(tests['continue-on-error'], undefined);
+  assert.match(tests.run, /set -euo pipefail/);
+  assert.ok(tests.run.includes('grep -Fqx \'# tests 22\''));
+  assert.ok(tests.run.includes('grep -Fqx \'# pass 22\''));
+  assert.ok(tests.run.includes('grep -Fqx \'# skipped 0\''));
+  assert.doesNotMatch(step.run, /if false/);
 });
 
 test('installed compiler helpers satisfy Next and Intl distinct requirements', () => {
@@ -317,7 +414,7 @@ test('every PostgreSQL CI job runs on the package Node 24 engine', () => {
   assert.equal(manifest.engines.node, '24.x');
 
   const postgresJobs = Object.entries(jobs).filter(([, job]) => Object.hasOwn(job.services ?? {}, 'postgres'));
-  assert.equal(postgresJobs.length, 11);
+  assert.equal(postgresJobs.length, 12);
   for (const [id, job] of postgresJobs) {
     const setupNode = job.steps.find(step => step.uses === 'actions/setup-node@v4');
     assert.ok(setupNode, `${id} must set up Node.js`);
@@ -335,8 +432,17 @@ test('the required Node 24 job exercises the installed patched SMS and image dep
   const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched runtime dependencies and SMS transport with zero skips');
   assert.match(step.run, /set -euo pipefail/);
   assert.ok(step.run.includes('node --test --test-reporter=tap scripts/runtime-dependency-security.node-test.mjs'));
-  assert.ok(step.run.includes('grep -Fqx \'# tests 10\''));
-  assert.ok(step.run.includes('grep -Fqx \'# pass 10\''));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 11\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 11\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
+test('the required Node 24 job exercises patched semantic-release lodash-es with zero skips', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched semantic-release lodash-es with zero skips');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('node --test --test-reporter=tap scripts/release-tooling-lodash-es.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 2\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 2\''));
   assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
 });
 
@@ -461,8 +567,26 @@ test('the required component job runs onboarding tests with their package config
   assert.ok(jobs.test.needs.includes('test-components'));
   const step = jobs['test-components'].steps.find(candidate => candidate.name === 'Verify onboarding confirmation and booking notice');
   assert.equal(step['working-directory'], 'prototypes/site-builder-v2-booking-integration-lab');
-  assert.match(step.run, /npm test -- --maxWorkers=2 --minWorkers=1/);
-  assert.match(step.run, /playwright\.layout-previews\.config\.ts/);
+  assert.equal(step.run, 'npx playwright test --config playwright.booking-preferences.config.ts');
+  assert.equal(step['timeout-minutes'], 5);
+  const steps = jobs['test-components'].steps;
+  const prepare = steps.find(candidate => candidate.name === 'Prepare onboarding lab dependencies and types');
+  const unit = steps.find(candidate => candidate.name === 'Verify onboarding lab unit tests');
+  const layout = steps.find(candidate => candidate.name === 'Verify onboarding layout previews and recovery');
+  assert.equal(prepare.run, 'npm ci\nnpm run typecheck\n');
+  assert.equal(prepare['timeout-minutes'], 10);
+  assert.equal(unit.run, 'npm test -- --maxWorkers=2 --minWorkers=1');
+  assert.equal(unit['timeout-minutes'], 8);
+  assert.equal(layout.run, 'npx playwright test --config playwright.layout-previews.config.ts');
+  assert.equal(layout['timeout-minutes'], 10);
+  for (const candidate of [prepare, unit, step, layout]) {
+    assert.equal(candidate.if, 'matrix.suite == \'onboarding-owner\'');
+    assert.equal(candidate['working-directory'], step['working-directory']);
+    assert.equal(candidate['continue-on-error'], undefined);
+  }
+  assert.equal(steps.indexOf(prepare) + 1, steps.indexOf(unit));
+  assert.equal(steps.indexOf(unit) + 1, steps.indexOf(step));
+  assert.equal(steps.indexOf(step) + 1, steps.indexOf(layout));
   assert.ok(jobs['test-core'].steps.some(candidate => candidate.run?.includes('scripts/test-changed-source.node-test.mjs')));
 });
 
@@ -475,7 +599,9 @@ test('all browser evidence runs exactly once across required independent groups'
   const expected = {
     'onboarding-owner': [
       'Verify HTTPS custom-site workers and opaque-origin isolation',
+      'Verify onboarding lab unit tests',
       'Verify onboarding confirmation and booking notice',
+      'Verify onboarding layout previews and recovery',
       'Verify SMS components and plan access in desktop and mobile browsers',
       'Verify review previews and delivery states in mobile browsers',
       'Verify no-show correction in desktop and mobile browsers',
@@ -542,11 +668,350 @@ test('all browser evidence runs exactly once across required independent groups'
   const upload = job.steps.at(-1);
   assert.equal(upload.if, 'always()');
   assert.equal(upload.with.name, 'component-test-results-${{ matrix.suite }}');
-  assert.equal(upload.with.path, 'test-results/');
+  assert.equal(upload.with.path, 'test-results/\n/tmp/luster-booking-confirmation-browser-results/\n/tmp/luster-layout-preview-browser-results/\n');
   const ownerRecovery = evidence.find(step => step.name === 'Verify owner assistant reload recovery and account isolation');
   assert.equal(ownerRecovery.run, 'node node_modules/playwright/cli.js test --config tests/browser/ownerAssistant/playwright.config.ts --output=test-results/owner-assistant-components');
   const dashboardStartup = evidence.find(step => step.name === 'Verify dashboard loading, recovery and salon context in mobile browsers');
   assert.equal(dashboardStartup.run, 'node node_modules/playwright/cli.js test --config tests/browser/dashboardStartup/playwright.config.ts --output=test-results/dashboard-startup-components');
   assert.ok(jobs.test.needs.includes('test-components'));
   assert.equal(jobs.test.steps[0].env.COMPONENTS_RESULT, '${{ needs.test-components.result }}');
+});
+
+test('the required Node 24 monitoring job runs Checkly Axios compatibility without bypasses', () => {
+  const job = jobs['monitoring-node24'];
+  const step = job.steps.find(candidate => candidate.name === 'Verify Checkly Axios request compatibility with zero skips');
+  assert.ok(step);
+  assert.equal(step.if, undefined);
+  assert.equal(step['continue-on-error'], undefined);
+  assert.match(step.run, /set -euo pipefail/);
+  assert.match(step.run, /npm run test:checkly-axios:node24/);
+  assert.ok(step.run.includes('grep -Fqx \'# tests 1\' checkly-axios-node24.log'));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 1\' checkly-axios-node24.log'));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\' checkly-axios-node24.log'));
+  assert.doesNotMatch(step.run, /\|\|\s*(true|:)/);
+});
+
+test('trusted-main Percy coverage requires a verified Playwright executable and a no-provider Core override contract', () => {
+  const job = jobs['test-core'];
+  const browserContract = job.steps.find(candidate => candidate.name === 'Verify Percy discovery browser override without provider traffic');
+  assert.ok(browserContract);
+  assert.match(browserContract.run, /set -euo pipefail/);
+  assert.match(browserContract.run, /node --test --test-reporter=tap scripts\/percy-browser-override\.node-test\.mjs/);
+  assert.match(browserContract.run, /# tests 3/);
+  assert.match(browserContract.run, /# pass 3/);
+  assert.match(browserContract.run, /# skipped 0/);
+
+  const coverage = job.steps.find(candidate => candidate.name === 'Run E2E with trusted-main Percy coverage');
+  assert.ok(coverage);
+  assert.match(coverage.run, /set -euo pipefail/);
+  assert.match(coverage.run, /PERCY_BROWSER_EXECUTABLE=.*playwright.*chromium\.executablePath/);
+  assert.match(coverage.run, /export PERCY_BROWSER_EXECUTABLE/);
+  assert.match(coverage.run, /test -n "\$PERCY_BROWSER_EXECUTABLE"/);
+  assert.match(coverage.run, /test -f "\$PERCY_BROWSER_EXECUTABLE"/);
+  assert.match(coverage.run, /test -x "\$PERCY_BROWSER_EXECUTABLE"/);
+  assert.ok(coverage.run.indexOf('test -x "$PERCY_BROWSER_EXECUTABLE"') < coverage.run.indexOf('npx percy exec'));
+});
+
+test('trusted-main Percy coverage fails closed before npx when Playwright Chromium is missing or not executable', () => {
+  const coverage = jobs['test-core'].steps.find(candidate => candidate.name === 'Run E2E with trusted-main Percy coverage');
+  const fixture = mkdtempSync(path.join(tmpdir(), 'percy-ci-preflight-'));
+  const bin = path.join(fixture, 'bin');
+  const marker = path.join(fixture, 'npx-ran');
+  const executable = path.join(fixture, 'chromium');
+  mkdirSync(bin);
+  writeFileSync(path.join(bin, 'node'), '#!/bin/sh\nif [ "${PERCY_CI_TEST_NODE_EXIT:-0}" -ne 0 ]; then exit 19; fi\nprintf %s "${PERCY_CI_TEST_EXECUTABLE:-}"\n');
+  writeFileSync(path.join(bin, 'npx'), '#!/bin/sh\nprintf reached > "$PERCY_CI_TEST_NPX_MARKER"\n');
+  chmodSync(path.join(bin, 'node'), 0o755);
+  chmodSync(path.join(bin, 'npx'), 0o755);
+
+  const run = (executablePath, nodeExit = 0) => {
+    const result = spawnSync('/bin/bash', ['-eu', '-o', 'pipefail', '-c', coverage.run], {
+      encoding: 'utf8',
+      env: {
+        PATH: bin,
+        PERCY_CI_TEST_EXECUTABLE: executablePath,
+        PERCY_CI_TEST_NODE_EXIT: String(nodeExit),
+        PERCY_CI_TEST_NPX_MARKER: marker,
+        PERCY_TOKEN: 'synthetic-test-token',
+      },
+    });
+    const npxReached = (() => {
+      try {
+        return readFileSync(marker, 'utf8') === 'reached';
+      } catch {
+        return false;
+      }
+    })();
+    rmSync(marker, { force: true });
+    return { result, npxReached };
+  };
+
+  try {
+    const missing = run('');
+    assert.notEqual(missing.result.status, 0);
+    assert.equal(missing.npxReached, false);
+
+    const absent = run(path.join(fixture, 'missing-browser'));
+    assert.notEqual(absent.result.status, 0);
+    assert.equal(absent.npxReached, false);
+
+    writeFileSync(executable, '#!/bin/sh\nexit 0\n');
+    chmodSync(executable, 0o644);
+    const nonExecutable = run(executable);
+    assert.notEqual(nonExecutable.result.status, 0);
+    assert.equal(nonExecutable.npxReached, false);
+
+    const directory = run(bin);
+    assert.notEqual(directory.result.status, 0);
+    assert.equal(directory.npxReached, false);
+
+    chmodSync(executable, 0o755);
+    const resolverFailure = run(executable, 19);
+    assert.notEqual(resolverFailure.result.status, 0);
+    assert.equal(resolverFailure.npxReached, false);
+    const valid = run(executable);
+    assert.equal(valid.result.status, 0, valid.result.stderr);
+    assert.equal(valid.npxReached, true);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('the required Node 24 job exercises the patched release-tooling dependency contracts', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched release tooling dependencies with zero skips');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('node --test --test-reporter=tap scripts/tooling-dependency-security.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 3\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 3\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
+test('the required Node 24 job verifies the patched URI parser and its consumers without skips', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify patched URI parser consumers with zero skips');
+  assert.ok(step);
+  assert.equal(step.if, undefined);
+  assert.equal(step['continue-on-error'], undefined);
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('node --test --test-reporter=tap scripts/fast-uri-security.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 7\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 7\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
+test('the required Node 24 job verifies scoped release-plugin Lodash without skips', () => {
+  const step = jobs['monitoring-node24'].steps.find(candidate => candidate.name === 'Verify scoped release-plugin Lodash with zero skips');
+  assert.ok(step);
+  assert.equal(step.if, undefined);
+  assert.equal(step['continue-on-error'], undefined);
+  assert.match(step.run, /set -euo pipefail/);
+  assert.ok(step.run.includes('scripts/release-tooling-lodash.node-test.mjs'));
+  assert.ok(step.run.includes('grep -Fqx \'# tests 2\''));
+  assert.ok(step.run.includes('grep -Fqx \'# pass 2\''));
+  assert.ok(step.run.includes('grep -Fqx \'# skipped 0\''));
+});
+
+test('durable cursor PostgreSQL is mandatory, isolated and cannot silently skip', () => {
+  const job = jobs['topup-cursor-postgres'];
+  assert.equal(job.needs, 'secret-scan');
+  assert.deepEqual(job.permissions, { contents: 'read' });
+  assert.equal(job.steps.find(step => step.uses === 'actions/checkout@v4').with['persist-credentials'], false);
+  const run = job.steps.find(step => step.name === 'Require owned Unix PostgreSQL cursor coverage').run;
+  assert.match(run, /set -euo pipefail/);
+  assert.match(run, /node scripts\/run-topup-cursor-postgres\.mjs/);
+  assert.match(run, /TOPUP_CURSOR_POSTGRES_TESTS_EXECUTED=18 TOPUP_CURSOR_POSTGRES_TESTS_SKIPPED=0/);
+  assert.equal(jobs.test.steps[0].env.TOPUP_CURSOR_RESULT, '${{ needs.topup-cursor-postgres.result }}');
+  const runner = readFileSync(new URL('./run-topup-cursor-postgres.mjs', import.meta.url), 'utf8');
+  assert.match(runner, /--network=none/);
+  assert.match(runner, /CURSOR_IP_TRANSPORT_FORBIDDEN/);
+  assert.match(runner, /socket, '\.s\.PGSQL\.5432'/);
+  assert.match(runner, /session_user/);
+  assert.match(runner, /address:null/);
+  assert.match(runner, /listen:''/);
+  assert.match(runner, /data:/);
+  assert.match(runner, /--tmpfs.*\/subject\/\.git:ro/);
+  assert.ok(!runner.includes('CONCURRENCY_TEST_DATABASE_URL'));
+});
+
+test('cursor evidence rejects partial, skipped or falsely successful reports', async () => {
+  const { requireCursorResults } = await import('./run-topup-cursor-postgres.mjs');
+  const valid = { success: true, numTotalTests: 18, numPassedTests: 18, numPendingTests: 0, numFailedTests: 0, testResults: [{ assertionResults: Array.from({ length: 18 }, () => ({ status: 'passed' })) }] };
+  assert.doesNotThrow(() => requireCursorResults(valid));
+  for (const patch of [{ success: false }, { numTotalTests: 17 }, { numPassedTests: 17 }, { numPendingTests: 1 }, { numFailedTests: 1 }]) {
+    assert.throws(() => requireCursorResults({ ...valid, ...patch }));
+  }
+  const skipped = structuredClone(valid);
+  skipped.testResults[0].assertionResults[0].status = 'pending';
+  assert.throws(() => requireCursorResults(skipped));
+});
+
+test('only the exact ordered 0114/0115 migration suffix is admitted', () => {
+  const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
+  const packet = run.match(/node --input-type=module - "\$base" <<'TOPUP_CURSOR_MIGRATION'\n([\s\S]*?)\nTOPUP_CURSOR_MIGRATION/)[1];
+  const paths = run.match(/while read -r file; do[\s\S]*?done <<< "\$\(git diff --name-only "\$base" -- migrations vercel.json\)"/)[0];
+  const directory = mkdtempSync(path.join(tmpdir(), 'ordered-migration-gate-'));
+  const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
+  const files = ['migrations/0114_daniela_automation.sql', 'migrations/0115_topup_reconciliation_sweep.sql'];
+  const sources = files.map(file => readFileSync(new URL(`../${file}`, import.meta.url)));
+  const journal = JSON.parse(readFileSync(new URL('../migrations/meta/_journal.json', import.meta.url)));
+  const save = value => writeFileSync(path.join(directory, 'migrations/meta/_journal.json'), JSON.stringify(value));
+  const commit = (message) => {
+    git('add', '.');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', message);
+    return git('rev-parse', 'HEAD');
+  };
+  let base;
+  const check = () => spawnSync(process.execPath, ['--input-type=module', '-', base], { cwd: directory, input: packet, stdio: ['pipe', 'pipe', 'pipe'] }).status;
+  const checkPaths = () => spawnSync('bash', ['-eu', '-c', paths], { cwd: directory, env: { ...process.env, base }, stdio: 'pipe' }).status;
+  try {
+    git('init', '-q');
+    mkdirSync(path.join(directory, 'migrations/meta'), { recursive: true });
+    save({ ...journal, entries: journal.entries.slice(0, 113) });
+    base = commit('synthetic base through 0113');
+    for (const [index, file] of files.entries()) {
+      writeFileSync(path.join(directory, file), sources[index]);
+    }
+    save(journal);
+    git('add', '.');
+    assert.equal(check(), 0, 'exact reviewed SQL and ordered suffix pass from 0113');
+    assert.equal(checkPaths(), 0, 'both reviewed SQL paths are admitted');
+    const unknown = path.join(directory, 'migrations/0116_unreviewed.sql');
+    writeFileSync(unknown, '-- synthetic unreviewed migration\n');
+    git('add', '.');
+    assert.notEqual(checkPaths(), 0, 'an additional SQL path fails closed');
+    rmSync(unknown);
+    git('add', '.');
+    for (const [index, file] of files.entries()) {
+      const current = path.join(directory, file);
+      writeFileSync(current, `${sources[index]}\n-- changed\n`);
+      assert.notEqual(check(), 0, `${file} rejects changed bytes`);
+      rmSync(current);
+      assert.notEqual(check(), 0, `${file} is required`);
+      writeFileSync(current, sources[index]);
+    }
+    for (const [reason, change] of [
+      ['missing 0114', value => value.entries.splice(113, 1)],
+      ['missing 0115', value => value.entries.pop()],
+      ['0115 before 0114', value => value.entries.splice(113, 2, value.entries[114], value.entries[113])],
+      ['duplicate suffix', value => value.entries.push(value.entries[114])],
+      ['unknown suffix', value => value.entries[114].tag = '0116_unreviewed'],
+      ['wrong 0114 index', value => value.entries[113].idx++],
+      ['wrong 0115 index', value => value.entries[114].idx--],
+      ['changed 0114 timestamp', value => value.entries[113].when++],
+      ['changed 0115 timestamp', value => value.entries[114].when++],
+      ['duplicate historical index', value => value.entries[0].idx = value.entries[1].idx],
+      ['duplicate historical tag', value => value.entries[0].tag = value.entries[1].tag],
+      ['non-increasing timestamps', value => value.entries[1].when = value.entries[0].when],
+      ['changed prefix', value => value.entries[0].when++],
+      ['changed header', value => value.version = 'unreviewed'],
+    ]) {
+      const invalid = structuredClone(journal);
+      change(invalid);
+      save(invalid);
+      assert.notEqual(check(), 0, reason);
+    }
+    save({ ...journal, entries: [...journal.entries.slice(0, 113), { ...journal.entries[114], idx: 113 }] });
+    base = commit('synthetic installed 0115-first history');
+    save(journal);
+    assert.notEqual(check(), 0, 'an installed 0115-first history requires forward repair');
+    save(journal);
+    base = commit('synthetic ordered shipped packet');
+    assert.equal(check(), 0, 'an unchanged shipped packet remains valid');
+    for (const [index, file] of files.entries()) {
+      writeFileSync(path.join(directory, file), `${sources[index]}\n-- different shipped identity\n`);
+      base = commit(`synthetic changed shipped SQL ${index}`);
+      writeFileSync(path.join(directory, file), sources[index]);
+      assert.notEqual(check(), 0, 'approved bytes cannot rewrite an already-shipped migration');
+      base = commit(`restore synthetic fixture SQL ${index}`);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('cursor CI freezes source before hooks and rechecks it before isolated execution', () => {
+  const job = jobs['topup-cursor-postgres'];
+  const freeze = job.steps.findIndex(step => step.name === 'Freeze exact cursor source before dependency hooks');
+  const install = job.steps.findIndex(step => step.name === 'Install exact dependencies');
+  const execute = job.steps.findIndex(step => step.name === 'Require owned Unix PostgreSQL cursor coverage');
+  assert.ok(freeze < install && install < execute);
+  assert.match(job.steps[freeze].run, /topup-cursor-source\.sha256/);
+  assert.match(job.steps[execute].run, /sha256sum --check "\$RUNNER_TEMP\/topup-cursor-source\.sha256"/);
+  assert.match(job.steps[execute].run, /cat \.git\/HEAD/);
+  assert.equal(job.steps[execute].env.EXPECTED_SOURCE_SHA, '${{ github.event.pull_request.head.sha || github.sha }}');
+  assert.equal(job.steps.find(step => step.uses === 'actions/upload-artifact@v4').with.path, '${{ runner.temp }}/topup-cursor-postgres-summary.json');
+});
+
+test('cursor readiness waits for two consecutive final-server probes', async () => {
+  const { waitForFinalPostgres } = await import('./run-topup-cursor-postgres.mjs');
+  const probes = [false, true, false, true, true];
+  let consumed = 0;
+  waitForFinalPostgres(() => probes[consumed++], () => {});
+  assert.equal(consumed, 5);
+  assert.throws(() => waitForFinalPostgres(() => false, () => {}));
+  const runner = readFileSync(new URL('./run-topup-cursor-postgres.mjs', import.meta.url), 'utf8');
+  assert.match(runner, /cat \/proc\/1\/comm/);
+  assert.match(runner, /postgres; exec pg_isready/);
+});
+
+test('cursor evidence never retains unexpected identity, raw diagnostic or result fields', async () => {
+  const { projectCursorIdentity, projectCursorResult, projectPgDiagnostics } = await import('./run-topup-cursor-postgres.mjs');
+  const identity = { db: 'topup_reconcile_fixture_test', session_user: 'cursor_ci_fixture', current_user: 'cursor_ci_fixture', address: null, port: '5432', listen: '', data: '/var/lib/postgresql/data/owned', version: '160000' };
+  assert.equal(projectCursorIdentity(identity, identity.db).versionMajor, 16);
+  assert.throws(() => projectCursorIdentity({ ...identity, address: '127.0.0.1' }, identity.db));
+  assert.throws(() => projectCursorIdentity({ ...identity, secret: 'SYNTHETIC_SECRET' }, identity.db));
+  const projection = projectCursorResult({ success: false, numTotalTests: 18, numPassedTests: 17, numPendingTests: 0, numFailedTests: 1, failureMessages: ['SYNTHETIC_SECRET'] });
+  assert.equal(JSON.stringify(projection).includes('SYNTHETIC_SECRET'), false);
+  assert.throws(() => projectCursorResult({ ...projection, numPassedTests: 'SYNTHETIC_SECRET' }));
+  const diagnostic = projectPgDiagnostics('FATAL: SYNTHETIC_SECRET\nERROR: private payload\ndatabase system is ready to accept connections');
+  assert.deepEqual(diagnostic, { fatalMessages: 1, errorMessages: 1, readyMessages: 1, shutdownMessages: 0, rawLogRetained: false });
+  assert.equal(JSON.stringify(diagnostic).includes('SYNTHETIC_SECRET'), false);
+});
+
+test('cursor evidence reads reject oversized or redirected files', async () => {
+  const { readBoundedCursorJson } = await import('./run-topup-cursor-postgres.mjs');
+  const directory = mkdtempSync(path.join(tmpdir(), 'cursor-evidence-bound-'));
+  try {
+    const file = path.join(directory, 'result.json');
+    writeFileSync(file, '{"safe":true}');
+    assert.deepEqual(readBoundedCursorJson(file, 1024), { safe: true });
+    assert.throws(() => readBoundedCursorJson(file, 2));
+    const redirected = path.join(directory, 'redirect.json');
+    symlinkSync(file, redirected);
+    assert.throws(() => readBoundedCursorJson(redirected, 1024));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('cursor artifact producers are stopped and ownership checked before reads', async () => {
+  const { quiesceOwnedCursorTest } = await import('./run-topup-cursor-postgres.mjs');
+  const id = 'a'.repeat(64);
+  const owner = 'synthetic-cursor-owner';
+  for (const stopFails of [false, true]) {
+    const calls = [];
+    let running = true;
+    const call = (args) => {
+      calls.push(args[0]);
+      if (args[0] === 'inspect') {
+        return JSON.stringify([{ Id: id, Config: { Labels: { 'luster-cursor-owner': owner } }, State: { Running: running, Restarting: false, Pid: running ? 123 : 0, ExitCode: running ? 0 : 143 } }]);
+      }
+      if (args[0] === 'stop' && stopFails) {
+        throw new Error('Synthetic stop timeout');
+      }
+      running = false;
+      return id;
+    };
+    assert.equal(quiesceOwnedCursorTest(id, owner, call), 143);
+    assert.deepEqual(calls, stopFails ? ['inspect', 'stop', 'kill', 'inspect'] : ['inspect', 'stop', 'inspect']);
+  }
+  const calls = [];
+  assert.throws(() => quiesceOwnedCursorTest(id, owner, (args) => {
+    calls.push(args[0]);
+    return JSON.stringify([{ Id: id, Config: { Labels: { 'luster-cursor-owner': 'different-owner' } } }]);
+  }));
+  assert.deepEqual(calls, ['inspect']);
+  const runner = readFileSync(new URL('./run-topup-cursor-postgres.mjs', import.meta.url), 'utf8');
+  assert.ok(runner.indexOf('const finalExitCode = quiesceOwnedCursorTest') < runner.indexOf('report.identity = projectCursorIdentity'));
+  assert.match(runner, /constants\.O_NOFOLLOW \| constants\.O_NONBLOCK/);
+  assert.match(runner, /Buffer\.alloc\(maximumBytes \+ 1\)/);
 });

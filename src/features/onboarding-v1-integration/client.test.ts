@@ -5,6 +5,7 @@ import {
   checkOnboardingSiteSlugAvailability,
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
+  OnboardingClaimTransportError,
   prepareOnboardingCanva,
   resolveOnboardingOrganization,
   saveOnboardingPlanIntent,
@@ -152,6 +153,35 @@ describe('onboarding integration client', () => {
 
     await expect(claimOnboardingDraft({} as never, { fetcher }))
       .resolves.toEqual({ conflict, status: 'conflict' });
+  });
+
+  it('distinguishes an uncertain claim transport failure without retrying or exposing its diagnostic', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('Load failed'));
+    const failure = await claimOnboardingDraft({} as never, { fetcher }).catch(error => error);
+
+    expect(failure).toBeInstanceOf(OnboardingClaimTransportError);
+    expect(failure.message).not.toContain('Load failed');
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it.each([401, 403, 409, 500])('preserves a known HTTP %s claim error instead of marking it uncertain', async (status) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      error: { code: 'KNOWN_REJECTION', message: 'The server refused this save.' },
+    }, status));
+    const failure = await claimOnboardingDraft({} as never, { fetcher }).catch(error => error);
+
+    expect(failure).not.toBeInstanceOf(OnboardingClaimTransportError);
+    expect(failure).toMatchObject({ code: 'KNOWN_REJECTION', status });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it('does not reconcile an intentional claim abort', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const error = new DOMException('Aborted', 'AbortError');
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(error);
+
+    await expect(claimOnboardingDraft({} as never, { fetcher, signal: controller.signal })).rejects.toBe(error);
   });
 
   it('posts a legacy saved-site fallback for server owner verification without URL tokens', async () => {

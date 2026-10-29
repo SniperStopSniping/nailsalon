@@ -105,6 +105,12 @@ export default async function middleware(
         ? proto === 'https'
         : request.nextUrl.protocol === 'https:';
 
+      // Clerk can append authentication cookies after NextResponse creates its
+      // cookie cache. Mutating that cache alone would erase those late headers.
+      // Keep finalization as the last cookie mutation and preserve the original
+      // wire headers, including duplicate names with different paths.
+      const originalCookies = response.headers.getSetCookie();
+      const originalCompanion = response.headers.get('x-middleware-set-cookie');
       response.cookies.set(ACTIVE_SALON_COOKIE, requestedSalonSlug, {
         httpOnly: true,
         sameSite: 'lax',
@@ -112,6 +118,22 @@ export default async function middleware(
         maxAge: 60 * 60 * 24 * 30,
         secure,
       });
+      const activeCookies = response.headers.getSetCookie().filter(
+        cookie => cookie.startsWith(`${ACTIVE_SALON_COOKIE}=`),
+      );
+      if (activeCookies.length !== 1) {
+        throw new Error('Unable to serialize the active salon cookie.');
+      }
+      const activeCookie = activeCookies[0]!;
+      response.headers.delete('Set-Cookie');
+      originalCookies.forEach(cookie => response.headers.append('Set-Cookie', cookie));
+      response.headers.append('Set-Cookie', activeCookie);
+      // Next merges this companion into downstream request cookies. Append the
+      // salon selection without replacing the existing middleware context.
+      response.headers.set(
+        'x-middleware-set-cookie',
+        originalCompanion ? `${originalCompanion},${activeCookie}` : activeCookie,
+      );
     }
 
     return response;

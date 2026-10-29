@@ -21,6 +21,8 @@ import { enUS, frFR } from '@clerk/localizations';
 import { ClerkProvider } from '@clerk/nextjs';
 import { use } from 'react';
 
+import { FreshOnboardingAuthBoundary } from '@/features/onboarding-v1-integration/account-gate/FreshOnboardingAuthBoundary';
+
 export default function OnboardingV1Layout(props: {
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
@@ -30,24 +32,26 @@ export default function OnboardingV1Layout(props: {
   const homeUrl = params.locale === 'en' ? '/' : `/${params.locale}`;
 
   return (
-    <ClerkProvider
-      afterSignOutUrl={homeUrl}
-      appearance={{
-        variables: {
-          borderRadius: '14px',
-          colorBackground: '#fffdfb',
-          colorPrimary: '#8f3155',
-          colorText: '#30262a',
-          colorTextSecondary: '#706267',
-        },
-      }}
-      localization={params.locale === 'fr' ? frFR : enUS}
-      signInFallbackRedirectUrl={`${onboardingUrl}?claim=1`}
-      signInUrl={`${onboardingUrl}?auth=sign-in`}
-      signUpFallbackRedirectUrl={`${onboardingUrl}?claim=1`}
-      signUpUrl={`${onboardingUrl}?auth=sign-up`}
-    >
-      {props.children}
-    </ClerkProvider>
+    <FreshOnboardingAuthBoundary>
+      <ClerkProvider
+        afterSignOutUrl={homeUrl}
+        appearance={{
+          variables: {
+            borderRadius: '14px',
+            colorBackground: '#fffdfb',
+            colorPrimary: '#8f3155',
+            colorForeground: '#30262a',
+            colorMutedForeground: '#706267',
+          },
+        }}
+        localization={params.locale === 'fr' ? frFR : enUS}
+        signInFallbackRedirectUrl={`${onboardingUrl}?claim=1`}
+        signInUrl={`${onboardingUrl}?auth=sign-in`}
+        signUpFallbackRedirectUrl={`${onboardingUrl}?claim=1`}
+        signUpUrl={`${onboardingUrl}?auth=sign-up`}
+      >
+        {props.children}
+      </ClerkProvider>
+    </FreshOnboardingAuthBoundary>
   );
 }

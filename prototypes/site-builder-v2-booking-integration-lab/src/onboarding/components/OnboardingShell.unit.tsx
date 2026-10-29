@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
@@ -65,6 +65,33 @@ describe('OnboardingShell', () => {
     expect(onSaveForLater).toHaveBeenCalledOnce();
     expect(onRestart).toHaveBeenCalledOnce();
     expect(onLabOptions).toHaveBeenCalledOnce();
+  });
+
+  it('closes More when Escape arrives in the same turn as its native open', async () => {
+    render(
+      <OnboardingShell
+        autosaveState="saved"
+        completedStages={[]}
+        currentStage="basics"
+        essentialsRemaining={5}
+        onRestart={vi.fn()}
+        onSaveForLater={vi.fn()}
+      >
+        <h1>Screen content</h1>
+      </OnboardingShell>,
+    );
+
+    const more = screen.getByRole('button', { name: 'More onboarding options' });
+    const details = more.closest('details');
+
+    more.focus();
+    act(() => {
+      fireEvent.click(more);
+      fireEvent.keyDown(more, { key: 'Escape' });
+    });
+
+    await waitFor(() => expect(details).not.toHaveAttribute('open'));
+    await waitFor(() => expect(more).toHaveFocus());
   });
 
   it('moves focus into its menu, supports arrow keys, and restores focus on Escape', async () => {

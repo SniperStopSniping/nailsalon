@@ -18,6 +18,8 @@ import { basename, dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { genericAssignmentFingerprints } from './check-secret-leaks.mjs';
+
 const SCANNER = fileURLToPath(new URL('./check-secret-leaks.mjs', import.meta.url));
 const REPOSITORY_ROOT = resolve(dirname(SCANNER), '..');
 const SECRET_BODY = ['Ab3Cd5Ef7Gh9Jk2L', 'm4Np6Qr8St0Uv1Wx'].join('');
@@ -792,6 +794,42 @@ test('historical evidence checksum exception cannot hide moved, changed or adjac
   });
 });
 
+test('booking workflow synthetic URL exception cannot hide changed or adjacent credentials', () => {
+  const exactPath = '.github/workflows/booking-retry-validation.yml';
+  const contents = readFileSync(join(REPOSITORY_ROOT, exactPath), 'utf8');
+  const url = credentialUrl('postgresql', 'luster_e2e_ci', ['luster', 'e2e', 'ci', 'only', 'password'].join('-'), '127.0.0.1:55432', '/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable');
+  assert.ok(contents.includes(url), 'canonical synthetic workflow URL was not found');
+  withRepository((repository) => {
+    const base = git(repository, ['rev-parse', 'HEAD']);
+    write(repository, exactPath, contents);
+    const head = commit(repository);
+    expectPass(scan(repository));
+    expectPass(scan(repository, ['--base', base, '--head', head]));
+  });
+  for (const variant of [
+    { path: exactPath, value: url.replace('luster-e2e-ci-only-password', `Db${SECRET_BODY}`) },
+    { path: exactPath, value: url.replace('127.0.0.1:55432', 'database.example.com:55432') },
+    { path: exactPath, value: url.replace('/luster_e2e_ci_disposable?', '/other_disposable?') },
+    { path: '.github/workflows/moved-booking-validation.yml', value: url },
+  ]) {
+    withRepository((repository) => {
+      const base = git(repository, ['rev-parse', 'HEAD']);
+      write(repository, variant.path, contents.replaceAll(url, variant.value));
+      const head = commit(repository);
+      expectFinding(scan(repository), 'DATABASE_URL_CREDENTIALS', variant.value);
+      expectFinding(scan(repository, ['--base', base, '--head', head]), 'DATABASE_URL_CREDENTIALS', variant.value);
+    });
+  }
+  withRepository((repository) => {
+    const adjacent = providerSecret('sk_live_');
+    const base = git(repository, ['rev-parse', 'HEAD']);
+    write(repository, exactPath, `${contents}\nSTRIPE_SECRET_KEY: ${adjacent}\n`);
+    const head = commit(repository);
+    expectFinding(scan(repository), 'STRIPE_SECRET_KEY', adjacent);
+    expectFinding(scan(repository, ['--base', base, '--head', head]), 'STRIPE_SECRET_KEY', adjacent);
+  });
+});
+
 test('documentation URL allowlist is bound to its exact path and value', () => {
   withRepository((repository) => {
     const contents = readFileSync(
@@ -943,3 +981,199 @@ test('current repository tree passes all narrowly documented allowlists', () => 
   });
   expectPass(result);
 });
+
+const CANONICAL_CLERK_FRENCH_COPY = [
+  ['FORM_FIELD_INPUT_PLACEHOLDER_API_KEY_DESCRIPTION', 'Expliquez pourquoi vous générez cette clé'],
+  ['FORM_FIELD_INPUT_PLACEHOLDER_API_KEY_EXPIRATION_DATE', 'Sélectionner une date'],
+  ['FORM_FIELD_INPUT_PLACEHOLDER_API_KEY_NAME', 'Entrez le nom de votre clé secrète'],
+  ['FORM_FIELD_LABEL_API_KEY_NAME', 'Nom de la clé secrète'],
+];
+
+function encodePublicCopy(value, form) {
+  const slash = String.fromCharCode(92);
+  return [...value].map((character, index) => {
+    if (form === 'plain' || (form === 'mixed' && index % 2)
+      || (form === 'accent' && character.charCodeAt(0) < 128)
+      || (form === 'entropy' && character.charCodeAt(0) < 128 && index !== 3)) {
+      return character;
+    }
+    const hex = form === 'hex' || (form === 'mixed' && index % 4 === 0);
+    return slash + (hex ? 'x' : 'u')
+      + character.charCodeAt(0).toString(16).padStart(hex ? 2 : 4, '0');
+  }).join('');
+}
+
+function genericCopyFindings(key, value, path = '.next/static/chunks/fr.js', source = 'generated-client') {
+  return genericAssignmentFingerprints(path, Buffer.from(`const catalog={${key}:"${value}"};`), source);
+}
+
+test('only four canonical French API-key messages accept literal hex unicode or mixed characters', () => {
+  for (const [key, value] of CANONICAL_CLERK_FRENCH_COPY) {
+    for (const form of ['plain', 'hex', 'unicode', 'mixed', 'accent']) {
+      assert.equal(genericCopyFindings(key, encodePublicCopy(value, form)).length, 0, `${key}/${form}`);
+    }
+    const encoded = encodePublicCopy(value, 'accent');
+    assert.equal(genericCopyFindings(`${key}_OTHER`, encoded).length, 1);
+  }
+});
+
+test('French copy exceptions are generated-client static-path only with entropy-positive escaped controls', () => {
+  for (const [key, value] of CANONICAL_CLERK_FRENCH_COPY) {
+    const encoded = encodePublicCopy(value, 'accent');
+    for (const path of ['src/fr.js', '.next/server/fr.js', '.next/staticx/fr.js', '.next/static/../server/fr.js']) {
+      assert.equal(genericCopyFindings(key, encoded, path).length, 1, path);
+    }
+    for (const source of ['tracked-tree', 'commit-range', 'public-sdk']) {
+      assert.equal(genericCopyFindings(key, encoded, '.next/static/chunks/fr.js', source).length, 1, source);
+    }
+  }
+});
+
+test('changed French copy keys values prefixes suffixes or appended credentials remain findings', () => {
+  for (const [key, value] of CANONICAL_CLERK_FRENCH_COPY) {
+    const encoded = encodePublicCopy(value, 'accent');
+    for (const changed of [encoded.replace(value[0], 'X'), `Prefix ${encoded}`, `${encoded} suffix`, `${encoded}${SECRET_BODY}`, ` ${encoded}`, `${encoded} `]) {
+      assert.equal(genericCopyFindings(key, changed).length, 1);
+    }
+    assert.equal(genericCopyFindings(key.replace('API_KEY', 'PRIVATE_KEY'), encoded).length, 1);
+  }
+});
+
+test('noncanonical French escape forms never broaden the exact exception', () => {
+  const slash = String.fromCharCode(92);
+  for (const [key, value] of CANONICAL_CLERK_FRENCH_COPY) {
+    const encoded = encodePublicCopy(value, 'entropy');
+    const sequence = encoded.match(/\\u[\da-f]{4}/i)?.[0];
+    assert.ok(sequence);
+    const altered = [
+      encoded.replace(sequence, `${slash}u00g9`),
+      encoded.replace(sequence, `${slash}u0`),
+      encoded.replace(sequence, `${slash}xg9`),
+      encoded.replace(sequence, `${slash}x`),
+      encoded.replace(sequence, `${slash}u{00e9}`),
+      encoded.replace(sequence, `${slash}u0000e9`),
+      encoded.replace(sequence, `${slash}${sequence}`),
+      encoded.replace(sequence, `${slash}351`),
+      encoded.replace(sequence, `${slash}n`),
+      `${encoded}${slash}`,
+      `${encoded}\${INTERPOLATED_TOKEN}`,
+    ];
+    for (const [index, changed] of altered.entries()) {
+      assert.equal(genericCopyFindings(key, changed).length, 1, `${key}/${index}`);
+    }
+  }
+});
+
+test('canonical escaped French copy does not hide adjacent API or provider credentials', () => {
+  withRepository((repository) => {
+    write(repository, '.gitignore', '.next/\n');
+    commit(repository, 'test: isolate generated French localization');
+    const entries = CANONICAL_CLERK_FRENCH_COPY.map(([key, value]) => `${key}:"${encodePublicCopy(value, 'accent')}"`);
+    write(repository, '.next/static/chunks/fr.js', `const messages={${entries.join(',')}};`);
+    expectPass(scan(repository));
+    const adjacent = `Adjacent${SECRET_BODY}`;
+    const provider = providerSecret(['sk', 'live', ''].join('_'));
+    write(repository, '.next/static/chunks/fr.js', `const messages={${entries.join(',')},apiKey:"${adjacent}",stripeSecretKey:"${provider}"};`);
+    const result = scan(repository);
+    expectFinding(result, 'GENERIC_SECRET_ASSIGNMENT', [adjacent, provider]);
+    expectFinding(result, 'STRIPE_SECRET_KEY', [adjacent, provider]);
+  });
+});
+
+test('French exact-copy waiver requires a complete same-line literal RHS in full CLI scans', () => {
+  withRepository((repository) => {
+    write(repository, '.gitignore', '.next/\n');
+    commit(repository, 'test: isolate French RHS boundaries');
+    const [key, text] = CANONICAL_CLERK_FRENCH_COPY[2];
+    const literal = `"${encodePublicCopy(text, 'accent')}"`;
+    const credential = `"Boundary${SECRET_BODY}"`;
+    const continuations = [
+      ` + ${credential}`,
+      `/* hidden */ + ${credential}`,
+      `// hidden\n + ${credential}`,
+      `\n + ${credential}`,
+      `.concat(${credential})`,
+      `.value`,
+      `(${credential})`,
+      ` || ${credential}`,
+      '',
+      '\n',
+    ];
+    for (const tail of continuations) {
+      for (const source of [
+        `const messages={${key}:${literal}${tail}\n};`,
+        `const ${key}=${literal}${tail}\n;`,
+      ]) {
+        write(repository, '.next/static/chunks/fr.js', source);
+        expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', [SECRET_BODY]);
+      }
+    }
+    // A complete occurrence must not mask a later incomplete duplicate.
+    write(repository, '.next/static/chunks/fr.js', `const messages={${key}:${literal},${key}:${literal}+${credential}};`);
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', [SECRET_BODY]);
+    for (const source of [
+      `const messages={${key}:${literal}};`,
+      `const messages={${key}:${literal} ,other:0};`,
+      `const ${key}=${literal};`,
+      `const ${key}=${literal} ,other=0;`,
+    ]) {
+      write(repository, '.next/static/chunks/fr.js', source);
+      expectPass(scan(repository));
+    }
+  });
+});
+
+const REFUND_TARGET_FIXTURE_PATH = 'src/libs/billing/topupRefundBookkeeping.concurrency.integration.test.ts';
+
+function refundTargetFixtureUrl() {
+  return credentialUrl('postgres', 'qa', 'password', '127.0.0.1:55432', '/luster_refund_test');
+}
+
+for (const mode of ['tree', 'range']) {
+  function scanRefundFixture(repository, base, fixturePath = REFUND_TARGET_FIXTURE_PATH) {
+    if (mode === 'tree') {
+      return scan(repository);
+    }
+    commit(repository, 'test: add refund target URL fixture');
+    // Preserve the history boundary: removed final content must still be scanned.
+    write(repository, fixturePath, '// fixture removed from final tree\n');
+    const head = commit(repository, 'test: remove refund target URL fixture');
+    return scan(repository, ['--base', base, '--head', head]);
+  }
+
+  test(`${mode}: accepts only the exact authored negative refund target URL`, () => {
+    withRepository((repository) => {
+      const base = git(repository, ['rev-parse', 'HEAD']);
+      const value = refundTargetFixtureUrl();
+      assert.equal(createHash('sha256').update(value).digest('hex'), 'abe390b7e53e7687c7b684a2b6967023e3dce193d5275aa6589703e4d8a9563b');
+      write(repository, REFUND_TARGET_FIXTURE_PATH, `const invalidTarget = '${value}';\n`);
+      expectPass(scanRefundFixture(repository, base));
+    });
+  });
+
+  for (const mutation of ['password', 'host', 'database', 'path', 'adjacent']) {
+    test(`${mode}: refund fixture exception rejects and redacts ${mutation} changes`, () => {
+      withRepository((repository) => {
+        const base = git(repository, ['rev-parse', 'HEAD']);
+        const original = refundTargetFixtureUrl();
+        const changed = mutation === 'password'
+          ? original.replace(':password@', `:Changed${SECRET_BODY}@`)
+          : mutation === 'host'
+            ? original.replace('127.0.0.1', '203.0.113.9')
+            : mutation === 'database'
+              ? original.replace('/luster_refund_test', '/different_refund_test')
+              : original;
+        const fixturePath = mutation === 'path'
+          ? 'src/libs/billing/movedRefundBookkeeping.integration.test.ts'
+          : REFUND_TARGET_FIXTURE_PATH;
+        const adjacent = credentialUrl('postgres', 'qa', `Adjacent${SECRET_BODY}`, '127.0.0.1:55432', '/luster_refund_test');
+        write(repository, fixturePath, `const invalidTarget = '${changed}';\n${mutation === 'adjacent' ? `const adjacentTarget = '${adjacent}';\n` : ''}`);
+        expectFinding(
+          scanRefundFixture(repository, base, fixturePath),
+          'DATABASE_URL_CREDENTIALS',
+          mutation === 'adjacent' ? [original, adjacent, SECRET_BODY] : [changed, SECRET_BODY],
+        );
+      });
+    });
+  }
+}

@@ -14,7 +14,7 @@ import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import Stripe from 'stripe';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -2619,9 +2619,7 @@ describe('stripe-billing webhook pipeline', () => {
         amount_total: 599,
         currency: 'cad',
         metadata: { salonId: 's_attr_topup', purchaseId: 'stp_attr_topup' },
-        // No price id: the G02 reverse lookup is all-placeholder before
-        // activation, and its once-per-process "unconfigured" notice is not
-        // what this test is about.
+        // The unconfigured G02 price evidence emits one expected notice below.
         line_items: { data: [] },
       });
       const event = stripeEvent('checkout.session.completed', {
@@ -2630,7 +2628,11 @@ describe('stripe-billing webhook pipeline', () => {
         payment_intent: 'pi_attr_topup',
         metadata: { purpose: 'sms_topup', salonId: 's_attr_topup' },
       });
+      const info = vi.spyOn(console, 'info').mockImplementationOnce(() => {});
+      onTestFinished(() => info.mockRestore());
       const response = await post(event);
+
+      expect(info.mock.calls).toEqual([['[billing] topup price cross-check skipped: offer price unconfigured for this environment (G02)']]);
 
       expect(response.status).toBe(200);
 

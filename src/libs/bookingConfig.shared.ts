@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { patchShape } from '@/libs/zodPatch';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 export const SUPPORTED_BOOKING_SLOT_INTERVALS = [5, 10, 15, 30] as const;
@@ -49,6 +50,8 @@ export const bookingConfigSchema = z.object({
   clientChangeCutoffHours: z.number().int().min(0).max(168).default(DEFAULT_BOOKING_CONFIG.clientChangeCutoffHours),
   enforceRequiredAddOns: z.boolean().default(DEFAULT_BOOKING_CONFIG.enforceRequiredAddOns),
 });
+
+export const bookingConfigPatchSchema = bookingConfigSchema.extend(patchShape(bookingConfigSchema.shape));
 
 export type BookingConfig = z.infer<typeof bookingConfigSchema>;
 

@@ -2,8 +2,10 @@ import { requireOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-
 import { onboardingDraftClaimRequestSchema } from '@/features/onboarding-v1-integration/contracts';
 import { onboardingApiError } from '@/features/onboarding-v1-integration/http.server';
 import { requireAuthenticatedOnboardingIdentity } from '@/features/onboarding-v1-integration/identity.server';
+import { ONBOARDING_MEDIA_MAX_REQUEST_BYTES } from '@/features/onboarding-v1-integration/media-limits';
 import { claimOnboardingDraft } from '@/features/onboarding-v1-integration/persistence.server';
 import { resolveClerkAdmin } from '@/libs/adminAuth';
+import { readBoundedJsonBody, RequestBodyTooLarge } from '@/libs/boundedJsonBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +14,9 @@ export async function POST(request: Request): Promise<Response> {
     requireOnboardingV1IntegrationEnabled();
     const identity = await requireAuthenticatedOnboardingIdentity();
     const input = onboardingDraftClaimRequestSchema.parse(
-      await request.json().catch(() => null),
+      // Bound rich document/media metadata with the existing onboarding
+      // transport allowance, below the hosting request ceiling.
+      await readBoundedJsonBody(request, ONBOARDING_MEDIA_MAX_REQUEST_BYTES),
     );
     // The identity comes only from the verified server session. Reuse the
     // dashboard's guarded stale-link recovery before persistence checks it;
@@ -32,6 +36,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.json({ data: result.data });
   } catch (error) {
+    if (error instanceof RequestBodyTooLarge) {
+      return Response.json({ error: { code: 'REQUEST_TOO_LARGE', message: 'This site is too large to save. Reduce its content and try again.' } }, { status: 413 });
+    }
     return onboardingApiError(error);
   }
 }

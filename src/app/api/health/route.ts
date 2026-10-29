@@ -1,12 +1,11 @@
-import { sql } from 'drizzle-orm';
-
 import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { isClientLifecycleSchemaReady } from '@/libs/clientLifecycleSchema';
 import type { LifecycleReadinessSqlHandle } from '@/libs/clientLifecycleSchemaCore';
-import { db } from '@/libs/DB';
+import { db, getRuntimeDatabaseBindingStatus, pingRuntimeDatabase } from '@/libs/DB';
 import { type DepositsReadinessSqlHandle, isDepositsSchemaReady } from '@/libs/depositsSchema';
 import { expectedBillingPlanEnv, resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import { isResendSenderVerified } from '@/libs/resendHealth';
+import type { RuntimeDatabaseBindingStatus } from '@/libs/runtimeDatabaseBinding.server';
 import { getSchemaDriftStatus, type SchemaReadinessSqlHandle } from '@/libs/schemaReadiness';
 
 // =============================================================================
@@ -50,6 +49,7 @@ type HealthCheck = {
 
 type HealthResponse = {
   status: 'ok' | 'degraded';
+  databaseBinding?: RuntimeDatabaseBindingStatus;
   checks: HealthCheck;
   clientLifecycleSchema: 'ready' | 'not_ready' | 'unavailable';
   // Sibling of clientLifecycleSchema, NOT a member of `checks` — that type holds
@@ -112,10 +112,25 @@ export async function GET(): Promise<Response> {
   // 1. Database check (critical)
   // ---------------------------------------------------------------------------
   try {
-    await db.execute(sql`SELECT 1`);
+    await pingRuntimeDatabase();
     checks.db = true;
   } catch {
     checks.db = false;
+  }
+
+  // Optional, independent operator diagnostic. It never participates in
+  // readiness/HTTP status, and unset configuration adds neither a field nor
+  // an identity query to the existing health check.
+  let databaseBinding: RuntimeDatabaseBindingStatus | undefined;
+  if (process.env.LUSTER_EXPECTED_DATABASE_BINDING !== undefined) {
+    databaseBinding = 'unavailable';
+    if (checks.db) {
+      try {
+        databaseBinding = await getRuntimeDatabaseBindingStatus();
+      } catch {
+        databaseBinding = 'unavailable';
+      }
+    }
   }
 
   // Full lifecycle readiness remains private. Public health exposes only the
@@ -333,6 +348,7 @@ export async function GET(): Promise<Response> {
   const response: HealthResponse = {
     status,
     checks,
+    ...(databaseBinding === undefined ? {} : { databaseBinding }),
     clientLifecycleSchema,
     depositsSchema,
     schemaDrift,

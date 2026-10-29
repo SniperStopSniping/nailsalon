@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { patchShape } from '@/libs/zodPatch';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 export const DEFAULT_MERCHANDISING_SETTINGS = {
@@ -18,7 +19,7 @@ export const merchandisingSettingsSchema = z.object({
 
 export type MerchandisingSettings = z.infer<typeof merchandisingSettingsSchema>;
 
-export const merchandisingSettingsUpdateSchema = merchandisingSettingsSchema.partial();
+export const merchandisingSettingsUpdateSchema = merchandisingSettingsSchema.extend(patchShape(merchandisingSettingsSchema.shape));
 
 export type MerchandisingSettingsUpdate = z.infer<typeof merchandisingSettingsUpdateSchema>;
 

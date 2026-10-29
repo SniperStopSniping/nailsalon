@@ -18,10 +18,12 @@ import 'server-only';
 import * as Sentry from '@sentry/nextjs';
 import { and, eq, sql } from 'drizzle-orm';
 
+import { logAuditEventTx } from '@/libs/auditLog';
 import { getPlanDefinition } from '@/libs/billing/planDefinitions';
 import { COMMERCIAL_POLICY } from '@/libs/commercialPolicy';
 import { db } from '@/libs/DB';
 import {
+  auditLogSchema,
   billingCreditWindowSchema,
   billingStarterGrantSchema,
   billingSubscriptionSchema,
@@ -503,6 +505,14 @@ export async function reverseTopup(
   let amount: number;
   let shortfall = 0;
   let note: string | null = null;
+  let refundObservation: {
+    kind: 'refund';
+    observationKey: string;
+    cumulativeRefundedCents: number;
+    targetCredits: number;
+    refundId: string;
+    grantId: string;
+  } | null = null;
   if (input.kind === 'dispute') {
     amount = Math.max(0, purchase.credits - alreadyReversed);
   } else {
@@ -522,12 +532,75 @@ export async function reverseTopup(
       return none('REFUND_TOTAL_REGRESSED');
     }
     const delta = target - alreadyReversed;
+    refundObservation = {
+      kind: 'refund',
+      observationKey: `topup-refund-observation:${purchase.id}:${cumulativeCents}`,
+      cumulativeRefundedCents: cumulativeCents,
+      targetCredits: target,
+      refundId: input.stripeRef,
+      grantId: purchase.grantLedgerId,
+    };
     amount = Math.min(delta, Math.max(info.remaining, 0));
     shortfall = delta - amount;
     note = `cum_refunded_cents=${cumulativeCents}${
       shortfall > 0 ? `;consumed_shortfall=${shortfall}` : ''}`;
   }
   if (amount <= 0) {
+    if (refundObservation !== null && refundObservation.cumulativeRefundedCents > 0) {
+      // Deduplicate observations only AFTER calculating the canonical debit:
+      // a later return of credits to this lot must still be reversible.
+      // The purchase lock serializes these indexed, purchase-scoped reads.
+      const audits = await tx.select({ metadata: auditLogSchema.metadata })
+        .from(auditLogSchema)
+        .where(and(
+          eq(auditLogSchema.salonId, purchase.salonId),
+          eq(auditLogSchema.entityType, 'sms_topup_purchase'),
+          eq(auditLogSchema.entityId, purchase.id),
+          eq(auditLogSchema.action, 'billing_topup_reversed'),
+        ));
+      const reversals = await tx.select({ note: smsCreditLedgerSchema.note })
+        .from(smsCreditLedgerSchema)
+        .where(and(
+          eq(smsCreditLedgerSchema.salonId, purchase.salonId),
+          eq(smsCreditLedgerSchema.consumedFromLedgerId, purchase.grantLedgerId),
+          eq(smsCreditLedgerSchema.entryType, 'purchase_reversal'),
+        ));
+      const metadata = audits.map(row => row.metadata as Record<string, unknown> | null);
+      const priorCents = [
+        ...metadata.flatMap(row => typeof row?.cumulativeRefundedCents === 'number' ? [row.cumulativeRefundedCents] : []),
+        // Before observation metadata existed, a positive reversal's note
+        // already durably recorded the same cumulative evidence.
+        ...reversals.flatMap((row) => {
+          const match = /^cum_refunded_cents=(\d+)(?:;|$)/.exec(row.note ?? '');
+          return match ? [Number(match[1])] : [];
+        }),
+      ];
+      const observationKey = refundObservation.observationKey;
+      const observed = metadata.some(row => row?.observationKey === observationKey)
+        || priorCents.includes(refundObservation.cumulativeRefundedCents);
+      if (!observed) {
+        const latestCents = Math.max(0, ...priorCents);
+        if (refundObservation.cumulativeRefundedCents >= latestCents
+          && purchase.status !== 'disputed' && purchase.status !== 'refunded') {
+          await tx.update(smsTopupPurchaseSchema).set({
+            status: refundObservation.cumulativeRefundedCents >= purchase.amountCents ? 'refunded' : 'partially_reversed',
+            refundedAt: now,
+            stripeRefundId: input.stripeRef,
+          }).where(eq(smsTopupPurchaseSchema.id, purchase.id));
+        }
+        // An outstanding shortfall is a snapshot, not another debit/debt.
+        // A blocking audit and the projection commit or roll back together.
+        await logAuditEventTx(tx, {
+          salonId: purchase.salonId,
+          actorType: 'webhook',
+          actorId: 'stripe-billing',
+          action: 'billing_topup_reversed',
+          entityType: 'sms_topup_purchase',
+          entityId: purchase.id,
+          metadata: { ...refundObservation, reversedCredits: 0, shortfall },
+        });
+      }
+    }
     return { reversed: 0, shortfall, anomaly: null };
   }
   const key = input.kind === 'dispute'
@@ -555,6 +628,17 @@ export async function reverseTopup(
       ...(input.kind === 'dispute' ? { stripeDisputeId: input.stripeRef } : { stripeRefundId: input.stripeRef }),
     })
     .where(eq(smsTopupPurchaseSchema.id, purchase.id));
+  if (created && refundObservation !== null) {
+    await logAuditEventTx(tx, {
+      salonId: purchase.salonId,
+      actorType: 'webhook',
+      actorId: 'stripe-billing',
+      action: 'billing_topup_reversed',
+      entityType: 'sms_topup_purchase',
+      entityId: purchase.id,
+      metadata: { ...refundObservation, reversedCredits: amount, shortfall },
+    });
+  }
   await recomputeCachedBalance(tx, purchase.salonId, now);
   return { reversed: created ? amount : 0, shortfall, anomaly: null };
 }
