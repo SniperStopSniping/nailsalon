@@ -1,3 +1,10 @@
+# [1.145.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.144.1...v1.145.0) (2026-11-02)
+
+
+### Features
+
+* add private Daniela automation to replace n8n ([#488](https://github.com/SniperStopSniping/nailsalon/issues/488)) ([8893664](https://github.com/SniperStopSniping/nailsalon/commit/88936641fa03089aecb8d9b187a2a20ffb990079))
+
 ## [1.144.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.144.0...v1.144.1) (2026-10-20)
 
 
