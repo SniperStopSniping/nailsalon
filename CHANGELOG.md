@@ -1,3 +1,10 @@
+# [1.146.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.145.1...v1.146.0) (2026-11-02)
+
+
+### Features
+
+* send immediate Daniela owner alerts with client context ([#490](https://github.com/SniperStopSniping/nailsalon/issues/490)) ([753602d](https://github.com/SniperStopSniping/nailsalon/commit/753602d668ac6097f3d9c09412e5eb1363fb6027))
+
 ## [1.145.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.145.0...v1.145.1) (2026-11-02)
 
 
