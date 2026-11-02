@@ -3,7 +3,7 @@ import { after } from 'next/server';
 import { getDanielaConfig } from '@/libs/danielaAutomation/config';
 import { EMPTY_TWIML, greetingTwiml } from '@/libs/danielaAutomation/policy';
 import { validateSignature } from '@/libs/danielaAutomation/providers';
-import { dispatchPending } from '@/libs/danielaAutomation/service';
+import { dispatchOwnerAlerts, dispatchPending } from '@/libs/danielaAutomation/service';
 import { recordInbound } from '@/libs/danielaAutomation/store';
 
 export const runtime = 'nodejs';
@@ -38,9 +38,11 @@ export async function POST(request: Request): Promise<Response> {
     return new Response('Temporarily unavailable', { status: 503 });
   }
   after(async () => {
-    try {
-      await dispatchPending(config);
-    } catch { /* Durable pending work is recovered by cron. */ }
+    // Neither provider may delay the other; durable claims also fence cron.
+    await Promise.allSettled([
+      dispatchPending(config),
+      dispatchOwnerAlerts(config, { kind: isCall ? 'call' : 'sms', providerSid: sid }),
+    ]);
   });
   return new Response(isCall ? greetingTwiml(config.greeting) : EMPTY_TWIML, { headers: { 'Content-Type': 'text/xml', 'Cache-Control': 'no-store' } });
 }
