@@ -1,3 +1,10 @@
+## [1.146.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.146.0...v1.146.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* space Daniela owner alerts into readable sections ([#491](https://github.com/SniperStopSniping/nailsalon/issues/491)) ([a0a7bff](https://github.com/SniperStopSniping/nailsalon/commit/a0a7bffc92c30c99a4e6de1a325dd7c2dba110cf))
+
 # [1.146.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.145.1...v1.146.0) (2026-11-02)
 
 
