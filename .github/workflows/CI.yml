@@ -282,6 +282,9 @@ jobs:
             dependency_manifest_blob="$(git hash-object package.json)"
             dependency_lock_blob="$(git hash-object package-lock.json)"
             case "$dependency_manifest_blob:$dependency_lock_blob" in
+              # Identical reviewed graph after main's 1.146.0 release;
+              # only the manifest and lockfile root version fields changed.
+              b8bc3ecdfe165189eea82b4d9cf095b5e112cb41:99df1a78a93437b2fb20b6a759286c225854103f) ;;
               # Identical reviewed graph after main's 1.145.1 release;
               # only the manifest and lockfile root version fields changed.
               116da877de388cefee68a673d4ad9a9fd453734b:be1ab53fa853f6b2a875dd5ae7fafcdd43adb650) ;;
