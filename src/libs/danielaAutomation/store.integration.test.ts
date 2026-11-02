@@ -10,7 +10,7 @@ import * as schema from '@/models/Schema';
 
 import type { DanielaConfig } from './config';
 import { BOOKING_COOLDOWN_MS } from './policy';
-import { acquireWorker, claimSend, finishSend, importContacts, queueCampaign, recordInbound, recordStatus, releaseWorker, scrubOldBodies } from './store';
+import { acquireWorker, claimAlert, claimSend, finishAlert, finishSend, importContacts, queueCampaign, recordInbound, recordStatus, releaseWorker, scrubOldBodies } from './store';
 
 vi.mock('server-only', () => ({}));
 const holder = vi.hoisted(() => ({ db: null as unknown }));
@@ -260,4 +260,28 @@ it('does not enroll an inbound-only lead in the promotion when Sheets mirrors th
   await importContacts(config, [row()], now);
 
   expect(await queueCampaign(config, now)).toBe(false);
+});
+
+it('claims a new call alert directly without waiting behind older pending events', async () => {
+  const sms = inbound();
+  await recordInbound(config, sms, now);
+  const call = { kind: 'call' as const, providerSid: `CA${'a'.repeat(32)}`, from: phone, body: '' };
+  await recordInbound(config, call, new Date(now.getTime() + 1000));
+
+  expect((await claimAlert(config, now, { kind: call.kind, providerSid: call.providerSid }))?.providerSid).toBe(call.providerSid);
+  expect(await claimAlert(config, now, { kind: 'call', providerSid: sms.providerSid })).toBeNull();
+  expect((await claimAlert(config, now))?.providerSid).toBe(sms.providerSid);
+});
+
+it('fences immediate dispatch and the recovery worker from sending the same alert twice', async () => {
+  const event = inbound();
+  await recordInbound(config, event, now);
+  const target = { kind: event.kind, providerSid: event.providerSid };
+  const claimed = (await Promise.all([claimAlert(config, now, target), claimAlert(config, now)])).filter(event => !!event);
+
+  expect(claimed).toHaveLength(1);
+
+  await finishAlert(config, claimed[0]!.id, true);
+
+  expect(await claimAlert(config, now, target)).toBeNull();
 });

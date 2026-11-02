@@ -287,10 +287,16 @@ export async function markContactSynced(config: DanielaConfig, contact: Contact)
   await db.update(contacts).set({ sheetDirty: false }).where(and(contactWhere(config.salonId, contact.phone), eq(contacts.updatedAt, contact.updatedAt)));
 }
 
-export async function claimAlert(config: DanielaConfig, now = new Date()): Promise<typeof events.$inferSelect | null> {
+export type AlertTarget = { kind: 'sms' | 'call'; providerSid: string };
+
+export async function claimAlert(config: DanielaConfig, now = new Date(), target?: AlertTarget): Promise<typeof events.$inferSelect | null> {
   return locked(config, async (tx) => {
     await tx.update(events).set({ telegramState: 'uncertain' }).where(and(eq(events.salonId, config.salonId), eq(events.telegramState, 'sending'), lt(events.telegramAttemptedAt, new Date(now.getTime() - 120_000))));
-    const [event] = await tx.select().from(events).where(and(eq(events.salonId, config.salonId), eq(events.telegramState, 'pending'))).orderBy(asc(events.receivedAt)).limit(1);
+    const [event] = await tx.select().from(events).where(and(
+      eq(events.salonId, config.salonId),
+      eq(events.telegramState, 'pending'),
+      target ? and(eq(events.kind, target.kind), eq(events.providerSid, target.providerSid)) : undefined,
+    )).orderBy(asc(events.receivedAt)).limit(1);
     if (!event) {
       return null;
     }

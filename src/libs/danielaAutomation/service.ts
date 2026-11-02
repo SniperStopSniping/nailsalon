@@ -1,8 +1,12 @@
 import 'server-only';
 
+import type { CallerContext } from './alerts';
+import { formatOwnerAlert } from './alerts';
+import { getCallerContext } from './callerContext.server';
 import type { DanielaConfig } from './config';
 import { sendSms, sendTelegram } from './providers';
 import { parseSheets, readSheets, syncContact } from './sheets';
+import type { AlertTarget } from './store';
 import { claimAlert, claimSend, dirtyContacts, finishAlert, finishSend, importContacts, markContactSynced, queueCampaign, scrubOldBodies } from './store';
 
 /** Runs after the webhook response for prompt text-back; cron recovers interrupted work. */
@@ -14,6 +18,33 @@ export async function dispatchPending(config: DanielaConfig): Promise<void> {
     }
     await finishSend(config, item, await sendSms(config, item));
   }
+}
+
+/** Immediate event-specific delivery; the cron drain recovers pending work. */
+export async function dispatchOwnerAlerts(config: DanielaConfig, target?: AlertTarget, deadline = Date.now() + 25_000): Promise<number> {
+  if (config.mode !== 'live') {
+    return 0;
+  }
+  let sentCount = 0;
+  for (let i = 0; i < (target ? 1 : 10) && Date.now() < deadline; i += 1) {
+    const event = await claimAlert(config, new Date(), target);
+    if (!event) {
+      break;
+    }
+    let context: CallerContext;
+    try {
+      context = await getCallerContext(config, event.phone);
+    } catch {
+      // Optional booking context must never prevent the basic owner alert.
+      context = { match: 'unavailable', name: null, nextAppointment: null };
+    }
+    const sent = await sendTelegram(config, formatOwnerAlert(event, context));
+    await finishAlert(config, event.id, sent);
+    if (sent) {
+      sentCount += 1;
+    }
+  }
+  return sentCount;
 }
 
 /** Network failures never replay SMS; they leave durable per-provider outcome evidence. */
@@ -54,20 +85,7 @@ export async function processDaniela(config: DanielaConfig): Promise<Record<stri
       }
     }
   }
-  if (config.mode === 'live') {
-    for (let i = 0; i < 10 && Date.now() < deadline; i += 1) {
-      const event = await claimAlert(config);
-      if (!event) {
-        break;
-      }
-      const text = `Isla ${event.kind === 'call' ? 'call' : 'text'} from ${event.phone || 'unavailable number'}\n${event.body || ''}\nBooking reply: ${event.outcome}.\nReceived: ${event.receivedAt.toISOString()}\nEvent: ${event.providerSid}`;
-      const sent = await sendTelegram(config, text);
-      await finishAlert(config, event.id, sent);
-      if (sent) {
-        summary.alerts += 1;
-      }
-    }
-  }
+  summary.alerts = await dispatchOwnerAlerts(config, undefined, deadline);
   await scrubOldBodies(config);
   return summary;
 }

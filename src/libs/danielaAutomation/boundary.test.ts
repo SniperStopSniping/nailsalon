@@ -8,10 +8,10 @@ import { POST as status } from '@/app/api/private/daniela/status/route';
 import type { DanielaConfig } from './config';
 
 vi.mock('server-only', () => ({}));
-const state = vi.hoisted(() => ({ config: null as DanielaConfig | null, record: vi.fn(async () => 'queued'), status: vi.fn(async () => true), after: vi.fn(), dispatch: vi.fn() }));
+const state = vi.hoisted(() => ({ config: null as DanielaConfig | null, record: vi.fn(async () => 'queued'), status: vi.fn(async () => true), after: vi.fn(), dispatch: vi.fn(), alert: vi.fn() }));
 vi.mock('./config', () => ({ getDanielaConfig: () => state.config }));
 vi.mock('./store', () => ({ recordInbound: state.record, recordStatus: state.status, acquireWorker: vi.fn(), releaseWorker: vi.fn() }));
-vi.mock('./service', () => ({ dispatchPending: state.dispatch, processDaniela: vi.fn() }));
+vi.mock('./service', () => ({ dispatchPending: state.dispatch, dispatchOwnerAlerts: state.alert, processDaniela: vi.fn() }));
 vi.mock('next/server', () => ({ after: state.after }));
 
 const config: DanielaConfig = {
@@ -42,6 +42,8 @@ beforeEach(() => {
   state.record.mockReset().mockResolvedValue('queued');
   state.status.mockReset().mockResolvedValue(true);
   state.after.mockClear();
+  state.dispatch.mockReset().mockResolvedValue(undefined);
+  state.alert.mockReset().mockResolvedValue(1);
 });
 
 it('returns 404 before reading the payload while disabled', async () => {
@@ -81,6 +83,33 @@ it('plays the configured greeting and hangs up for a signed call', async () => {
 
   expect(response.status).toBe(200);
   expect(await response.text()).toContain('Synthetic &lt;greeting&gt;</Say><Hangup/>');
+});
+
+it('starts the event-specific owner alert immediately even while the booking-text provider is still waiting', async () => {
+  let releaseSms!: () => void;
+  state.dispatch.mockReturnValueOnce(new Promise<void>((resolve) => {
+    releaseSms = resolve;
+  }));
+  const callSid = `CA${'d'.repeat(32)}`;
+  const response = await inbound(signed('inbound', { AccountSid: config.accountSid, To: config.fromNumber, From: '+14165550100', CallSid: callSid }));
+
+  expect(response.status).toBe(200);
+  expect(state.alert).not.toHaveBeenCalled();
+
+  const background = state.after.mock.calls[0]![0]();
+
+  expect(state.alert).toHaveBeenCalledWith(config, { kind: 'call', providerSid: callSid });
+
+  releaseSms();
+  await background;
+});
+
+it('keeps owner-alert dispatch independent of a failed SMS dispatch', async () => {
+  state.dispatch.mockRejectedValueOnce(new Error('Synthetic SMS outage'));
+  await inbound(signed('inbound', params()));
+
+  await expect(state.after.mock.calls[0]![0]()).resolves.toBeUndefined();
+  expect(state.alert).toHaveBeenCalledWith(config, { kind: 'sms', providerSid: sid });
 });
 
 it('returns a retryable failure rather than a false success when persistence fails', async () => {
