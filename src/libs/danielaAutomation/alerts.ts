@@ -38,24 +38,24 @@ export function formatOwnerAlert(event: OwnerAlertEvent, context: CallerContext)
   const unknown = context.match === 'unavailable'
     ? 'Temporarily unavailable'
     : context.match === 'ambiguous' ? 'Client match unclear' : 'Not found in client list';
-  const lines = [
+  const sections = [
     event.kind === 'call' ? '📞 Incoming call — Isla Nail Studio' : '💬 Incoming text — Isla Nail Studio',
-    `Phone: ${displayedPhone}`,
-    `Date/time (Toronto): ${dateTime(event.receivedAt)}`,
-    `Name: ${name || (context.match === 'matched' ? 'Not saved' : unknown)}`,
-    `Next appointment: ${next
+    `Phone:\n${displayedPhone}`,
+    `Date/time (Toronto):\n${dateTime(event.receivedAt)}`,
+    `Name:\n${name || (context.match === 'matched' ? 'Not saved' : unknown)}`,
+    `Next appointment:\n${next
       ? `${dateTime(next.startTime)}${next.status === 'pending' ? ' (pending confirmation)' : ''}`
       : context.match === 'matched' ? 'None scheduled' : context.match === 'unavailable' ? 'Could not verify' : 'Not linked'}`,
   ];
   if (next?.services.length) {
-    lines.push(`Services: ${next.services.slice(0, 4).map(name => field(name, 80)).join(', ')}`);
+    sections.push(`Services:\n${next.services.slice(0, 4).map(name => field(name, 80)).join(', ')}`);
   }
   if (event.kind === 'call') {
-    lines.push('Message: Phone call — no written message.');
-    return lines.join('\n');
+    sections.push('Message:\nPhone call — no written message.');
+    return sections.join('\n\n');
   }
-  lines.push('Message:');
-  const prefix = `${lines.join('\n')}\n`;
+  sections.push('Message:');
+  const prefix = `${sections.join('\n\n')}\n`;
   const body = event.body?.trim() || '(Empty text message)';
   const shortened = '\n[Message shortened]';
   const available = 4000 - prefix.length;

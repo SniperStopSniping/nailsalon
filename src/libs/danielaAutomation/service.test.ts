@@ -62,7 +62,7 @@ it('delivers the specific incoming-call alert without reading Sheets or running 
   expect(mocks.claim).toHaveBeenCalledWith(config, expect.any(Date), target);
   expect(mocks.context).toHaveBeenCalledWith(config, event.phone);
   expect(mocks.telegram).toHaveBeenCalledWith(config, expect.stringContaining('📞 Incoming call'));
-  expect(mocks.telegram).toHaveBeenCalledWith(config, expect.stringContaining('Name: Synthetic Client'));
+  expect(mocks.telegram).toHaveBeenCalledWith(config, expect.stringContaining('Name:\nSynthetic Client'));
   expect(mocks.finish).toHaveBeenCalledWith(config, event.id, true);
   expect(mocks.sheets).not.toHaveBeenCalled();
   expect(mocks.claim).toHaveBeenCalledOnce();
@@ -74,7 +74,7 @@ it('still delivers the phone/date/message alert if optional client enrichment fa
 
   expect(await dispatchOwnerAlerts(config, { ...target, kind: 'sms' })).toBe(1);
   expect(mocks.telegram).toHaveBeenCalledWith(config, expect.stringContaining('Message:\nPlease call me'));
-  expect(mocks.telegram).toHaveBeenCalledWith(config, expect.stringContaining('Name: Temporarily unavailable'));
+  expect(mocks.telegram).toHaveBeenCalledWith(config, expect.stringContaining('Name:\nTemporarily unavailable'));
 });
 
 it('does not claim or send owner alerts in shadow mode', async () => {
