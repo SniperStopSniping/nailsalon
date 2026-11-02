@@ -14,14 +14,14 @@ it('clearly identifies a call, local date/time, callback number and verified app
   const text = formatOwnerAlert(call, matched);
 
   expect(text).toContain('📞 Incoming call');
-  expect(text).toContain('Phone: +1 (416) 555-0100');
-  expect(text).toContain('Date/time (Toronto): Mon, Nov 2, 2026');
+  expect(text).toContain('\n\nPhone:\n+1 (416) 555-0100\n\nDate/time (Toronto):\n');
+  expect(text).toContain('Date/time (Toronto):\nMon, Nov 2, 2026');
   expect(text).toMatch(/3:05\s*PM EST/u);
-  expect(text).toContain('Name: Synthetic Client');
-  expect(text).toContain('Next appointment: Wed, Nov 4, 2026');
+  expect(text).toContain('Name:\nSynthetic Client');
+  expect(text).toContain('Next appointment:\nWed, Nov 4, 2026');
   expect(text).toMatch(/1:00\s*PM EST/u);
-  expect(text).toContain('Services: Russian Manicure');
-  expect(text).toContain('Message: Phone call — no written message.');
+  expect(text).toContain('Services:\nRussian Manicure');
+  expect(text).toContain('Message:\nPhone call — no written message.');
   expect(text).not.toContain('Event:');
 });
 
@@ -40,15 +40,15 @@ it('uses Toronto daylight saving time rather than a fixed UTC offset', () => {
   const text = formatOwnerAlert({ ...call, receivedAt: new Date('2026-07-01T15:05:00Z') }, { ...matched, nextAppointment: null });
 
   expect(text).toMatch(/11:05\s*AM EDT/u);
-  expect(text).toContain('Next appointment: None scheduled');
+  expect(text).toContain('Next appointment:\nNone scheduled');
 });
 
 it('does not invent a name or appointment for an unidentified caller', () => {
   const text = formatOwnerAlert({ ...call, phone: null }, { match: 'not_found', name: null, nextAppointment: null });
 
-  expect(text).toContain('Phone: Unavailable / withheld');
-  expect(text).toContain('Name: Not found in client list');
-  expect(text).toContain('Next appointment: Not linked');
+  expect(text).toContain('Phone:\nUnavailable / withheld');
+  expect(text).toContain('Name:\nNot found in client list');
+  expect(text).toContain('Next appointment:\nNot linked');
 });
 
 it('never renders stray personal details when the client match is ambiguous', () => {
@@ -57,23 +57,23 @@ it('never renders stray personal details when the client match is ambiguous', ()
   expect(text).toContain('Client match unclear');
   expect(text).not.toContain('Synthetic Client');
   expect(text).not.toContain('Russian Manicure');
-  expect(text).toContain('Next appointment: Not linked');
+  expect(text).toContain('Next appointment:\nNot linked');
 });
 
 it('keeps useful call details when optional client lookup is unavailable', () => {
   const text = formatOwnerAlert(call, { match: 'unavailable', name: null, nextAppointment: null });
 
-  expect(text).toContain('Phone: +1 (416) 555-0100');
-  expect(text).toContain('Name: Temporarily unavailable');
-  expect(text).toContain('Next appointment: Could not verify');
+  expect(text).toContain('Phone:\n+1 (416) 555-0100');
+  expect(text).toContain('Name:\nTemporarily unavailable');
+  expect(text).toContain('Next appointment:\nCould not verify');
 });
 
 it('bounds long text messages while preserving the caller and appointment fields', () => {
   const text = formatOwnerAlert({ ...call, kind: 'sms', body: 'x'.repeat(5000) }, matched);
 
   expect(text.length).toBeLessThanOrEqual(4000);
-  expect(text).toContain('Phone: +1 (416) 555-0100');
-  expect(text).toContain('Name: Synthetic Client');
+  expect(text).toContain('Phone:\n+1 (416) 555-0100');
+  expect(text).toContain('Name:\nSynthetic Client');
   expect(text).toContain('Russian Manicure');
   expect(text).toContain('[Message shortened]');
 });
