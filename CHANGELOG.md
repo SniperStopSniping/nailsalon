@@ -1,3 +1,10 @@
+## [1.145.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.145.0...v1.145.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* improve Luster SEO for nail booking software ([#489](https://github.com/SniperStopSniping/nailsalon/issues/489)) ([80fe3d1](https://github.com/SniperStopSniping/nailsalon/commit/80fe3d130124eb87edd6a31a64d9df889328d7be))
+
 # [1.145.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.144.1...v1.145.0) (2026-11-02)
 
 

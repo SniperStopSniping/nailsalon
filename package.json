@@ -1,6 +1,6 @@
 {
   "name": "luster-booking-platform",
-  "version": "1.145.0",
+  "version": "1.145.1",
   "engines": {
     "node": "24.x"
   },
