@@ -1,7 +1,10 @@
 import '@/styles/global.css';
 
 import type { Metadata, Viewport } from 'next';
+import { getLocale } from 'next-intl/server';
 
+import { marketingCopy } from '@/libs/marketingContent';
+import { MARKETING_ORIGIN } from '@/libs/marketingSeo';
 import { SITE_FONT_VARIABLES_CSS } from '@/libs/siteFonts';
 
 export const viewport: Viewport = {
@@ -11,31 +14,32 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://www.lustergel.app'),
+  metadataBase: new URL(MARKETING_ORIGIN),
   openGraph: {
     type: 'website',
     title: 'Luster',
-    description: 'Free booking, CRM, Calendar sync, and growth tools built for nail techs.',
+    description: marketingCopy.en.description,
     siteName: 'Luster',
     url: '/',
     images: [{
       url: '/luster-social-preview.jpg',
       width: 1254,
       height: 1254,
-      alt: 'Luster Gel Booking App',
+      alt: 'Luster booking app',
     }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Luster',
-    description: 'Free booking, CRM, Calendar sync, and growth tools built for nail techs.',
+    description: marketingCopy.en.description,
     images: ['/luster-social-preview.jpg'],
   },
 };
 
-export default function RootLayout(props: { children: React.ReactNode }) {
+export default async function RootLayout(props: { children: React.ReactNode }) {
+  const locale = await getLocale();
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         {/*
           The customer site's style presets resolve to these faces. Declaring

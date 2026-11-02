@@ -2,6 +2,11 @@ import { Inter, Newsreader } from 'next/font/google';
 
 import { OwnerSignInScreen } from '@/components/owner-entry/OwnerSignInScreen';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
+import { buildAccountPageMetadata } from '@/libs/marketingSeo';
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  return buildAccountPageMetadata((await params).locale, 'sign-in');
+}
 
 const entrySans = Inter({ subsets: ['latin'], display: 'swap', variable: '--font-owner-sans' });
 const entryDisplay = Newsreader({ subsets: ['latin'], display: 'swap', style: ['normal', 'italic'], variable: '--font-owner-display' });

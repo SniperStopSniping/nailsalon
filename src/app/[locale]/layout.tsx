@@ -3,18 +3,18 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, setRequestLocale } from 'next-intl/server';
 
 import { DevRoleSwitcherLoader } from '@/components/DevRoleSwitcherLoader';
+import { getMarketingLocale, marketingCopy } from '@/libs/marketingContent';
 import { getResolvedSalon } from '@/libs/tenant';
 import type { SalonStatus } from '@/models/Schema';
 import { SalonProvider } from '@/providers/SalonProvider';
 import { ThemeProvider } from '@/theme';
 import { AllLocales } from '@/utils/AppConfig';
 
-export const metadata: Metadata = {
+const sharedMetadata: Metadata = {
   title: {
     default: 'Luster',
     template: '%s | Luster',
   },
-  description: 'Free booking, CRM, Calendar sync, and growth tools built for nail techs.',
   icons: [
     {
       rel: 'apple-touch-icon',
@@ -38,6 +38,11 @@ export const metadata: Metadata = {
     },
   ],
 };
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }): Promise<Metadata> {
+  const { locale } = await params;
+  return { ...sharedMetadata, description: marketingCopy[getMarketingLocale(locale)].description };
+}
 
 export const dynamic = 'force-dynamic';
 

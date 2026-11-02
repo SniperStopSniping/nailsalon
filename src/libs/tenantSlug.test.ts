@@ -46,6 +46,9 @@ describe('tenantSlug helpers', () => {
   });
 
   it.each([
+    'features',
+    'free-booking',
+    'nail-salon-booking-software',
     'ai-website-test',
     'ai-website',
     'manage',
@@ -84,6 +87,9 @@ describe('tenantSlug helpers', () => {
   });
 
   it.each([
+    'features',
+    'free-booking',
+    'nail-salon-booking-software',
     'ai-website-test',
     'ai-website',
     'manage',
