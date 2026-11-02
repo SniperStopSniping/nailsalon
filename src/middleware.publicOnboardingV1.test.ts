@@ -47,12 +47,13 @@ describe('middleware — public Onboarding V1', () => {
     ));
   });
 
-  it.each(['/onboarding-v1', '/en/onboarding-v1'])(
+  it.each(['/onboarding-v1', '/en/onboarding-v1', '/fr/onboarding-v1'])(
     'renders the public value-first route without a Clerk handshake at %s',
     async (path) => {
       const response = await middleware(request(path), event);
 
       expect(response.status).toBe(200);
+      expect(response.headers.get('x-robots-tag')).toBe('noindex, follow');
       expect(clerkMiddlewareFactory).not.toHaveBeenCalled();
       expect(intlMiddleware).toHaveBeenCalledTimes(1);
     },

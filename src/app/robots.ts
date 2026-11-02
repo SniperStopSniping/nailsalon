@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 
-import { getBaseUrl } from '@/utils/Helpers';
+import { MARKETING_ORIGIN } from '@/libs/marketingSeo';
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -11,6 +11,6 @@ export default function robots(): MetadataRoute.Robots {
       // never end up in an index either.
       disallow: ['/manage/', '/*/manage/'],
     },
-    sitemap: `${getBaseUrl()}/sitemap.xml`,
+    sitemap: `${MARKETING_ORIGIN}/sitemap.xml`,
   };
 }

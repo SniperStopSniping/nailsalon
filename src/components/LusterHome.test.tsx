@@ -27,10 +27,10 @@ describe('Luster homepage entry points', () => {
   it('offers website setup before dashboard access when the integration is enabled', async () => {
     render(await HomePage({}));
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Let’s build your website.');
-    expect(screen.getByRole('link', { name: 'Build my website' })).toHaveAttribute('href', '/en/onboarding-v1');
-    expect(screen.getByRole('link', { name: 'Open owner dashboard' })).toHaveAttribute('href', '/en/owner-sign-in');
-    expect(screen.getByRole('link', { name: 'Salon owner sign in' })).toHaveAttribute('href', '/en/owner-sign-in');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('The booking app built for nail techs and nail salons.');
+    expect(screen.getByRole('link', { name: 'Build my website' })).toHaveAttribute('href', '/onboarding-v1');
+    expect(screen.getByRole('link', { name: 'Open owner dashboard' })).toHaveAttribute('href', '/owner-sign-in');
+    expect(screen.getByRole('link', { name: 'Salon owner sign in' })).toHaveAttribute('href', '/owner-sign-in');
   });
 
   it('does not advertise disabled onboarding or change the existing owner entry', async () => {
@@ -38,7 +38,7 @@ describe('Luster homepage entry points', () => {
     render(await HomePage({}));
 
     expect(screen.queryByRole('link', { name: 'Build my website' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open owner dashboard' })).toHaveAttribute('href', '/en/owner-sign-in');
+    expect(screen.getByRole('link', { name: 'Open owner dashboard' })).toHaveAttribute('href', '/owner-sign-in');
     expect(screen.getByRole('link', { name: 'Request an invite' })).toHaveAttribute('href', expect.stringContaining('mailto:'));
   });
 

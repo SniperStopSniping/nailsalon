@@ -9,8 +9,8 @@ for (const [width, height] of viewports) {
     await page.setViewportSize({ width, height });
     await page.goto('/');
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Let’s build your website.');
-    await expect(page.getByRole('link', { name: 'Open owner dashboard', exact: true })).toHaveAttribute('href', '/en/owner-sign-in');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('The booking app built for nail techs and nail salons.');
+    await expect(page.getByRole('link', { name: 'Open owner dashboard', exact: true })).toHaveAttribute('href', '/owner-sign-in');
 
     const build = page.getByRole('link', { name: 'Build my website', exact: true });
 
@@ -57,4 +57,10 @@ test('French website entry keeps localized links usable on a short phone', async
   await expect(page.getByRole('link', { name: 'Ouvrir mon tableau de bord', exact: true })).toHaveAttribute('href', '/fr/owner-sign-in');
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  await page.getByRole('link', { name: 'Lire cette page en anglais', exact: true }).click();
+
+  await expect(page).toHaveURL(/\/$/u);
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('The booking app built for nail techs and nail salons.');
 });

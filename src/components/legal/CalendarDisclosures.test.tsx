@@ -5,8 +5,8 @@ import PrivacyPage from '@/app/[locale]/(unauth)/privacy/page';
 import TermsPage from '@/app/[locale]/(unauth)/terms/page';
 
 describe('public Calendar disclosures', () => {
-  it('describes selected event details and the actual scope of Google permission', () => {
-    render(<PrivacyPage />);
+  it('describes selected event details and the actual scope of Google permission', async () => {
+    render(await PrivacyPage({ params: Promise.resolve({ locale: 'en' }) }));
 
     expect(screen.getByRole('heading', { name: 'Google Calendar data' })).toBeVisible();
     expect(screen.getByText(/event title, date and time, description, location, status, and attendee or client contact details/)).toBeVisible();
@@ -14,8 +14,8 @@ describe('public Calendar disclosures', () => {
     expect(screen.getByText(/Luster does not request Google’s full Calendar scope for this OAuth connection/)).toBeVisible();
   });
 
-  it('distinguishes disconnecting access from deleting synchronized records', () => {
-    render(<PrivacyPage />);
+  it('distinguishes disconnecting access from deleting synchronized records', async () => {
+    render(await PrivacyPage({ params: Promise.resolve({ locale: 'en' }) }));
 
     expect(screen.getByText(/Disconnecting asks Google to revoke Luster’s access/)).toBeVisible();
     expect(screen.getByText(/Calendar event information already synchronized into the salon workspace is not automatically removed/)).toBeVisible();
@@ -23,8 +23,8 @@ describe('public Calendar disclosures', () => {
     expect(screen.queryByText(/Disconnecting revokes Luster’s access/)).not.toBeInTheDocument();
   });
 
-  it('keeps optional integration and record-retention language consistent in Terms', () => {
-    render(<TermsPage />);
+  it('keeps optional integration and record-retention language consistent in Terms', async () => {
+    render(await TermsPage({ params: Promise.resolve({ locale: 'en' }) }));
 
     expect(screen.getByRole('heading', { name: 'Terms of Service' })).toBeVisible();
     expect(screen.getByText(/Google Calendar is optional/)).toBeVisible();
@@ -35,8 +35,8 @@ describe('public Calendar disclosures', () => {
   it.each([
     { Page: PrivacyPage, reviewDate: 'October 20, 2026' },
     { Page: TermsPage, reviewDate: 'October 10, 2026' },
-  ])('retains public navigation, support and the review date', ({ Page, reviewDate }) => {
-    render(<Page />);
+  ])('retains public navigation, support and the review date', async ({ Page, reviewDate }) => {
+    render(await Page({ params: Promise.resolve({ locale: 'en' }) }));
 
     expect(screen.getByRole('link', { name: 'Luster' })).toHaveAttribute('href', '/');
     expect(screen.getByText(reviewDate)).toBeVisible();

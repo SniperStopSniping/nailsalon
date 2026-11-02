@@ -9,8 +9,13 @@ import { getClaimedOnboardingSite } from '@/features/onboarding-v1-integration/p
 import { loadInitialOnboardingResumeDraft } from '@/features/onboarding-v1-integration/resume.server';
 import { getAdminSession } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { buildAccountPageMetadata } from '@/libs/marketingSeo';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  return buildAccountPageMetadata((await params).locale, 'setup');
+}
 
 type OnboardingV1PageProps = {
   params: Promise<{ locale: string }>;

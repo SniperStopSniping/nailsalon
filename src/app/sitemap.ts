@@ -1,15 +1,11 @@
 import type { MetadataRoute } from 'next';
 
-import { getBaseUrl } from '@/utils/Helpers';
+import { MARKETING_ORIGIN, MARKETING_PATHS, marketingAlternates, marketingPath } from '@/libs/marketingSeo';
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [
-    {
-      url: `${getBaseUrl()}/`,
-      lastModified: new Date(),
-      changeFrequency: 'daily',
-      priority: 0.7,
-    },
-    // Add more URLs here
-  ];
+  // Omit lastModified until editorial dates are tracked; a build is not a content update.
+  return MARKETING_PATHS.flatMap(path => ['en', 'fr'].map(locale => ({
+    url: `${MARKETING_ORIGIN}${marketingPath(path, locale)}`,
+    alternates: { languages: marketingAlternates(path) },
+  })));
 }
