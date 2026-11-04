@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Component, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -170,6 +171,35 @@ const organizationResponse = {
   admins: [],
 };
 
+class PanelRenderBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    return this.state.error
+      ? (
+          <div role="alert">
+            Panel render failed:
+            {this.state.error.message}
+          </div>
+        )
+      : this.props.children;
+  }
+}
+
+function mockOrganizationResponse(response: unknown) {
+  const fallback = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === '/api/super-admin/organizations/salon_1') {
+      return Promise.resolve(Response.json(response));
+    }
+    return fallback(input, init);
+  });
+}
+
 describe('SalonDetailPanel Booking Experience entitlement wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -198,6 +228,58 @@ describe('SalonDetailPanel Booking Experience entitlement wiring', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    [null, '—'],
+    ['+14165550123', '(416) 555-0123'],
+    ['4165550123', '(416) 555-0123'],
+  ])('opens the panel with owner phone %s and displays %s', async (phoneE164, expectedPhone) => {
+    const user = userEvent.setup();
+    // Capture React's boundary logging, then require no logged render error.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockOrganizationResponse({
+      ...organizationResponse,
+      owner: { adminId: 'owner_email_only', name: 'Test owner', phoneE164 },
+    });
+    render(<PanelRenderBoundary><SalonDetailPanel salonId="salon_1" onClose={vi.fn()} /></PanelRenderBoundary>);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Panel render failed:/)).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Salon Name')).toHaveValue('Isla Nail Studio');
+    });
+
+    // Ownership starts collapsed; owner formatting must already be safe.
+    expect(screen.queryByText('Test owner')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Ownership & Admins' }));
+
+    expect(screen.getByText('Test owner')).toBeInTheDocument();
+    expect(screen.getByText(expectedPhone)).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+  });
+
+  it('opens ownership for an email-only admin without a phone or account mutation', async () => {
+    const user = userEvent.setup();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockOrganizationResponse({
+      ...organizationResponse,
+      admins: [{ adminId: 'admin_email_only', role: 'admin', name: 'Email admin', email: 'admin@example.invalid', phoneE164: null }],
+    });
+    render(<PanelRenderBoundary><SalonDetailPanel salonId="salon_1" onClose={vi.fn()} /></PanelRenderBoundary>);
+
+    expect(await screen.findByLabelText('Salon Name')).toHaveValue('Isla Nail Studio');
+
+    await user.click(screen.getByRole('button', { name: 'Ownership & Admins' }));
+
+    expect(screen.queryByText(/Panel render failed:/)).not.toBeInTheDocument();
+    expect(screen.getByText('Email admin')).toBeInTheDocument();
+    expect(screen.getByText('admin@example.invalid')).toBeInTheDocument();
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
   });
 
   it('passes authoritative inspection state to the focused control and adopts its returned feature state', async () => {
