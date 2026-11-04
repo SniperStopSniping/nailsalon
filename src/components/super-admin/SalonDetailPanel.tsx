@@ -80,7 +80,7 @@ type SalonDetail = {
 
 type OwnerInfo = {
   adminId: string;
-  phoneE164: string;
+  phoneE164: string | null;
   name: string | null;
 };
 
@@ -101,7 +101,7 @@ type ClaimInvite = {
 type AdminInfo = {
   adminId: string;
   role: string;
-  phoneE164: string;
+  phoneE164: string | null;
   name: string | null;
   email: string | null;
 };
@@ -150,7 +150,10 @@ type SalonDetailPanelProps = {
 // =============================================================================
 
 // Format phone for display
-function formatPhoneDisplay(phone: string): string {
+function formatPhoneDisplay(phone: string | null): string {
+  if (!phone) {
+    return '—';
+  }
   const digits = phone.replace(/\D/g, '');
   if (digits.length === 11 && digits.startsWith('1')) {
     return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
