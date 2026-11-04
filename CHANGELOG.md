@@ -1,3 +1,10 @@
+## [1.146.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.146.1...v1.146.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* **super-admin:** render email-only owners without phone numbers ([d6f37f0](https://github.com/SniperStopSniping/nailsalon/commit/d6f37f0731944177ef1e6ef5fe81f65706ef58c9))
+
 ## [1.146.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.146.0...v1.146.1) (2026-11-02)
 
 
