@@ -206,6 +206,20 @@ test('dependency protection accepts reviewed pairs and rejects changed or mixed 
   assert.notEqual(run('0'.repeat(40), '0'.repeat(40)), 0);
 });
 
+test('Playwright installation jobs use the supported Ubuntu 24.04 runner', () => {
+  const browserJobs = Object.entries(jobs).filter(([, job]) => job.steps?.some(step =>
+    step.uses === './.github/actions/install-playwright' || /playwright install/.test(step.run ?? ''),
+  ));
+  assert.deepEqual(browserJobs.map(([id]) => id).sort(), [
+    'deposits-postgres-concurrency',
+    'test-components',
+    'test-core',
+  ]);
+  for (const [id, job] of browserJobs) {
+    assert.equal(job['runs-on'], 'ubuntu-24.04', `${id} must use a runner supported by the pinned Playwright registry`);
+  }
+});
+
 test('installed compiler helpers satisfy Next and Intl distinct requirements', () => {
   const graphCheck = jobs['test-core'].steps.find(step => step.name === 'Verify installed dependency graph');
   assert.ok(graphCheck);

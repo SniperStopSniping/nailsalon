@@ -129,7 +129,7 @@ jobs:
         node-version: [24.x]
 
     name: Application tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Every other long-running job here is bounded (15-25m). This one was not,
     # so it inherited GitHub's 6-hour default. When the Playwright install step
     # below stalled on main, the job sat for 5h54m before that default killed
@@ -282,6 +282,10 @@ jobs:
             dependency_manifest_blob="$(git hash-object package.json)"
             dependency_lock_blob="$(git hash-object package-lock.json)"
             case "$dependency_manifest_blob:$dependency_lock_blob" in
+              # 1.146.1 release metadata only, compared against the already
+              # reviewed 1.146.0 pair below: package.json /version and lock
+              # /version + /packages/""/version; dependency graph unchanged.
+              d09122632b04ad9e3c6deadfb9e3db58762ca129:66343cd444c6791d8874b4dec5aa3a4281c35056) ;;
               # Identical reviewed graph after main's 1.146.0 release;
               # only the manifest and lockfile root version fields changed.
               b8bc3ecdfe165189eea82b4d9cf095b5e112cb41:99df1a78a93437b2fb20b6a759286c225854103f) ;;
@@ -1365,7 +1369,7 @@ jobs:
       matrix:
         suite: [onboarding-owner, owner-operations, customer-booking]
     needs: secret-scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
       BILLING_PLAN_ENV: test
@@ -2052,7 +2056,7 @@ jobs:
   deposits-postgres-concurrency:
     name: D5 deposits PostgreSQL concurrency (zero skips)
     needs: secret-scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
