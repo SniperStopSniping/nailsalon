@@ -33,3 +33,38 @@ it('removes old openings immediately when services change and distinguishes fail
 
   expect(screen.queryByText(/No times fit/)).not.toBeInTheDocument();
 });
+
+it('rechecks the selected service and removal together before offering a time', async () => {
+  const early = { time: '09:00', startTime: '2099-07-20T13:00:00Z', availability: 'available' };
+  const late = { time: '16:30', startTime: '2099-07-20T20:30:00Z', availability: 'available' };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ slots: [early, late] }) })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        slots: [early, { ...late, availability: 'schedule_conflict' }],
+        durationMinutes: 95,
+        serviceSubtotalCents: 8000,
+        hasUnpricedExtras: false,
+      }),
+    });
+  vi.stubGlobal('fetch', fetchMock);
+  const onSelect = vi.fn();
+  const props = { salonSlug: 'test', date: '2099-07-20', technicianId: 'tech', serviceIds: ['base'], onSelect, onNextDay: vi.fn() };
+  const view = render(<AppointmentOpenings {...props} />);
+  await screen.findByRole('button', { name: '16:30' });
+
+  view.rerender(<AppointmentOpenings {...props} selectedAddOns={[{ addOnId: 'removal', quantity: 1 }]} />);
+
+  expect(screen.queryByRole('button', { name: '16:30' })).not.toBeInTheDocument();
+
+  fireEvent.click(await screen.findByRole('button', { name: '09:00' }));
+
+  const params = new URL(fetchMock.mock.calls[1]![0], 'https://localhost').searchParams;
+
+  expect(params.get('baseServiceId')).toBe('base');
+  expect(JSON.parse(params.get('selectedAddOns')!)).toEqual([{ addOnId: 'removal', quantity: 1 }]);
+  expect(params.has('serviceIds')).toBe(false);
+  expect(onSelect).toHaveBeenCalledWith(early, { durationMinutes: 95, serviceSubtotalCents: 8000, hasUnpricedExtras: false });
+  expect(screen.queryByRole('button', { name: '16:30' })).not.toBeInTheDocument();
+});

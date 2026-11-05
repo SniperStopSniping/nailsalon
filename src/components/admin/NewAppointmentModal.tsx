@@ -18,10 +18,11 @@ import { Check, ChevronDown, Loader2, Plus, Search, X } from 'lucide-react';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppointmentClientPicker } from '@/components/admin/AppointmentClientPicker';
-import { AppointmentOpenings } from '@/components/admin/AppointmentOpenings';
+import { AppointmentOpenings, type OpeningQuote } from '@/components/admin/AppointmentOpenings';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { useCustomerViewport } from '@/hooks/useCustomerViewport';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
+import type { SelectedAddOnParam } from '@/libs/bookingParams';
 import {
   buildTimePickerSlots,
   type CalendarSchedule,
@@ -32,6 +33,7 @@ import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
 import { normalizePhone } from '@/libs/phone';
 import type { BookingCategory, WeeklySchedule } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
+import type { AddOnResponse } from '@/types/admin';
 import { formatDuration } from '@/utils/Helpers';
 
 // Types
@@ -161,7 +163,13 @@ export function NewAppointmentModal({
     preselectedDate ? formatDateForInput(preselectedDate) : formatDateForInput(new Date()),
   );
   const [selectedTime, setSelectedTime] = useState<string>('10:00');
-  const [verifiedOpening, setVerifiedOpening] = useState<{ date: string; time: string; startTime: string } | null>(null);
+  const [verifiedOpening, setVerifiedOpening] = useState<{ scope: string; time: string; startTime: string; quote?: OpeningQuote } | null>(null);
+  const [openingRefresh, setOpeningRefresh] = useState(0);
+  const [extrasOpen, setExtrasOpen] = useState(false);
+  const [extras, setExtras] = useState<{ salonSlug: string; items: AddOnResponse[] } | null>(null);
+  const [extrasLoading, setExtrasLoading] = useState(false);
+  const [extrasError, setExtrasError] = useState(false);
+  const [selectedAddOns, setSelectedAddOns] = useState<SelectedAddOnParam[]>([]);
   const [clientPhone, setClientPhone] = useState('');
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
@@ -430,6 +438,9 @@ export function NewAppointmentModal({
   useEffect(() => {
     if (!isOpen) {
       setVerifiedOpening(null);
+      setOpeningRefresh(0);
+      setSelectedAddOns([]);
+      setExtrasOpen(false);
       setClientPhone('');
       setClientName('');
       setClientEmail('');
@@ -464,6 +475,36 @@ export function NewAppointmentModal({
     }
   }, [preselectedDate]);
 
+  const baseServiceId = !googleEventPrefill && selectedServiceIds.length === 1 ? selectedServiceIds[0] : undefined;
+  const compatibleExtras = baseServiceId && extras && extras.salonSlug === salonSlug
+    ? extras.items.filter(addOn => addOn.isActive && addOn.compatibleServiceIds?.includes(baseServiceId))
+    : [];
+  const openingScope = JSON.stringify([salonSlug, selectedDate, selectedTechnicianId, selectedServiceIds, selectedAddOns]);
+  const chosenOpening = verifiedOpening?.scope === openingScope && verifiedOpening.time === selectedTime
+    ? verifiedOpening
+    : null;
+  const needsExtraOpening = selectedAddOns.length > 0 && !chosenOpening?.quote;
+
+  const loadExtras = async () => {
+    if (!salonSlug || extrasLoading || extras?.salonSlug === salonSlug) {
+      return;
+    }
+    setExtrasError(false);
+    setExtrasLoading(true);
+    try {
+      const response = await fetch(`/api/salon/add-ons?salonSlug=${encodeURIComponent(salonSlug)}`);
+      const payload = await response.json();
+      if (!response.ok || !Array.isArray(payload.data?.addOns)) {
+        throw new Error('Extras unavailable');
+      }
+      setExtras({ salonSlug, items: payload.data.addOns });
+    } catch {
+      setExtrasError(true);
+    } finally {
+      setExtrasLoading(false);
+    }
+  };
+
   // Calculate totals
   const selectedServices = services.filter(s => selectedServiceIds.includes(s.id));
   const totalPrice = selectedServices.reduce((sum, s) => sum + s.price, 0);
@@ -495,6 +536,8 @@ export function NewAppointmentModal({
 
   // Handle service toggle
   const toggleService = (serviceId: string) => {
+    setVerifiedOpening(null);
+    setSelectedAddOns([]);
     setSelectedServiceIds(prev =>
       prev.includes(serviceId)
         ? prev.filter(id => id !== serviceId)
@@ -536,6 +579,10 @@ export function NewAppointmentModal({
       setError('Please select at least one service');
       return;
     }
+    if (needsExtraOpening) {
+      setError('Choose a time that fits the selected extras.');
+      return;
+    }
     if (!selectedDate || !selectedTime) {
       setError('Choose an appointment date and time');
       return;
@@ -567,12 +614,14 @@ export function NewAppointmentModal({
       const startTime = new Date(year!, month! - 1, day, hours, minutes);
       const requestBody = JSON.stringify({
         salonSlug,
-        serviceIds: selectedServiceIds,
+        ...(selectedAddOns.length > 0
+          ? { baseServiceId, selectedAddOns }
+          : { serviceIds: selectedServiceIds }),
         technicianId: selectedTechnicianId,
         clientPhone,
         clientName: clientName || undefined,
         clientEmail: clientEmail || undefined,
-        startTime: verifiedOpening?.date === selectedDate && verifiedOpening.time === selectedTime ? verifiedOpening.startTime : startTime.toISOString(),
+        startTime: chosenOpening?.startTime ?? startTime.toISOString(),
         googleEventReviewId: googleEventPrefill?.id,
         durationMinutesOverride: googleEventPrefill ? parsedDurationOverride : undefined,
         notes: googleEventPrefill ? notes.trim() || undefined : undefined,
@@ -601,6 +650,10 @@ export function NewAppointmentModal({
       const result = await response.json();
 
       if (!response.ok) {
+        if (['TIME_CONFLICT', 'OUTSIDE_SCHEDULE'].includes(result.error?.code)) {
+          setVerifiedOpening(null);
+          setOpeningRefresh(value => value + 1);
+        }
         if (result.error?.code === 'GOOGLE_EVENT_NOT_FOUND') {
           setSubmissionSourceStatus('inaccessible');
         } else if (result.error?.code === 'GOOGLE_EVENT_ALREADY_CONVERTED') {
@@ -668,8 +721,11 @@ export function NewAppointmentModal({
 
   const displayedPrice = googleEventPrefill && priceOverride !== '' && Number.isFinite(Number(priceOverride)) && Number(priceOverride) >= 0
     ? Math.round(Number(priceOverride) * 100)
-    : totalPrice;
-  const displayedDuration = googleEventPrefill && Number(durationOverride) > 0 ? Number(durationOverride) : totalDuration;
+    : chosenOpening?.quote?.serviceSubtotalCents ?? totalPrice;
+  const displayedDuration = googleEventPrefill && Number(durationOverride) > 0 ? Number(durationOverride) : chosenOpening?.quote?.durationMinutes ?? totalDuration;
+  const [startHour = 0, startMinute = 0] = selectedTime.split(':').map(Number);
+  const endMinutes = startHour * 60 + startMinute + displayedDuration;
+  const displayedEnd = `${String(Math.floor(endMinutes / 60) % 24).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}${endMinutes >= 1440 ? ' next day' : ''}`;
   const summaryDate = selectedDate
     ? new Date(`${selectedDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
     : 'Choose a date';
@@ -827,6 +883,7 @@ export function NewAppointmentModal({
                                       type="button"
                                       aria-pressed={time === selectedTime}
                                       onClick={() => {
+                                        setVerifiedOpening(null);
                                         setSelectedTime(time);
                                         setShowTimeDropdown(false);
                                       }}
@@ -919,6 +976,7 @@ export function NewAppointmentModal({
                             <input id="new-appt-client-email" type="email" autoComplete="off" value={clientEmail} onChange={event => setClientEmail(event.target.value)} placeholder="client@example.com" />
                           </div>
                         </div>
+                        {!googleEventPrefill && <p className="nap-helper">No deposit is collected here. Confirmations follow salon settings.</p>}
                       </section>
                       {googleEventPrefill && (
                         <section className="nap-section" aria-labelledby="appointment-details-heading">
@@ -974,20 +1032,88 @@ export function NewAppointmentModal({
                           </div>
                         ))}
                       </div>
+                      {baseServiceId && (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            className="nap-link nap-extras-toggle"
+                            aria-expanded={extrasOpen}
+                            aria-controls="new-appointment-extras"
+                            onClick={() => {
+                              setExtrasOpen(!extrasOpen);
+                              if (!extrasOpen) {
+                                void loadExtras();
+                              }
+                            }}
+                          >
+                            Removal &amp; extras
+                            {selectedAddOns.length > 0 ? ` (${selectedAddOns.length} selected)` : ''}
+                          </button>
+                          {extrasOpen && (
+                            <div id="new-appointment-extras" className="space-y-2 rounded-xl border border-stone-200 p-3">
+                              {extrasLoading && <p role="status">Loading extras…</p>}
+                              {extrasError && (
+                                <p role="alert">
+                                  Couldn’t load extras.
+                                  <button type="button" className="nap-link" onClick={() => void loadExtras()}>Try again</button>
+                                </p>
+                              )}
+                              {!extrasLoading && !extrasError && compatibleExtras.length === 0 && <p className="nap-helper">No extras are listed for this service.</p>}
+                              {compatibleExtras.map((addOn) => {
+                                const quantity = selectedAddOns.find(item => item.addOnId === addOn.id)?.quantity ?? 0;
+                                const updateQuantity = (value: number) => {
+                                  setVerifiedOpening(null);
+                                  setSelectedAddOns(items => [
+                                    ...items.filter(item => item.addOnId !== addOn.id),
+                                    ...(value ? [{ addOnId: addOn.id, quantity: value }] : []),
+                                  ]);
+                                };
+                                return (
+                                  <div key={addOn.id} className="flex flex-wrap items-center justify-between gap-2">
+                                    <label className="nap-extras-choice">
+                                      <input type="checkbox" checked={quantity > 0} onChange={event => updateQuantity(event.target.checked ? 1 : 0)} />
+                                      <span>
+                                        {addOn.name}
+                                        <span className="nap-helper block">
+                                          +
+                                          {addOn.durationMinutes}
+                                          {' '}
+                                          min ·
+                                          {' '}
+                                          {addOn.manualConfirmationServiceIds?.includes(baseServiceId) ? 'Price to confirm' : formatCurrency(addOn.priceCents)}
+                                          {addOn.pricingType === 'per_unit' && ` per ${addOn.unitLabel || 'unit'}`}
+                                        </span>
+                                      </span>
+                                    </label>
+                                    {quantity > 0 && addOn.pricingType === 'per_unit' && (addOn.maxQuantity ?? 1) > 1 && (
+                                      <select aria-label={`${addOn.name} quantity`} className="min-h-11 rounded-lg border border-stone-300 px-2" value={quantity} onChange={event => updateQuantity(Number(event.target.value))}>
+                                        {Array.from({ length: addOn.maxQuantity! }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
+                                      </select>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {!googleEventPrefill && salonSlug && selectedServiceIds.length > 0 && (
                         <AppointmentOpenings
                           salonSlug={salonSlug}
                           date={selectedDate}
                           technicianId={selectedTechnicianId}
                           serviceIds={selectedServiceIds}
+                          selectedAddOns={selectedAddOns}
+                          selectedStart={chosenOpening?.startTime}
+                          refreshKey={openingRefresh}
                           onNextDay={() => {
                             const next = new Date(`${selectedDate}T12:00:00`);
                             next.setDate(next.getDate() + 1);
                             setSelectedDate(formatDateForInput(next));
                           }}
-                          onSelect={(slot) => {
+                          onSelect={(slot, quote) => {
                             setSelectedTime(slot.time);
-                            setVerifiedOpening({ ...slot, date: selectedDate });
+                            setVerifiedOpening({ ...slot, scope: openingScope, quote });
                           }}
                         />
                       )}
@@ -1004,39 +1130,44 @@ export function NewAppointmentModal({
         </div>
         <footer className="nap-footer">
           <div className="nap-summary" aria-live="polite" data-testid="new-appointment-summary">
-            {selectedServices.length > 0
-              ? (
-                  <>
-                    <div className="nap-summary-copy">
-                      <p className="font-semibold text-[var(--owner-ink)]">
-                        {summaryDate}
-                        {' '}
-                        ·
-                        {' '}
-                        {selectedTime}
-                      </p>
-                      <p>
-                        {selectedServices.length}
-                        {' '}
-                        service
-                        {selectedServices.length !== 1 ? 's' : ''}
-                        {' '}
-                        ·
-                        {' '}
-                        {formatDuration(displayedDuration)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      {clientPrefill?.nextVisitOffer && <p className="text-xs">Before offers</p>}
-                      <strong>{formatCurrency(displayedPrice)}</strong>
-                    </div>
-                  </>
-                )
-              : <p>Add a phone number and choose a service.</p>}
+            {needsExtraOpening
+              ? <p>Choose an opening for the service and extras.</p>
+              : selectedServices.length > 0
+                ? (
+                    <>
+                      <div className="nap-summary-copy">
+                        <p className="font-semibold text-[var(--owner-ink)]">
+                          {summaryDate}
+                          {' '}
+                          ·
+                          {' '}
+                          {selectedTime}
+                          {displayedDuration > 0 && `–${displayedEnd}`}
+                        </p>
+                        <p>
+                          {selectedServices.length}
+                          {' '}
+                          service
+                          {selectedServices.length !== 1 ? 's' : ''}
+                          {' '}
+                          ·
+                          {' '}
+                          {formatDuration(displayedDuration)}
+                          {selectedAddOns.length > 0 && ' incl. extras'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        {clientPrefill?.nextVisitOffer && <p className="text-xs">Before offers</p>}
+                        <strong>{formatCurrency(displayedPrice)}</strong>
+                        {chosenOpening?.quote?.hasUnpricedExtras && <p className="text-xs">+ extras priced separately</p>}
+                      </div>
+                    </>
+                  )
+                : <p>Add a phone number and choose a service.</p>}
           </div>
           <div className="nap-actions">
             <button type="button" onClick={onClose} className="nap-cancel">Cancel</button>
-            <button type="button" onClick={handleSubmit} disabled={loading || loadFailed || !salonSlug || submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10 || !selectedDate || (Boolean(googleEventPrefill) && effectiveSourceStatus !== 'available')} className="nap-submit">
+            <button type="button" onClick={handleSubmit} disabled={loading || loadFailed || !salonSlug || submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10 || !selectedDate || needsExtraOpening || (Boolean(googleEventPrefill) && effectiveSourceStatus !== 'available')} className="nap-submit">
               {submitting
                 ? (
                     <>

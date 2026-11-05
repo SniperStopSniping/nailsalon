@@ -2,24 +2,43 @@
 
 import { useEffect, useState } from 'react';
 
+import { type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
+import { formatMoney } from '@/libs/formatMoney';
+import { formatDuration } from '@/utils/Helpers';
+
+const NO_EXTRAS: SelectedAddOnParam[] = [];
+
 type Opening = { time: string; startTime: string; availability: string };
 
+export type OpeningQuote = { durationMinutes: number; serviceSubtotalCents: number; hasUnpricedExtras: boolean };
+
 /** Suggestions use the shared scheduling engine; saving still validates the booking. */
-export function AppointmentOpenings({ salonSlug, date, technicianId, serviceIds, onSelect, onNextDay }: {
+export function AppointmentOpenings({ salonSlug, date, technicianId, serviceIds, selectedAddOns = NO_EXTRAS, selectedStart, refreshKey = 0, onSelect, onNextDay }: {
   salonSlug: string;
   date: string;
   technicianId: string | null;
   serviceIds: string[];
-  onSelect: (slot: Opening) => void;
+  selectedAddOns?: SelectedAddOnParam[];
+  selectedStart?: string;
+  refreshKey?: number;
+  onSelect: (slot: Opening, quote?: OpeningQuote) => void;
   onNextDay: () => void;
 }) {
-  const query = new URLSearchParams({ salonSlug, date, serviceIds: serviceIds.join(',') });
+  const query = new URLSearchParams({ salonSlug, date });
+  const addOnsParam = serializeSelectedAddOns(selectedAddOns);
+  if (addOnsParam && serviceIds.length === 1) {
+    query.set('baseServiceId', serviceIds[0]!);
+    query.set('selectedAddOns', addOnsParam);
+  } else {
+    query.set('serviceIds', serviceIds.join(','));
+  }
   if (technicianId) {
     query.set('technicianId', technicianId);
   }
   const queryKey = query.toString();
   const [retry, setRetry] = useState(0);
-  const [result, setResult] = useState<{ key: string; slots: Opening[]; error?: string } | null>(null);
+  const resultKey = `${queryKey}|${refreshKey}|${retry}`;
+  const [result, setResult] = useState<{ key: string; slots: Opening[]; quote?: OpeningQuote; error?: string } | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
@@ -36,24 +55,42 @@ export function AppointmentOpenings({ salonSlug, date, technicianId, serviceIds,
         if (!Array.isArray(body.slots)) {
           throw new TypeError('Unable to check openings. Try again.');
         }
+        const quote = addOnsParam
+          ? {
+              durationMinutes: body.durationMinutes,
+              serviceSubtotalCents: body.serviceSubtotalCents,
+              hasUnpricedExtras: body.hasUnpricedExtras === true,
+            }
+          : undefined;
+        if (quote && (!Number.isSafeInteger(quote.durationMinutes) || !Number.isSafeInteger(quote.serviceSubtotalCents))) {
+          throw new TypeError('Unable to check the price and duration of these extras. Try again.');
+        }
         if (!controller.signal.aborted) {
-          setResult({ key: queryKey, slots: body.slots.filter((slot: Opening) => slot.availability === 'available') });
+          setResult({ key: resultKey, slots: body.slots.filter((slot: Opening) => slot.availability === 'available'), quote });
         }
       } catch (error) {
         if (!controller.signal.aborted) {
-          setResult({ key: queryKey, slots: [], error: error instanceof Error ? error.message : 'Unable to check openings.' });
+          setResult({ key: resultKey, slots: [], error: error instanceof Error ? error.message : 'Unable to check openings.' });
         }
       }
     })();
     return () => controller.abort();
-  }, [queryKey, retry]);
+  }, [addOnsParam, queryKey, resultKey]);
 
-  const current = result?.key === queryKey ? result : null;
+  const current = result?.key === resultKey ? result : null;
   return (
     <section className="mt-4 rounded-xl border border-stone-200 p-3" aria-label="Find a time">
       <h4 className="font-semibold">Times that fit your services</h4>
       <p className="nap-helper">For the selected date. Availability is checked again when saving.</p>
       <div aria-live="polite">
+        {current?.quote && (
+          <p className="nap-helper">
+            {formatDuration(current.quote.durationMinutes)}
+            {' · '}
+            {formatMoney(current.quote.serviceSubtotalCents, 'CAD')}
+            {current.quote.hasUnpricedExtras ? ' + extras priced separately' : ' before tax or offers'}
+          </p>
+        )}
         {!current && <p>Checking openings…</p>}
         {current?.error && (
           <p role="alert">
@@ -71,7 +108,7 @@ export function AppointmentOpenings({ salonSlug, date, technicianId, serviceIds,
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
         {(expanded ? current?.slots : current?.slots.slice(0, 6))?.map(slot => (
-          <button key={slot.startTime} type="button" className="min-h-11 rounded-lg border border-stone-300 px-3" onClick={() => onSelect(slot)}>{slot.time}</button>
+          <button key={slot.startTime} type="button" aria-pressed={slot.startTime === selectedStart} className="min-h-11 rounded-lg border border-stone-300 px-3 aria-pressed:border-current aria-pressed:font-semibold" onClick={() => current?.quote ? onSelect(slot, current.quote) : onSelect(slot)}>{slot.time}</button>
         ))}
       </div>
       {current && current.slots.length > 6 && <button type="button" className="nap-link mt-2" onClick={() => setExpanded(value => !value)}>{expanded ? 'Show fewer times' : 'Show all times'}</button>}

@@ -320,6 +320,7 @@ export async function getPublicBookingAvailability(
     let visibleDurationMinutes = DEFAULT_DURATION_MINUTES;
     let bufferMinutes = bookingConfig.bufferMinutes;
     let subtotalBeforeDiscountCents = 0;
+    let hasUnpricedExtras = false;
 
     if (bookingBasket) {
       try {
@@ -366,6 +367,7 @@ export async function getPublicBookingAvailability(
         visibleDurationMinutes = validatedSelection.quote.visibleDurationMinutes;
         bufferMinutes = validatedSelection.quote.bufferMinutes;
         subtotalBeforeDiscountCents = validatedSelection.quote.subtotalCents;
+        hasUnpricedExtras = validatedSelection.quote.manualConfirmationItems.length > 0;
       } catch (error) {
         if (!(error instanceof BookingSelectionError)) {
           throw error;
@@ -737,6 +739,7 @@ export async function getPublicBookingAvailability(
       durationMinutes: visibleDurationMinutes,
       visibleDurationMinutes,
       blockedDurationMinutes: visibleDurationMinutes + bufferMinutes,
+      ...(baseServiceId ? { serviceSubtotalCents: subtotalBeforeDiscountCents, hasUnpricedExtras } : {}),
       visibleSlots,
       slots,
       bookedSlots,

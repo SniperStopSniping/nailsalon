@@ -42,6 +42,7 @@ type AppointmentQuickEditSheetProps = {
     baseServiceId: string;
     technicianId: string | null;
     startTime: string;
+    durationMinutes?: number;
     acceptedNextVisitTotalCents?: number;
   }) => Promise<void>;
   onMoveToNextAvailable: () => Promise<void>;
@@ -124,6 +125,7 @@ export function AppointmentQuickEditSheet({
   const [baseServiceId, setBaseServiceId] = useState('');
   const [technicianId, setTechnicianId] = useState<string | null>(null);
   const [startTime, setStartTime] = useState('');
+  const [durationInput, setDurationInput] = useState('');
   const [cancelReason, setCancelReason] = useState('client_request');
   const [internalNote, setInternalNote] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | 'decline' | null>(null);
@@ -139,6 +141,7 @@ export function AppointmentQuickEditSheet({
     setBaseServiceId(detail.appointment.baseServiceId ?? detail.serviceOptions[0]?.id ?? '');
     setTechnicianId(detail.appointment.technicianId ?? null);
     setStartTime(formatDateTimeValue(detail.appointment.startTime));
+    setDurationInput(String(detail.appointment.totalDurationMinutes));
   }, [detail]);
 
   useEffect(() => {
@@ -186,18 +189,33 @@ export function AppointmentQuickEditSheet({
     </>
   ), [actionError, attemptedTimeLabel, detail?.appointment.salonSlug]);
 
+  const durationChanged = Boolean(detail?.permissions.canMove
+    && baseServiceId === (detail.appointment.baseServiceId ?? '')
+    && durationInput !== String(detail.appointment.totalDurationMinutes));
+  const durationMinutes = Number(durationInput);
+  const durationValid = !durationChanged || (Number.isInteger(durationMinutes) && durationMinutes >= 15 && durationMinutes <= 480);
+
   const handleSaveEdits = useCallback(async (acceptedNextVisitTotalCents?: number) => {
     try {
-      await onSaveEdits({ baseServiceId, technicianId, startTime, acceptedNextVisitTotalCents });
+      if (!durationValid || !startTime) {
+        return;
+      }
+      await onSaveEdits({
+        baseServiceId,
+        technicianId,
+        startTime: detail && startTime === formatDateTimeValue(detail.appointment.startTime) ? detail.appointment.startTime : startTime,
+        ...(durationChanged ? { durationMinutes } : {}),
+        acceptedNextVisitTotalCents,
+      });
     } catch {
       // A Next Visit Offer amount must be explicitly accepted. Keep the edit
       // values in place so the owner can review that same change and retry.
-      if (nextVisitPriceReview) {
+      if (nextVisitPriceReview || durationChanged) {
         return;
       }
       resetEditFieldsFromDetail();
     }
-  }, [baseServiceId, nextVisitPriceReview, onSaveEdits, resetEditFieldsFromDetail, startTime, technicianId]);
+  }, [baseServiceId, detail, durationChanged, durationMinutes, durationValid, nextVisitPriceReview, onSaveEdits, resetEditFieldsFromDetail, startTime, technicianId]);
 
   const currentBaseService = useMemo(
     () => detail?.serviceOptions.find(service => service.id === baseServiceId) ?? null,
@@ -226,9 +244,12 @@ export function AppointmentQuickEditSheet({
   const projectedPrice = currentBaseService
     ? currentBaseService.priceCents + currentAddOnTotal
     : detail?.appointment.totalPrice ?? 0;
-  const projectedDuration = currentBaseService
-    ? currentBaseService.durationMinutes + currentAddOnDuration
-    : detail?.appointment.totalDurationMinutes ?? 0;
+  const projectedDuration = durationChanged
+    ? durationMinutes
+    : currentBaseService && baseServiceId !== detail?.appointment.baseServiceId
+      ? currentBaseService.durationMinutes + currentAddOnDuration
+      : detail?.appointment.totalDurationMinutes ?? 0;
+  const projectedEnd = new Date(new Date(startTime).getTime() + projectedDuration * 60_000);
   // Fail closed for stale cached/client fixtures that predate the financial
   // DTO: absence is never permission to revive the raw booked total. Only the
   // server may say "the invoice is unresolved, here is the booked estimate".
@@ -252,6 +273,7 @@ export function AppointmentQuickEditSheet({
     && (
       baseServiceId !== (detail.appointment.baseServiceId ?? '')
       || technicianId !== (detail.appointment.technicianId ?? null)
+      || durationChanged
       || startTime !== formatDateTimeValue(detail.appointment.startTime)
     ),
   );
@@ -729,17 +751,46 @@ export function AppointmentQuickEditSheet({
                                     disabled={saving || !detail.permissions.canMove}
                                   />
                                 </label>
+                                {detail.permissions.canMove && baseServiceId === (detail.appointment.baseServiceId ?? '') && (
+                                  <div>
+                                    <label className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-400" htmlFor="appointment-duration">Duration (minutes)</label>
+                                    <input
+                                      id="appointment-duration"
+                                      type="number"
+                                      inputMode="numeric"
+                                      min={15}
+                                      max={480}
+                                      step={1}
+                                      value={durationInput}
+                                      aria-invalid={!durationValid}
+                                      aria-describedby="appointment-duration-help"
+                                      onChange={(event) => {
+                                        onClearNextVisitPriceReview?.();
+                                        setDurationInput(event.target.value);
+                                      }}
+                                      className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-900"
+                                      disabled={saving}
+                                    />
+                                    <span id="appointment-duration-help" className="mt-1 block text-xs text-neutral-600">
+                                      {durationValid ? 'We check the schedule again when you save.' : 'Enter a whole number from 15 to 480.'}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="mt-4 rounded-xl bg-neutral-50 p-3 text-sm text-neutral-600">
                                 <div className="flex items-center justify-between">
                                   <span>Projected duration</span>
                                   <span data-testid="appointment-sheet-projected-duration" className="font-medium text-neutral-900">
-                                    {projectedDuration}
-                                    {' '}
-                                    min
+                                    {durationValid ? `${projectedDuration} min` : '—'}
                                   </span>
                                 </div>
+                                {durationValid && Number.isFinite(projectedEnd.getTime()) && (
+                                  <div className="mt-2 flex items-center justify-between">
+                                    <span>Projected end</span>
+                                    <span className="font-medium text-neutral-900">{projectedEnd.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
+                                  </div>
+                                )}
                                 <div className="mt-2 flex items-center justify-between">
                                   <span>Projected service subtotal</span>
                                   <span data-testid="appointment-sheet-projected-price" className="font-medium text-neutral-900">
@@ -928,7 +979,7 @@ export function AppointmentQuickEditSheet({
                   type="button"
                   data-testid="appointment-sheet-save"
                   onClick={() => void handleSaveEdits()}
-                  disabled={saving || !isDirty}
+                  disabled={saving || !isDirty || !durationValid || !startTime}
                   className={cn(
                     buttonVariants({ variant: 'ownerPrimary' }),
                     'min-h-11 flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold shadow-none disabled:opacity-50',
