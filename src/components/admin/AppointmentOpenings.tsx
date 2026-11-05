@@ -29,6 +29,7 @@ export function AppointmentOpenings({ salonSlug, date, technicianId, serviceIds,
   if (addOnsParam && serviceIds.length === 1) {
     query.set('baseServiceId', serviceIds[0]!);
     query.set('selectedAddOns', addOnsParam);
+    query.set('includeQuote', '1');
   } else {
     query.set('serviceIds', serviceIds.join(','));
   }

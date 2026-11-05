@@ -63,6 +63,7 @@ it('rechecks the selected service and removal together before offering a time', 
   const params = new URL(fetchMock.mock.calls[1]![0], 'https://localhost').searchParams;
 
   expect(params.get('baseServiceId')).toBe('base');
+  expect(params.get('includeQuote')).toBe('1');
   expect(JSON.parse(params.get('selectedAddOns')!)).toEqual([{ addOnId: 'removal', quantity: 1 }]);
   expect(params.has('serviceIds')).toBe(false);
   expect(onSelect).toHaveBeenCalledWith(early, { durationMinutes: 95, serviceSubtotalCents: 8000, hasUnpricedExtras: false });

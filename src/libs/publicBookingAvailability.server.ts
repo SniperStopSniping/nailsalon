@@ -217,6 +217,7 @@ export async function getPublicBookingAvailability(
   const locationId = searchParams.get('locationId');
   const serviceIdList = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
   const baseServiceId = searchParams.get('baseServiceId');
+  const includeQuote = baseServiceId !== null && searchParams.get('includeQuote') === '1';
   const selectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
   const bookingBasketRaw = searchParams.get('bookingBasket');
   const bookingBasket = parseBookingBasketParam(bookingBasketRaw);
@@ -739,7 +740,7 @@ export async function getPublicBookingAvailability(
       durationMinutes: visibleDurationMinutes,
       visibleDurationMinutes,
       blockedDurationMinutes: visibleDurationMinutes + bufferMinutes,
-      ...(baseServiceId ? { serviceSubtotalCents: subtotalBeforeDiscountCents, hasUnpricedExtras } : {}),
+      ...(includeQuote ? { serviceSubtotalCents: subtotalBeforeDiscountCents, hasUnpricedExtras } : {}),
       visibleSlots,
       slots,
       bookedSlots,
