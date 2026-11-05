@@ -8,7 +8,7 @@ import {
   requireDisposableDatabaseTarget,
   resolveDisposableDatabaseServerExpectation,
 } from '../../src/libs/disposableDatabaseTarget';
-import { addDaysToDateKey, getDateKeyInTimeZone } from '../../src/libs/timeZone';
+import { addDaysToDateKey, getDateKeyInTimeZone, zonedTimeToUtc } from '../../src/libs/timeZone';
 import { impersonateSalonAsSuperAdmin } from './support/appointment-ops';
 import { authenticateSuperAdmin } from './support/auth';
 import { e2eBaseUrl, e2eConfig } from './support/config';
@@ -32,15 +32,20 @@ async function openCalendarDay(page: Page, date: string) {
   await dateButton.click();
 }
 
-async function createAppointment(page: Page) {
+async function createAppointment(page: Page, { doubleTap = false, title = 'New Appointment' } = {}) {
   const responsePromise = page.waitForResponse(response =>
     new URL(response.url()).pathname === '/api/appointments' && response.request().method() === 'POST', { timeout: 90_000 });
-  await page.getByRole('button', { name: 'Create Appointment', exact: true }).click();
+  const save = page.getByRole('button', { name: 'Create Appointment', exact: true });
+  if (doubleTap) {
+    await save.dblclick();
+  } else {
+    await save.click();
+  }
   const response = await responsePromise;
   const body = await response.json();
 
   expect(response.status(), JSON.stringify(body.error)).toBe(201);
-  await expect(page.getByRole('heading', { name: 'New Appointment', exact: true })).toBeHidden();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeHidden();
 
   return body.data;
 }
@@ -166,7 +171,7 @@ test('owner books extras, changes duration, and rebooks on a phone @isolated-own
     await page.getByRole('button', { name: /^Details Show$/ }).click();
     await page.getByRole('button', { name: 'Rebook client', exact: true }).click();
 
-    await expect(page.getByLabel('Client Name (optional)', { exact: true })).toHaveValue(clientName);
+    await expect(page.getByLabel('Client Name (optional)', { exact: true })).toHaveValue(clientName, { timeout: 60_000 });
     await expect(form.getByRole('button', { name: /^BIAB Short/ })).toHaveAttribute('aria-pressed', 'true');
 
     await page.getByLabel('Date', { exact: true }).fill(nextDate);
@@ -196,6 +201,159 @@ test('owner books extras, changes duration, and rebooks on a phone @isolated-own
       { id: created.appointmentId, total_duration_minutes: 95, blocked_duration_minutes: 105, status: 'confirmed' },
       { id: rebooked.appointmentId, total_duration_minutes: 75, blocked_duration_minutes: 85, status: 'confirmed' },
     ]);
+  } finally {
+    await db.end();
+  }
+});
+
+test('owner books a calendar gap and finds BIAB openings with removal on a phone', async ({ page }, testInfo) => {
+  test.setTimeout(300_000);
+
+  expect(e2eBaseUrl).toBe('http://localhost:3101');
+  expect(e2eConfig.salonSlug).toBe('nail-salon-no5');
+  expect(e2eConfig.superAdminPhone).toBe('4165550101');
+
+  const target = requireDisposableDatabaseTarget();
+  const db = new Client({ connectionString: target.connectionString });
+  await db.connect();
+  try {
+    await attestDisposableDatabaseSession(db, target, resolveDisposableDatabaseServerExpectation(target));
+    const salonSlug = e2eConfig.salonSlug;
+    const timeZone = 'America/Toronto';
+    const today = getDateKeyInTimeZone(new Date(), timeZone);
+    const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
+    const thursday = (11 - weekday) % 7;
+    const dates = [7, 14, 21, 28].map(offset => addDaysToDateKey(today, thursday + offset));
+    const technicianId = 'tech_daniela';
+    const serviceId = 'svc_biab-short';
+    const fixtureClient = 'Calendar Gap Fixture';
+    const fixturePhone = '4165550198';
+    const startOf = (date: string, time: string) => zonedTimeToUtc({ date, time, timeZone }).toISOString();
+    const used = await db.query<{ day: string }>(`
+      SELECT DISTINCT to_char(start_time AT TIME ZONE 'America/Toronto', 'YYYY-MM-DD') AS day
+      FROM appointment WHERE salon_id = 'salon_nail-salon-no5' AND technician_id = $1
+    `, [technicianId]);
+    const gapDate = dates.find(date => !used.rows.some(row => row.day === date));
+
+    expect(gapDate).toBeTruthy();
+
+    await db.query(`
+      INSERT INTO add_on (id, salon_id, name, slug, category, price_cents, duration_minutes)
+      VALUES ('addon_e2e_gap_removal', 'salon_nail-salon-no5', 'Fixture Gel Removal', 'e2e-gap-removal', 'removal', 1000, 20)
+      ON CONFLICT (id) DO NOTHING
+    `);
+    await db.query(`
+      INSERT INTO service_add_on (id, salon_id, service_id, add_on_id)
+      VALUES ('service_add_on_e2e_gap_removal', 'salon_nail-salon-no5', 'svc_biab-short', 'addon_e2e_gap_removal')
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    await authenticateSuperAdmin(page);
+    await impersonateSalonAsSuperAdmin(page);
+    await page.goto('/admin?salon=nail-salon-no5', { waitUntil: 'domcontentloaded' });
+
+    await expect(page.getByTestId('admin-impersonation-banner')).toBeVisible({ timeout: 30_000 });
+
+    const seed = { salonSlug, technicianId, serviceIds: [serviceId], clientName: fixtureClient, clientPhone: fixturePhone };
+    const bookFixture = (startTime: string) => page.request.post('/api/appointments', {
+      headers: { Origin: e2eBaseUrl },
+      data: { ...seed, startTime },
+    });
+    for (const time of ['09:00', '13:00', '15:00']) {
+      const response = await bookFixture(startOf(gapDate!, time));
+
+      expect(response.status(), await response.text()).toBe(201);
+    }
+
+    await page.getByRole('tab', { name: 'Calendar', exact: true }).click();
+    await page.getByRole('button', { name: 'Daniela', exact: true }).click();
+    await openCalendarDay(page, gapDate!);
+    const gaps = page.getByRole('region', { name: 'Calendar openings' });
+    const shortGap = gaps.getByRole('button', { name: /2:30 PM – 3:00 PM.*30m/i });
+    const longGap = gaps.getByRole('button', { name: /10:30 AM – 1:00 PM.*2h 30m/i });
+
+    await expect(shortGap).toBeVisible({ timeout: 30_000 });
+    await expect(longGap).toBeVisible();
+
+    await page.screenshot({ path: testInfo.outputPath('05-calendar-gaps.png'), animations: 'disabled' });
+    await shortGap.click();
+    const form = page.getByRole('dialog', { name: 'New Appointment' });
+
+    await expect(form.getByLabel('Date', { exact: true })).toHaveValue(gapDate!);
+    await expect(form.getByRole('button', { name: 'Appointment time', exact: true })).toContainText('14:30');
+
+    await form.getByLabel('Phone Number *', { exact: true }).fill(fixturePhone);
+    await form.getByRole('button', { name: /^BIAB Short/ }).click();
+
+    await expect(form.getByText('The prefilled time doesn’t fit this selection. Choose another opening.')).toBeVisible();
+    await expect(form.getByRole('button', { name: 'Create Appointment', exact: true })).toBeDisabled();
+
+    await form.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await longGap.click();
+
+    await expect(form.getByLabel('Date', { exact: true })).toHaveValue(gapDate!);
+    await expect(form.getByRole('button', { name: 'Appointment time', exact: true })).toContainText('10:30');
+
+    await form.getByRole('button', { name: 'Find existing client' }).click();
+    await form.getByLabel('Find an existing client', { exact: true }).fill(fixtureClient);
+    await form.getByRole('button', { name: new RegExp(fixtureClient) }).click();
+    await form.getByRole('button', { name: /^BIAB Short/ }).click();
+
+    await expect(form.getByRole('button', { name: 'Create Appointment', exact: true })).toBeEnabled();
+
+    await page.screenshot({ path: testInfo.outputPath('06-gap-prefill.png'), animations: 'disabled' });
+    const requests: string[] = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/appointments' && request.method() === 'POST') {
+        requests.push(request.url());
+      }
+    });
+    const created = await createAppointment(page, { doubleTap: true });
+
+    expect(requests).toHaveLength(1);
+    expect(created.appointment).toMatchObject({ startTime: startOf(gapDate!, '10:30'), technicianId, clientName: fixtureClient });
+
+    const conflict = await bookFixture(created.appointment.startTime);
+
+    expect(conflict.status()).toBe(409);
+    expect((await conflict.json()).error.code).toBe('TIME_CONFLICT');
+
+    await expect(page.getByTestId(`day-detail-appointment-${created.appointmentId}`)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Close day details' }).click();
+    await page.getByRole('button', { name: 'Find Opening', exact: true }).click();
+    const finder = page.getByRole('dialog', { name: 'Find Opening' });
+    await finder.getByRole('button', { name: /^BIAB Short/ }).click();
+    await finder.getByRole('button', { name: 'Removal & extras', exact: true }).click();
+    await finder.getByRole('checkbox', { name: /Fixture Gel Removal/ }).check();
+    const results = finder.getByRole('region', { name: 'Find a time' });
+
+    await expect(results).toContainText('1h 35m', { timeout: 45_000 });
+    await expect(results.getByRole('heading', { level: 5 })).toHaveCount(3, { timeout: 45_000 });
+
+    await results.getByRole('heading', { level: 5 }).first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('07-find-opening.png'), animations: 'disabled' });
+    await results.getByRole('button', { name: /^\d{1,2}:\d{2}$/ }).first().click();
+    await finder.getByRole('button', { name: 'Find existing client' }).click();
+    await finder.getByLabel('Find an existing client', { exact: true }).fill(fixtureClient);
+    await finder.getByRole('button', { name: new RegExp(fixtureClient) }).click();
+    const found = await createAppointment(page, { title: 'Find Opening' });
+
+    expect(found.appointment).toMatchObject({ totalDurationMinutes: 95, blockedDurationMinutes: 105, salonClientId: created.appointment.salonClientId });
+    expect(found.addOns).toEqual([expect.objectContaining({ id: 'addon_e2e_gap_removal', lineDurationMinutes: 20 })]);
+
+    const saved = page.getByTestId(`day-detail-appointment-${found.appointmentId}`);
+
+    await expect(saved).toBeVisible();
+    await expect(saved).toHaveCSS('opacity', '1');
+
+    await page.screenshot({ path: testInfo.outputPath('08-found-opening-saved.png'), animations: 'disabled' });
+    const count = await db.query(`
+      SELECT count(*)::int AS count FROM appointment
+      WHERE salon_id = 'salon_nail-salon-no5' AND technician_id = $1 AND start_time = $2
+    `, [technicianId, created.appointment.startTime]);
+
+    expect(count.rows[0]?.count).toBe(1);
   } finally {
     await db.end();
   }
