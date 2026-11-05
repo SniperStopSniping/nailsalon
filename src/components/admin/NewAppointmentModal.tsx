@@ -18,6 +18,7 @@ import { Check, ChevronDown, Loader2, Plus, Search, X } from 'lucide-react';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppointmentClientPicker } from '@/components/admin/AppointmentClientPicker';
+import { AppointmentOpenings } from '@/components/admin/AppointmentOpenings';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { useCustomerViewport } from '@/hooks/useCustomerViewport';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
@@ -160,6 +161,7 @@ export function NewAppointmentModal({
     preselectedDate ? formatDateForInput(preselectedDate) : formatDateForInput(new Date()),
   );
   const [selectedTime, setSelectedTime] = useState<string>('10:00');
+  const [verifiedOpening, setVerifiedOpening] = useState<{ date: string; time: string; startTime: string } | null>(null);
   const [clientPhone, setClientPhone] = useState('');
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
@@ -427,6 +429,7 @@ export function NewAppointmentModal({
   // Reset form when closing
   useEffect(() => {
     if (!isOpen) {
+      setVerifiedOpening(null);
       setClientPhone('');
       setClientName('');
       setClientEmail('');
@@ -569,7 +572,7 @@ export function NewAppointmentModal({
         clientPhone,
         clientName: clientName || undefined,
         clientEmail: clientEmail || undefined,
-        startTime: startTime.toISOString(),
+        startTime: verifiedOpening?.date === selectedDate && verifiedOpening.time === selectedTime ? verifiedOpening.startTime : startTime.toISOString(),
         googleEventReviewId: googleEventPrefill?.id,
         durationMinutesOverride: googleEventPrefill ? parsedDurationOverride : undefined,
         notes: googleEventPrefill ? notes.trim() || undefined : undefined,
@@ -971,6 +974,23 @@ export function NewAppointmentModal({
                           </div>
                         ))}
                       </div>
+                      {!googleEventPrefill && salonSlug && selectedServiceIds.length > 0 && (
+                        <AppointmentOpenings
+                          salonSlug={salonSlug}
+                          date={selectedDate}
+                          technicianId={selectedTechnicianId}
+                          serviceIds={selectedServiceIds}
+                          onNextDay={() => {
+                            const next = new Date(`${selectedDate}T12:00:00`);
+                            next.setDate(next.getDate() + 1);
+                            setSelectedDate(formatDateForInput(next));
+                          }}
+                          onSelect={(slot) => {
+                            setSelectedTime(slot.time);
+                            setVerifiedOpening({ ...slot, date: selectedDate });
+                          }}
+                        />
+                      )}
                       {filteredServices.length === 0 && <p className="nap-helper py-4">{services.length ? 'No services found. Try another name or category.' : 'No services are available. Add a service in your catalog, then reopen this form.'}</p>}
                       {!serviceSearch.trim() && services.length > 4 && (
                         <button type="button" className="nap-link mt-3" aria-expanded={showAllServices} aria-controls="appointment-services-list" onClick={() => setShowAllServices(value => !value)}>
