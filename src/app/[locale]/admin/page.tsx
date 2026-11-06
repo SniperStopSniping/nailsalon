@@ -36,7 +36,7 @@ import {
   OwnerWorkspaceNav,
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
-import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
+import { StudioOpeningLoader } from '@/components/loading/StudioOpeningLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { formatMoney } from '@/libs/formatMoney';
 import { resolveOwnerNavigationAlias, resolveOwnerNavigationPathAlias, smsCreditShortcutFocusKey } from '@/libs/ownerNavigation';
@@ -1915,12 +1915,12 @@ function AdminDashboardContent() {
   if (authLoading) {
     return (
       <div
-        className="owner-workspace-theme min-h-screen"
+        className="owner-workspace-theme"
         data-testid="admin-auth-loading"
         data-theme-scope="owner"
         role="status"
       >
-        <LuckyCharmLoader />
+        <StudioOpeningLoader />
       </div>
     );
   }

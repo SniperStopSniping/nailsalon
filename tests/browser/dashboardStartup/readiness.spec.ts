@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 
 for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
   test(`Today loads while modules are pending and remains usable when ${outcome}`, async ({ page }, testInfo) => {
+    let releaseAuth!: () => void;
+    const authPending = new Promise<void>((resolve) => {
+      releaseAuth = resolve;
+    });
     let release!: () => void;
     const pending = new Promise<void>((resolve) => {
       release = resolve;
@@ -24,6 +28,7 @@ for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
       let status = 200;
       switch (url.pathname) {
         case '/api/admin/auth/me':
+          await authPending;
           body = { user: { id: 'synthetic-owner', name: 'Test owner', isSuperAdmin: false, salons: [{ id: 'synthetic-salon', slug: 'readiness-studio', name: 'Readiness Studio', role: 'owner', status: 'active' }] } };
           break;
         case '/api/admin/auth/set-active-salon':
@@ -71,7 +76,45 @@ for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
     try {
       await page.goto('/readiness.html?salon=readiness-studio');
 
+      const loading = page.getByTestId('admin-auth-loading');
+
+      await expect(loading).toHaveText('LusterOpening your studio…');
+      await expect(page.getByRole('heading', { name: 'Quick actions' })).toHaveCount(0);
+
+      const initialViewport = page.viewportSize()!;
+      for (const viewport of [initialViewport, { ...initialViewport, height: initialViewport.height + 100 }, { width: 844, height: 390 }]) {
+        await page.setViewportSize(viewport);
+
+        // The painted loading surface, its wrapper, and the page must all fit
+        // the visible screen without a spare strip or a scrollable blank area.
+        await expect.poll(() => loading.evaluate((element) => {
+          const surface = element.firstElementChild!.getBoundingClientRect();
+          const wrapper = element.getBoundingClientRect();
+          return {
+            top: surface.top,
+            bottom: surface.bottom,
+            wrapperBottom: wrapper.bottom,
+            pageHeight: document.documentElement.scrollHeight,
+            pageWidth: document.documentElement.scrollWidth,
+            viewportHeight: innerHeight,
+            viewportWidth: innerWidth,
+          };
+        })).toEqual({
+          top: 0,
+          bottom: viewport.height,
+          wrapperBottom: viewport.height,
+          pageHeight: viewport.height,
+          pageWidth: viewport.width,
+          viewportHeight: viewport.height,
+          viewportWidth: viewport.width,
+        });
+      }
+      await page.setViewportSize(initialViewport);
+      await page.screenshot({ scale: 'css', path: testInfo.outputPath('opening-studio.png') });
+      releaseAuth();
+
       await expect(page.getByRole('heading', { name: 'Quick actions' })).toBeVisible();
+      await expect(loading).toHaveCount(0);
       await expect(page.getByText('No appointments today', { exact: true })).toBeVisible();
       expect(requests).toContain('/api/admin/settings/modules');
       expect(requests).toContain('/api/admin/today');
@@ -97,6 +140,7 @@ for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
       await expect(page.getByRole('heading', { name: 'Quick actions' })).toBeVisible();
       expect(errors).toEqual([]);
     } finally {
+      releaseAuth();
       release();
     }
   });
