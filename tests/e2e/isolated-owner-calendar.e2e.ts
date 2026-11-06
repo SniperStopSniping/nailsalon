@@ -97,9 +97,20 @@ test('owner books extras, changes duration, and rebooks on a phone @isolated-own
     await expect(page.getByTestId('admin-impersonation-banner')).toBeVisible({ timeout: 30_000 });
 
     const today = getDateKeyInTimeZone(new Date(), 'America/Toronto');
-    // Choose the next Thursday and a Thursday three weeks after it.
-    const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
-    const firstDate = addDaysToDateKey(today, ((4 - weekday + 7) % 7) || 7);
+    const occupied = await db.query<{ day: string }>(`
+      SELECT DISTINCT to_char(start_time AT TIME ZONE 'America/Toronto', 'YYYY-MM-DD') AS day
+      FROM appointment WHERE salon_id = 'salon_nail-salon-no5'
+    `);
+    const occupiedDays = new Set(occupied.rows.map(row => row.day));
+    // Keep repeat runs on the disposable database from competing for the
+    // same fixture date while still rebooking exactly three weeks ahead.
+    const firstDate = Array.from({ length: 28 }, (_, index) => addDaysToDateKey(today, index + 7)).find((date) => {
+      const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+      return weekday >= 2 && weekday <= 5 && !occupiedDays.has(date) && !occupiedDays.has(addDaysToDateKey(date, 21));
+    })!;
+
+    expect(firstDate).toBeTruthy();
+
     const nextDate = addDaysToDateKey(firstDate, 21);
     await page.getByRole('button', { name: 'New Appointment', exact: true }).click();
     await page.getByLabel('Phone Number *', { exact: true }).fill(phone!);
@@ -137,7 +148,10 @@ test('owner books extras, changes duration, and rebooks on a phone @isolated-own
     expect(extraAvailability.ok()).toBe(true);
     expect((await extraAvailability.json()).blockedDurationMinutes).toBe(95);
 
-    await slots.nth(4).click({ timeout: 30_000 });
+    // Use an afternoon slot so the maximum editable duration crosses closing,
+    // even on a fixture day with a longer morning schedule.
+    await openings.getByRole('button', { name: 'Show all times', exact: true }).click();
+    await openings.getByRole('button', { name: /^(13|14):\d{2}$/ }).first().click({ timeout: 30_000 });
     await page.screenshot({ path: testInfo.outputPath('01-extras-opening.png') });
     const created = await createAppointment(page);
 
