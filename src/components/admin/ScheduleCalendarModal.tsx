@@ -18,12 +18,14 @@ import {
   ChevronRight,
   Clock,
   Plus,
+  Search,
   User,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { CalendarBlockTime } from '@/components/admin/CalendarBlockTime';
+import { CalendarDayOpenings } from '@/components/admin/CalendarDayOpenings';
 import { DepositPanel } from '@/components/admin/DepositPanel';
 import { GoogleEventReviewQueue } from '@/components/admin/GoogleEventReviewQueue';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
@@ -31,6 +33,7 @@ import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
+import type { CalendarOpening } from '@/libs/calendarOpenings';
 import {
   type CalendarDayAvailability,
   type CalendarSchedule,
@@ -39,6 +42,7 @@ import {
   getDayAvailability,
 } from '@/libs/calendarSchedule';
 import { APPOINTMENT_DATA_CHANGED_EVENT } from '@/libs/dashboardEvents';
+import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import { useSalon } from '@/providers/SalonProvider';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -120,10 +124,6 @@ function getWeekStart(date: Date): Date {
   d.setDate(d.getDate() - day);
   d.setHours(0, 0, 0, 0);
   return d;
-}
-
-function getMonthStart(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
 function getMonthDays(date: Date): Date[] {
@@ -488,6 +488,7 @@ type DayDetailPanelProps = {
   onClose: () => void;
   onConvertGoogleEvent: (appointment: AppointmentSummary) => void;
   onSelectAppointment: (appointmentId: string) => void;
+  openings?: React.ReactNode;
 };
 
 function DayDetailPanel({
@@ -497,6 +498,7 @@ function DayDetailPanel({
   onClose,
   onConvertGoogleEvent,
   onSelectAppointment,
+  openings,
 }: DayDetailPanelProps) {
   const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
   const dateStr = date.toLocaleDateString('en-US', {
@@ -587,6 +589,7 @@ function DayDetailPanel({
           paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 20px)',
         }}
       >
+        {openings}
         {appointments.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="mb-3 flex size-14 items-center justify-center rounded-full bg-gray-100">
@@ -778,6 +781,9 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
+  const [calendarOpening, setCalendarOpening] = useState<CalendarOpening | null>(null);
+  const [findOpeningFrom, setFindOpeningFrom] = useState<string | null>(null);
+  const [openingRefresh, setOpeningRefresh] = useState(0);
   const [googleEventPrefill, setGoogleEventPrefill]
     = useState<AppointmentSummary | null>(null);
   const [rebookPrefill, setRebookPrefill] = useState<RebookPrefill | null>(null);
@@ -858,27 +864,6 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
     }
   }, [googleConnected, scheduleFilter]);
 
-  // Calculate date range based on view mode
-  const dateRange = useMemo(() => {
-    if (viewMode === 'weekly') {
-      const start = getWeekStart(currentDate);
-      const weekEnd = new Date(start);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      return { start, end: weekEnd };
-    } else {
-      // Extend range to include padding days
-      const start = getMonthStart(currentDate);
-      const firstDayPadding = start.getDay();
-      const adjustedStart = new Date(start);
-      adjustedStart.setDate(adjustedStart.getDate() - firstDayPadding);
-      const lastDay = new Date(start.getFullYear(), start.getMonth() + 1, 0);
-      const lastDayPadding = 6 - lastDay.getDay();
-      const adjustedEnd = new Date(lastDay);
-      adjustedEnd.setDate(adjustedEnd.getDate() + lastDayPadding);
-      return { start: adjustedStart, end: adjustedEnd };
-    }
-  }, [viewMode, currentDate]);
-
   // Get days to display
   const displayDays = useMemo(() => {
     if (viewMode === 'weekly') {
@@ -886,6 +871,10 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
     }
     return getMonthDays(currentDate);
   }, [viewMode, currentDate]);
+
+  // The month grid always shows six weeks, including dates in the next month.
+  // Fetch the whole visible grid so those dates do not appear falsely empty.
+  const dateRange = useMemo(() => ({ start: displayDays[0]!, end: displayDays.at(-1)! }), [displayDays]);
 
   // Fetch appointments for the date range
   const fetchAppointments = useCallback(async () => {
@@ -1100,6 +1089,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
     refreshTimerRef.current = window.setTimeout(() => {
       refreshTimerRef.current = null;
       void fetchAppointmentsRef.current();
+      setOpeningRefresh(value => value + 1);
     }, 60);
   }, []);
 
@@ -1340,6 +1330,19 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
           </div>
         </details>
       </div>
+
+      <button
+        type="button"
+        className="mx-4 mt-3 flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 text-sm font-semibold text-[var(--owner-accent)]"
+        onClick={() => {
+          const today = getDateKeyInTimeZone(new Date(), schedule.timeZone);
+          setFindOpeningFrom(selectedDateKey && selectedDateKey > today ? selectedDateKey : today);
+          setShowNewAppointmentModal(true);
+        }}
+      >
+        <Search aria-hidden="true" className="size-4" />
+        Find Opening
+      </button>
 
       {/* Navigation */}
       <div className="flex items-center justify-between gap-2 p-4">
@@ -1635,6 +1638,18 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
               date={selectedDate}
               appointments={selectedAppointments}
               availability={selectedAvailability}
+              openings={salonSlug && selectedDateKey && (
+                <CalendarDayOpenings
+                  salonSlug={salonSlug}
+                  date={selectedDateKey}
+                  technicianId={technicianFilter === 'all' ? null : technicianFilter}
+                  refreshKey={openingRefresh}
+                  onSelect={(opening) => {
+                    setCalendarOpening(opening);
+                    setShowNewAppointmentModal(true);
+                  }}
+                />
+              )}
               onClose={() => setSelectedDate(null)}
               onConvertGoogleEvent={(appointment) => {
                 setGoogleEventPrefill(appointment);
@@ -1708,17 +1723,26 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
         salonSlug={salonSlug}
         onClose={() => {
           setShowNewAppointmentModal(false);
+          setCalendarOpening(null);
+          setFindOpeningFrom(null);
           setGoogleEventPrefill(null);
           setRebookPrefill(null);
         }}
-        onSuccess={() => {
-          // Refresh appointments after creating a new one
-          fetchAppointments();
+        onSuccess={(date) => {
+          if (calendarOpening || findOpeningFrom) {
+            const bookedDate = new Date(`${date}T12:00:00`);
+            setSelectedDate(bookedDate);
+            setCurrentDate(bookedDate);
+          }
+          scheduleRefresh();
           setGoogleEventPrefill(null);
           setRebookPrefill(null);
         }}
         clientPrefill={rebookPrefill}
-        preselectedDate={selectedDate || new Date()}
+        preselectedDate={selectedDate ?? undefined}
+        calendarOpening={calendarOpening}
+        findOpeningFrom={findOpeningFrom}
+        openingTechnicianId={technicianFilter === 'all' ? null : technicianFilter}
         googleEventPrefill={
           googleEventPrefill
             ? {

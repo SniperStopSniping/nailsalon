@@ -18,11 +18,12 @@ import { Check, ChevronDown, Loader2, Plus, Search, X } from 'lucide-react';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppointmentClientPicker } from '@/components/admin/AppointmentClientPicker';
-import { AppointmentOpenings, type OpeningQuote } from '@/components/admin/AppointmentOpenings';
+import { type AppointmentOpening, AppointmentOpenings, type OpeningQuote } from '@/components/admin/AppointmentOpenings';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { useCustomerViewport } from '@/hooks/useCustomerViewport';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import type { SelectedAddOnParam } from '@/libs/bookingParams';
+import type { CalendarOpening } from '@/libs/calendarOpenings';
 import {
   buildTimePickerSlots,
   type CalendarSchedule,
@@ -73,7 +74,7 @@ export type GoogleEventPrefill = {
 type NewAppointmentModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (date: string) => void;
   /**
    * Active salon from the surface that opened the modal. The owner dashboard
    * resolves its salon client-side, after the tenant cookie the SalonProvider
@@ -82,6 +83,9 @@ type NewAppointmentModalProps = {
    */
   salonSlug?: string | null;
   preselectedDate?: Date;
+  calendarOpening?: CalendarOpening | null;
+  findOpeningFrom?: string | null;
+  openingTechnicianId?: string | null;
   googleEventPrefill?: GoogleEventPrefill | null;
   googleEventSourceStatus?: GoogleEventSourceStatus;
   onRefreshGoogleEvent?: () => void;
@@ -149,6 +153,9 @@ export function NewAppointmentModal({
   onSuccess,
   salonSlug: salonSlugProp,
   preselectedDate,
+  calendarOpening,
+  findOpeningFrom,
+  openingTechnicianId,
   googleEventPrefill,
   googleEventSourceStatus = 'available',
   onRefreshGoogleEvent,
@@ -208,6 +215,7 @@ export function NewAppointmentModal({
   const pendingGoogleServiceNameRef = useRef<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const clientSectionRef = useRef<HTMLElement>(null);
   const clientPhoneRef = useRef<HTMLInputElement>(null);
   const technicianDefaultAppliedRef = useRef(false);
 
@@ -378,7 +386,7 @@ export function NewAppointmentModal({
       return;
     }
 
-    if (!draftKey || googleEventPrefill || clientPrefill) {
+    if (!draftKey || googleEventPrefill || clientPrefill || calendarOpening || findOpeningFrom) {
       setDraftHydrated(true);
       return;
     }
@@ -416,10 +424,10 @@ export function NewAppointmentModal({
     } finally {
       setDraftHydrated(true);
     }
-  }, [clientPrefill, draftKey, googleEventPrefill, isOpen]);
+  }, [calendarOpening, clientPrefill, draftKey, findOpeningFrom, googleEventPrefill, isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !draftHydrated || !draftKey || googleEventPrefill || clientPrefill) {
+    if (!isOpen || !draftHydrated || !draftKey || googleEventPrefill || clientPrefill || calendarOpening || findOpeningFrom) {
       return;
     }
     window.sessionStorage.setItem(draftKey, JSON.stringify({
@@ -432,12 +440,13 @@ export function NewAppointmentModal({
       selectedTechnicianId,
       selectedServiceIds,
     }));
-  }, [clientEmail, clientName, clientPhone, clientPrefill, draftHydrated, draftKey, googleEventPrefill, isOpen, selectedDate, selectedServiceIds, selectedTechnicianId, selectedTime]);
+  }, [calendarOpening, clientEmail, clientName, clientPhone, clientPrefill, draftHydrated, draftKey, findOpeningFrom, googleEventPrefill, isOpen, selectedDate, selectedServiceIds, selectedTechnicianId, selectedTime]);
 
   // Reset form when closing
   useEffect(() => {
     if (!isOpen) {
       setVerifiedOpening(null);
+      setSelectedTime('10:00');
       setOpeningRefresh(0);
       setSelectedAddOns([]);
       setExtrasOpen(false);
@@ -470,20 +479,44 @@ export function NewAppointmentModal({
 
   // Update selected date when preselectedDate changes
   useEffect(() => {
-    if (preselectedDate) {
+    if (!isOpen) {
+      return;
+    }
+    if (calendarOpening) {
+      setSelectedDate(calendarOpening.date);
+      setSelectedTime(calendarOpening.time);
+      setSelectedTechnicianId(calendarOpening.technicianId);
+    } else if (findOpeningFrom) {
+      setSelectedDate(findOpeningFrom);
+      setSelectedTechnicianId(openingTechnicianId ?? null);
+    } else if (preselectedDate) {
       setSelectedDate(formatDateForInput(preselectedDate));
     }
-  }, [preselectedDate]);
+  }, [calendarOpening, findOpeningFrom, isOpen, openingTechnicianId, preselectedDate]);
 
   const baseServiceId = !googleEventPrefill && selectedServiceIds.length === 1 ? selectedServiceIds[0] : undefined;
   const compatibleExtras = baseServiceId && extras && extras.salonSlug === salonSlug
     ? extras.items.filter(addOn => addOn.isActive && addOn.compatibleServiceIds?.includes(baseServiceId))
     : [];
-  const openingScope = JSON.stringify([salonSlug, selectedDate, selectedTechnicianId, selectedServiceIds, selectedAddOns]);
-  const chosenOpening = verifiedOpening?.scope === openingScope && verifiedOpening.time === selectedTime
+  const openingScope = JSON.stringify([salonSlug, selectedTechnicianId, selectedServiceIds, selectedAddOns]);
+  const chosenOpening = verifiedOpening?.scope === `${openingScope}|${selectedDate}` && verifiedOpening.time === selectedTime
     ? verifiedOpening
     : null;
-  const needsExtraOpening = selectedAddOns.length > 0 && !chosenOpening?.quote;
+  const needsOpening = (selectedAddOns.length > 0 && !chosenOpening?.quote)
+    || (Boolean(calendarOpening || findOpeningFrom) && !chosenOpening);
+  const preferredStart = calendarOpening?.date === selectedDate
+    && calendarOpening.time === selectedTime.padStart(5, '0')
+    && calendarOpening.technicianId === selectedTechnicianId
+    ? calendarOpening.startTime
+    : undefined;
+  const selectOpening = useCallback((slot: AppointmentOpening, quote?: OpeningQuote, date = selectedDate) => {
+    setSelectedDate(date);
+    setSelectedTime(slot.time);
+    setVerifiedOpening({ ...slot, scope: `${openingScope}|${date}`, quote });
+    if (findOpeningFrom) {
+      requestAnimationFrame(() => clientSectionRef.current?.scrollIntoView?.({ block: 'start' }));
+    }
+  }, [findOpeningFrom, openingScope, selectedDate]);
 
   const loadExtras = async () => {
     if (!salonSlug || extrasLoading || extras?.salonSlug === salonSlug) {
@@ -579,8 +612,8 @@ export function NewAppointmentModal({
       setError('Please select at least one service');
       return;
     }
-    if (needsExtraOpening) {
-      setError('Choose a time that fits the selected extras.');
+    if (needsOpening) {
+      setError('Choose an opening that fits the selected services.');
       return;
     }
     if (!selectedDate || !selectedTime) {
@@ -667,11 +700,11 @@ export function NewAppointmentModal({
       }
 
       // Success
-      if (draftKey) {
+      if (draftKey && !calendarOpening && !findOpeningFrom) {
         window.sessionStorage.removeItem(draftKey);
       }
       notifyAppointmentDataChanged();
-      onSuccess?.();
+      onSuccess?.(selectedDate);
       onClose();
     } catch {
       setError(serverFailureMessage || 'We couldn’t confirm whether the appointment was saved. Retry with the same details to check, or check your calendar before changing them.');
@@ -757,7 +790,7 @@ export function NewAppointmentModal({
       <div className="nap-root" role="dialog" aria-modal="true" aria-labelledby="new-appointment-modal-title">
         <header className="nap-header">
           <div>
-            <h2 id="new-appointment-modal-title">{googleEventPrefill ? 'Convert Google Event' : 'New Appointment'}</h2>
+            <h2 id="new-appointment-modal-title">{googleEventPrefill ? 'Convert Google Event' : findOpeningFrom ? 'Find Opening' : 'New Appointment'}</h2>
             {googleEventPrefill && (
               <p>
                 {googleEventPrefill.title || 'Google Calendar event'}
@@ -849,52 +882,55 @@ export function NewAppointmentModal({
                     )}
 
                   </div>
-                  <div className="nap-grid">
-                    <div className="nap-fields">
+                  <div className={findOpeningFrom ? 'nap-grid !grid-cols-1' : 'nap-grid'}>
+                    <div className={findOpeningFrom && !chosenOpening ? 'hidden' : 'nap-fields'}>
                       <section className="nap-section" aria-labelledby="appointment-when-heading">
                         <div className="nap-section-heading"><h3 id="appointment-when-heading">When & who</h3></div>
                         <div className="nap-fields">
-                          <div className="nap-date-time">
-                            <div>
-                              <label htmlFor="appointment-date">Date</label>
-                              <input id="appointment-date" type="date" value={selectedDate} onChange={event => setSelectedDate(event.target.value)} min={formatDateForInput(new Date())} />
+                          {!findOpeningFrom && (
+                            <div className="nap-date-time">
+                              <div>
+                                <label htmlFor="appointment-date">Date</label>
+                                <input id="appointment-date" type="date" value={selectedDate} onChange={event => setSelectedDate(event.target.value)} min={formatDateForInput(new Date())} />
+                              </div>
+                              <div className="relative">
+                                <span className="nap-field-label" id="appointment-time-label">Time</span>
+                                <button
+                                  type="button"
+                                  aria-label="Appointment time"
+                                  aria-expanded={showTimeDropdown}
+                                  aria-controls="appointment-time-options"
+                                  className="nap-field-button"
+                                  disabled={Boolean(calendarOpening)}
+                                  onClick={() => {
+                                    setShowTimeDropdown(value => !value);
+                                    setShowTechDropdown(false);
+                                  }}
+                                >
+                                  <span>{selectedTime}</span>
+                                  <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+                                </button>
+                                {showTimeDropdown && (
+                                  <div id="appointment-time-options" className="nap-dropdown" aria-labelledby="appointment-time-label">
+                                    {timeSlots.map(time => (
+                                      <button
+                                        key={time}
+                                        type="button"
+                                        aria-pressed={time === selectedTime}
+                                        onClick={() => {
+                                          setVerifiedOpening(null);
+                                          setSelectedTime(time);
+                                          setShowTimeDropdown(false);
+                                        }}
+                                      >
+                                        {time}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div className="relative">
-                              <span className="nap-field-label" id="appointment-time-label">Time</span>
-                              <button
-                                type="button"
-                                aria-label="Appointment time"
-                                aria-expanded={showTimeDropdown}
-                                aria-controls="appointment-time-options"
-                                className="nap-field-button"
-                                onClick={() => {
-                                  setShowTimeDropdown(value => !value);
-                                  setShowTechDropdown(false);
-                                }}
-                              >
-                                <span>{selectedTime}</span>
-                                <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
-                              </button>
-                              {showTimeDropdown && (
-                                <div id="appointment-time-options" className="nap-dropdown" aria-labelledby="appointment-time-label">
-                                  {timeSlots.map(time => (
-                                    <button
-                                      key={time}
-                                      type="button"
-                                      aria-pressed={time === selectedTime}
-                                      onClick={() => {
-                                        setVerifiedOpening(null);
-                                        setSelectedTime(time);
-                                        setShowTimeDropdown(false);
-                                      }}
-                                    >
-                                      {time}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                          )}
                           <div className="relative">
                             <span className="nap-field-label" id="appointment-technician-label">Technician</span>
                             <button
@@ -944,7 +980,7 @@ export function NewAppointmentModal({
                           </div>
                         </div>
                       </section>
-                      <section className="nap-section" aria-labelledby="appointment-client-heading">
+                      <section ref={clientSectionRef} className="nap-section" aria-labelledby="appointment-client-heading">
                         <div className="nap-section-heading">
                           <h3 id="appointment-client-heading">Client</h3>
                           {salonSlug && <button type="button" className="nap-link" aria-expanded={showClientSearch} onClick={() => setShowClientSearch(value => !value)}>{showClientSearch ? 'Close search' : 'Find existing client'}</button>}
@@ -1001,7 +1037,7 @@ export function NewAppointmentModal({
                         </section>
                       )}
                     </div>
-                    <section className="nap-section" aria-labelledby="appointment-services-heading">
+                    <section className={findOpeningFrom ? 'nap-section order-first' : 'nap-section'} aria-labelledby="appointment-services-heading">
                       <div className="nap-section-heading">
                         <h3 id="appointment-services-heading">Services *</h3>
                         <span className="text-xs text-[var(--owner-muted)]">
@@ -1100,7 +1136,9 @@ export function NewAppointmentModal({
                       {!googleEventPrefill && salonSlug && selectedServiceIds.length > 0 && (
                         <AppointmentOpenings
                           salonSlug={salonSlug}
-                          date={selectedDate}
+                          date={findOpeningFrom || selectedDate}
+                          searchAhead={Boolean(findOpeningFrom)}
+                          preferredStart={preferredStart}
                           technicianId={selectedTechnicianId}
                           serviceIds={selectedServiceIds}
                           selectedAddOns={selectedAddOns}
@@ -1111,10 +1149,7 @@ export function NewAppointmentModal({
                             next.setDate(next.getDate() + 1);
                             setSelectedDate(formatDateForInput(next));
                           }}
-                          onSelect={(slot, quote) => {
-                            setSelectedTime(slot.time);
-                            setVerifiedOpening({ ...slot, scope: openingScope, quote });
-                          }}
+                          onSelect={selectOpening}
                         />
                       )}
                       {filteredServices.length === 0 && <p className="nap-helper py-4">{services.length ? 'No services found. Try another name or category.' : 'No services are available. Add a service in your catalog, then reopen this form.'}</p>}
@@ -1130,8 +1165,8 @@ export function NewAppointmentModal({
         </div>
         <footer className="nap-footer">
           <div className="nap-summary" aria-live="polite" data-testid="new-appointment-summary">
-            {needsExtraOpening
-              ? <p>Choose an opening for the service and extras.</p>
+            {needsOpening && selectedServices.length > 0
+              ? <p>Choose an opening that fits your services.</p>
               : selectedServices.length > 0
                 ? (
                     <>
@@ -1163,11 +1198,11 @@ export function NewAppointmentModal({
                       </div>
                     </>
                   )
-                : <p>Add a phone number and choose a service.</p>}
+                : <p>{findOpeningFrom ? 'Choose a service to see the next openings.' : 'Add a phone number and choose a service.'}</p>}
           </div>
           <div className="nap-actions">
             <button type="button" onClick={onClose} className="nap-cancel">Cancel</button>
-            <button type="button" onClick={handleSubmit} disabled={loading || loadFailed || !salonSlug || submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10 || !selectedDate || needsExtraOpening || (Boolean(googleEventPrefill) && effectiveSourceStatus !== 'available')} className="nap-submit">
+            <button type="button" onClick={handleSubmit} disabled={loading || loadFailed || !salonSlug || submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10 || !selectedDate || needsOpening || (Boolean(googleEventPrefill) && effectiveSourceStatus !== 'available')} className="nap-submit">
               {submitting
                 ? (
                     <>

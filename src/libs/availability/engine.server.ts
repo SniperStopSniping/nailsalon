@@ -189,7 +189,7 @@ export type ExplainedDaySlotsResult = DaySlotsResult & {
   explanation: DayAvailabilityExplanation;
 };
 
-function getAllSlots(intervalMinutes: number): string[] {
+export function getAllSlots(intervalMinutes: number): string[] {
   const slots: string[] = [];
 
   for (let hour = 0; hour < 24; hour++) {

@@ -69,3 +69,45 @@ it('rechecks the selected service and removal together before offering a time', 
   expect(onSelect).toHaveBeenCalledWith(early, { durationMinutes: 95, serviceSubtotalCents: 8000, hasUnpricedExtras: false });
   expect(screen.queryByRole('button', { name: '16:30' })).not.toBeInTheDocument();
 });
+
+it('searches past a closed day and selects an opening with its own date and quote', async () => {
+  const slot = { time: '11:00', startTime: '2099-07-22T15:00:00.000Z', availability: 'available' };
+  const fetchMock = vi.fn(async (url: string) => {
+    const date = new URL(url, 'https://localhost').searchParams.get('date');
+    const unavailable = date === '2099-07-20' || date === '2099-07-21';
+    return {
+      ok: true,
+      json: async () => ({
+        slots: unavailable ? [] : [{ ...slot, startTime: `${date}T15:00:00.000Z` }],
+        durationMinutes: 95,
+        serviceSubtotalCents: 7500,
+        hasUnpricedExtras: false,
+      }),
+    };
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const onSelect = vi.fn();
+  render(
+    <AppointmentOpenings
+      salonSlug="test"
+      date="2099-07-20"
+      technicianId="tech"
+      serviceIds={['biab']}
+      selectedAddOns={[{ addOnId: 'removal', quantity: 1 }]}
+      searchAhead
+      onNextDay={vi.fn()}
+      onSelect={onSelect}
+    />,
+  );
+
+  await waitFor(() => expect(screen.getAllByRole('heading', { level: 5 })).toHaveLength(3));
+  fireEvent.click(screen.getAllByRole('button', { name: '11:00' })[0]!);
+
+  expect(onSelect).toHaveBeenCalledWith(slot, {
+    durationMinutes: 95,
+    serviceSubtotalCents: 7500,
+    hasUnpricedExtras: false,
+  }, '2099-07-22');
+  expect(fetchMock).toHaveBeenCalledTimes(6);
+  expect(fetchMock.mock.calls.every(([url]) => new URL(url, 'https://localhost').searchParams.get('baseServiceId') === 'biab')).toBe(true);
+});

@@ -137,6 +137,13 @@ async function renderCalendar() {
 }
 
 describe('ScheduleCalendarModal availability overlay', () => {
+  it('loads appointments through the last visible date in the six-week grid', async () => {
+    await renderCalendar();
+
+    expect(screen.getByTestId('calendar-day-2026-10-10')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('startDate=2026-08-30&endDate=2026-10-10'));
+  });
+
   it('marks a closed Sunday and leaves open days unmarked', async () => {
     await renderCalendar();
 
