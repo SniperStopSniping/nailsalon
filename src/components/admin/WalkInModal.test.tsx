@@ -55,17 +55,16 @@ it('books a walk-in on a chosen date using only server-confirmed times for the s
 
   const times = within(dialog).getByRole('region', { name: 'Find a time' });
   const time = await within(times).findByRole('button', { name: /^11:00$/ });
-  const save = within(dialog).getByRole('button', { name: 'Create Appointment' });
 
   expect(requests.at(-1)).toEqual({ date: '2099-07-21', services: 'biab', technician: 'tech' });
   expect(within(times).queryByRole('button', { name: /^11:30$/ })).not.toBeInTheDocument();
-  expect(save).toBeDisabled();
+  expect(within(dialog).queryByRole('button', { name: 'Create Appointment' })).not.toBeInTheDocument();
 
   fireEvent.click(time);
 
   expect(within(dialog).getByTestId('new-appointment-summary')).toHaveTextContent('11:00–12:30');
 
-  fireEvent.click(save);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create Appointment' }));
   await waitFor(() => expect(onSuccess).toHaveBeenCalledWith('2099-07-21'));
 
   expect(bookings).toEqual([{

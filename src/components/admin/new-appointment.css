@@ -5,13 +5,17 @@
 .nap-header h2 { font-size: 1.25rem; font-weight: 650; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .nap-header p { margin-top: 4px; color: var(--owner-muted); font-size: 0.8125rem; overflow-wrap: anywhere; }
 .nap-close { display: grid; width: 44px; height: 44px; flex: none; place-items: center; border-radius: 50%; background: var(--owner-ground); color: var(--owner-muted); }
-.nap-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px; background: var(--owner-ground); }
+.nap-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px; background: var(--owner-ground); }
 .nap-notices { display: grid; gap: 12px; }
 .nap-notices:not(:empty) { margin-bottom: 20px; }
-.nap-grid, .nap-fields { display: grid; min-width: 0; gap: 20px; }
+.nap-grid, .nap-fields { display: grid; min-width: 0; gap: 16px; }
 .nap-section { min-width: 0; padding: 16px; border: 1px solid var(--owner-line); border-radius: 16px; background: var(--owner-surface); }
 .nap-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
-.nap-section-heading h3 { font-size: 1rem; font-weight: 650; }
+.nap-section-heading h3 { scroll-margin-block-start: 12px; font-size: 1rem; font-weight: 650; }
+.nap-selection-count { border-radius: 999px; padding: 4px 9px; background: var(--owner-blush); color: var(--owner-accent); font-size: .75rem; font-weight: 650; }
+.nap-quick-dates { display: flex; flex-wrap: wrap; gap: 6px; }
+.nap-quick-dates button { min-height: 44px; border: 1px solid var(--owner-line); border-radius: 10px; padding: 0 10px; font-size: .8125rem; font-weight: 650; }
+.nap-quick-dates button[aria-pressed=true] { border-color: var(--owner-accent); background: var(--owner-blush); color: var(--owner-accent); }
 .nap-section label, .nap-field-label { display: block; margin-bottom: 7px; font-size: 0.8125rem; font-weight: 600; color: var(--owner-muted); }
 .nap-section input:not([type=checkbox]), .nap-section textarea, .nap-field-button { width: 100%; min-width: 0; min-height: 46px; border: 1px solid var(--owner-line); border-radius: 10px; padding: 10px 12px; background: #fff; color: var(--owner-ink); font-size: 1rem; line-height: 1.4; }
 .nap-section input::placeholder, .nap-section textarea::placeholder { color: #8a7c81; }
@@ -48,8 +52,14 @@
 .nap-service-name { font-size: 0.875rem; font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; }
 .nap-service-meta { font-size: 0.75rem; color: var(--owner-muted); }
 .nap-service-price { flex: none; margin-left: auto; font-size: 0.875rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.nap-openings { margin-top: 16px; padding: 14px 12px 12px; border: 1px solid var(--owner-line); border-radius: 12px; background: var(--owner-ground); }
+.nap-slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 4.25rem), 1fr)); gap: 8px; }
+.nap-slot { min-height: 44px; min-width: 0; border: 1px solid var(--owner-line-strong); border-radius: 9px; padding: 0 6px; background: var(--owner-surface); font-size: .875rem; font-variant-numeric: tabular-nums; }
+.nap-slot:hover, .nap-quick-dates button:hover { border-color: var(--owner-accent); }
+.nap-slot[aria-pressed=true] { border-color: var(--owner-accent); background: var(--owner-accent); color: #fff; font-weight: 650; }
 .nap-footer { flex: none; display: grid; gap: 12px; border-top: 1px solid var(--owner-line); padding: 12px 20px max(12px, env(safe-area-inset-bottom)); background: var(--owner-surface); }
 .nap-summary { display: flex; min-width: 0; justify-content: space-between; align-items: center; gap: 12px; font-size: 0.8125rem; color: var(--owner-muted); }
+.nap-summary:empty { display: none; }
 .nap-summary p { overflow-wrap: anywhere; }
 .nap-summary-copy { display: grid; min-width: 0; gap: 2px; }
 .nap-summary strong { font-size: 1.25rem; color: var(--owner-ink); font-variant-numeric: tabular-nums; }

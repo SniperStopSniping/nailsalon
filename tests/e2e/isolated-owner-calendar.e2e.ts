@@ -134,7 +134,7 @@ test('owner books extras, changes duration, and rebooks on a phone @isolated-own
     await page.getByRole('button', { name: 'Removal & extras', exact: true }).click();
     await page.getByRole('checkbox', { name: /Nail Repair/ }).check({ timeout: 30_000 });
 
-    await expect(page.getByRole('button', { name: 'Create Appointment', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Create Appointment', exact: true })).toHaveCount(0);
     await expect(openings).toContainText('1h 25m', { timeout: 30_000 });
     await expect(openings).toContainText(/70\.00/);
 
@@ -312,7 +312,7 @@ test('owner books a calendar gap and finds BIAB openings with removal on a phone
     await form.getByRole('button', { name: /^BIAB Short/ }).click();
 
     await expect(form.getByText('The prefilled time doesn’t fit this selection. Choose another opening.')).toBeVisible();
-    await expect(form.getByRole('button', { name: 'Create Appointment', exact: true })).toBeDisabled();
+    await expect(form.getByRole('button', { name: 'Create Appointment', exact: true })).toHaveCount(0);
 
     await form.getByRole('button', { name: 'Cancel', exact: true }).click();
     await longGap.click();

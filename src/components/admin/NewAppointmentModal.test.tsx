@@ -148,7 +148,7 @@ describe('NewAppointmentModal salon resolution', () => {
     await waitForForm();
 
     expect(screen.getByLabelText('Phone Number *')).toHaveValue('442079460958');
-    expect(screen.getByRole('button', { name: 'Create Appointment' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Create Appointment' })).not.toBeInTheDocument();
     expect(postCalls()).toHaveLength(0);
   });
 
