@@ -1,3 +1,15 @@
+# [1.150.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.149.0...v1.150.0) (2026-11-06)
+
+
+### Bug Fixes
+
+* **admin:** simplify studio loading and fill the mobile viewport ([db71ffe](https://github.com/SniperStopSniping/nailsalon/commit/db71ffe7bc09de1de6f2eb01a9da97e78ce1af38))
+
+
+### Features
+
+* **calendar:** guide owners through the shared booking form ([91e93bc](https://github.com/SniperStopSniping/nailsalon/commit/91e93bc42f08c0bf1a866361b96f8c57d36f8ed7))
+
 # [1.149.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.148.0...v1.149.0) (2026-11-06)
 
 
