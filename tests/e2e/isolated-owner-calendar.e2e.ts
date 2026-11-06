@@ -306,7 +306,7 @@ test('owner books a calendar gap and finds BIAB openings with removal on a phone
     const form = page.getByRole('dialog', { name: 'New Appointment' });
 
     await expect(form.getByLabel('Date', { exact: true })).toHaveValue(gapDate!);
-    await expect(form.getByRole('button', { name: 'Appointment time', exact: true })).toContainText('14:30');
+    await expect(form.getByLabel('Time', { exact: true })).toContainText('14:30');
 
     await form.getByLabel('Phone Number *', { exact: true }).fill(fixturePhone);
     await form.getByRole('button', { name: /^BIAB Short/ }).click();
@@ -318,7 +318,7 @@ test('owner books a calendar gap and finds BIAB openings with removal on a phone
     await longGap.click();
 
     await expect(form.getByLabel('Date', { exact: true })).toHaveValue(gapDate!);
-    await expect(form.getByRole('button', { name: 'Appointment time', exact: true })).toContainText('10:30');
+    await expect(form.getByLabel('Time', { exact: true })).toContainText('10:30');
 
     await form.getByRole('button', { name: 'Find existing client' }).click();
     await form.getByLabel('Find an existing client', { exact: true }).fill(fixtureClient);
@@ -382,6 +382,65 @@ test('owner books a calendar gap and finds BIAB openings with removal on a phone
     `, [technicianId, created.appointment.startTime]);
 
     expect(count.rows[0]?.count).toBe(1);
+  } finally {
+    await db.end();
+  }
+});
+
+test('walk-in selects a future date and saves to the same calendar @isolated-owner-calendar', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
+
+  expect(e2eBaseUrl).toBe('http://localhost:3101');
+  expect(e2eConfig.salonSlug).toBe('nail-salon-no5');
+
+  const target = requireDisposableDatabaseTarget();
+  const db = new Client({ connectionString: target.connectionString });
+  await db.connect();
+  try {
+    await attestDisposableDatabaseSession(db, target, resolveDisposableDatabaseServerExpectation(target));
+    const { rows } = await db.query<{ phone: string }>(`
+      SELECT '41655501' || lpad(suffix::text, 2, '0') AS phone
+      FROM generate_series(20, 89) suffix
+      WHERE NOT EXISTS (
+        SELECT 1 FROM appointment
+        WHERE right(regexp_replace(client_phone, '[^0-9]', '', 'g'), 10)
+          = '41655501' || lpad(suffix::text, 2, '0')
+      )
+      ORDER BY suffix
+      LIMIT 1
+    `);
+
+    expect(rows[0]?.phone).toBeTruthy();
+
+    const name = `Walk-in QA ${randomUUID().slice(0, 8)}`;
+    const today = getDateKeyInTimeZone(new Date(), 'America/Toronto');
+    const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
+    const date = addDaysToDateKey(today, ((4 - weekday + 7) % 7 || 7) + 7);
+    await authenticateSuperAdmin(page);
+    await impersonateSalonAsSuperAdmin(page);
+    await page.goto('/admin?salon=nail-salon-no5', { waitUntil: 'domcontentloaded' });
+
+    await expect(page.getByTestId('admin-impersonation-banner')).toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole('button', { name: 'Walk-in', exact: true }).click();
+    const form = page.getByRole('dialog', { name: 'Quick Walk-in' });
+
+    await form.getByRole('button', { name: /^BIAB Short/ }).click();
+    await form.getByLabel('Date', { exact: true }).fill(date);
+    const times = form.getByRole('region', { name: 'Find a time' });
+    await times.getByRole('button', { name: /^\d{1,2}:\d{2}$/ }).first().click();
+    await form.getByLabel('Phone Number *', { exact: true }).fill(rows[0]!.phone);
+    await form.getByLabel('Client Name (optional)', { exact: true }).fill(name);
+    await page.screenshot({ path: testInfo.outputPath('09-walk-in-available-time.png'), animations: 'disabled' });
+
+    const booked = await createAppointment(page, { title: 'Quick Walk-in' });
+
+    expect(booked.appointment).toMatchObject({ totalDurationMinutes: 75, blockedDurationMinutes: 85, status: 'confirmed' });
+
+    await page.getByRole('tab', { name: 'Calendar', exact: true }).click();
+    await openCalendarDay(page, date);
+
+    await expect(page.getByTestId(`day-detail-appointment-${booked.appointmentId}`)).toContainText(name);
   } finally {
     await db.end();
   }
