@@ -18,6 +18,18 @@ test.skip(process.env.E2E_ISOLATED_OWNER_CALENDAR !== 'true', 'Run using the dis
 
 test.use({ actionTimeout: 30_000, viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true, timezoneId: 'America/Toronto' });
 
+test.beforeEach(async ({ page }) => {
+  // The intentionally nonresolving Clerk fixture can show a Next dev badge
+  // over the owner navigation. It is absent from builds.
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = 'nextjs-portal { display: none !important; }';
+      document.head.append(style);
+    });
+  });
+});
+
 async function openCalendarDay(page: Page, date: string) {
   const dateButton = page.getByTestId(`calendar-day-${date}`);
 
@@ -223,7 +235,7 @@ test('owner books a calendar gap and finds BIAB openings with removal on a phone
     const today = getDateKeyInTimeZone(new Date(), timeZone);
     const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
     const thursday = (11 - weekday) % 7;
-    const dates = [7, 14, 21, 28].map(offset => addDaysToDateKey(today, thursday + offset));
+    const dates = Array.from({ length: 8 }, (_, index) => addDaysToDateKey(today, thursday + (index + 1) * 7));
     const technicianId = 'tech_daniela';
     const serviceId = 'svc_biab-short';
     const fixtureClient = 'Calendar Gap Fixture';
@@ -266,10 +278,10 @@ test('owner books a calendar gap and finds BIAB openings with removal on a phone
     }
 
     await page.getByRole('tab', { name: 'Calendar', exact: true }).click();
-    await page.getByRole('button', { name: 'Daniela', exact: true }).click();
+    await page.getByRole('group', { name: 'Filter calendar by technician' }).getByRole('button', { name: 'Daniela', exact: true }).click();
     await openCalendarDay(page, gapDate!);
     const gaps = page.getByRole('region', { name: 'Calendar openings' });
-    const shortGap = gaps.getByRole('button', { name: /2:30 PM – 3:00 PM.*30m/i });
+    const shortGap = gaps.getByRole('button', { name: /2:30 PM – 3:00 PM.*30 min/i });
     const longGap = gaps.getByRole('button', { name: /10:30 AM – 1:00 PM.*2h 30m/i });
 
     await expect(shortGap).toBeVisible({ timeout: 30_000 });

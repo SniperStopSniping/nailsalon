@@ -5,7 +5,7 @@ import { getAllSlots } from '@/libs/availability/engine.server';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingPolicy, resolveBookingHoursCeiling } from '@/libs/bookingPolicy';
 import { type CalendarOpening, findCalendarGaps } from '@/libs/calendarOpenings';
-import { getGoogleCalendarBusyWindows } from '@/libs/googleCalendar';
+import { getGoogleCalendarBusyWindowsReadOnly } from '@/libs/googleCalendar';
 import { technicianSupportsPublicLocation } from '@/libs/publicTechnicianCompatibility';
 import { getPrimaryLocation, getTechniciansBySalonId } from '@/libs/queries';
 import { guardSalonApiRoute } from '@/libs/salonStatus';
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
 
     const [policy, googleBusyWindows] = await Promise.all([
       loadBookingPolicy({ salonId: salon.id, technicianIds: technicians.map(tech => tech.id), date, selectedDate: startOfDay, startOfDay, endOfDay, now }),
-      getGoogleCalendarBusyWindows({ salonId: salon.id, startTime: startOfDay, endTime: endOfDay, timeZone }),
+      getGoogleCalendarBusyWindowsReadOnly({ salonId: salon.id, startTime: startOfDay, endTime: endOfDay, timeZone, signal: request.signal }),
     ]);
     const starts = getAllSlots(config.slotIntervalMinutes).flatMap((time) => {
       const instant = zonedTimeToUtc({ date, time, timeZone });
