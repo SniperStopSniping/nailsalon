@@ -1,3 +1,10 @@
+# [1.149.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.148.0...v1.149.0) (2026-11-06)
+
+
+### Features
+
+* **calendar:** share service-first owner booking form ([bb47049](https://github.com/SniperStopSniping/nailsalon/commit/bb47049631db6032d3ed49fdad91156a6a90bccf))
+
 # [1.148.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.147.0...v1.148.0) (2026-11-06)
 
 
