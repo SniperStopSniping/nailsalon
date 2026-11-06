@@ -72,8 +72,7 @@ export function CalendarDayOpenings({ salonSlug, date, technicianId, refreshKey,
             <span>
               <span className="block font-semibold">
                 {formatTimeInTimeZone(opening.startTime, {}, current?.timeZone)}
-                {' '}
-                –
+                {' – '}
                 {formatTimeInTimeZone(opening.endTime, {}, current?.timeZone)}
               </span>
               {!technicianId && <span className="text-xs text-[var(--owner-muted)]">{opening.technicianName}</span>}
