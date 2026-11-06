@@ -1,3 +1,16 @@
+# [1.147.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.146.2...v1.147.0) (2026-11-06)
+
+
+### Bug Fixes
+
+* **calendar:** opt in to availability quotes for extras ([4321a78](https://github.com/SniperStopSniping/nailsalon/commit/4321a78c1826c440c57897e6953258533fd5881f))
+
+
+### Features
+
+* **calendar:** book compatible extras and edit duration ([6f295c5](https://github.com/SniperStopSniping/nailsalon/commit/6f295c5f39d8f442b65092e7cdff134d813ad6e6))
+* **calendar:** suggest service-aware openings in appointment form ([c1a1954](https://github.com/SniperStopSniping/nailsalon/commit/c1a195410f74d8b3c114c78f1d6836277cc5d7c3))
+
 ## [1.146.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.146.1...v1.146.2) (2026-11-04)
 
 
