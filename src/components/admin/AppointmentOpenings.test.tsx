@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 
+import { parseBookingBasketParam } from '@/libs/bookingParams';
+
 import { AppointmentOpenings } from './AppointmentOpenings';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -17,6 +19,26 @@ it('offers only authoritative available slots and preserves the server timestamp
   expect(onSelect).toHaveBeenCalledWith(available);
   expect(screen.queryByRole('button', { name: '10:30' })).not.toBeInTheDocument();
   expect(fetchMock.mock.calls[0]![0]).toContain('serviceIds=base%2Cremoval');
+});
+
+it('keeps service selection when the catalog requires a booking basket', async () => {
+  const opening = { time: '10:00', startTime: '2099-07-20T14:00:00.000Z', availability: 'available' };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(Response.json({ error: { code: 'INVALID_SERVICE' } }, { status: 400 }))
+    .mockResolvedValueOnce(Response.json({ slots: [opening] }));
+  vi.stubGlobal('fetch', fetchMock);
+  const onSelect = vi.fn();
+  render(<AppointmentOpenings salonSlug="test" date="2099-07-20" technicianId="tech" serviceIds={['base', 'removal']} onNextDay={vi.fn()} onSelect={onSelect} />);
+  fireEvent.click(await screen.findByRole('button', { name: '10:00' }));
+  const params = new URL(fetchMock.mock.calls[1]![0], 'https://localhost').searchParams;
+
+  expect(params.has('serviceIds')).toBe(false);
+  expect(params.get('technicianId')).toBe('tech');
+  expect(parseBookingBasketParam(params.get('bookingBasket'))).toEqual({
+    version: 2,
+    items: [{ serviceId: 'base', selectedAddOns: [] }, { serviceId: 'removal', selectedAddOns: [] }],
+  });
+  expect(onSelect).toHaveBeenCalledWith(opening);
 });
 
 it('removes old openings immediately when services change and distinguishes failed checks', async () => {

@@ -2,13 +2,13 @@ import { expect, type Page, test } from '@playwright/test';
 
 const services = Array.from({ length: 8 }, (_, index) => ({
   id: `service_${index + 1}`,
-  name: index === 0 ? 'Russian Manicure with Structured Builder Gel and Detailed Cuticle Care' : `Studio service ${index + 1}`,
-  price: 3500 + index * 500,
-  durationMinutes: 30 + index * 5,
+  name: index === 0 ? 'Russian Manicure with Structured Builder Gel and Detailed Cuticle Care' : index === 1 ? 'BIAB French' : `Studio service ${index + 1}`,
+  price: index === 1 ? 7500 : 3500 + index * 500,
+  durationMinutes: index === 1 ? 90 : 30 + index * 5,
   category: index > 3 ? 'pedicure' : 'manicure',
 }));
 
-async function installApi(page: Page, options: { failLoad?: boolean; failSubmit?: boolean; failSearch?: boolean; multipleTechs?: boolean; anyTechnician?: boolean } = {}) {
+async function installApi(page: Page, options: { failLoad?: boolean; failSubmit?: boolean; failSearch?: boolean; multipleTechs?: boolean; anyTechnician?: boolean; allowNextDate?: boolean } = {}) {
   const submissions: Array<{ body: Record<string, unknown>; key: string | undefined }> = [];
   const searches: string[] = [];
   const unexpected: string[] = [];
@@ -50,7 +50,11 @@ async function installApi(page: Page, options: { failLoad?: boolean; failSubmit?
     }
     if (url.pathname === '/api/appointments/availability' && request.method() === 'GET') {
       expect(url.searchParams.get('salonSlug')).toBe('fixture');
-      expect(url.searchParams.get('date')).toBe('2099-07-20');
+
+      const date = url.searchParams.get('date');
+      const nextDay = date === '2099-07-21';
+
+      expect(date).toBe(nextDay && options.allowNextDate ? '2099-07-21' : '2099-07-20');
       expect(url.searchParams.get('technicianId')).toBe(options.anyTechnician ? null : 'tech_1');
 
       const requestedIds = url.searchParams.get('serviceIds')?.split(',') || [];
@@ -59,8 +63,8 @@ async function installApi(page: Page, options: { failLoad?: boolean; failSubmit?
       expect(requestedIds.every(id => services.some(service => service.id === id))).toBe(true);
 
       await route.fulfill({ json: { slots: [
-        { time: '11:00', startTime: '2099-07-20T15:00:00.000Z', availability: 'available' },
-        { time: '11:30', startTime: '2099-07-20T15:30:00.000Z', availability: 'schedule_conflict' },
+        { time: nextDay ? '12:00' : '11:00', startTime: `${date}T${nextDay ? '16:00' : '15:00'}:00.000Z`, availability: 'available' },
+        { time: nextDay ? '12:30' : '11:30', startTime: `${date}T${nextDay ? '16:30' : '15:30'}:00.000Z`, availability: 'schedule_conflict' },
       ] } });
       return;
     }
@@ -170,6 +174,7 @@ test('loading and search errors recover, and a lost submission preserves the dra
   await expect(page.getByText('Your saved appointment draft was restored.')).toBeVisible();
   await expect(page.getByLabel('Phone Number *')).toHaveValue('(416) 555-0101');
 
+  await page.getByRole('region', { name: 'Find a time' }).getByRole('button', { name: '11:00', exact: true }).click();
   await page.getByRole('button', { name: 'Create Appointment', exact: true }).click();
 
   await expect(page.getByTestId('new-appointment-error')).toContainText('whether the appointment was saved');
@@ -244,10 +249,11 @@ test('desktop keeps client and service panels together and respects an explicit 
   const client = await page.getByRole('region', { name: 'Client', exact: true }).boundingBox();
   const service = await page.getByRole('region', { name: 'Services *', exact: true }).boundingBox();
 
-  expect(service!.x).toBeGreaterThan(client!.x + client!.width);
+  expect(client!.x).toBeGreaterThan(service!.x + service!.width);
   await expect(page.getByRole('button', { name: 'Create Appointment', exact: true })).toBeInViewport();
 
   await page.screenshot({ path: testInfo.outputPath('new-appointment-desktop.png') });
+  await page.getByRole('region', { name: 'Find a time' }).getByRole('button', { name: '11:00', exact: true }).click();
   await page.getByRole('button', { name: 'Create Appointment', exact: true }).click();
 
   await expect(page.getByTestId('appointment-created')).toBeVisible();
@@ -255,3 +261,57 @@ test('desktop keeps client and service panels together and respects an explicit 
   expect(submissions[0]!.body.clientPhone).toBe('4165550101');
   expect(unexpected).toEqual([]);
 });
+
+for (const entry of [
+  { id: 'open-new-appointment', title: 'New Appointment', screenshot: 'new-appointment' },
+  { id: 'open-walk-in', title: 'Quick Walk-in', screenshot: 'walk-in' },
+]) {
+  test(`${entry.title} selects a service, checks a new date, then saves an available time`, async ({ page }, testInfo) => {
+    const { submissions, unexpected } = await installApi(page, { allowNextDate: true });
+    await page.clock.setFixedTime(new Date('2099-07-20T12:00:00.000Z'));
+    await page.goto('/');
+    await page.getByTestId(entry.id).click();
+    const form = page.getByRole('dialog', { name: entry.title, exact: true });
+    const service = form.getByRole('button', { name: /BIAB French/ });
+    const date = form.getByLabel('Date', { exact: true });
+    const summary = form.getByTestId('new-appointment-summary');
+    const times = form.getByRole('region', { name: 'Find a time' });
+    const save = form.getByRole('button', { name: 'Create Appointment', exact: true });
+
+    await expect(service).toContainText('1h 30m');
+    expect(await service.evaluate(element => Boolean(element.compareDocumentPosition(document.getElementById('appointment-date')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    await expect(times).toHaveCount(0);
+
+    await service.click();
+
+    await expect(times.getByRole('button', { name: '11:00', exact: true })).toBeVisible();
+
+    await date.fill('2099-07-21');
+
+    await expect(times.getByRole('button', { name: '11:00', exact: true })).toHaveCount(0);
+    await expect(times.getByRole('button', { name: '12:30', exact: true })).toHaveCount(0);
+
+    await form.getByLabel('Phone Number *').fill('4165550198');
+
+    await expect(save).toBeDisabled();
+
+    await times.getByRole('button', { name: '12:00', exact: true }).click();
+
+    await expect(summary).toContainText('12:00–13:30');
+    await expect(summary).toContainText('1h 30m');
+    await expect(save).toBeInViewport();
+
+    await page.screenshot({ path: testInfo.outputPath(`${entry.screenshot}-availability.png`), animations: 'disabled' });
+    await save.click();
+
+    await expect(page.getByTestId('appointment-created')).toBeVisible();
+    expect(submissions.map(submission => submission.body)).toEqual([{
+      salonSlug: 'fixture',
+      serviceIds: ['service_2'],
+      technicianId: 'tech_1',
+      clientPhone: '4165550198',
+      startTime: '2099-07-21T16:00:00.000Z',
+    }]);
+    expect(unexpected).toEqual([]);
+  });
+}
