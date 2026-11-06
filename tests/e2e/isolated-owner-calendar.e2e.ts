@@ -359,6 +359,8 @@ test('owner books a calendar gap and finds BIAB openings with removal on a phone
     await expect(saved).toBeVisible();
     await expect(saved).toHaveCSS('opacity', '1');
 
+    await saved.scrollIntoViewIfNeeded();
+
     await page.screenshot({ path: testInfo.outputPath('08-found-opening-saved.png'), animations: 'disabled' });
     const count = await db.query(`
       SELECT count(*)::int AS count FROM appointment

@@ -126,10 +126,6 @@ function getWeekStart(date: Date): Date {
   return d;
 }
 
-function getMonthStart(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
 function getMonthDays(date: Date): Date[] {
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -868,27 +864,6 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
     }
   }, [googleConnected, scheduleFilter]);
 
-  // Calculate date range based on view mode
-  const dateRange = useMemo(() => {
-    if (viewMode === 'weekly') {
-      const start = getWeekStart(currentDate);
-      const weekEnd = new Date(start);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      return { start, end: weekEnd };
-    } else {
-      // Extend range to include padding days
-      const start = getMonthStart(currentDate);
-      const firstDayPadding = start.getDay();
-      const adjustedStart = new Date(start);
-      adjustedStart.setDate(adjustedStart.getDate() - firstDayPadding);
-      const lastDay = new Date(start.getFullYear(), start.getMonth() + 1, 0);
-      const lastDayPadding = 6 - lastDay.getDay();
-      const adjustedEnd = new Date(lastDay);
-      adjustedEnd.setDate(adjustedEnd.getDate() + lastDayPadding);
-      return { start: adjustedStart, end: adjustedEnd };
-    }
-  }, [viewMode, currentDate]);
-
   // Get days to display
   const displayDays = useMemo(() => {
     if (viewMode === 'weekly') {
@@ -896,6 +871,10 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
     }
     return getMonthDays(currentDate);
   }, [viewMode, currentDate]);
+
+  // The month grid always shows six weeks, including dates in the next month.
+  // Fetch the whole visible grid so those dates do not appear falsely empty.
+  const dateRange = useMemo(() => ({ start: displayDays[0]!, end: displayDays.at(-1)! }), [displayDays]);
 
   // Fetch appointments for the date range
   const fetchAppointments = useCallback(async () => {
