@@ -14,7 +14,7 @@
 
 import './new-appointment.css';
 
-import { Check, ChevronDown, Loader2, Plus, Search, X } from 'lucide-react';
+import { ArrowDown, Check, ChevronDown, Loader2, Plus, Search, X } from 'lucide-react';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppointmentClientPicker } from '@/components/admin/AppointmentClientPicker';
@@ -32,7 +32,7 @@ import {
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
 import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
 import { normalizePhone } from '@/libs/phone';
-import { getDateKeyInTimeZone } from '@/libs/timeZone';
+import { addDaysToDateKey, getDateKeyInTimeZone } from '@/libs/timeZone';
 import type { BookingCategory, WeeklySchedule } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import type { AddOnResponse } from '@/types/admin';
@@ -167,6 +167,8 @@ export function NewAppointmentModal({
   const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
   const viewport = useCustomerViewport();
   const today = getDateKeyInTimeZone(new Date(), bookingTimeZone);
+  const tomorrow = addDaysToDateKey(today, 1);
+  const guidedBooking = !googleEventPrefill && !findOpeningFrom;
   const title = googleEventPrefill ? 'Convert Google Event' : findOpeningFrom ? 'Find Opening' : entryPoint === 'walk-in' ? 'Quick Walk-in' : 'New Appointment';
 
   // Form state
@@ -219,6 +221,9 @@ export function NewAppointmentModal({
   const pendingGoogleServiceNameRef = useRef<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const servicesHeadingRef = useRef<HTMLHeadingElement>(null);
+  const timeHeadingRef = useRef<HTMLHeadingElement>(null);
+  const clientHeadingRef = useRef<HTMLHeadingElement>(null);
   const clientSectionRef = useRef<HTMLElement>(null);
   const clientPhoneRef = useRef<HTMLInputElement>(null);
   const technicianDefaultAppliedRef = useRef(false);
@@ -513,6 +518,13 @@ export function NewAppointmentModal({
     && calendarOpening.technicianId === selectedTechnicianId
     ? calendarOpening.startTime
     : undefined;
+  function changeDate(date: string) {
+    if (date !== selectedDate) {
+      setVerifiedOpening(null);
+      setSelectedDate(date);
+    }
+  }
+
   const selectOpening = useCallback((slot: AppointmentOpening, quote?: OpeningQuote, date = selectedDate) => {
     setSelectedDate(date);
     setSelectedTime(slot.time);
@@ -779,16 +791,35 @@ export function NewAppointmentModal({
           selectedAddOns={selectedAddOns}
           selectedStart={chosenOpening?.startTime}
           refreshKey={openingRefresh}
-          onNextDay={() => {
-            const next = new Date(`${selectedDate}T12:00:00`);
-            next.setDate(next.getDate() + 1);
-            setVerifiedOpening(null);
-            setSelectedDate(formatDateForInput(next));
-          }}
+          onNextDay={() => changeDate(addDaysToDateKey(selectedDate, 1))}
           onSelect={selectOpening}
         />
       )
     : null;
+  const actionUnavailable = loading || loadFailed || !salonSlug || submitting;
+  const canSave = selectedServiceIds.length > 0 && clientPhone.length === 10 && Boolean(selectedDate)
+    && !needsOpening && (!googleEventPrefill || effectiveSourceStatus === 'available');
+  let nextStep: { label: string; headingRef: typeof servicesHeadingRef } | null = null;
+  if (guidedBooking && !actionUnavailable) {
+    if (selectedServiceIds.length === 0) {
+      nextStep = { label: 'Choose a service', headingRef: servicesHeadingRef };
+    } else if (needsOpening) {
+      nextStep = { label: selectedDate ? 'See available times' : 'Choose a date', headingRef: timeHeadingRef };
+    } else if (clientPhone.length !== 10) {
+      nextStep = { label: 'Add client details', headingRef: clientHeadingRef };
+    }
+  }
+
+  function handlePrimaryAction() {
+    if (nextStep) {
+      const heading = nextStep.headingRef.current;
+      heading?.focus({ preventScroll: true });
+      heading?.scrollIntoView?.({ block: 'start' });
+      return;
+    }
+    void handleSubmit();
+  }
+
   const overlayStyle = viewport.height > 0
     ? {
         'top': viewport.top,
@@ -912,12 +943,14 @@ export function NewAppointmentModal({
                   <div className={findOpeningFrom ? 'nap-grid !grid-cols-1' : 'nap-grid'}>
                     <section className="nap-section" aria-labelledby="appointment-services-heading">
                       <div className="nap-section-heading">
-                        <h3 id="appointment-services-heading">Services *</h3>
-                        <span className="text-xs text-[var(--owner-muted)]">
-                          {selectedServices.length}
-                          {' '}
-                          selected
-                        </span>
+                        <h3 ref={servicesHeadingRef} id="appointment-services-heading" tabIndex={-1}>Services *</h3>
+                        {selectedServices.length > 0 && (
+                          <span className="nap-selection-count">
+                            {selectedServices.length}
+                            {' '}
+                            selected
+                          </span>
+                        )}
                       </div>
                       <label className="sr-only" htmlFor="appointment-service-search">Search services</label>
                       <div className="nap-search">
@@ -1016,7 +1049,15 @@ export function NewAppointmentModal({
                     </section>
                     <div className={findOpeningFrom && !chosenOpening ? 'hidden' : 'nap-fields'}>
                       <section className="nap-section" aria-labelledby="appointment-when-heading">
-                        <div className="nap-section-heading"><h3 id="appointment-when-heading">{googleEventPrefill || findOpeningFrom ? 'When & who' : 'Date & time'}</h3></div>
+                        <div className="nap-section-heading">
+                          <h3 ref={timeHeadingRef} id="appointment-when-heading" tabIndex={-1}>{guidedBooking ? 'Date & time' : 'When & who'}</h3>
+                          {guidedBooking && (
+                            <div className="nap-quick-dates" role="group" aria-label="Quick dates">
+                              <button type="button" aria-pressed={selectedDate === today} onClick={() => changeDate(today)}>Today</button>
+                              <button type="button" aria-pressed={selectedDate === tomorrow} onClick={() => changeDate(tomorrow)}>Tomorrow</button>
+                            </div>
+                          )}
+                        </div>
                         <div className="nap-fields">
                           {!findOpeningFrom && (
                             <div className={googleEventPrefill || calendarOpening ? 'nap-date-time' : undefined}>
@@ -1026,10 +1067,7 @@ export function NewAppointmentModal({
                                   id="appointment-date"
                                   type="date"
                                   value={selectedDate}
-                                  onChange={(event) => {
-                                    setVerifiedOpening(null);
-                                    setSelectedDate(event.target.value);
-                                  }}
+                                  onChange={event => changeDate(event.target.value)}
                                   min={googleEventPrefill ? formatDateForInput(new Date()) : today}
                                 />
                               </div>
@@ -1132,7 +1170,7 @@ export function NewAppointmentModal({
                       </section>
                       <section ref={clientSectionRef} className="nap-section" aria-labelledby="appointment-client-heading">
                         <div className="nap-section-heading">
-                          <h3 id="appointment-client-heading">Client</h3>
+                          <h3 ref={clientHeadingRef} id="appointment-client-heading" tabIndex={-1}>Client</h3>
                           {salonSlug && <button type="button" className="nap-link" aria-expanded={showClientSearch} onClick={() => setShowClientSearch(value => !value)}>{showClientSearch ? 'Close search' : 'Find existing client'}</button>}
                         </div>
                         {showClientSearch && salonSlug && (
@@ -1197,9 +1235,11 @@ export function NewAppointmentModal({
               ? (
                   <>
                     <div className="nap-summary-copy">
-                      <p className="font-semibold text-[var(--owner-ink)]">
-                        {needsOpening ? 'Choose an available time' : `${summaryDate} · ${selectedTime}${displayedDuration > 0 ? `–${displayedEnd}` : ''}`}
-                      </p>
+                      {(!guidedBooking || !needsOpening) && (
+                        <p className="font-semibold text-[var(--owner-ink)]">
+                          {needsOpening ? 'Choose an available time' : `${summaryDate} · ${selectedTime}${displayedDuration > 0 ? `–${displayedEnd}` : ''}`}
+                        </p>
+                      )}
                       <p>
                         {selectedServices.length}
                         {' '}
@@ -1219,11 +1259,17 @@ export function NewAppointmentModal({
                     </div>
                   </>
                 )
-              : <p>{findOpeningFrom ? 'Choose a service to see the next openings.' : 'Choose a service to get started.'}</p>}
+              : findOpeningFrom && <p>Choose a service to see the next openings.</p>}
           </div>
           <div className="nap-actions">
             <button type="button" onClick={onClose} className="nap-cancel">Cancel</button>
-            <button type="button" onClick={handleSubmit} disabled={loading || loadFailed || !salonSlug || submitting || selectedServiceIds.length === 0 || clientPhone.length !== 10 || !selectedDate || needsOpening || (Boolean(googleEventPrefill) && effectiveSourceStatus !== 'available')} className="nap-submit">
+            <button
+              type="button"
+              onClick={handlePrimaryAction}
+              disabled={actionUnavailable || (!nextStep && !canSave)}
+              className="nap-submit"
+              data-testid="appointment-primary-action"
+            >
               {submitting
                 ? (
                     <>
@@ -1231,12 +1277,19 @@ export function NewAppointmentModal({
                       Creating...
                     </>
                   )
-                : (
-                    <>
-                      <Plus aria-hidden="true" className="size-4 shrink-0" />
-                      {submitFailed && googleEventPrefill ? 'Retry conversion' : 'Create Appointment'}
-                    </>
-                  )}
+                : nextStep
+                  ? (
+                      <>
+                        {nextStep.label}
+                        <ArrowDown aria-hidden="true" className="size-4 shrink-0" />
+                      </>
+                    )
+                  : (
+                      <>
+                        <Plus aria-hidden="true" className="size-4 shrink-0" />
+                        {submitFailed && googleEventPrefill ? 'Retry conversion' : 'Create Appointment'}
+                      </>
+                    )}
             </button>
           </div>
         </footer>

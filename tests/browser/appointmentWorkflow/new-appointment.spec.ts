@@ -102,7 +102,7 @@ test('client lookup and compact services create an owner appointment with the se
 
   await expect(page.getByLabel('Date', { exact: true })).toHaveValue('2099-07-20');
   await expect(page.getByRole('button', { name: 'Technician Daniela', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create Appointment', exact: true })).toBeInViewport();
+  await expect(page.getByTestId('appointment-primary-action')).toBeInViewport();
 
   await page.screenshot({ path: testInfo.outputPath('new-appointment-initial.png') });
   await page.getByRole('button', { name: 'Find existing client', exact: true }).click();
@@ -124,7 +124,7 @@ test('client lookup and compact services create an owner appointment with the se
   await expect(page.getByRole('button', { name: /Studio service 8/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('new-appointment-summary')).toContainText('2 services');
   await expect(page.getByTestId('new-appointment-summary')).toContainText('105');
-  await expect(page.getByRole('button', { name: 'Create Appointment', exact: true })).toBeInViewport();
+  await expect(page.getByTestId('appointment-primary-action')).toBeInViewport();
 
   const openings = page.getByRole('region', { name: 'Find a time' });
 
@@ -202,7 +202,7 @@ test('rebooking retains all services and remains usable with enlarged text and a
   const dialog = page.getByRole('dialog', { name: 'New Appointment' });
 
   expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-  await expect(page.getByRole('button', { name: 'Create Appointment', exact: true })).toBeInViewport();
+  await expect(page.getByTestId('appointment-primary-action')).toBeInViewport();
 
   await page.screenshot({ path: testInfo.outputPath('new-appointment-200-percent.png') });
 
@@ -223,7 +223,7 @@ test('rebooking retains all services and remains usable with enlarged text and a
   });
 
   await expect.poll(async () => {
-    const box = await page.getByRole('button', { name: 'Create Appointment', exact: true }).boundingBox();
+    const box = await page.getByTestId('appointment-primary-action').boundingBox();
     return box ? box.y + box.height : 1000;
   }).toBeLessThanOrEqual(390);
   await expect.poll(async () => {
@@ -250,7 +250,7 @@ test('desktop keeps client and service panels together and respects an explicit 
   const service = await page.getByRole('region', { name: 'Services *', exact: true }).boundingBox();
 
   expect(client!.x).toBeGreaterThan(service!.x + service!.width);
-  await expect(page.getByRole('button', { name: 'Create Appointment', exact: true })).toBeInViewport();
+  await expect(page.getByTestId('appointment-primary-action')).toBeInViewport();
 
   await page.screenshot({ path: testInfo.outputPath('new-appointment-desktop.png') });
   await page.getByRole('region', { name: 'Find a time' }).getByRole('button', { name: '11:00', exact: true }).click();
@@ -276,33 +276,54 @@ for (const entry of [
     const date = form.getByLabel('Date', { exact: true });
     const summary = form.getByTestId('new-appointment-summary');
     const times = form.getByRole('region', { name: 'Find a time' });
-    const save = form.getByRole('button', { name: 'Create Appointment', exact: true });
+    const primaryAction = form.getByTestId('appointment-primary-action');
 
     await expect(service).toContainText('1h 30m');
     expect(await service.evaluate(element => Boolean(element.compareDocumentPosition(document.getElementById('appointment-date')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
     await expect(times).toHaveCount(0);
+    await expect(primaryAction).toHaveText('Choose a service');
+
+    await primaryAction.click();
+
+    await expect(form.getByRole('heading', { name: 'Services *', exact: true })).toBeFocused();
 
     await service.click();
 
+    await expect(primaryAction).toHaveText('See available times');
+
+    await primaryAction.click();
+
+    await expect(form.getByRole('heading', { name: 'Date & time', exact: true })).toBeFocused();
+
+    const quickDates = form.getByRole('group', { name: 'Quick dates' });
+
+    await expect(quickDates.getByRole('button', { name: 'Today', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(times.getByRole('button', { name: '11:00', exact: true })).toBeVisible();
 
-    await date.fill('2099-07-21');
+    await quickDates.getByRole('button', { name: 'Tomorrow', exact: true }).click();
 
+    await expect(date).toHaveValue('2099-07-21');
     await expect(times.getByRole('button', { name: '11:00', exact: true })).toHaveCount(0);
     await expect(times.getByRole('button', { name: '12:30', exact: true })).toHaveCount(0);
-
-    await form.getByLabel('Phone Number *').fill('4165550198');
-
-    await expect(save).toBeDisabled();
+    expect(submissions).toHaveLength(0);
 
     await times.getByRole('button', { name: '12:00', exact: true }).click();
 
     await expect(summary).toContainText('12:00–13:30');
     await expect(summary).toContainText('1h 30m');
-    await expect(save).toBeInViewport();
+    await expect(primaryAction).toHaveText('Add client details');
+    await expect(primaryAction).toBeInViewport();
 
     await page.screenshot({ path: testInfo.outputPath(`${entry.screenshot}-availability.png`), animations: 'disabled' });
-    await save.click();
+    await primaryAction.click();
+
+    await expect(form.getByRole('heading', { name: 'Client', exact: true })).toBeFocused();
+
+    await form.getByLabel('Phone Number *').fill('4165550198');
+
+    await expect(primaryAction).toHaveText('Create Appointment');
+
+    await primaryAction.click();
 
     await expect(page.getByTestId('appointment-created')).toBeVisible();
     expect(submissions.map(submission => submission.body)).toEqual([{

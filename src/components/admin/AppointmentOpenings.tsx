@@ -151,9 +151,9 @@ export function AppointmentOpenings({ salonSlug, date, technicianId, serviceIds,
   const nextSearchDate = current?.days.at(-1)?.date;
   const quote = firstDay?.quote;
   return (
-    <section className="mt-4 rounded-xl border border-stone-200 p-3" aria-label="Find a time">
-      <h4 className="font-semibold">{searchAhead ? 'Next openings' : 'Times that fit your services'}</h4>
-      <p className="nap-helper">{searchAhead ? 'Pick a time, then add your client.' : 'For the selected date. Availability is checked again when saving.'}</p>
+    <section className="nap-openings" aria-label="Find a time">
+      <h4 className="font-semibold">{searchAhead ? 'Next openings' : 'Available times'}</h4>
+      <p className="nap-helper">{searchAhead ? 'Pick a time, then add your client.' : 'Times shown fit the selected services.'}</p>
       <div aria-live="polite">
         {quote && (
           <p className="nap-helper">
@@ -184,13 +184,13 @@ export function AppointmentOpenings({ salonSlug, date, technicianId, serviceIds,
       {current?.days.filter(day => day.slots.length > 0).map(day => (
         <div key={day.date} className="mt-3">
           {searchAhead && <h5 className="mb-1 text-sm font-semibold">{new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</h5>}
-          <div className="flex flex-wrap gap-2">
+          <div className="nap-slot-grid">
             {(expanded ? day.slots : day.slots.slice(0, searchAhead ? 3 : 6)).map(slot => (
               <button
                 key={slot.startTime}
                 type="button"
                 aria-pressed={slot.startTime === selectedStart}
-                className="min-h-11 rounded-lg border border-stone-300 px-3 aria-pressed:border-current aria-pressed:font-semibold"
+                className="nap-slot"
                 onClick={() => {
                   if (searchAhead) {
                     onSelect(slot, day.quote, day.date);
