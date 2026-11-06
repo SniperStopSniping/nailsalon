@@ -140,6 +140,17 @@ async function mockClientProfileApi(page: import('@playwright/test').Page) {
     if (url.pathname === '/api/salon/services') {
       return json({ data: { services: [{ id: 'svc_1', name: 'Structured Builder Gel', price: 9500, duration: 60, isActive: true }] } });
     }
+    if (url.pathname === '/api/appointments/availability' && method === 'GET') {
+      expect(url.searchParams.get('salonSlug')).toBe('isla-browser');
+      expect(url.searchParams.get('date')).toBe('2099-07-20');
+      expect(url.searchParams.get('technicianId')).toBe('tech_1');
+      expect(url.searchParams.get('serviceIds')).toBe('svc_1');
+
+      return json({ slots: [
+        { time: '11:00', startTime: '2099-07-20T15:00:00.000Z', availability: 'available' },
+        { time: '11:30', startTime: '2099-07-20T15:30:00.000Z', availability: 'schedule_conflict' },
+      ] });
+    }
     if (url.pathname === '/api/admin/client-insights') {
       return json({ data: { generatedAt: '2026-09-20T00:00:00.000Z', timeZone: 'America/Toronto', rulesVersion: 'fixture', kpis: { active: 1, new_this_month: 0, due_to_return: 1, overdue: 0 }, segments: [], attention: { total: 0, items: [] } } });
     }
@@ -285,12 +296,15 @@ test('client profile preserves navigation and canonical appointment handoff with
 });
 
 test('rebooking uses only the synthetic existing-offer lookup, including no-offer', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2099-07-20T12:00:00Z'));
   const { writes, unexpected } = await mockClientProfileApi(page);
   await page.goto('/?scenario=no-offer');
   await page.getByRole('button', { name: new RegExp(longName, 'i') }).click();
   await page.getByTestId('client-profile-rebook').click();
 
   await expect(page.getByRole('dialog', { name: 'New Appointment' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Find a time' }).getByRole('button', { name: '11:00', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Find a time' }).getByRole('button', { name: '11:30', exact: true })).toHaveCount(0);
   expect(writes).toEqual(['POST /api/admin/next-visit-offer/link']);
   expect(unexpected).toEqual([]);
 });

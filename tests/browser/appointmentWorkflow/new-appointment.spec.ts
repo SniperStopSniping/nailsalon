@@ -8,7 +8,7 @@ const services = Array.from({ length: 8 }, (_, index) => ({
   category: index > 3 ? 'pedicure' : 'manicure',
 }));
 
-async function installApi(page: Page, options: { failLoad?: boolean; failSubmit?: boolean; failSearch?: boolean; multipleTechs?: boolean } = {}) {
+async function installApi(page: Page, options: { failLoad?: boolean; failSubmit?: boolean; failSearch?: boolean; multipleTechs?: boolean; anyTechnician?: boolean } = {}) {
   const submissions: Array<{ body: Record<string, unknown>; key: string | undefined }> = [];
   const searches: string[] = [];
   const unexpected: string[] = [];
@@ -46,6 +46,22 @@ async function installApi(page: Page, options: { failLoad?: boolean; failSubmit?
         return;
       }
       await route.fulfill({ json: { data: { clients: url.searchParams.get('search') === 'Nobody' ? [] : [{ id: 'client_1', fullName: 'Alexandria Verylongname', phone: '+14165550101', email: 'alex@example.test' }] } } });
+      return;
+    }
+    if (url.pathname === '/api/appointments/availability' && request.method() === 'GET') {
+      expect(url.searchParams.get('salonSlug')).toBe('fixture');
+      expect(url.searchParams.get('date')).toBe('2099-07-20');
+      expect(url.searchParams.get('technicianId')).toBe(options.anyTechnician ? null : 'tech_1');
+
+      const requestedIds = url.searchParams.get('serviceIds')?.split(',') || [];
+
+      expect(requestedIds.length).toBeGreaterThan(0);
+      expect(requestedIds.every(id => services.some(service => service.id === id))).toBe(true);
+
+      await route.fulfill({ json: { slots: [
+        { time: '11:00', startTime: '2099-07-20T15:00:00.000Z', availability: 'available' },
+        { time: '11:30', startTime: '2099-07-20T15:30:00.000Z', availability: 'schedule_conflict' },
+      ] } });
       return;
     }
     if (url.pathname === '/api/appointments' && request.method() === 'POST') {
@@ -106,12 +122,21 @@ test('client lookup and compact services create an owner appointment with the se
   await expect(page.getByTestId('new-appointment-summary')).toContainText('105');
   await expect(page.getByRole('button', { name: 'Create Appointment', exact: true })).toBeInViewport();
 
+  const openings = page.getByRole('region', { name: 'Find a time' });
+
+  await expect(openings.getByRole('button', { name: '11:30', exact: true })).toHaveCount(0);
+
+  await openings.getByRole('button', { name: '11:00', exact: true }).click();
+
+  await expect(page.getByTestId('new-appointment-summary')).toContainText('11:00');
+
   await page.screenshot({ path: testInfo.outputPath('new-appointment-selected.png') });
   await page.getByRole('button', { name: 'Create Appointment', exact: true }).click();
 
   await expect(page.getByTestId('appointment-created')).toBeVisible();
   expect(submissions).toHaveLength(1);
   expect(submissions[0]!.body).toMatchObject({ salonSlug: 'fixture', serviceIds: ['service_1', 'service_8'], technicianId: 'tech_1', clientPhone: '4165550101', clientName: 'Alexandria Verylongname', clientEmail: 'alex@example.test' });
+  expect(submissions[0]!.body.startTime).toBe('2099-07-20T15:00:00.000Z');
   expect(submissions[0]!.key).toBeTruthy();
   expect(unexpected).toEqual([]);
   expect(pageErrors).toEqual([]);
@@ -209,7 +234,7 @@ test('rebooking retains all services and remains usable with enlarged text and a
 });
 
 test('desktop keeps client and service panels together and respects an explicit any-technician choice', async ({ page }, testInfo) => {
-  const { submissions, unexpected } = await installApi(page);
+  const { submissions, unexpected } = await installApi(page, { anyTechnician: true });
   await page.setViewportSize({ width: 1280, height: 900 });
   await openForm(page);
   await page.getByRole('button', { name: 'Technician Daniela', exact: true }).click();

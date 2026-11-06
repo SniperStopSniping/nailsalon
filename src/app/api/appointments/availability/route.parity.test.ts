@@ -551,6 +551,20 @@ describe('GET /api/appointments/availability — pre-extraction byte parity', ()
     expect(body.slots.filter((slot: { smartFit?: unknown }) => slot.smartFit).length).toBeGreaterThan(0);
   });
 
+  it('includes a selection quote only when requested and keeps the same available times', async () => {
+    const params = {
+      date: D_WED,
+      salonSlug: 'parity-salon-policy',
+      technicianId: 'any',
+      baseServiceId: 'srv_parity_policy',
+    };
+    const plain = await (await callAvailability(params)).json();
+    const quoted = await (await callAvailability({ ...params, includeQuote: '1' })).json();
+
+    expect(plain).not.toHaveProperty('serviceSubtotalCents');
+    expect(quoted).toEqual({ ...plain, serviceSubtotalCents: 6500, hasUnpricedExtras: false });
+  });
+
   it('17 — Google Calendar failure maps to a sanitized 503', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 

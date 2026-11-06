@@ -287,6 +287,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     baseServiceId: string;
     technicianId: string | null;
     startTime: string;
+    durationMinutes?: number;
     acceptedNextVisitTotalCents?: number;
   }) => {
     if (!detail || !selectedAppointmentId) {
@@ -307,7 +308,8 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       return;
     }
 
-    if (args.technicianId !== detail.appointment.technicianId && nextStartTime === originalStartTime) {
+    const durationChanged = args.durationMinutes !== undefined && args.durationMinutes !== detail.appointment.totalDurationMinutes;
+    if (!durationChanged && args.technicianId !== detail.appointment.technicianId && nextStartTime === originalStartTime) {
       await runManageMutation(selectedAppointmentId, {
         operation: 'reassignTechnician',
         technicianId: args.technicianId,
@@ -316,10 +318,11 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       return;
     }
 
-    if (nextStartTime !== originalStartTime || args.technicianId !== detail.appointment.technicianId) {
+    if (durationChanged || nextStartTime !== originalStartTime || args.technicianId !== detail.appointment.technicianId) {
       await runManageMutation(selectedAppointmentId, {
         operation: 'move',
         startTime: nextStartTime,
+        ...(durationChanged ? { durationMinutes: args.durationMinutes } : {}),
         technicianId: args.technicianId,
         acceptedNextVisitTotalCents: args.acceptedNextVisitTotalCents,
       });

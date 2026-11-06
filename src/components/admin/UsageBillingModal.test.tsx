@@ -372,6 +372,8 @@ describe('message history grouping and net SMS credit clarity (ported from PR #1
   it('groups history into confirmation/24h/1h/cancellation sections and labels net credit charges', async () => {
     mockFetchForHistory({ history: historyFixture, pendingCredits: 3 });
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+    // The usage response reveals history and starts a separate top-ups request.
+    await screen.findByText('No top-ups yet.');
 
     await screen.findByRole('heading', { name: 'Confirmations' });
 
@@ -390,6 +392,7 @@ describe('message history grouping and net SMS credit clarity (ported from PR #1
   it('filters to one category at a time without losing the other groups from the DOM permanently', async () => {
     mockFetchForHistory({ history: historyFixture });
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+    await screen.findByText('No top-ups yet.');
     await screen.findByRole('heading', { name: 'Confirmations' });
 
     fireEvent.change(screen.getByLabelText('Filter message history'), { target: { value: '24h' } });
@@ -406,6 +409,7 @@ describe('message history grouping and net SMS credit clarity (ported from PR #1
   it('loads another page of message history on demand, appending rather than replacing', async () => {
     mockFetchForHistory({ history: [historyFixture[0]!], nextCursor: 'CURSOR_1' });
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+    await screen.findByText('No top-ups yet.');
 
     await screen.findByText('•••• 0100');
 

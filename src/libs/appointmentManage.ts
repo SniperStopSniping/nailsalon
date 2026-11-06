@@ -1409,7 +1409,11 @@ async function applyMove(
     );
   }
   const bufferMinutes = args.loaded.appointment.bufferMinutes ?? args.loaded.bufferMinutes;
-  const normalizedStartTime = roundDownToSlot(args.startTime, args.loaded.slotIntervalMinutes);
+  // A duration-only edit must not snap an existing off-grid booking to
+  // a different start or send a reschedule notice.
+  const normalizedStartTime = args.durationMinutes !== undefined && args.startTime.getTime() === args.loaded.appointment.startTime.getTime()
+    ? args.startTime
+    : roundDownToSlot(args.startTime, args.loaded.slotIntervalMinutes);
   const validated = await validateTimeAndTechnician({
     loaded: args.loaded,
     startTime: normalizedStartTime,

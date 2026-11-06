@@ -375,6 +375,45 @@ describe('real appointment management mutations', () => {
     expect((await appointment()).startTime).toEqual(nextStart);
   });
 
+  it('keeps the original start and rejects an extension whose buffer hits the next booking', async () => {
+    const startTime = new Date(INITIAL_START.getTime() + 5 * 60_000);
+    const nextStart = new Date(startTime.getTime() + 100 * 60_000);
+    await db.update(schema.appointmentSchema).set({
+      startTime,
+      endTime: new Date(startTime.getTime() + 70 * 60_000),
+    }).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.insert(schema.appointmentSchema).values({
+      id: 'manage-duration-adjacent',
+      salonId: SALON_ID,
+      technicianId: TECHNICIAN_ID,
+      clientPhone: '4165550188',
+      startTime: nextStart,
+      endTime: new Date(nextStart.getTime() + 60 * 60_000),
+      totalDurationMinutes: 60,
+      totalPrice: 4500,
+      status: 'confirmed',
+    });
+
+    // The work itself would finish before the next appointment, but its
+    // buffer would overlap. Rounding the start back five minutes would
+    // incorrectly make this fit and move the client's start time.
+    await expectManageError(mutate({ startTime, durationMinutes: 95 }), 'APPOINTMENT_CONFLICT');
+
+    expect(await appointment()).toMatchObject({ startTime, totalDurationMinutes: 70, blockedDurationMinutes: 80 });
+
+    await mutate({ startTime, durationMinutes: 90 });
+    const updated = await appointment();
+
+    expect(updated).toMatchObject({
+      startTime,
+      endTime: new Date(startTime.getTime() + 90 * 60_000),
+      totalDurationMinutes: 90,
+      blockedDurationMinutes: 100,
+      totalPrice: 5500,
+    });
+    expect(await staffRescheduleJobs()).toEqual([]);
+  });
+
   it('returns a canonical added-tax estimate with deposit credit for every owner/staff consumer', async () => {
     await db.update(schema.appointmentSchema).set({
       paymentStatus: 'pending',

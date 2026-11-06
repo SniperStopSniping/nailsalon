@@ -24,6 +24,8 @@
 .nap-dropdown button[aria-pressed=true] { background: var(--owner-blush); color: var(--owner-accent); }
 .nap-dropdown button:hover, .nap-service:hover { background: var(--owner-ground); }
 .nap-avatar { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border-radius: 50%; background: var(--owner-blush); color: var(--owner-accent); font-size: 0.6875rem; font-weight: 700; }
+.nap-section .nap-extras-choice { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-bottom: 0; }
+.nap-section .nap-extras-toggle { min-height: 44px; }
 .nap-link { min-height: 36px; color: var(--owner-accent); font-size: 0.8125rem; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .nap-search { position: relative; }
 .nap-search > svg { position: absolute; top: 15px; left: 12px; width: 17px; height: 17px; color: var(--owner-muted); pointer-events: none; }
