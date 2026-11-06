@@ -32,6 +32,7 @@ import {
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
 import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
 import { normalizePhone } from '@/libs/phone';
+import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import type { BookingCategory, WeeklySchedule } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import type { AddOnResponse } from '@/types/admin';
@@ -73,6 +74,7 @@ export type GoogleEventPrefill = {
 
 type NewAppointmentModalProps = {
   isOpen: boolean;
+  entryPoint?: 'appointment' | 'walk-in';
   onClose: () => void;
   onSuccess?: (date: string) => void;
   /**
@@ -94,7 +96,6 @@ type NewAppointmentModalProps = {
     phone: string;
     email: string | null;
     serviceId?: string | null;
-    /** Keeps a multi-service walk-in selection when switching to another day. */
     serviceIds?: string[];
     technicianId?: string | null;
     nextVisitOffer?: { campaignToken: string; deadlineDate: string; discountType: 'percent' | 'fixed'; value: number };
@@ -149,6 +150,7 @@ const MISSING_SALON_MESSAGE = 'Choose a salon to continue';
 
 export function NewAppointmentModal({
   isOpen,
+  entryPoint = 'appointment',
   onClose,
   onSuccess,
   salonSlug: salonSlugProp,
@@ -161,13 +163,15 @@ export function NewAppointmentModal({
   onRefreshGoogleEvent,
   clientPrefill,
 }: NewAppointmentModalProps) {
-  const { salonSlug: contextSalonSlug } = useSalon();
+  const { salonSlug: contextSalonSlug, bookingTimeZone } = useSalon();
   const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
   const viewport = useCustomerViewport();
+  const today = getDateKeyInTimeZone(new Date(), bookingTimeZone);
+  const title = googleEventPrefill ? 'Convert Google Event' : findOpeningFrom ? 'Find Opening' : entryPoint === 'walk-in' ? 'Quick Walk-in' : 'New Appointment';
 
   // Form state
   const [selectedDate, setSelectedDate] = useState<string>(
-    preselectedDate ? formatDateForInput(preselectedDate) : formatDateForInput(new Date()),
+    preselectedDate ? formatDateForInput(preselectedDate) : today,
   );
   const [selectedTime, setSelectedTime] = useState<string>('10:00');
   const [verifiedOpening, setVerifiedOpening] = useState<{ scope: string; time: string; startTime: string; quote?: OpeningQuote } | null>(null);
@@ -219,7 +223,7 @@ export function NewAppointmentModal({
   const clientPhoneRef = useRef<HTMLInputElement>(null);
   const technicianDefaultAppliedRef = useRef(false);
 
-  const draftKey = salonSlug ? `luster:new-appointment-draft:${salonSlug}` : null;
+  const draftKey = salonSlug ? `luster:${entryPoint === 'walk-in' ? 'walk-in' : 'new-appointment'}-draft:${salonSlug}` : null;
 
   useEffect(() => {
     const active = document.activeElement;
@@ -405,7 +409,7 @@ export function NewAppointmentModal({
           selectedServiceIds?: string[];
         };
         if ((draft.expiresAt || 0) > Date.now()) {
-          setSelectedDate(draft.selectedDate || formatDateForInput(new Date()));
+          setSelectedDate(draft.selectedDate && draft.selectedDate >= today ? draft.selectedDate : today);
           setSelectedTime(draft.selectedTime || '10:00');
           setClientPhone(draft.clientPhone || '');
           setClientName(draft.clientName || '');
@@ -424,7 +428,7 @@ export function NewAppointmentModal({
     } finally {
       setDraftHydrated(true);
     }
-  }, [calendarOpening, clientPrefill, draftKey, findOpeningFrom, googleEventPrefill, isOpen]);
+  }, [calendarOpening, clientPrefill, draftKey, findOpeningFrom, googleEventPrefill, isOpen, today]);
 
   useEffect(() => {
     if (!isOpen || !draftHydrated || !draftKey || googleEventPrefill || clientPrefill || calendarOpening || findOpeningFrom) {
@@ -446,6 +450,7 @@ export function NewAppointmentModal({
   useEffect(() => {
     if (!isOpen) {
       setVerifiedOpening(null);
+      setSelectedDate(today);
       setSelectedTime('10:00');
       setOpeningRefresh(0);
       setSelectedAddOns([]);
@@ -475,7 +480,7 @@ export function NewAppointmentModal({
       submittingRef.current = false;
       pendingGoogleServiceNameRef.current = null;
     }
-  }, [isOpen]);
+  }, [isOpen, today]);
 
   // Update selected date when preselectedDate changes
   useEffect(() => {
@@ -502,8 +507,7 @@ export function NewAppointmentModal({
   const chosenOpening = verifiedOpening?.scope === `${openingScope}|${selectedDate}` && verifiedOpening.time === selectedTime
     ? verifiedOpening
     : null;
-  const needsOpening = (selectedAddOns.length > 0 && !chosenOpening?.quote)
-    || (Boolean(calendarOpening || findOpeningFrom) && !chosenOpening);
+  const needsOpening = !googleEventPrefill && (!chosenOpening || (selectedAddOns.length > 0 && !chosenOpening.quote));
   const preferredStart = calendarOpening?.date === selectedDate
     && calendarOpening.time === selectedTime.padStart(5, '0')
     && calendarOpening.technicianId === selectedTechnicianId
@@ -683,7 +687,7 @@ export function NewAppointmentModal({
       const result = await response.json();
 
       if (!response.ok) {
-        if (['TIME_CONFLICT', 'OUTSIDE_SCHEDULE'].includes(result.error?.code)) {
+        if (!googleEventPrefill && ['TIME_CONFLICT', 'OUTSIDE_SCHEDULE', 'TOO_SOON', 'SLOT_UNAVAILABLE', 'TECHNICIAN_UNAVAILABLE'].includes(result.error?.code)) {
           setVerifiedOpening(null);
           setOpeningRefresh(value => value + 1);
         }
@@ -752,6 +756,7 @@ export function NewAppointmentModal({
   }), [selectedDate, selectedTechnicianId, selectedTime, timeSlotSchedule]);
   const effectiveSourceStatus = submissionSourceStatus ?? googleEventSourceStatus;
 
+  const extrasAwaitingQuote = selectedAddOns.length > 0 && !chosenOpening?.quote;
   const displayedPrice = googleEventPrefill && priceOverride !== '' && Number.isFinite(Number(priceOverride)) && Number(priceOverride) >= 0
     ? Math.round(Number(priceOverride) * 100)
     : chosenOpening?.quote?.serviceSubtotalCents ?? totalPrice;
@@ -762,6 +767,28 @@ export function NewAppointmentModal({
   const summaryDate = selectedDate
     ? new Date(`${selectedDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
     : 'Choose a date';
+  const openings = !googleEventPrefill && salonSlug && selectedServiceIds.length > 0 && selectedDate
+    ? (
+        <AppointmentOpenings
+          salonSlug={salonSlug}
+          date={findOpeningFrom || selectedDate}
+          searchAhead={Boolean(findOpeningFrom)}
+          preferredStart={preferredStart}
+          technicianId={selectedTechnicianId}
+          serviceIds={selectedServiceIds}
+          selectedAddOns={selectedAddOns}
+          selectedStart={chosenOpening?.startTime}
+          refreshKey={openingRefresh}
+          onNextDay={() => {
+            const next = new Date(`${selectedDate}T12:00:00`);
+            next.setDate(next.getDate() + 1);
+            setVerifiedOpening(null);
+            setSelectedDate(formatDateForInput(next));
+          }}
+          onSelect={selectOpening}
+        />
+      )
+    : null;
   const overlayStyle = viewport.height > 0
     ? {
         'top': viewport.top,
@@ -790,7 +817,7 @@ export function NewAppointmentModal({
       <div className="nap-root" role="dialog" aria-modal="true" aria-labelledby="new-appointment-modal-title">
         <header className="nap-header">
           <div>
-            <h2 id="new-appointment-modal-title">{googleEventPrefill ? 'Convert Google Event' : findOpeningFrom ? 'Find Opening' : 'New Appointment'}</h2>
+            <h2 id="new-appointment-modal-title">{title}</h2>
             {googleEventPrefill && (
               <p>
                 {googleEventPrefill.title || 'Google Calendar event'}
@@ -883,161 +910,7 @@ export function NewAppointmentModal({
 
                   </div>
                   <div className={findOpeningFrom ? 'nap-grid !grid-cols-1' : 'nap-grid'}>
-                    <div className={findOpeningFrom && !chosenOpening ? 'hidden' : 'nap-fields'}>
-                      <section className="nap-section" aria-labelledby="appointment-when-heading">
-                        <div className="nap-section-heading"><h3 id="appointment-when-heading">When & who</h3></div>
-                        <div className="nap-fields">
-                          {!findOpeningFrom && (
-                            <div className="nap-date-time">
-                              <div>
-                                <label htmlFor="appointment-date">Date</label>
-                                <input id="appointment-date" type="date" value={selectedDate} onChange={event => setSelectedDate(event.target.value)} min={formatDateForInput(new Date())} />
-                              </div>
-                              <div className="relative">
-                                <span className="nap-field-label" id="appointment-time-label">Time</span>
-                                <button
-                                  type="button"
-                                  aria-label="Appointment time"
-                                  aria-expanded={showTimeDropdown}
-                                  aria-controls="appointment-time-options"
-                                  className="nap-field-button"
-                                  disabled={Boolean(calendarOpening)}
-                                  onClick={() => {
-                                    setShowTimeDropdown(value => !value);
-                                    setShowTechDropdown(false);
-                                  }}
-                                >
-                                  <span>{selectedTime}</span>
-                                  <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
-                                </button>
-                                {showTimeDropdown && (
-                                  <div id="appointment-time-options" className="nap-dropdown" aria-labelledby="appointment-time-label">
-                                    {timeSlots.map(time => (
-                                      <button
-                                        key={time}
-                                        type="button"
-                                        aria-pressed={time === selectedTime}
-                                        onClick={() => {
-                                          setVerifiedOpening(null);
-                                          setSelectedTime(time);
-                                          setShowTimeDropdown(false);
-                                        }}
-                                      >
-                                        {time}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                          <div className="relative">
-                            <span className="nap-field-label" id="appointment-technician-label">Technician</span>
-                            <button
-                              type="button"
-                              aria-labelledby="appointment-technician-label appointment-technician-value"
-                              aria-expanded={showTechDropdown}
-                              aria-controls="appointment-technician-options"
-                              onClick={() => {
-                                setShowTechDropdown(value => !value);
-                                setShowTimeDropdown(false);
-                              }}
-                              className="nap-field-button"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                {selectedTechnician && <span className="nap-avatar" aria-hidden="true">{selectedTechnician.name.split(' ').map(name => name[0]).join('').slice(0, 2).toUpperCase()}</span>}
-                                <span id="appointment-technician-value" className="break-words">{selectedTechnician?.name || 'Any available technician'}</span>
-                              </span>
-                              <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
-                            </button>
-                            {showTechDropdown && (
-                              <div id="appointment-technician-options" className="nap-dropdown" aria-labelledby="appointment-technician-label">
-                                <button
-                                  type="button"
-                                  aria-pressed={!selectedTechnicianId}
-                                  onClick={() => {
-                                    setSelectedTechnicianId(null);
-                                    setShowTechDropdown(false);
-                                  }}
-                                >
-                                  Any available technician
-                                </button>
-                                {technicians.map(tech => (
-                                  <button
-                                    key={tech.id}
-                                    type="button"
-                                    aria-pressed={tech.id === selectedTechnicianId}
-                                    onClick={() => {
-                                      setSelectedTechnicianId(tech.id);
-                                      setShowTechDropdown(false);
-                                    }}
-                                  >
-                                    {tech.name}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </section>
-                      <section ref={clientSectionRef} className="nap-section" aria-labelledby="appointment-client-heading">
-                        <div className="nap-section-heading">
-                          <h3 id="appointment-client-heading">Client</h3>
-                          {salonSlug && <button type="button" className="nap-link" aria-expanded={showClientSearch} onClick={() => setShowClientSearch(value => !value)}>{showClientSearch ? 'Close search' : 'Find existing client'}</button>}
-                        </div>
-                        {showClientSearch && salonSlug && (
-                          <AppointmentClientPicker
-                            salonSlug={salonSlug}
-                            onSelect={(client) => {
-                              setClientName(client.fullName || '');
-                              setClientPhone(client.phone);
-                              setClientEmail(client.email || '');
-                              setShowClientSearch(false);
-                              clientPhoneRef.current?.focus();
-                            }}
-                          />
-                        )}
-                        <div className="nap-fields">
-                          <div>
-                            <label htmlFor="new-appt-phone">Phone Number *</label>
-                            <input ref={clientPhoneRef} id="new-appt-phone" type="tel" inputMode="tel" autoComplete="off" value={formatPhoneDisplay(clientPhone)} onChange={event => handlePhoneChange(event.target.value)} placeholder="(555) 123-4567" aria-describedby={clientPhone.length > 10 ? 'appointment-phone-help' : undefined} />
-                            {clientPhone.length > 10 && <p className="nap-helper" id="appointment-phone-help">Enter a 10-digit phone number, with an optional +1 country code.</p>}
-                          </div>
-                          <div>
-                            <label htmlFor="new-appt-client-name">Client Name (optional)</label>
-                            <input id="new-appt-client-name" type="text" autoComplete="off" value={clientName} onChange={event => setClientName(event.target.value)} placeholder="Client name" />
-                          </div>
-                          <div>
-                            <label htmlFor="new-appt-client-email">Email (optional)</label>
-                            <input id="new-appt-client-email" type="email" autoComplete="off" value={clientEmail} onChange={event => setClientEmail(event.target.value)} placeholder="client@example.com" />
-                          </div>
-                        </div>
-                        {!googleEventPrefill && <p className="nap-helper">No deposit is collected here. Confirmations follow salon settings.</p>}
-                      </section>
-                      {googleEventPrefill && (
-                        <section className="nap-section" aria-labelledby="appointment-details-heading">
-                          <div className="nap-section-heading"><h3 id="appointment-details-heading">Event details</h3></div>
-                          <div className="nap-fields">
-                            <div className="nap-date-time">
-                              <div>
-                                <label htmlFor="google-event-price">Appointment price (CAD $)</label>
-                                <input id="google-event-price" type="number" min="0" step="0.01" value={priceOverride} onChange={event => setPriceOverride(event.target.value)} />
-                              </div>
-                              <div>
-                                <label htmlFor="google-event-duration">Duration (minutes)</label>
-                                <input id="google-event-duration" type="number" min="1" max="1440" step="1" value={durationOverride} onChange={event => setDurationOverride(event.target.value)} />
-                              </div>
-                            </div>
-                            <div>
-                              <label htmlFor="google-event-notes">Notes (optional)</label>
-                              <textarea id="google-event-notes" value={notes} maxLength={2000} rows={3} onChange={event => setNotes(event.target.value)} placeholder="Private appointment notes" />
-                            </div>
-                            {googleEventPrefill.isReadOnly && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Google event is read-only. Time changes continue to come from Google.</p>}
-                          </div>
-                        </section>
-                      )}
-                    </div>
-                    <section className={findOpeningFrom ? 'nap-section order-first' : 'nap-section'} aria-labelledby="appointment-services-heading">
+                    <section className="nap-section" aria-labelledby="appointment-services-heading">
                       <div className="nap-section-heading">
                         <h3 id="appointment-services-heading">Services *</h3>
                         <span className="text-xs text-[var(--owner-muted)]">
@@ -1133,25 +1006,7 @@ export function NewAppointmentModal({
                           )}
                         </div>
                       )}
-                      {!googleEventPrefill && salonSlug && selectedServiceIds.length > 0 && (
-                        <AppointmentOpenings
-                          salonSlug={salonSlug}
-                          date={findOpeningFrom || selectedDate}
-                          searchAhead={Boolean(findOpeningFrom)}
-                          preferredStart={preferredStart}
-                          technicianId={selectedTechnicianId}
-                          serviceIds={selectedServiceIds}
-                          selectedAddOns={selectedAddOns}
-                          selectedStart={chosenOpening?.startTime}
-                          refreshKey={openingRefresh}
-                          onNextDay={() => {
-                            const next = new Date(`${selectedDate}T12:00:00`);
-                            next.setDate(next.getDate() + 1);
-                            setSelectedDate(formatDateForInput(next));
-                          }}
-                          onSelect={selectOpening}
-                        />
-                      )}
+                      {findOpeningFrom && openings}
                       {filteredServices.length === 0 && <p className="nap-helper py-4">{services.length ? 'No services found. Try another name or category.' : 'No services are available. Add a service in your catalog, then reopen this form.'}</p>}
                       {!serviceSearch.trim() && services.length > 4 && (
                         <button type="button" className="nap-link mt-3" aria-expanded={showAllServices} aria-controls="appointment-services-list" onClick={() => setShowAllServices(value => !value)}>
@@ -1159,46 +1014,212 @@ export function NewAppointmentModal({
                         </button>
                       )}
                     </section>
+                    <div className={findOpeningFrom && !chosenOpening ? 'hidden' : 'nap-fields'}>
+                      <section className="nap-section" aria-labelledby="appointment-when-heading">
+                        <div className="nap-section-heading"><h3 id="appointment-when-heading">{googleEventPrefill || findOpeningFrom ? 'When & who' : 'Date & time'}</h3></div>
+                        <div className="nap-fields">
+                          {!findOpeningFrom && (
+                            <div className={googleEventPrefill || calendarOpening ? 'nap-date-time' : undefined}>
+                              <div>
+                                <label htmlFor="appointment-date">Date</label>
+                                <input
+                                  id="appointment-date"
+                                  type="date"
+                                  value={selectedDate}
+                                  onChange={(event) => {
+                                    setVerifiedOpening(null);
+                                    setSelectedDate(event.target.value);
+                                  }}
+                                  min={googleEventPrefill ? formatDateForInput(new Date()) : today}
+                                />
+                              </div>
+                              {googleEventPrefill && (
+                                <div className="relative">
+                                  <span className="nap-field-label" id="appointment-time-label">Time</span>
+                                  <button
+                                    type="button"
+                                    aria-label="Appointment time"
+                                    aria-expanded={showTimeDropdown}
+                                    aria-controls="appointment-time-options"
+                                    className="nap-field-button"
+                                    onClick={() => {
+                                      setShowTimeDropdown(value => !value);
+                                      setShowTechDropdown(false);
+                                    }}
+                                  >
+                                    <span>{selectedTime}</span>
+                                    <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+                                  </button>
+                                  {showTimeDropdown && (
+                                    <div id="appointment-time-options" className="nap-dropdown" aria-labelledby="appointment-time-label">
+                                      {timeSlots.map(time => (
+                                        <button
+                                          key={time}
+                                          type="button"
+                                          aria-pressed={time === selectedTime}
+                                          onClick={() => {
+                                            setVerifiedOpening(null);
+                                            setSelectedTime(time);
+                                            setShowTimeDropdown(false);
+                                          }}
+                                        >
+                                          {time}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {calendarOpening && (
+                                <div>
+                                  <span className="nap-field-label" id="appointment-time-label">Time</span>
+                                  <output className="nap-field-button" aria-labelledby="appointment-time-label">{chosenOpening?.time ?? (calendarOpening.date === selectedDate ? calendarOpening.time : 'Choose a time')}</output>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="relative">
+                            <span className="nap-field-label" id="appointment-technician-label">Technician</span>
+                            <button
+                              type="button"
+                              aria-labelledby="appointment-technician-label appointment-technician-value"
+                              aria-expanded={showTechDropdown}
+                              aria-controls="appointment-technician-options"
+                              onClick={() => {
+                                setShowTechDropdown(value => !value);
+                                setShowTimeDropdown(false);
+                              }}
+                              className="nap-field-button"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                {selectedTechnician && <span className="nap-avatar" aria-hidden="true">{selectedTechnician.name.split(' ').map(name => name[0]).join('').slice(0, 2).toUpperCase()}</span>}
+                                <span id="appointment-technician-value" className="break-words">{selectedTechnician?.name || 'Any available technician'}</span>
+                              </span>
+                              <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+                            </button>
+                            {showTechDropdown && (
+                              <div id="appointment-technician-options" className="nap-dropdown" aria-labelledby="appointment-technician-label">
+                                <button
+                                  type="button"
+                                  aria-pressed={!selectedTechnicianId}
+                                  onClick={() => {
+                                    setVerifiedOpening(null);
+                                    setSelectedTechnicianId(null);
+                                    setShowTechDropdown(false);
+                                  }}
+                                >
+                                  Any available technician
+                                </button>
+                                {technicians.map(tech => (
+                                  <button
+                                    key={tech.id}
+                                    type="button"
+                                    aria-pressed={tech.id === selectedTechnicianId}
+                                    onClick={() => {
+                                      setVerifiedOpening(null);
+                                      setSelectedTechnicianId(tech.id);
+                                      setShowTechDropdown(false);
+                                    }}
+                                  >
+                                    {tech.name}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {!findOpeningFrom && (openings || (!googleEventPrefill && !selectedServiceIds.length && <p className="nap-helper">Choose a service to see available times.</p>))}
+                      </section>
+                      <section ref={clientSectionRef} className="nap-section" aria-labelledby="appointment-client-heading">
+                        <div className="nap-section-heading">
+                          <h3 id="appointment-client-heading">Client</h3>
+                          {salonSlug && <button type="button" className="nap-link" aria-expanded={showClientSearch} onClick={() => setShowClientSearch(value => !value)}>{showClientSearch ? 'Close search' : 'Find existing client'}</button>}
+                        </div>
+                        {showClientSearch && salonSlug && (
+                          <AppointmentClientPicker
+                            salonSlug={salonSlug}
+                            onSelect={(client) => {
+                              setClientName(client.fullName || '');
+                              setClientPhone(client.phone);
+                              setClientEmail(client.email || '');
+                              setShowClientSearch(false);
+                              clientPhoneRef.current?.focus();
+                            }}
+                          />
+                        )}
+                        <div className="nap-fields">
+                          <div>
+                            <label htmlFor="new-appt-phone">Phone Number *</label>
+                            <input ref={clientPhoneRef} id="new-appt-phone" type="tel" inputMode="tel" autoComplete="off" value={formatPhoneDisplay(clientPhone)} onChange={event => handlePhoneChange(event.target.value)} placeholder="(555) 123-4567" aria-describedby={clientPhone.length > 10 ? 'appointment-phone-help' : undefined} />
+                            {clientPhone.length > 10 && <p className="nap-helper" id="appointment-phone-help">Enter a 10-digit phone number, with an optional +1 country code.</p>}
+                          </div>
+                          <div>
+                            <label htmlFor="new-appt-client-name">Client Name (optional)</label>
+                            <input id="new-appt-client-name" type="text" autoComplete="off" value={clientName} onChange={event => setClientName(event.target.value)} placeholder="Client name" />
+                          </div>
+                          <div>
+                            <label htmlFor="new-appt-client-email">Email (optional)</label>
+                            <input id="new-appt-client-email" type="email" autoComplete="off" value={clientEmail} onChange={event => setClientEmail(event.target.value)} placeholder="client@example.com" />
+                          </div>
+                        </div>
+                        {!googleEventPrefill && <p className="nap-helper">No deposit is collected here. Confirmations follow salon settings.</p>}
+                      </section>
+                      {googleEventPrefill && (
+                        <section className="nap-section" aria-labelledby="appointment-details-heading">
+                          <div className="nap-section-heading"><h3 id="appointment-details-heading">Event details</h3></div>
+                          <div className="nap-fields">
+                            <div className="nap-date-time">
+                              <div>
+                                <label htmlFor="google-event-price">Appointment price (CAD $)</label>
+                                <input id="google-event-price" type="number" min="0" step="0.01" value={priceOverride} onChange={event => setPriceOverride(event.target.value)} />
+                              </div>
+                              <div>
+                                <label htmlFor="google-event-duration">Duration (minutes)</label>
+                                <input id="google-event-duration" type="number" min="1" max="1440" step="1" value={durationOverride} onChange={event => setDurationOverride(event.target.value)} />
+                              </div>
+                            </div>
+                            <div>
+                              <label htmlFor="google-event-notes">Notes (optional)</label>
+                              <textarea id="google-event-notes" value={notes} maxLength={2000} rows={3} onChange={event => setNotes(event.target.value)} placeholder="Private appointment notes" />
+                            </div>
+                            {googleEventPrefill.isReadOnly && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Google event is read-only. Time changes continue to come from Google.</p>}
+                          </div>
+                        </section>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
         </div>
         <footer className="nap-footer">
           <div className="nap-summary" aria-live="polite" data-testid="new-appointment-summary">
-            {needsOpening && selectedServices.length > 0
-              ? <p>Choose an opening that fits your services.</p>
-              : selectedServices.length > 0
-                ? (
-                    <>
-                      <div className="nap-summary-copy">
-                        <p className="font-semibold text-[var(--owner-ink)]">
-                          {summaryDate}
-                          {' '}
-                          ·
-                          {' '}
-                          {selectedTime}
-                          {displayedDuration > 0 && `–${displayedEnd}`}
-                        </p>
-                        <p>
-                          {selectedServices.length}
-                          {' '}
-                          service
-                          {selectedServices.length !== 1 ? 's' : ''}
-                          {' '}
-                          ·
-                          {' '}
-                          {formatDuration(displayedDuration)}
-                          {selectedAddOns.length > 0 && ' incl. extras'}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        {clientPrefill?.nextVisitOffer && <p className="text-xs">Before offers</p>}
-                        <strong>{formatCurrency(displayedPrice)}</strong>
-                        {chosenOpening?.quote?.hasUnpricedExtras && <p className="text-xs">+ extras priced separately</p>}
-                      </div>
-                    </>
-                  )
-                : <p>{findOpeningFrom ? 'Choose a service to see the next openings.' : 'Add a phone number and choose a service.'}</p>}
+            {selectedServices.length > 0
+              ? (
+                  <>
+                    <div className="nap-summary-copy">
+                      <p className="font-semibold text-[var(--owner-ink)]">
+                        {needsOpening ? 'Choose an available time' : `${summaryDate} · ${selectedTime}${displayedDuration > 0 ? `–${displayedEnd}` : ''}`}
+                      </p>
+                      <p>
+                        {selectedServices.length}
+                        {' '}
+                        service
+                        {selectedServices.length !== 1 ? 's' : ''}
+                        {' '}
+                        ·
+                        {' '}
+                        {formatDuration(displayedDuration)}
+                        {selectedAddOns.length > 0 && (extrasAwaitingQuote ? ' + extras' : ' incl. extras')}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      {clientPrefill?.nextVisitOffer && <p className="text-xs">Before offers</p>}
+                      {!extrasAwaitingQuote && <strong>{formatCurrency(displayedPrice)}</strong>}
+                      {chosenOpening?.quote?.hasUnpricedExtras && <p className="text-xs">+ extras priced separately</p>}
+                    </div>
+                  </>
+                )
+              : <p>{findOpeningFrom ? 'Choose a service to see the next openings.' : 'Choose a service to get started.'}</p>}
           </div>
           <div className="nap-actions">
             <button type="button" onClick={onClose} className="nap-cancel">Cancel</button>

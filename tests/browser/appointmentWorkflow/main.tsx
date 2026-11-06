@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
+import { WalkInModal } from '@/components/admin/WalkInModal';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 
@@ -59,6 +60,7 @@ export function AppointmentWorkflowFixture() {
   const [quickOpen, setQuickOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [walkInOpen, setWalkInOpen] = useState(false);
   const [created, setCreated] = useState(false);
   const [status, setStatus] = useState('confirmed');
   const detail = appointmentDetail(status);
@@ -72,8 +74,10 @@ export function AppointmentWorkflowFixture() {
       <button className="min-h-11 rounded-xl bg-black px-4 text-white" data-testid="open-appointment" onClick={() => setQuickOpen(true)} type="button">Open appointment</button>
       <button className="ml-2 min-h-11 rounded-xl bg-black px-4 text-white" data-testid="open-checkout" onClick={() => setCheckoutOpen(true)} type="button">Open checkout</button>
       <button className="ml-2 min-h-11 rounded-xl bg-black px-4 text-white" data-testid="open-new-appointment" onClick={() => setNewOpen(true)} type="button">New appointment</button>
+      <button className="ml-2 min-h-11 rounded-xl bg-black px-4 text-white" data-testid="open-walk-in" onClick={() => setWalkInOpen(true)} type="button">Walk-in</button>
       {created && <p data-testid="appointment-created">Appointment created</p>}
       <NewAppointmentModal isOpen={newOpen} onClose={() => setNewOpen(false)} onSuccess={() => setCreated(true)} salonSlug="fixture" preselectedDate={appointmentDate} clientPrefill={new URLSearchParams(window.location.search).has('rebook') ? rebookClient : undefined} />
+      <WalkInModal isOpen={walkInOpen} onClose={() => setWalkInOpen(false)} onSuccess={() => setCreated(true)} salonSlug="fixture" />
       <AppointmentQuickEditSheet
         actionError={null}
         detail={detail as never}

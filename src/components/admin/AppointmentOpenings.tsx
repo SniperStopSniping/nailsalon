@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
+import { type SelectedAddOnParam, serializeBookingBasket, serializeSelectedAddOns } from '@/libs/bookingParams';
 import { formatMoney } from '@/libs/formatMoney';
 import { addDaysToDateKey } from '@/libs/timeZone';
 import { formatDuration } from '@/utils/Helpers';
@@ -20,8 +20,24 @@ type OpeningDay = { date: string; slots: AppointmentOpening[]; quote?: OpeningQu
 async function fetchOpeningDay(queryKey: string, date: string, needsQuote: boolean, signal: AbortSignal): Promise<OpeningDay> {
   const query = new URLSearchParams(queryKey);
   query.set('date', date);
-  const response = await fetch(`/api/appointments/availability?${query}`, { signal, cache: 'no-store' });
-  const body = await response.json();
+  const load = () => fetch(`/api/appointments/availability?${query}`, { signal, cache: 'no-store' });
+  let response = await load();
+  let body = await response.json();
+  // Catalog L1 requires a basket or a base service selection, while older
+  // catalogs use the same service IDs as the owner appointment POST.
+  const serviceIds = query.get('serviceIds');
+  if (response.status === 400 && body.error?.code === 'INVALID_SERVICE' && serviceIds) {
+    const basket = serializeBookingBasket({
+      version: 2,
+      items: serviceIds.split(',').map(serviceId => ({ serviceId, selectedAddOns: [] })),
+    });
+    if (basket) {
+      query.delete('serviceIds');
+      query.set('bookingBasket', basket);
+      response = await load();
+      body = await response.json();
+    }
+  }
   if (!response.ok) {
     throw new Error(body.error?.message || 'Unable to check openings. Try again.');
   }

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -57,6 +57,11 @@ function installDefaultFetch(postResponse: () => Promise<Response> = async () =>
         },
       });
     }
+    if (url.pathname === '/api/appointments/availability') {
+      return jsonResponse({ slots: [
+        { time: '11:00', startTime: `${url.searchParams.get('date')}T15:00:00.000Z`, availability: 'available' },
+      ] });
+    }
     if (url.pathname === '/api/appointments' && init?.method === 'POST') {
       return postResponse();
     }
@@ -76,6 +81,11 @@ function modalProps(overrides: Partial<React.ComponentProps<typeof NewAppointmen
 
 async function waitForForm() {
   await screen.findByLabelText('Client Name (optional)');
+}
+
+async function chooseOpening() {
+  const openings = await screen.findByRole('region', { name: 'Find a time' });
+  fireEvent.click(await within(openings).findByRole('button', { name: '11:00' }));
 }
 
 function postCalls() {
@@ -124,6 +134,7 @@ describe('NewAppointmentModal salon resolution', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Any available technician' }));
     fireEvent.change(screen.getByLabelText('Phone Number *'), { target: { value: '+1 (416) 555-0101' } });
     fireEvent.click(screen.getByRole('button', { name: /Gel Manicure/ }));
+    await chooseOpening();
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
     await waitFor(() => expect(postCalls()).toHaveLength(1));
     const body = JSON.parse(postCalls()[0]![1].body as string);
@@ -153,6 +164,7 @@ describe('NewAppointmentModal salon resolution', () => {
 
     expect(screen.getByRole('button', { name: 'Technician Any available technician' })).toBeInTheDocument();
 
+    await chooseOpening();
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
     await waitFor(() => expect(postCalls()).toHaveLength(1));
 
@@ -328,6 +340,7 @@ describe('NewAppointmentModal Google conversion session', () => {
       />,
     );
     await waitForForm();
+    await chooseOpening();
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
 
     expect(await screen.findByTestId('new-appointment-error')).toHaveTextContent('We couldn’t confirm whether the appointment was saved.');
@@ -344,7 +357,7 @@ describe('NewAppointmentModal Google conversion session', () => {
     expect(new Headers(requests[1]!.headers).get('Idempotency-Key')).toBe(new Headers(requests[0]!.headers).get('Idempotency-Key'));
   });
 
-  it('preserves every selected service when a walk-in moves to New Appointment', async () => {
+  it('preserves a multi-service selection prefilled by the owner form', async () => {
     const onSuccess = vi.fn();
     render(
       <NewAppointmentModal {...modalProps({
@@ -355,6 +368,7 @@ describe('NewAppointmentModal Google conversion session', () => {
       />,
     );
     await waitForForm();
+    await chooseOpening();
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
     const body = JSON.parse(String((postCalls()[0]![1] as RequestInit).body));
@@ -374,11 +388,13 @@ describe('NewAppointmentModal Google conversion session', () => {
       />,
     );
     await waitForForm();
+    await chooseOpening();
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
 
     expect(await screen.findByTestId('new-appointment-error')).toHaveTextContent('Choose another time');
 
     fireEvent.change(screen.getByLabelText('Client Name (optional)'), { target: { value: 'Corrected name' } });
+    await chooseOpening();
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
     await waitFor(() => expect(postCalls()).toHaveLength(2));
     const requests = postCalls().map(([, init]) => init as RequestInit);
@@ -571,7 +587,7 @@ describe('NewAppointmentModal time picker range', () => {
   async function openTimeDropdown() {
     render(
       <NewAppointmentModal
-        {...modalProps({ googleEventPrefill: null, preselectedDate: new Date(2026, 8, 16, 12, 0, 0) })}
+        {...modalProps({ googleEventPrefill: { ...initialEvent, startTime: new Date(2026, 8, 16, 10, 0).toISOString() } })}
       />,
     );
     await waitForForm();
@@ -617,6 +633,7 @@ describe('NewAppointmentModal time picker range', () => {
 
     expect(screen.getByTestId('next-visit-offer-rebook-summary')).toHaveTextContent('next appointment must take place by 2026-10-20');
 
+    await chooseOpening();
     fireEvent.click(screen.getByRole('button', { name: 'Create Appointment' }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
 
