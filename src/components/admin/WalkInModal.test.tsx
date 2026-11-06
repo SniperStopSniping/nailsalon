@@ -54,11 +54,11 @@ it('books a walk-in on a chosen date using only server-confirmed times for the s
   fireEvent.change(within(dialog).getByLabelText('Phone Number *'), { target: { value: '4165550198' } });
 
   const times = within(dialog).getByRole('region', { name: 'Find a time' });
-  const time = await within(times).findByRole('button', { name: '11:00', exact: true });
+  const time = await within(times).findByRole('button', { name: /^11:00$/ });
   const save = within(dialog).getByRole('button', { name: 'Create Appointment' });
 
   expect(requests.at(-1)).toEqual({ date: '2099-07-21', services: 'biab', technician: 'tech' });
-  expect(within(times).queryByRole('button', { name: '11:30', exact: true })).not.toBeInTheDocument();
+  expect(within(times).queryByRole('button', { name: /^11:30$/ })).not.toBeInTheDocument();
   expect(save).toBeDisabled();
 
   fireEvent.click(time);
