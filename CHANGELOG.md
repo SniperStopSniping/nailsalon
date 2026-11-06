@@ -1,3 +1,17 @@
+# [1.148.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.147.0...v1.148.0) (2026-11-06)
+
+
+### Bug Fixes
+
+* **calendar:** keep gap checks read-only and harden mobile fixtures ([36ef0a9](https://github.com/SniperStopSniping/nailsalon/commit/36ef0a91d577245e30610d41e4e4498145ae0c0a))
+* **calendar:** load bookings for every displayed date ([7e3b23e](https://github.com/SniperStopSniping/nailsalon/commit/7e3b23ec0cbab45cfe3493a46ebf71fd77750cf6))
+* **calendar:** separate opening start and end labels ([dc93b6f](https://github.com/SniperStopSniping/nailsalon/commit/dc93b6f3ba07b6fdff177ed790502fcf74b9b622))
+
+
+### Features
+
+* **calendar:** book gaps and find the next opening ([3d8f223](https://github.com/SniperStopSniping/nailsalon/commit/3d8f2230fbded3dc5acd212ccececac5166df6e2))
+
 # [1.147.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.146.2...v1.147.0) (2026-11-06)
 
 
