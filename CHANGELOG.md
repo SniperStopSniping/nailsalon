@@ -1,3 +1,10 @@
+## [1.150.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.150.0...v1.150.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **admin:** add pearl detail to studio loading screen ([fc71622](https://github.com/SniperStopSniping/nailsalon/commit/fc71622ed33d6657b773cfb7a1a3a3ab6b6eb163))
+
 # [1.150.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.149.0...v1.150.0) (2026-11-06)
 
 
