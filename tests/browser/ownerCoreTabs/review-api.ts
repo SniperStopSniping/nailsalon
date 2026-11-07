@@ -24,7 +24,11 @@ export function installReviewApi() {
       return Response.json({ error: { message: 'Synthetic connection failure' } }, { status: 503 });
     }
     if (path === '/api/admin/appointments') {
-      return Response.json({ data: { appointments: scenario === 'empty' ? [] : [{ id: 'appt_review', clientName: 'Sofia Martin', startTime: today.toISOString(), endTime: new Date(today.getTime() + 35 * 60000).toISOString(), services: [{ name: 'Russian Manicure' }], technician, status: 'confirmed' }], schedule: { timeZone: 'America/Toronto', businessHours: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map(day => [day, { open: '09:00', close: '18:00' }])), businessHoursSource: 'salon', technicians: [technician, { ...technician, id: 'tech_2', name: 'Emma' }], timeOff: [], blockedSlots: [] } }, meta: { timeZone: 'America/Toronto' } });
+      return Response.json({ data: { appointments: scenario === 'empty' ? [] : [{ id: 'appt_review', clientName: 'Sofia Martin', startTime: today.toISOString(), endTime: new Date(today.getTime() + 35 * 60000).toISOString(), services: [{ name: 'Russian Manicure' }], technician, status: 'confirmed' }], schedule: { timeZone: 'America/Toronto', businessHours: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].map(day => [day, { open: '09:00', close: '18:00' }])), businessHoursSource: 'salon', technicians: [technician, { ...technician, id: 'tech_2', name: 'Emma' }], timeOff: [], blockedSlots: scenario === 'crowded' ? Array.from({ length: 8 }, (_, index) => ({ id: `block_${index}`, technicianId: 'tech_1', dayOfWeek: today.getDay(), startTime: `${9 + index}:00`, endTime: `${10 + index}:00`, specificDate: null, label: `Team preparation and cleanup ${index + 1}`, isRecurring: true })) : [] } }, meta: { timeZone: 'America/Toronto' } });
+    }
+    if (path === '/api/admin/calendar-openings') {
+      const date = url.searchParams.get('date') ?? today.toISOString().slice(0, 10);
+      return Response.json({ data: { timeZone: 'America/Toronto', openings: scenario === 'no-openings' ? [] : Array.from({ length: 4 }, (_, index) => ({ technicianId: 'tech_1', technicianName: 'Daniela', date, time: `${10 + index}:00`, startTime: `${date}T${15 + index}:00:00Z`, endTime: `${date}T${16 + index}:00:00Z` })) } });
     }
     if (path === '/api/admin/calendar-blocks') {
       return Response.json({ data: { blocks: [], timeZone: 'America/Toronto' } });

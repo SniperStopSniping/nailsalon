@@ -127,6 +127,7 @@ function routeFetch(url: string) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   dayAppointmentStatus = 'confirmed';
   googleReadiness = 'ready';
   googleStatus = 'connected';

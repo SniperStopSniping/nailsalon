@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock,
   Plus,
   Search,
   User,
@@ -50,6 +49,7 @@ import { NewAppointmentModal } from './NewAppointmentModal';
 
 // Types
 type ViewMode = 'weekly' | 'monthly';
+const CALENDAR_VIEW_STORAGE_KEY = 'luster:owner-calendar-view:v1';
 type ScheduleFilter =
   | 'all'
   | 'appointments'
@@ -338,6 +338,7 @@ function DayCell({
       type="button"
       aria-label={`${dayLabel}. ${appointmentCount} Luster ${appointmentCount === 1 ? 'appointment' : 'appointments'}.${googleBusyCount > 0 ? ` ${googleBusyCount} Google busy ${googleBusyCount === 1 ? 'event' : 'events'}.` : ''} ${describeAvailability(availability)}`.trim()}
       aria-pressed={isSelected}
+      aria-current={today ? 'date' : undefined}
       data-testid={`calendar-day-${formatDateKey(date)}`}
       data-selected={isSelected ? 'true' : 'false'}
       data-closed={closed ? 'true' : 'false'}
@@ -346,7 +347,7 @@ function DayCell({
       onClick={onClick}
       whileTap={{ scale: 0.95 }}
       className={`
-        relative flex min-w-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all
+        relative flex min-w-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2
         ${viewMode === 'weekly' ? 'min-h-[72px] py-1.5' : 'aspect-square min-h-[44px]'}
         ${
     isSelected
@@ -541,14 +542,14 @@ function DayDetailPanel({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
       transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-      className="relative w-full overflow-hidden"
+      className="relative max-h-[70dvh] w-full overflow-y-auto"
     >
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-5 pb-4 pt-5">
+      <div className="border-b border-[var(--owner-line)] bg-[var(--owner-surface)] px-5 pb-4 pt-5">
         <div className="mb-2 flex items-center justify-between">
           <div>
-            <h3 id="calendar-day-details-title" className="text-xl font-bold text-gray-900">{dayName}</h3>
-            <p className="text-sm text-gray-500">{dateStr}</p>
+            <h3 id="calendar-day-details-title" className="text-xl font-semibold text-[var(--owner-ink)]">{dayName}</h3>
+            <p className="text-sm text-[var(--owner-muted)]">{dateStr}</p>
           </div>
           <button
             type="button"
@@ -559,7 +560,7 @@ function DayDetailPanel({
             <X className="size-5 text-gray-600" />
           </button>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--owner-muted)]">
           <Calendar className="size-4" />
           <span>
             {appointments.length}
@@ -567,7 +568,7 @@ function DayDetailPanel({
             {appointmentCountLabel}
           </span>
           {availability?.openMinutes != null && availability.closeMinutes != null && (
-            <span className="text-xs text-gray-500">
+            <span className="text-sm text-[var(--owner-muted)]">
               ·
               {' '}
               Open
@@ -583,9 +584,8 @@ function DayDetailPanel({
 
       {/* Content */}
       <div
-        className="overflow-y-auto p-5"
+        className="p-5"
         style={{
-          maxHeight: 'calc(70dvh - 100px)',
           paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 20px)',
         }}
       >
@@ -653,64 +653,37 @@ function DayDetailPanel({
                           : undefined}
                         className={`
                           rounded-xl border p-3
-                          ${isCrmAppointment ? 'min-h-11 cursor-pointer text-left transition-transform active:scale-[0.99]' : ''}
+                          ${isCrmAppointment ? 'min-h-11 cursor-pointer text-left transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 active:scale-[0.99]' : ''}
                           ${statusColors!.bg} ${statusColors!.border}
                         `}
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            {/* Client Name & Time */}
-                            <div className="flex items-center gap-2">
-                              <User
-                                className={`size-4 ${statusColors!.text}`}
-                              />
-                              <span
-                                className={`font-semibold ${statusColors!.text}`}
-                              >
-                                {appt.clientName || 'Guest'}
-                              </span>
-                              {appt.source === 'google' && (
-                                <span className="rounded-full bg-[var(--owner-blush,#f6e7ec)] px-2 py-0.5 text-[11px] font-bold text-[var(--owner-accent-strong,#70213f)]">
-                                  Google
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Services */}
-                            <p className="mt-1 text-sm text-gray-600">
-                              {appt.services.join(', ') || 'Service'}
-                            </p>
-                          </div>
-
-                          {/* Time & Duration */}
-                          <div className="text-right">
-                            <div
-                              className={`flex items-center gap-1 text-sm font-semibold ${statusColors!.text}`}
-                            >
-                              <Clock className="size-3.5" />
-                              {formatTime(appt.startTime, appt.timeZone)}
-                            </div>
-                            <p className="mt-0.5 text-xs text-gray-500">
-                              {calculateDuration(appt.startTime, appt.endTime)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Status Badge */}
-                        <div className="mt-2 flex items-center justify-between">
-                          <span
-                            className={`
-                            inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide
-                            ${statusColors!.bg} ${statusColors!.text} border ${statusColors!.border}
-                          `}
-                          >
-                            {formatAppointmentStatus(appt.status)}
-                          </span>
-                          <span className="text-xs text-gray-400">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                          <span data-testid="appointment-time-range" className={`text-base font-semibold ${statusColors.text}`}>
                             {formatTime(appt.startTime, appt.timeZone)}
-                            {' '}
-                            -
+                            {' – '}
                             {formatTime(appt.endTime, appt.timeZone)}
+                          </span>
+                          <span data-testid="appointment-duration" className="text-sm text-[var(--owner-muted)]">
+                            {calculateDuration(appt.startTime, appt.endTime)}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <User aria-hidden="true" className="size-4 shrink-0 text-[var(--owner-muted)]" />
+                          <span className="min-w-0 break-words font-semibold text-[var(--owner-ink)]">
+                            {appt.clientName || 'Guest'}
+                          </span>
+                          {appt.source === 'google' && (
+                            <span className="rounded-full bg-[var(--owner-blush)] px-2 py-0.5 text-xs font-semibold text-[var(--owner-accent-strong)]">
+                              Google
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 break-words text-sm text-[var(--owner-muted)]">
+                          {appt.services.join(', ') || 'Service'}
+                        </p>
+                        <div className="mt-3">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${statusColors.text} ${statusColors.border}`}>
+                            {formatAppointmentStatus(appt.status)}
                           </span>
                         </div>
                         {appt.source === 'google'
@@ -766,6 +739,24 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
     }
   }, [localView]);
   const [viewMode, setViewMode] = useState<ViewMode>('monthly');
+  useEffect(() => {
+    try {
+      const savedView = window.localStorage.getItem(CALENDAR_VIEW_STORAGE_KEY);
+      if (savedView === 'weekly' || savedView === 'monthly') {
+        setViewMode(savedView);
+      }
+    } catch {
+      // Calendar remains usable when private browsing or storage policy blocks access.
+    }
+  }, []);
+  const changeView = (view: ViewMode) => {
+    setViewMode(view);
+    try {
+      window.localStorage.setItem(CALENDAR_VIEW_STORAGE_KEY, view);
+    } catch {
+      // Remembering a preference must never prevent changing the view.
+    }
+  };
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>('all');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -1123,6 +1114,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
       if (viewMode === 'weekly') {
         d.setDate(d.getDate() - 7);
       } else {
+        d.setDate(1);
         d.setMonth(d.getMonth() - 1);
       }
       return d;
@@ -1136,6 +1128,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
       if (viewMode === 'weekly') {
         d.setDate(d.getDate() + 7);
       } else {
+        d.setDate(1);
         d.setMonth(d.getMonth() + 1);
       }
       return d;
@@ -1267,10 +1260,11 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
       />
 
       <div className="relative z-20 mx-4 mt-4 flex flex-wrap items-start justify-between gap-2">
-        <div className="flex rounded-full bg-[var(--owner-blush)] p-1">
+        <div role="group" aria-label="Calendar view" className="flex rounded-full bg-[var(--owner-blush)] p-1">
           <button
             type="button"
-            onClick={() => setViewMode('weekly')}
+            aria-pressed={viewMode === 'weekly'}
+            onClick={() => changeView('weekly')}
             className={`
               min-h-11 rounded-full px-3 py-1.5 text-[13px] font-medium outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
               ${
@@ -1284,7 +1278,8 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
           </button>
           <button
             type="button"
-            onClick={() => setViewMode('monthly')}
+            aria-pressed={viewMode === 'monthly'}
+            onClick={() => changeView('monthly')}
             className={`
               min-h-11 rounded-full px-3 py-1.5 text-[13px] font-medium outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
               ${
@@ -1333,7 +1328,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
 
       <button
         type="button"
-        className="mx-4 mt-3 flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 text-sm font-semibold text-[var(--owner-accent)]"
+        className="mx-4 mt-3 flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 text-sm font-semibold text-[var(--owner-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2"
         onClick={() => {
           const today = getDateKeyInTimeZone(new Date(), schedule.timeZone);
           setFindOpeningFrom(selectedDateKey && selectedDateKey > today ? selectedDateKey : today);
@@ -1536,7 +1531,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
                     <button
                       type="button"
                       onClick={() => handleDayClick(date)}
-                      className="text-left text-sm font-semibold text-stone-900 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]"
+                      className="min-h-11 text-left text-sm font-semibold text-[var(--owner-ink)] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]"
                     >
                       {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                     </button>
@@ -1561,23 +1556,25 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
                               disabled={!isCrmAppointment}
                               onClick={isCrmAppointment ? () => actions.openAppointment(appointment.id) : undefined}
                               data-testid={`calendar-week-entry-${appointment.id}`}
-                              className={`flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left ${statusColors.bg} ${statusColors.border} ${isCrmAppointment ? 'transition-transform active:scale-[0.99]' : 'cursor-default'}`}
+                              className={`flex min-h-11 w-full flex-col gap-1 rounded-xl border px-3 py-2.5 text-left ${statusColors.bg} ${statusColors.border} ${isCrmAppointment ? 'transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 active:scale-[0.99]' : 'cursor-default'}`}
                             >
-                              <span className={`w-[68px] shrink-0 text-xs font-semibold ${statusColors.text}`}>
-                                {formatTime(appointment.startTime, appointment.timeZone)}
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium text-stone-900">
-                                  {appointment.clientName || 'Guest'}
+                              <span className="flex w-full flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                                <span className={`text-sm font-semibold ${statusColors.text}`}>
+                                  {formatTime(appointment.startTime, appointment.timeZone)}
+                                  {' – '}
+                                  {formatTime(appointment.endTime, appointment.timeZone)}
                                 </span>
-                                <span className="block truncate text-[12px] text-[var(--owner-muted,#706267)]">
-                                  {[appointment.services.join(', ') || 'Service', appointment.technician]
-                                    .filter(Boolean)
-                                    .join(' · ')}
+                                <span className={`text-xs font-semibold ${statusColors.text}`}>
+                                  {formatAppointmentStatus(appointment.status)}
                                 </span>
                               </span>
-                              <span className={`shrink-0 text-[11px] font-bold uppercase tracking-wide ${statusColors.text}`}>
-                                {formatAppointmentStatus(appointment.status)}
+                              <span className="w-full break-words text-base font-medium text-[var(--owner-ink)]">
+                                {appointment.clientName || 'Guest'}
+                              </span>
+                              <span className="w-full break-words text-sm text-[var(--owner-muted)]">
+                                {[appointment.services.join(', ') || 'Service', appointment.technician]
+                                  .filter(Boolean)
+                                  .join(' · ')}
                               </span>
                             </button>
                           </li>
@@ -1640,6 +1637,13 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp, initi
               availability={selectedAvailability}
               openings={salonSlug && selectedDateKey && (
                 <CalendarDayOpenings
+                  key={`${selectedDateKey}|${technicianFilter}`}
+                  defaultExpanded={selectedAppointments.length === 0}
+                  onFindOpening={() => {
+                    const today = getDateKeyInTimeZone(new Date(), schedule.timeZone);
+                    setFindOpeningFrom(selectedDateKey > today ? selectedDateKey : today);
+                    setShowNewAppointmentModal(true);
+                  }}
                   salonSlug={salonSlug}
                   date={selectedDateKey}
                   technicianId={technicianFilter === 'all' ? null : technicianFilter}

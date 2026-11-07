@@ -110,6 +110,7 @@ function appointmentsPayload() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(new Date('2026-09-16T15:00:00.000Z'));
   appointmentsCallCount = 0;
