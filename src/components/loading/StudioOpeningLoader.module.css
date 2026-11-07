@@ -7,24 +7,107 @@
   min-height: 100dvh;
   place-items: center;
   padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
-  background: var(--owner-ground, #fcf3f2);
+  background:
+    radial-gradient(ellipse at 50% 44%, #f6dce4 0%, #f9e8ec 28%, transparent 65%),
+    var(--owner-ground, #fcf3f2);
   color: var(--owner-muted, #75676d);
   font-family: var(--owner-font-body, Inter, ui-sans-serif, system-ui, sans-serif);
   font-size: 14px;
+  line-height: 1.5;
 }
 
 .content {
   display: grid;
   justify-items: center;
-  gap: 12px;
   text-align: center;
+}
+
+.pearl {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: clamp(148px, 22vh, 176px);
+  aspect-ratio: 1;
+  margin-bottom: 32px;
+  place-items: center;
+  border: 1px solid #fff5f6;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 28% 21%, #fff 0%, #fff9 9%, transparent 29%),
+    radial-gradient(ellipse at 77% 76%, #fff3d7cc 0%, transparent 35%),
+    radial-gradient(ellipse at 78% 29%, #e5d9eecc 0%, transparent 45%),
+    linear-gradient(145deg, #f9e7ee 12%, #efd4e1 55%, #fae4e5);
+  box-shadow:
+    0 22px 28px -18px #ae5c7a66,
+    inset 3px 4px 12px #fff9,
+    inset -4px -5px 12px #c78da333;
+}
+
+.pearl::before {
+  position: absolute;
+  z-index: -1;
+  inset: 10px;
+  border-radius: inherit;
+  background: conic-gradient(from 25deg, #eadcf066, #fff9, #f9e9c999, #e2dcee88, #f8d6e466, #fff9, #eadcf066);
+  filter: blur(7px);
+  content: '';
+}
+
+.pearl::after {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid #fff3;
+  border-radius: inherit;
+  box-shadow: inset 1px 1px 8px #fff8;
+  content: '';
 }
 
 .wordmark {
   color: var(--owner-accent, #8f3155);
   font-family: var(--owner-font-display, Georgia, serif);
-  font-size: 36px;
+  font-size: 42px;
   font-weight: 500;
   letter-spacing: -.045em;
   line-height: 1;
+}
+
+.dots {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c87391;
+  opacity: .45;
+  animation: pearlPulse 1.8s ease-in-out infinite;
+}
+
+.dots span:nth-child(2) {
+  animation-delay: .2s;
+}
+
+.dots span:nth-child(3) {
+  animation-delay: .4s;
+}
+
+@keyframes pearlPulse {
+  0%, 60%, 100% {
+    opacity: .35;
+    transform: scale(.9);
+  }
+
+  30% {
+    opacity: .85;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dots span {
+    animation: none;
+  }
 }
