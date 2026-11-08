@@ -19,6 +19,12 @@ existing non-executable quote preview. See
 [the inactive checkout boundary](customer-payments-inactive-stripe-checkout.md)
 for preflight, idempotency, Session/quote lifetime and recovery constraints.
 
+A separate [closed-test durable fence](customer-payments-durable-checkout-fence.md)
+now exercises this immutable operation contract with saved-quote revalidation,
+committed send latches and redacted observations in migration 0126. It does not
+invoke the SDK adapter or replace the missing real-provider bridge, customer
+authorization or booking reservation.
+
 ## Existing code and integration hazard
 
 - `src/libs/customerPayments/checkout.ts` builds direct-charge parameters; it

@@ -309,6 +309,33 @@ migration, credential change, push, merge, deployment or activation occurred.
 This verifies an inactive local SDK seam and test-preview navigation, not real
 Stripe payment execution or release readiness.
 
+## Closed-test durable checkout fence checkpoint
+
+Migration 0126 and the new `inactiveStripe/durableCheckout*` modules exercise
+durable operation ownership, versioned leases, committed one-use dispatch,
+redacted immutable observations and sticky review with a closed fake transport.
+They bind to and revalidate saved test quotes using the existing material builder.
+They do not call the inactive SDK adapter, authorize actual provider execution,
+reserve booking slots or settle money. See
+`customer-payments-durable-checkout-fence.md` for the exact boundary.
+
+Final sequential verification passed 2,342 scoped tests across 114 files. The
+66 opt-in PostgreSQL cases skipped in that aggregate then all passed across
+11 files against a fresh disposable native PostgreSQL cluster. The 143 focused
+adapter/fence cases overlap the aggregate: 95 prior SDK adapter cases and 48 new
+closed-fence cases, including an actual child-process reopen of a disk-backed
+store. Independent review covered rollback/uncertain-commit send fencing,
+late/stale ownership evidence, immutable inputs, exact observation replay,
+suppressed writes and captured-charge identity protection.
+
+All 20 mock desktop/mobile browser cases, full TypeScript, scoped lint and full
+local production build passed. All 12 built production-off checks returned 404
+with default flags and all eight flags forced true. Build settings were restored,
+owned servers stopped, and the private PostgreSQL cluster and temporary secrets
+removed. No provider request, application database migration, application/provider
+credential change, push, merge, deployment or activation occurred. This checkpoint remains local to
+the payment branch; it has not been integrated with the newer homepage release.
+
 ## Remaining gate 1: real provider operations and receipts
 
 - `checkout.ts` builds parameters only; `attempt.ts` accepts trusted synthetic

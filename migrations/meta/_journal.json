@@ -876,6 +876,13 @@
       "when": 1794214800000,
       "tag": "0125_customer_payment_fixture_movements",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1794218400000,
+      "tag": "0126_customer_payment_closed_checkout",
+      "breakpoints": true
     }
   ]
 }

@@ -4,9 +4,13 @@
 
 `src/libs/customerPayments/inactiveStripe/` implements Stripe SDK Checkout Session
 creation and exact-ID retrieval, but is not imported by an application route,
-page, worker, webhook consumer or the protected offline provider graph. It has no
-application database, durable operation journal or financial posting authority.
-The existing deposit and billing handlers are unchanged.
+page, worker, webhook consumer or the protected offline provider graph. The SDK
+adapter itself has no application database, durable operation journal or financial
+posting authority.
+The existing deposit and billing handlers are unchanged. A separate closed-test
+durable fence now exercises this immutable operation contract; see
+`customer-payments-durable-checkout-fence.md`. It does not invoke this SDK adapter
+or give its observations provider or financial authority.
 
 The factory requires an explicit `enabled: true` test purpose, a caller-supplied
 test credential and fixed platform/connected-account/return-origin binding. It
