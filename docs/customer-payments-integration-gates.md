@@ -1,9 +1,10 @@
 # Customer payment integration gates
 
 Status: default-off nonproduction preparation plus **internal synthetic** capture/refund,
-canonical-reader, lifecycle, reporting and bounded readonly credit-review integration.
+canonical-reader, lifecycle, reporting, bounded readonly credit review and an
+offline signed-fixture inbox/outbox.
 No provider collection, real refunds, deployment or production activation.
-Migrations 0115–0119 exist in source and have run through the real journal in isolated/disposable tests only,
+Migrations 0115–0120 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
 ## Implemented: preparation and customer context
@@ -243,7 +244,7 @@ These are scoped checks, not the whole repository suite, an authenticated
 full-app customer journey or real provider execution. No provider call, actual
 charge/refund, application migration, push, deployment or activation occurred.
 
-## Current credit-review verification boundary
+## Previous credit-review checkpoint: `3585d41d`
 
 Final scoped aggregate: **1,152 tests passed in 73 files**. The 27 opt-in
 PostgreSQL cases were skipped there and passed separately on genuine PostgreSQL
@@ -279,8 +280,8 @@ assessment only; it installs no adapter or webhook.
 ## Remaining gate 1: real provider operations and receipts
 
 - `checkout.ts` builds parameters only; `attempt.ts` accepts trusted synthetic
-  evidence and does not verify signatures. Add durable operation/outbox and
-  verified inbox persistence before executing provider calls. Verify signature,
+  evidence and does not verify signatures. Extend the offline journal below to a
+  separately authorized real adapter before provider calls. Verify signature,
   account, actual mode, session/intent, amount, currency, fee and metadata.
 - Revalidate authorization and financial context; use stable idempotency and
   reconcile uncertain outcomes. Browser redirects and owner buttons cannot mark
@@ -289,12 +290,54 @@ assessment only; it installs no adapter or webhook.
   wallet/device coverage and provider retry/late-event cases require separate
   authorized testing. Cached Connect flags do not attest provider authorization.
 
+## Offline provider journal checkpoint
+
+Additive migration 0120 and `server/providerJournal.ts` now persist offline signed fixture
+receipts, conflict evidence, independent consumer/version deliveries, immutable
+operation identities and append-only transition audits. Original raw payloads,
+signature values and customer details are not stored. Private runtime provenance
+prevents arbitrary deserialized objects from entering the receipt seam.
+
+`provider/dispatchFixture.ts` persists dispatch intent before a closed fake
+transport executes, then records a version/lease-bound result. Missing results
+remain uncertain; explicit reconciliation preserves the original identity and
+conservative retention window. `provider/inspectFixture.ts` leaves relevant money
+under review and cannot suppress another consumer's delivery.
+
+This is not a real verified provider driver. The sixth switch requires
+`NODE_ENV=test`, preparation enabled and no production marker. No application
+route or worker imports it, and there is no financial bridge or canonical money
+mutation. See `docs/customer-payments-provider-adapter-plan.md` and the provider
+README for exact scope and remaining external-test prerequisites.
+
+Verification on final runtime/SQL:
+
+- **1,249 tests passed in 79 files** in the scoped regression aggregate. The 31
+  opt-in PostgreSQL cases were skipped there and passed separately in five files
+  on genuine PostgreSQL 16.15, including four new provider-journal cases.
+- Independent boundary tests cover offline signature provenance, forgery, SQL
+  null validation, per-consumer dispatch, conflicts, unknown evidence and unchanged
+  money tables. Full-journal tests cover durable dispatch, uncertain recovery,
+  immutable audit commands and suppressed-write failure. These overlap the
+  aggregate and are not additional counts.
+- Node 24 typecheck, scoped lint and the full production build passed. Local
+  webpack cache was temporarily disabled to preserve disk space, then restored;
+  no type-check bypass was used.
+- All **20 standalone desktop/mobile browser cases** passed with mock transports.
+  All **12 built-app production-off checks** returned 404 with default flags and
+  all six flags forced true in production. The fixture entry points' strict
+  test-only refusal and lack of application imports are independently tested.
+- The private PostgreSQL cluster, temporary secrets and owned test servers were
+  removed. No application migration, provider execution, push or deployment was
+  performed. These are scoped checks, not the entire repository suite, an
+  authenticated full-app journey or real card/Apple Pay execution.
+
 ## Remaining gate 2: real refunds and explicit review resolution
 
-- The new application-table synthetic ledger is implemented, but a real refund
-  operation driver, verified durable inbox/outbox and unmatched-evidence inbox
-  are not. Unknown/unsupported capture evidence needs retained verified receipt
-  handling before any future provider event can be acknowledged.
+- The application-table synthetic ledger and offline fixture journal are
+  implemented, but a real refund operation driver and verified provider-to-money
+  adapter are not. Real unknown/unsupported capture evidence needs approved
+  authenticated receipt handling before a future provider event is acknowledged.
 - Extend the bounded synthetic readonly decisions above to separately authorized
   broader review resolution, legal invoice credit documents/adjustments and
   collection/lifecycle hold clearing. None of those broader operations exists
@@ -336,7 +379,7 @@ assessment only; it installs no adapter or webhook.
 - Extend booking/deposit regressions, real authenticated Next.js browser journeys,
   accessibility, reporting/receipt checks, full CI and security review. Separately
   approve migration rollout, deployment, pilot activation and monitoring. All
-  five feature flags remain false by default; production is refused.
+  six feature flags remain false by default; production is refused.
   Refund and credit-review writes depend on the preparation/ledger-test gates;
   credit-review does not require the refund-write gate. None authorizes a provider
   call or ordinary collection/lifecycle hold clearing.

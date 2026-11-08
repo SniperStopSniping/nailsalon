@@ -264,7 +264,7 @@ a future independent inbox and is not attributed to this salon.
 `refund.concurrency.integration.test.ts` requires a separately provisioned private
 attested disposable PostgreSQL target via `CUSTOMER_PAYMENT_REFUND_TEST_DATABASE_URL`
 and `LUSTER_DISPOSABLE_DATABASE=true`. Run with
-`CUSTOMER_PAYMENT_REFUND_PG_REQUIRED=true`, Node24, Vitest `--maxWorkers=1
+`CUSTOMER_PAYMENT_REFUND_PG_REQUIRED=true`, Node 24, Vitest `--maxWorkers=1
 --no-file-parallelism`. Missing target skips; required missing target or invalid
 supplied target fails before connection. It attests every physical session and
 uses the actual migration journal. Immutable fixtures require whole private-cluster
@@ -326,5 +326,57 @@ skips; invalid/required-missing targets refuse before connecting. Four cases cov
 same/different request contention, a refund committing ahead of a waiting decision,
 and owner-membership revocation contention. The actual migration journal is used;
 immutable fixtures require teardown of only the newly created private cluster.
-Latest native PostgreSQL16.15 verification passed all four credit cases and all
+Latest native PostgreSQL 16.15 verification passed all four credit cases and all
 23 prior preparation/capture/refund cases. No provider or application DB was used.
+
+## Inert offline provider inbox/outbox journal
+
+Migration 0120 and `providerJournal.ts` persist fixture evidence and operation
+coordination only. The standalone `customerPaymentProviderSchema.ts` is exported
+through Schema.ts, so the existing Drizzle schema census includes it once. No
+route/worker is registered, no Stripe/global SDK is imported, and no appointment,
+capture, refund, fee or credit-decision money is written by this journal.
+
+Every entry point requires NODE_ENV=test, the explicit provider-fixture flag and
+the preparation nonproduction gate. Inbox ingestion requires the original runtime
+branded `offline_signed_fixture` receipt from the offline verifier. Persisted JSON
+is never rebranded as fresh verification or real financial authority. Actual
+account/mode mismatches and authenticated unsupported evidence remain review rows.
+Event identity is scoped by endpoint/platform/account scope/account/mode; a missing
+event ID uses an explicitly separate digest identity. Arrival time does not change
+replay content. Conflicting authenticated content is retained append-only before
+returning a fail-closed error; all existing consumer deliveries, even previously
+completed ones, become review atomically.
+
+Deliveries are independent per consumer/version. Inbox-first locks, bounded
+1-second to 5-minute DB-clock leases, monotonically fenced versions and SQL state
+checks prevent stale completion and one consumer swallowing another. Review or
+conflicting evidence cannot complete through the repository or raw SQL guards.
+Delivery and operation projections append immutable audit snapshots automatically.
+
+Operations bind immutable tenant/appointment/prepared quote, quote fingerprint,
+actual account scope, strict parameters/hash, API version and stable idempotency
+key. Checkout reference is the quote ID; currency, amount and application fee must
+match its snapshot. Refund/fee targets remain offline fixture IDs, not proven real
+charge relationships. They cannot promote a non-executable quote into a real
+provider request or a financial ledger row.
+
+Operation states persist claim and dispatch intent before fake transport execution.
+Every UPDATE/INSERT must return its persisted row; suppressed writes fail without
+claiming dispatch succeeded. Expired dispatch becomes uncertain, never sendable.
+Reconciliation needs a closed-script, runtime-branded observation bound to the
+exact operation, lease/version and time. A safe retry retains the original key and
+23-hour conservative retention boundary. Beyond that boundary it remains review,
+not a blind resend. SQL requires exact command/state pairs; audit snapshots retain
+sanitized observations and prior fences, including authoritative-absence evidence.
+No clock input, SDK, credentials, callback transport or external provider call is
+accepted by the durable repository.
+
+`providerJournal.concurrency.integration.test.ts` uses dedicated
+`CUSTOMER_PAYMENT_PROVIDER_TEST_DATABASE_URL` and required-mode
+`CUSTOMER_PAYMENT_PROVIDER_PG_REQUIRED=true`, alongside the unchanged disposable
+PostgreSQL attestation. Missing target skips; required-missing/invalid targets fail
+before connecting. Four real-PG cases cover receipt replay/conflict/fanout,
+operation replay, competing/expired leases and crash reconciliation without money
+writes. All sessions are independently attested and use the actual journal. Only
+new private cluster teardown may remove these immutable fixtures.

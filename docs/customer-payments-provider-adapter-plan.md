@@ -1,7 +1,8 @@
-# Verified provider adapter: next implementation boundary
+# Verified provider adapter: offline journal and remaining boundary
 
-This is an implementation assessment, not an installed provider adapter or
-authorization to run payments. No Stripe account/API operation, credential change,
+The offline journal described below is implemented for signed fixtures and a
+closed fake transport. It is not an installed Stripe adapter or authorization to
+run payments. No Stripe account/API operation, credential change,
 webhook registration, application migration or deployment was performed.
 
 ## Existing code and integration hazard
@@ -20,7 +21,10 @@ webhook registration, application migration or deployment was performed.
   credential-backed client. Do not silently change its version, timeout, retries
   or billing behavior while implementing customer payments.
 
-## Proposed inert local slice
+## Inert local slice
+
+The following are design requirements for the eventual provider boundary. The
+implemented offline subset and its remaining limits are described afterward.
 
 1. **Verified receipt boundary.** Inject an offline signature verifier and a
    fixed endpoint configuration. Persist authenticated evidence before processing:
@@ -52,12 +56,28 @@ webhook registration, application migration or deployment was performed.
    validation. Old redirects, buttons and scalar payment status cannot assert
    payment success.
 
-Implement this with dependency injection, migrations in source, offline signature
-fixtures, fake transport and disposable-database tests only. Do not register a
-route/worker or import the global Stripe client in the first slice. Test duplicate
-and conflicting receipts, per-consumer fanout, scope/mode mismatch, late and
-out-of-order outcomes, unknown money, lease races, crash recovery, idempotency
-retention boundaries and independent customer/fee returns.
+The implementation lives in `src/libs/customerPayments/provider/`,
+`server/providerJournal.ts`, and additive migration0120. Its dedicated switch
+requires `NODE_ENV=test`, preparation enabled and no production deployment marker.
+No route or worker is registered, and the global Stripe client is not imported.
+Signatures are verified by an injected offline verifier; the durable provenance is
+explicitly `offline_signed_fixture`, never real provider authority.
+
+Every relevant money consumer stops at review because no financial bridge is
+installed. A separate consumer can complete an irrelevant-event inspection without
+suppressing the relevant consumer. Operation success identifies only a fixture
+object. Interrupted dispatch/result persistence requires reconciliation of the
+original operation, not a new key. The fake transport is a privately branded
+closed response map, not a callback capable of performing arbitrary network work.
+
+Application migrations and all external provider work remain disabled. Read the
+adjacent provider README for the precise provenance and authority boundaries.
+
+The receipt normalizer currently covers intent, charge, refund, application-fee
+and fee-return fixture facts. A Checkout Session-to-intent relationship adapter,
+immutable business-movement deduplication across different event IDs, disputes and
+financial settlement are still unimplemented. Event retention does not stand in
+for those checks.
 
 ## Provider facts supporting the design
 

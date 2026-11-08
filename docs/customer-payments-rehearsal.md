@@ -166,7 +166,7 @@ synthetic refund seam. Neither is a verified webhook driver or real refund. The 
 configurable and salon-paid here; Stripe processing expense is not invented as
 an actual customer charge. Apple Pay would be offered by Stripe only when eligible.
 
-## Five default-off controls
+## Six default-off controls
 
 - `CUSTOMER_PAYMENTS_REHEARSAL_ENABLED=false`: presentation-only
   `/en/payments-rehearsal`; no persisted salon settings or money.
@@ -188,8 +188,12 @@ an actual customer charge. Apple Pay would be offered by Stripe only when eligib
   obligation decision, not cash,
   a provider refund or permission to resume ordinary appointment actions.
 
-Production is refused by all five controls. None enables Stripe execution. Do not
-enable these against an unreviewed or shared application database. Migrations 0115–0119 have been
+- `CUSTOMER_PAYMENTS_PROVIDER_FIXTURE_ENABLED=false`: signed offline receipt and
+  outbox fixtures with a closed fake transport. Requires preparation enabled and
+  `NODE_ENV=test`; it has no route, scheduled worker or financial posting authority.
+
+Production is refused by all six controls. None enables Stripe execution. Do not
+enable these against an unreviewed or shared application database. Migrations 0115–0120 have been
 exercised through the real journal in isolated fixtures/disposable PostgreSQL,
 not applied to a development, preview or production application DB.
 
@@ -265,7 +269,7 @@ certification of later credit-review changes; their checks are recorded below.
   No application DB migration, provider call, real charge/refund, push,
   deployment or activation was performed.
 
-## Current credit-review verification boundary
+## Previous credit-review checkpoint: `3585d41d`
 
 - Final scoped aggregate: **1,152 tests passed in 73 files**. The 27 opt-in
   PostgreSQL cases were skipped there and passed separately on PostgreSQL 16.15:
@@ -293,16 +297,41 @@ certification of later credit-review changes; their checks are recorded below.
   activation occurred. Credit notes remain synthetic/nonlegal and ordinary
   collection/lifecycle holds remain enforced.
 
+## Offline provider journal checkpoint
+
+The additive migration 0120 journal persists authenticated offline fixture receipts, immutable
+operation identities, consumer-specific deliveries and audited state transitions.
+Original raw payloads and signatures are not stored. The signed fixture provenance
+cannot be converted into synthetic or real money authority.
+
+A privately branded closed response map exercises dispatch and reconciliation.
+Dispatch intent must be durably saved first. A lost response or uncertain result
+cannot cause a blind resend, a new operation or a reset idempotency window.
+Consumer inspection keeps relevant money under review, while unrelated consumers
+can finish their own inspection without suppressing that review.
+
+This is an offline implementation, not real Stripe integration. No endpoint,
+account, credential, financial row or application deployment is changed. See
+`docs/customer-payments-provider-adapter-plan.md` for remaining provider work.
+
+Final verification: **1,249 scoped regressions passed**, plus **31 actual
+PostgreSQL cases** run separately and **20 mock desktop/mobile browser cases**.
+Standalone typecheck, scoped lint, production build and **12 production-off
+checks** passed, including all six flags forced true in production. No type bypass
+was used; the temporary local webpack-cache change was restored. Private test
+infrastructure was removed. See the integration-gates document for test overlap
+and the remaining unverified external/full-app boundary.
+
 ## Remaining gates before collection
 
 1. Approve fee payer, fee scope, tax, cancellation/refund policy and operational
    responsibilities. Customer-paid surcharges remain unsupported. CA$1 revenue
    is not net profit; actual Stripe/Connect costs and account settings need review.
-2. Add recoverable provider operations/outbox and a signature-verified durable
-   inbox with account, mode, session, intent, amount, currency and fee binding.
+2. Connect the offline journal patterns to a separately authorized real provider
+   adapter with account, mode, session, intent, amount, currency and fee binding.
    A redirect is never payment evidence. Recheck actual test-mode credentials and
    account authorization before any separately approved provider execution.
-3. Add a real refund operation driver and an unmatched-evidence inbox. The current
+3. Add a real refund operation driver and authenticated unmatched-evidence ingress. The current
    synthetic seam accepts known posted captures only; it is not general provider
    event retention. The bounded synthetic readonly credit decisions above do not
    implement legal credit documents, broader invoice adjustments or authorized
