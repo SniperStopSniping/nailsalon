@@ -1,8 +1,8 @@
 # Luster homepage redesign review
 
 Public-homepage-only first pass, based on `origin/main` at `7df39415`.
-This branch is for design review and must not be merged or promoted as part of
-this task.
+The first pass was prepared for design review. Production release was approved
+on November 8, 2026, subject to passing CI and preview checks.
 
 ![Mobile 390 × 844](mobile-390x844.png)
 ![Desktop 1440 × 900](desktop-1440x900.png)
