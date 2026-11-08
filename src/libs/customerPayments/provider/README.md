@@ -23,6 +23,50 @@ only the injected fixture check, not that Stripe moved money. The provenance is
 distinct from the existing `synthetic_test` financial ledger and is never
 converted into that ledger's inputs.
 
+`stripeWebhookFixture.ts` adds a bounded Stripe v1 wire-protocol rehearsal. It
+uses `node:crypto`, not the Stripe SDK, at runtime. The installed Stripe 16.12.0
+static webhook helpers are used only as an interoperability oracle in tests;
+no SDK client is constructed. This is not evidence of Stripe origin, full Stripe
+payload compatibility or readiness for external testing.
+
+`verifyOfflineStripeWebhookReceipt` requires an explicit signing binding with an
+endpoint ID, platform ID and public fixture key. The key must have the literal
+prefix `public-offline-stripe-fixture:` followed by 1–128 ASCII letters, digits,
+underscores or hyphens. Real `whsec_` signing secrets are rejected. The binding
+must match the fixed endpoint/platform configuration; payload metadata cannot
+choose either identity. This binding is a fixture configuration check, not an
+endpoint/platform claim embedded in Stripe's signature. Configuration remains
+test-only and pinned to API `2024-06-20`. Signed account, mode and API-version
+mismatches remain review receipts under the existing normalizer.
+
+The strict fixture header profile permits at most 8,192 characters and 128
+comma-separated fields. Field names are 1–32 ASCII letters/digits/underscores,
+starting with a letter; values are 1–512 ASCII letters/digits/underscores/hyphens.
+There must be exactly one lowercase `t` field containing a canonical nonnegative
+safe-integer decimal timestamp and at least one lowercase `v1` field containing
+exactly 64 lowercase hexadecimal characters. Every v1 field must be well-formed;
+any matching v1 authenticates. Other well-formed fields are ignored. Whitespace,
+empty fields, duplicate timestamps and noncanonical timestamp spellings fail.
+
+Freshness uses the fixed receipt time rounded down to seconds: signatures may be
+at most 300 seconds old or 5 seconds ahead. The small future allowance rehearses
+bounded clock skew; it does not disable freshness checks or use event creation
+time as the delivery clock. This deliberately rejects some inputs accepted by
+Stripe 16.12.0, whose parser accepts duplicate/noncanonical timestamps and whose
+age check has no future ceiling. All time/configuration/key/byte inputs are
+snapshotted before awaiting the existing receipt boundary; there is no separately
+exported verifier with an independently selectable clock.
+
+HMAC covers the timestamp prefix followed by the exact original bytes, before
+JSON or UTF-8 decoding. Authenticated malformed JSON or UTF-8 therefore remains a
+digest-addressed review receipt. This differs from the SDK's replacement decoding
+and its `constructEvent` JSON parse. Correctly signed unknown events are also
+retained for review. Empty/oversized input, malformed/stale headers and invalid
+HMAC produce no receipt. The existing one-MiB payload bound, immutable receipt
+shape, provenance, review holds and journal deduplication are unchanged. No raw
+payload, signature header or key is logged or persisted. The existing transitive
+runtime SDK/network import prohibition remains in force.
+
 Inbox event identity and each consumer/version's delivery are separate. A deposit
 consumer's terminal result therefore cannot suppress another consumer. Conflicting
 evidence remains retained and blocks trusted completion. Consumer completion is

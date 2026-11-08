@@ -21,6 +21,7 @@ import { dispatchProviderFixture, reconcileProviderFixture } from './dispatchFix
 import { assertVerifiedProviderReceipt, type ProviderFixtureConfig, verifyOfflineProviderReceipt } from './evidence';
 import { inspectProviderFixtureInbox } from './inspectFixture';
 import { createOfflineOperationTransport, createOperationIdentity } from './operations';
+import { type OfflineStripeFixtureSigningBinding, verifyOfflineStripeWebhookReceipt } from './stripeWebhookFixture';
 
 vi.mock('server-only', () => ({}));
 
@@ -434,5 +435,149 @@ describe('operation result identity fencing', () => {
 
     expect(result).toMatchObject({ state: 'succeeded', identity: first.identity, result: { provenance: 'offline_fixture', objectId: 'cs_firstfixture' } });
     expect(await financialCounts()).toEqual(before);
+  });
+});
+
+const stripeFixtureBinding: OfflineStripeFixtureSigningBinding = {
+  endpointId: fixtureConfig.endpointId,
+  platformId: fixtureConfig.platformId,
+  publicFixtureKey: 'public-offline-stripe-fixture:durable_boundary',
+};
+function signedStripeFixture(payload: unknown = fixtureEvent(), time = receivedAt, timestamp = Math.floor(time.getTime() / 1000)) {
+  const rawBody = payload instanceof Uint8Array
+    ? Uint8Array.from(payload)
+    : new TextEncoder().encode(typeof payload === 'string' ? payload : JSON.stringify(payload));
+  const digest = createHmac('sha256', stripeFixtureBinding.publicFixtureKey).update(`${timestamp}.`).update(rawBody).digest('hex');
+  return { rawBody, signature: `t=${timestamp},v1=${digest}`, receivedAt: new Date(time) };
+}
+async function providerReceiptCounts() {
+  return (await client.query('SELECT (SELECT count(*)::int FROM customer_payment_provider_inbox) AS inboxes, (SELECT count(*)::int FROM customer_payment_provider_conflict) AS conflicts, (SELECT count(*)::int FROM customer_payment_provider_delivery) AS deliveries, (SELECT count(*)::int FROM customer_payment_provider_audit) AS audits')).rows[0];
+}
+
+describe('offline Stripe v1 wrapper durable boundaries', () => {
+  it('deduplicates exact payload redelivery without retaining raw bytes, headers or public signing material', async () => {
+    const event = fixtureEvent({ id: `evt_${randomUUID().replaceAll('-', '')}` });
+    const input = signedStripeFixture(event);
+    const receipt = await verifyOfflineStripeWebhookReceipt(input, fixtureConfig, stripeFixtureBinding);
+    const journal = createProviderJournal(database);
+    const beforeMoney = await financialCounts();
+    const inbox = await journal.ingestReceipt(receipt);
+    const firstCounts = await providerReceiptCounts();
+    const laterInput = signedStripeFixture(event, new Date(receivedAt.getTime() + 60000));
+    const laterReceipt = await verifyOfflineStripeWebhookReceipt(laterInput, fixtureConfig, stripeFixtureBinding);
+    const replay = await journal.ingestReceipt(laterReceipt);
+    const retained = await journal.getInbox(inbox.id);
+
+    expect(receipt).toMatchObject({ source: 'offline_signed_fixture', classification: 'accepted' });
+    expect(laterReceipt.receiptIdentity).toBe(receipt.receiptIdentity);
+    expect(laterReceipt.payloadDigest).toBe(receipt.payloadDigest);
+    expect(laterReceipt.receivedAt).not.toBe(receipt.receivedAt);
+    expect(replay.id).toBe(inbox.id);
+    expect(retained?.receipt).toEqual(receipt);
+    expect(retained?.hasConflict).toBe(false);
+    expect(await providerReceiptCounts()).toEqual(firstCounts);
+
+    const serialized = JSON.stringify(retained);
+
+    for (const forbidden of [stripeFixtureBinding.publicFixtureKey, input.signature, laterInput.signature, 'private fixture metadata', 'rawBody', 'publicFixtureKey']) {
+      expect(serialized).not.toContain(forbidden);
+    }
+
+    expect(serialized).not.toContain(new TextDecoder().decode(input.rawBody));
+    expect(await financialCounts()).toEqual(beforeMoney);
+  });
+
+  it('retains authenticated malformed, unknown and scope-mismatched facts as immutable review receipts', async () => {
+    const beforeMoney = await financialCounts();
+    const journal = createProviderJournal(database);
+    const cases: [unknown, string][] = [
+      [`{invalid-stripe-fixture:${randomUUID()}`, 'MALFORMED_AUTHENTICATED_PAYLOAD'],
+      [new Uint8Array([0xFF, 0xFE, 0x00, 0x7B]), 'MALFORMED_AUTHENTICATED_PAYLOAD'],
+      [fixtureEvent({ id: `evt_${randomUUID().replaceAll('-', '')}`, type: 'charge.unknown_money' }), 'UNSUPPORTED_EVENT_OR_OBJECT'],
+      [fixtureEvent({ id: `evt_${randomUUID().replaceAll('-', '')}`, account: 'acct_foreign' }), 'ACCOUNT_SCOPE_MISMATCH'],
+      [fixtureEvent({ id: `evt_${randomUUID().replaceAll('-', '')}`, livemode: true }), 'MODE_MISMATCH'],
+      [fixtureEvent({ id: `evt_${randomUUID().replaceAll('-', '')}`, api_version: '2025-01-01' }), 'API_VERSION_MISMATCH'],
+    ];
+    for (const [payload, reason] of cases) {
+      const input = signedStripeFixture(payload);
+      const receipt = await verifyOfflineStripeWebhookReceipt(input, fixtureConfig, stripeFixtureBinding);
+      const inbox = await journal.ingestReceipt(receipt);
+      const inspected = await inspectProviderFixtureInbox(journal, inbox.id, { workerId: 'stripe_fixture_inspector', leaseMs: 60000 });
+
+      expect(receipt).toMatchObject({ source: 'offline_signed_fixture', classification: 'review' });
+      expect(receipt.reviewReasons).toContain(reason);
+      expect((await journal.getInbox(inbox.id))?.receipt).toEqual(receipt);
+      expect(inspected).toHaveLength(3);
+      expect(inspected.every(row => row.state === 'review' && row.version === 0)).toBe(true);
+      expect((await journal.ingestReceipt(await verifyOfflineStripeWebhookReceipt(input, fixtureConfig, stripeFixtureBinding))).id).toBe(inbox.id);
+
+      if (receipt.eventId === null) {
+        expect(receipt.receiptIdentity).toBe(`digest:${receipt.payloadDigest}`);
+      }
+
+      await expect(journal.claimDelivery(inspected[0]!.id, { workerId: 'stripe_fixture_inspector', leaseMs: 60000 })).rejects.toThrow('CUSTOMER_PAYMENT_PROVIDER_INBOX_REVIEW');
+    }
+
+    expect(await financialCounts()).toEqual(beforeMoney);
+  });
+
+  it('creates no journal or financial state for bad HMAC, modified bytes, stale signatures or future signatures', async () => {
+    const journal = createProviderJournal(database);
+    const before = await providerReceiptCounts();
+    const beforeMoney = await financialCounts();
+    const input = signedStripeFixture(fixtureEvent({ id: `evt_${randomUUID().replaceAll('-', '')}` }));
+    const second = Math.floor(receivedAt.getTime() / 1000);
+    for (const rejected of [
+      { ...input, signature: `t=${second},v1=${'0'.repeat(64)}` },
+      { ...input, rawBody: new Uint8Array([...input.rawBody, 32]) },
+      signedStripeFixture(fixtureEvent(), receivedAt, second - 301),
+      signedStripeFixture(fixtureEvent(), receivedAt, second + 6),
+    ]) {
+      await expect(verifyOfflineStripeWebhookReceipt(rejected, fixtureConfig, stripeFixtureBinding).then(receipt => journal.ingestReceipt(receipt))).rejects.toThrow('CUSTOMER_PAYMENT_PROVIDER_SIGNATURE_INVALID');
+    }
+
+    expect(await providerReceiptCounts()).toEqual(before);
+    expect(await financialCounts()).toEqual(beforeMoney);
+  });
+
+  it('rejects copied authority and synthetic settlement while retained conflicts hold every consumer', async () => {
+    const journal = createProviderJournal(database);
+    const event = fixtureEvent({ id: `evt_${randomUUID().replaceAll('-', '')}` });
+    const input = signedStripeFixture(event);
+    const receipt = await verifyOfflineStripeWebhookReceipt(input, fixtureConfig, stripeFixtureBinding);
+    const inbox = await journal.ingestReceipt(receipt);
+    const beforeMoney = await financialCounts();
+    const before = await providerReceiptCounts();
+    for (const fake of [{ ...receipt }, JSON.parse(JSON.stringify(receipt))]) {
+      await expect(journal.ingestReceipt(fake)).rejects.toThrow('CUSTOMER_PAYMENT_PROVIDER_RECEIPT_UNVERIFIED');
+    }
+
+    expect(await providerReceiptCounts()).toEqual(before);
+
+    const fakeDatabase = { select: vi.fn(), transaction: vi.fn() };
+    const attempt = { quoteId: 'fixture_quote', eventId: receipt.eventId, paymentIntentId: receipt.objectId, stripeAccountId: receipt.accountId, source: receipt.source, livemode: false, currency: 'cad', amountCents: 10000, applicationFeeCents: 100, capturedAt: receivedAt };
+
+    await expect(settleSyntheticCustomerPaymentCapture(fakeDatabase as unknown as Parameters<typeof settleSyntheticCustomerPaymentCapture>[0], attempt as unknown as Parameters<typeof settleSyntheticCustomerPaymentCapture>[1])).rejects.toThrow();
+    expect(fakeDatabase.select).not.toHaveBeenCalled();
+    expect(fakeDatabase.transaction).not.toHaveBeenCalled();
+
+    const inspected = await inspectProviderFixtureInbox(journal, inbox.id, { workerId: 'stripe_fixture_inspector', leaseMs: 60000 });
+    const changedInput = signedStripeFixture({ ...event, data: { object: { ...event.data.object, latest_charge: 'ch_other' } } });
+    const changed = await verifyOfflineStripeWebhookReceipt(changedInput, fixtureConfig, stripeFixtureBinding);
+
+    await expect(journal.ingestReceipt(changed)).rejects.toThrow('CUSTOMER_PAYMENT_PROVIDER_INBOX_CONFLICT_RETAINED');
+    expect(await journal.getInbox(inbox.id)).toMatchObject({ hasConflict: true, receipt });
+
+    const conflicts = await client.query<{ receipt: unknown }>('SELECT receipt FROM customer_payment_provider_conflict WHERE inbox_id=$1', [inbox.id]);
+
+    expect(conflicts.rows).toEqual([{ receipt: changed }]);
+    expect(JSON.stringify(conflicts.rows)).not.toMatch(/public-offline-stripe-fixture|private fixture metadata|rawBody|signature/);
+
+    for (const delivery of inspected) {
+      expect((await journal.getDelivery(delivery.id))?.state).toBe('review');
+      await expect(journal.claimDelivery(delivery.id, { workerId: 'stripe_fixture_inspector', leaseMs: 60000 })).rejects.toThrow('CUSTOMER_PAYMENT_PROVIDER_INBOX_REVIEW');
+    }
+
+    expect(await financialCounts()).toEqual(beforeMoney);
   });
 });

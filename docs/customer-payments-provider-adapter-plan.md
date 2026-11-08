@@ -102,6 +102,51 @@ Real-provider verification, canonical real-provider settlement and provider
 execution remain unimplemented. Retention or a correlated result cannot replace
 those checks.
 
+## Offline Stripe v1 protocol contract
+
+`provider/stripeWebhookFixture.ts` now verifies a strict subset of Stripe's v1
+signature format over original bytes, using only `node:crypto` and the existing
+test-gated receipt normalizer. The installed Stripe 16.12.0 static helpers generate
+headers and verify valid UTF-8 test vectors in tests only. No SDK/client import was
+added to the runtime provider graph, and its transitive no-network boundary is
+unchanged. The existing routes still use the credential-backed global Stripe
+client; none are imported or modified by this slice. The repository's other raw
+webhook helper uses the incompatible Standard Webhooks protocol and is not reused.
+
+An explicitly supplied public fixture key, constrained to
+`public-offline-stripe-fixture:` plus 1–128 ASCII letters/digits/underscores/hyphens,
+is bound to fixed endpoint and platform IDs. Real `whsec_` values cannot enter this
+seam. The signed envelope does not choose those IDs. Fixed configuration requires
+test mode and API `2024-06-20`; account/mode/version mismatch in authenticated
+evidence remains review. Cryptographic validity of a locally generated signature
+under a publicly known fixture key is not proof that Stripe delivered an event or
+moved money.
+
+This is deliberately a strict protocol profile, not complete Stripe equivalence:
+
+- One canonical safe nonnegative decimal `t`, one or more well-formed lowercase
+  SHA-256-hex `v1` values, at most 128 fields and 8,192 header characters. Unknown
+  bounded ASCII fields may coexist but cannot authenticate alone. Whitespace,
+  duplicate timestamps and malformed components fail.
+- At most 300 seconds old and at most 5 seconds ahead of fixed receipt time,
+  rounded down to seconds. The future allowance is bounded clock-skew rehearsal;
+  SDK 16.12.0 has no future limit. Timestamp suffixes, duplicate `t` and nonnumeric
+  timestamps accepted by that SDK are deliberately rejected.
+- HMAC authenticates original bytes before decoding. Signed malformed JSON/UTF-8
+  and unsupported events remain review receipts. The SDK instead replacement-
+  decodes byte payloads and `constructEvent` requires parsable JSON without
+  validating the event's structure, account, mode or API version.
+
+Byte/configuration/time/key snapshots and the existing post-await gate check
+preserve the fixture boundary. Receipt schema, digest identity and
+`offline_signed_fixture` provenance remain unchanged. New signature timestamps on
+redelivery do not create new receipt identities or erase financial review holds.
+No raw body, header or key is logged or retained. No new migration or financial
+writer is introduced. Existing object projections remain deliberately narrow,
+including their expanded-reference and lifecycle limitations. Full provider
+payload validation, real-provider provenance and production ingress remain future
+work requiring the external-testing approvals below.
+
 ## Offline cash extension (0125)
 
 A separate immutable fixture movement ledger now consumes freshly revalidated
@@ -117,6 +162,11 @@ See `customer-payments-fixture-movement-plan.md`.
 - [Stripe webhook guidance](https://docs.stripe.com/webhooks) requires the original
   request body for signature verification. Deliveries may repeat or arrive out of
   order; separate event objects can also describe the same business object.
+- [Stripe signature guidance](https://docs.stripe.com/webhooks/signature) and the
+  [Stripe Node 16.12.0 webhook implementation](https://github.com/stripe/stripe-node/blob/v16.12.0/src/Webhooks.ts)
+  define the v1 HMAC/test-header contract used by the offline protocol tests.
+  The stricter parser and freshness limits above are local fixture choices, not
+  claims about the complete provider acceptance contract.
 - [Connect webhook scopes](https://docs.stripe.com/connect/webhooks) distinguish
   platform and connected-account events. Connected events identify their account;
   production endpoints can receive both test and live events, so verify mode.
@@ -130,14 +180,38 @@ See `customer-payments-fixture-movement-plan.md`.
   increase the platform balance. The [fee-refund object](https://docs.stripe.com/api/fee_refunds/object)
   has its own identity and references the application fee it returns.
 
+## Protocol checkpoint verification
+
+The final source passed 1,951 scoped tests in 103 files. The aggregate includes
+90 wrapper unit cases and 47 independent protocol/journal cases; those numbers
+are not additional totals. Review identified a trailing-line-separator parser
+edge case, corrected with complete-match checks and regression tests. Strict
+runtime module/network guards were not relaxed. All 60 opt-in PostgreSQL cases
+passed separately on a new private PostgreSQL 16.15 cluster, then its data and
+ephemeral credentials were removed.
+
+All 20 standalone mock desktop/mobile browser cases, full Node 24 typecheck,
+scoped lint and the production build passed. The local build used a temporary
+6 GiB process heap and disabled webpack cache; the original configuration was
+restored with type validation enabled. All 12 built-app production-off checks
+returned 404, including with all eight flags forced on. This is scoped local
+validation, not full repository CI or real authenticated/provider testing.
+
 ## Still required before external testing
 
-Approve the actual sandbox/platform and connected account, allowed test operations
-and limits, fixture/customer data and endpoint destinations. Confirm the fee payer,
-tax/refund policy, account responsibilities and actual Stripe/Connect costs.
-Use authorized credentials securely; new credentials or persistent access require
-separate approval. Endpoint registration/configuration, application migrations,
-deployment, live payments and real refunds remain outside this local work.
+For genuine provider verification, first identify and approve the Stripe sandbox /
+platform and connected test salon, the specific permitted operations and limits,
+synthetic test data and any endpoint destinations. Existing authorized credentials
+must be used through a secure path; creating credentials or persistent access
+requires separate approval. Do not request secrets in chat. No sandbox identity
+or access path has been verified by this local protocol checkpoint.
+
+Read-only capability inspection and signed test-event verification do not require
+final commercial pricing. Before provider-side checkout/refund experiments,
+choose explicit synthetic test scenarios and authorize those operations. Before
+activation, resolve the fee payer/scope, tax/refund policy, account responsibilities
+and actual Stripe/Connect costs. Endpoint registration/configuration, application
+migrations, deployment, live payments and real refunds remain separately gated.
 
 The current credit-review workflow resolves only clean completed synthetic
 invoices for credit-aware read paths. Ordinary collection/lifecycle actions,

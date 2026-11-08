@@ -452,6 +452,21 @@ cases, 20 mock browser cases, typecheck, scoped lint, full production build and
 `customer-payments-integration-gates.md` for limits. This is still offline fixture
 cash, not an end-to-end real payment setup.
 
+## Offline Stripe v1 signature protocol
+
+A separate fixture wrapper now verifies Stripe-format HMAC over the original
+bytes using public test material only. Installed Stripe SDK helpers supply test
+vectors, never a runtime client. Fixed endpoint/platform binding, strict bounded
+headers/time, original input snapshots and existing review retention are covered.
+Actual signing credentials, real-provider provenance and live ingress remain
+excluded. No payment route, dependency or migration changed. The strict profile
+and compatibility limits are documented in the provider adapter plan.
+
+Final serialized validation passed 1,951 scoped tests, 60 separate PostgreSQL
+cases, 20 mock browser cases, typecheck, scoped lint, production build and all 12
+production-off checks. This remains offline testing, not an end-to-end Stripe
+card or Apple Pay checkout. Exact limits are in the integration gates.
+
 ## Remaining gates before collection
 
 1. Approve fee payer, fee scope, tax, cancellation/refund policy and operational

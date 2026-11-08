@@ -568,6 +568,32 @@ private database and secrets removed. Nothing was pushed, deployed, migrated to
 an application DB or sent to a provider. See
 `customer-payments-fixture-movement-plan.md` for exact semantics and limits.
 
+## Implemented: offline Stripe v1 signature protocol
+
+`provider/stripeWebhookFixture.ts` verifies exact-byte v1 HMAC with an explicitly
+public fixture key bound to configured endpoint/platform identities. The wrapper
+pins API `2024-06-20`, captures the original receipt time/configuration/bytes and
+preserves existing normalization, review holds and `offline_signed_fixture`
+provenance. Real `whsec_` signing values are refused. It adds no credential access,
+network transport, runtime SDK import, app route, migration or financial writer.
+The existing provider-test gate remains required and all eight flags stay off.
+
+Static Stripe 16.12.0 helpers are used only as test oracles. The local profile is
+stricter than the SDK for header grammar and future timestamps. Authenticated
+malformed JSON/UTF-8 is retained for review; valid HMAC alone is never event shape,
+account scope, provider-origin or payment proof. See
+`customer-payments-provider-adapter-plan.md` for exact limits and references.
+
+Final serial validation passed 1,951 scoped regressions across 103 files, plus
+all 60 separately run genuine PostgreSQL cases. The aggregate includes 90 focused
+wrapper tests and 47 independent protocol/journal tests; these counts overlap it.
+All 20 mock desktop/mobile browser cases, full typecheck, scoped lint and full
+production build passed. All 12 production-off checks returned 404 with default
+flags and all eight flags forced true. Temporary build settings were restored,
+test servers stopped, and private PostgreSQL infrastructure/secrets removed.
+No provider operation, application migration, credential change, push or deployment
+occurred. This is protocol rehearsal, not real-provider readiness.
+
 ## Remaining gate 2: real refunds and explicit review resolution
 
 - The application-table synthetic ledger and offline fixture journal are
