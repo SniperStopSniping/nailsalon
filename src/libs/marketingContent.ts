@@ -1,6 +1,8 @@
 export type MarketingLocale = 'en' | 'fr';
 export type MarketingPageKey = 'salon' | 'website' | 'reminders' | 'free';
 
+export const LUSTER_SHOP_URL = 'https://lustergel.ca/shop';
+
 type MarketingPageContent = {
   path: string;
   title: string;
@@ -19,6 +21,7 @@ export const marketingCopy = {
     intro: 'Give clients a place to book, keep your appointments and client history together, and make room for the work you love. Luster brings your booking website, calendar and client management into one workspace.',
     eyebrow: 'Online booking for nail businesses',
     owner: 'Salon owner sign in',
+    shop: 'Shop Luster gel',
     start: 'Build my website',
     dashboard: 'Open owner dashboard',
     invite: 'Request an invite',
@@ -53,6 +56,7 @@ export const marketingCopy = {
     intro: 'Offrez à vos clients un endroit où réserver, regroupez vos rendez-vous et votre historique client, et consacrez-vous à votre métier. Luster réunit votre site de réservation, votre agenda et la gestion de vos clients dans un seul espace.',
     eyebrow: 'Réservation en ligne pour les professionnels des ongles',
     owner: 'Connexion propriétaire',
+    shop: 'Acheter le gel Luster',
     start: 'Créer mon site web',
     dashboard: 'Ouvrir mon tableau de bord',
     invite: 'Demander une invitation',

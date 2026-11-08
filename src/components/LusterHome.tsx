@@ -2,7 +2,7 @@ import { CalendarCheck2, Mail, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 import { MarketingFooter, MarketingHeader } from '@/components/marketing/MarketingChrome';
-import { getMarketingLocale, marketingCopy, marketingPages } from '@/libs/marketingContent';
+import { getMarketingLocale, LUSTER_SHOP_URL, marketingCopy, marketingPages } from '@/libs/marketingContent';
 import { buildMarketingJsonLd, marketingPath } from '@/libs/marketingSeo';
 import en from '@/locales/en.json';
 import fr from '@/locales/fr.json';
@@ -25,11 +25,11 @@ export function LusterHome({ locale = 'en', websiteSetupEnabled = false }: {
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#a70f3c]">{copy.eyebrow}</p>
             <h1 className="mt-4 max-w-3xl text-4xl font-black leading-[1.05] tracking-[-0.04em] sm:text-6xl">{copy.heading}</h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-stone-600">{copy.intro}</p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link href={marketingPath(websiteSetupEnabled ? '/onboarding-v1' : '/owner-sign-in', language)} className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#b80f43] px-6 py-3.5 text-center font-bold text-white shadow-lg shadow-rose-900/15">{websiteSetupEnabled ? copy.start : copy.dashboard}</Link>
+            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
               {websiteSetupEnabled
-                ? <Link href={marketingPath('/owner-sign-in', language)} className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white px-6 py-3.5 text-center font-bold">{copy.dashboard}</Link>
-                : <a href="mailto:support@lustergel.app?subject=Luster%20booking%20invite" className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white px-6 py-3.5 text-center font-bold">{copy.invite}</a>}
+                ? <Link href={marketingPath('/onboarding-v1', language)} className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#b80f43] px-6 py-3.5 text-center font-bold text-white shadow-lg shadow-rose-900/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a70f3c]">{copy.start}</Link>
+                : <a href="mailto:support@lustergel.app?subject=Luster%20booking%20invite" className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#b80f43] px-6 py-3.5 text-center font-bold text-white shadow-lg shadow-rose-900/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a70f3c]">{copy.invite}</a>}
+              <a href={LUSTER_SHOP_URL} className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white px-6 py-3.5 text-center font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a70f3c]">{copy.shop}</a>
             </div>
             <p className="mt-5 text-sm leading-6 text-stone-600">{features.preview_reassurance}</p>
             <p className="mt-4 text-sm leading-6 text-stone-600">{features.customer_help}</p>
