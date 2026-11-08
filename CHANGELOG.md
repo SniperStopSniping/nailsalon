@@ -1,3 +1,10 @@
+## [1.150.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.150.1...v1.150.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **marketing:** replace duplicate homepage sign-in with gel shop ([cd9f1c6](https://github.com/SniperStopSniping/nailsalon/commit/cd9f1c699a0018a00f293f82b303206578d75d45))
+
 ## [1.150.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.150.0...v1.150.1) (2026-11-07)
 
 
