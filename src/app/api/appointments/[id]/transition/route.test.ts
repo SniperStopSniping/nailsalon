@@ -83,17 +83,19 @@ const {
               paymentCaptures.read();
               return paymentCaptures.rows;
             }) }
-          : ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
-                for: vi.fn(() => ({
-                  limit: vi.fn(async () => {
-                    callOrder.push('appointment-lock');
-                    return lockedAppointment.current ? [lockedAppointment.current] : [];
-                  }),
+          : 'refundId' in table
+            ? { where: vi.fn(async () => []) }
+            : ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                  for: vi.fn(() => ({
+                    limit: vi.fn(async () => {
+                      callOrder.push('appointment-lock');
+                      return lockedAppointment.current ? [lockedAppointment.current] : [];
+                    }),
+                  })),
                 })),
               })),
-            })),
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {

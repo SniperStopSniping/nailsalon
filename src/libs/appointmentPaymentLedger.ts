@@ -1,10 +1,11 @@
-import { hasVerifiedCustomerPaymentTender, isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
+import { customerPaymentTenderSummary, hasVerifiedCustomerPaymentTender, isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
 
 /**
  * Canonical provenance check for appointment tender.
  *
  * `appointment_payment` is the tender ledger and `amount_paid_cents` is its
- * cached non-voided sum.  Consumers must not silently prefer either source
+ * cached non-voided sum, less independently proven immutable customer refunds.
+ * Gross capture rows are never rewritten. Consumers must not silently prefer either source
  * when they disagree: doing so can collect the same historical payment twice.
  */
 
@@ -39,6 +40,7 @@ export type AppointmentPaymentLedgerResolution
     ledgerPaymentsCents: number;
     hasPaymentRows: boolean;
     legacyPaidAssumed: boolean;
+    collectionHold: boolean;
   }
   | {
     ok: false;
@@ -63,7 +65,8 @@ function blocked(
   };
 }
 
-export function resolveAppointmentPaymentLedger(
+/** Read-only money evidence. An ok result with collectionHold is never permission to collect or progress service. */
+export function resolveAppointmentPaymentLedgerForReconciliation(
   input: ResolveAppointmentPaymentLedgerInput,
 ): AppointmentPaymentLedgerResolution {
   if (
@@ -81,12 +84,15 @@ export function resolveAppointmentPaymentLedger(
   }
 
   let ledgerPaymentsCents = 0;
+  let collectionHold = false;
   for (const row of input.paymentRows) {
     if (!Number.isSafeInteger(row.amountCents) || row.amountCents <= 0) {
       return blocked(input, null);
     }
     if (row.voidedAt === null) {
-      const next = ledgerPaymentsCents + row.amountCents;
+      const summary = isCustomerPaymentTender(row) ? customerPaymentTenderSummary(row) : null;
+      collectionHold ||= summary?.collectionHold ?? false;
+      const next = ledgerPaymentsCents + (summary?.netCents ?? row.amountCents);
       if (!Number.isSafeInteger(next)) {
         return blocked(input, null);
       }
@@ -106,6 +112,7 @@ export function resolveAppointmentPaymentLedger(
         ledgerPaymentsCents,
         hasPaymentRows: false,
         legacyPaidAssumed: false,
+        collectionHold,
       };
     }
     if (input.appointmentStatus === 'completed' && input.paymentStatus === 'paid') {
@@ -116,6 +123,7 @@ export function resolveAppointmentPaymentLedger(
         ledgerPaymentsCents,
         hasPaymentRows: false,
         legacyPaidAssumed: true,
+        collectionHold,
       };
     }
     if (input.appointmentStatus === 'completed' && input.paymentStatus !== 'comp') {
@@ -133,6 +141,7 @@ export function resolveAppointmentPaymentLedger(
       ledgerPaymentsCents,
       hasPaymentRows: false,
       legacyPaidAssumed: false,
+      collectionHold,
     };
   }
 
@@ -149,5 +158,12 @@ export function resolveAppointmentPaymentLedger(
     ledgerPaymentsCents,
     hasPaymentRows: true,
     legacyPaidAssumed: false,
+    collectionHold,
   };
+}
+
+/** Ordinary money/lifecycle callers must never treat refunded balances as collectible. */
+export function resolveAppointmentPaymentLedger(input: ResolveAppointmentPaymentLedgerInput): AppointmentPaymentLedgerResolution {
+  const result = resolveAppointmentPaymentLedgerForReconciliation(input);
+  return result.ok && result.collectionHold ? blocked(input, result.ledgerPaymentsCents) : result;
 }

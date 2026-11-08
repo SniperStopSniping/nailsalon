@@ -83,7 +83,8 @@ unresolved markers. The accompanying `0117_customer_payment_mutation_guards.sql`
 provides DB-level financial/lifecycle/deposit defenses for indirect writers.
 
 This is synthetic settlement infrastructure only. There is no capture API, real
-provider receipt verification, automated reconciliation or refund writer. No
+provider receipt verification or automated reconciliation. The separate internal
+synthetic refund seam below does not execute provider refunds. No
 migration has been applied to an application database as part of this work.
 
 ## Durable local rehearsal only
@@ -122,15 +123,16 @@ verified driver. No such production receipt driver is installed by this slice.
 - Extend the synthetic atomic settlement and ownership/provenance guards to
   signature-verified provider evidence. Preserve prepaid tips at checkout and
   final invoice; late success must not revive released appointments.
-- Model verified refund allocations and invoice credits or collection holds so
-  refunds do not silently reopen receivables. Preserve gross capture history and
+- Extend synthetic refund allocation and collection-hold protections to verified
+  provider evidence and invoice credits so refunds do not reopen receivables. Preserve gross capture history and
   historical reporting rather than relying on current void-and-replacement rows.
 - Retain signature-verified webhook receipts before processing. Match event
   account, mode, session, intent, amount, currency, fee and metadata. Redirects
   are not evidence. Customer refunds and application-fee refunds remain separate.
 - Verify each future provider/refund writer against the attested disposable
-  PostgreSQL target. Preparation and synthetic capture concurrency verification
-  are recorded below; neither certifies a future provider/refund writer. PGlite
+  PostgreSQL target. Preparation, synthetic capture and synthetic refund
+  concurrency verification are recorded below; none certifies a future
+  provider/refund writer. PGlite
   serializes one connection and cannot prove PostgreSQL lock behavior.
 
 Ordinary legacy rows remain on their existing paths. Reserved synthetic capture
@@ -219,3 +221,57 @@ cases passed serially on PostgreSQL 16.15 against the full migration journal.
 The new private loopback cluster was stopped and deleted, including its ephemeral
 password. No existing database, service or provider was contacted. This verifies
 these fixture paths, not production readiness or real provider receipt handling.
+
+
+## Internal synthetic refund evidence and permanent collection hold
+
+`recordSyntheticRefund.ts` uses an injected DB and requires the additional literal
+`CUSTOMER_PAYMENTS_REFUND_TEST_ENABLED=true`, plus both preparation and ledger
+flags. Production remains denied. There is no refund API or provider operation.
+Only posted CAD synthetic captures can receive matching account/intent/test-mode
+refund evidence. Customer and fee refund inputs must explicitly say succeeded;
+requested, pending or failed outcomes are not successful money movements.
+
+Migration 0118 preserves immutable customer refunds with original observed amount,
+principal/tip allocations, occurrence time, processing time and event fingerprints.
+Exact event/movement replay has no second effect. Whitespace-only external
+identifiers are rejected before database access and by SQL checks; valid IDs are
+never trimmed or rewritten. Valid cumulative allocations
+reduce the appointment cache atomically, leaving the original gross tender,
+capture, invoice tax and tip unchanged. Invalid or over-limit allocations remain
+held review facts without reducing trusted credit or inventing negative credit.
+Any customer refund permanently holds collection and financial/lifecycle actions.
+There is no hold-clearing or credit-note workflow in this slice.
+
+SQL independently locks the appointment and validates identity/cumulative bounds.
+An AFTER INSERT trigger projects cache from gross nonvoided tenders minus applied
+refunds. The appointment guard permits only that exact derived cache plus harmless
+notes/contact edits under hold, with monotonic updatedAt. There is no bypass GUC.
+Raw tender mutation checks lock parents before reading refund holds. Correctly
+reserved, voided review markers can still preserve newly observed late captures;
+they never create additional booking credit. Ordinary legacy rows without markers
+do not query refund tables from these guards.
+
+Application-fee binding and successful fee-return receipts are separate immutable
+records. A customer refund never implies a fee return. Missing binding, preceding
+capture time, policy-excess or cumulative-excess fee evidence is retained for
+review. A later fee binding cannot silently turn an old review receipt into an
+applied receipt. Future explicit immutable reconciliation remains necessary.
+Observed successful review movements remain cash-reporting facts even though they
+are not trusted booking-credit projections. Unknown/foreign account evidence needs
+a future independent inbox and is not attributed to this salon.
+
+`refund.concurrency.integration.test.ts` requires a separately provisioned private
+attested disposable PostgreSQL target via `CUSTOMER_PAYMENT_REFUND_TEST_DATABASE_URL`
+and `LUSTER_DISPOSABLE_DATABASE=true`. Run with
+`CUSTOMER_PAYMENT_REFUND_PG_REQUIRED=true`, Node24, Vitest `--maxWorkers=1
+--no-file-parallelism`. Missing target skips; required missing target or invalid
+supplied target fails before connection. It attests every physical session and
+uses the actual migration journal. Immutable fixtures require whole private-cluster
+teardown, never disabling their SQL guards.
+
+Seven PG cases cover duplicate/partial/overflow customer refund races, cumulative
+independent fee refunds, and raw tender INSERT/UPDATE/DELETE fencing around refund
+holds. The synthetic writer PGlite suite additionally covers rollback, strict
+identity, production gates, late capture retention, fee-before-binding and
+policy-excess factual evidence. None of these tests certify real provider input.

@@ -93,3 +93,58 @@ export const customerPaymentCaptureEventSchema = pgTable('customer_payment_captu
   captureAccount: foreignKey({ name: 'customer_payment_capture_event_account_fk', columns: [table.captureId, table.stripeAccountId, table.mode], foreignColumns: [customerPaymentCaptureSchema.id, customerPaymentCaptureSchema.stripeAccountId, customerPaymentCaptureSchema.mode] }).onDelete('restrict'),
   eventOnce: uniqueIndex('customer_payment_capture_event_once').on(table.stripeAccountId, table.mode, table.eventId),
 }));
+
+// Immutable synthetic refund facts; their existence is not permission to recollect.
+const refundIdentityColumns = () => ({
+  id: text('id').primaryKey(),
+  captureId: text('capture_id').notNull().references(() => customerPaymentCaptureSchema.id, { onDelete: 'restrict' }),
+  salonId: text('salon_id').notNull(),
+  appointmentId: text('appointment_id').notNull(),
+  stripeAccountId: text('stripe_account_id').notNull(),
+  paymentIntentId: text('payment_intent_id').notNull(),
+  currency: text('currency').$type<'cad'>().notNull(),
+  mode: text('mode').$type<'test'>().notNull(),
+  source: text('source').$type<'synthetic_test'>().notNull(),
+  amountCents: integer('amount_cents').notNull(),
+  occurredAt: timestamp('occurred_at', { withTimezone: true, mode: 'date' }).notNull(),
+  recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  fingerprint: text('fingerprint').notNull(),
+});
+export const customerPaymentRefundSchema = pgTable('customer_payment_refund', {
+  ...refundIdentityColumns(),
+  refundId: text('refund_id').notNull(),
+  principalCents: integer('principal_cents').notNull(),
+  tipCents: integer('tip_cents').notNull(),
+  state: text('state').$type<'applied' | 'held_review'>().notNull(),
+  reviewReason: text('review_reason'),
+}, table => ({ once: uniqueIndex('customer_payment_refund_once').on(table.stripeAccountId, table.mode, table.refundId) }));
+export type CustomerPaymentRefund = typeof customerPaymentRefundSchema.$inferSelect;
+
+export const customerPaymentFeeBindingSchema = pgTable('customer_payment_fee_binding', {
+  ...refundIdentityColumns(),
+  applicationFeeId: text('application_fee_id').notNull(),
+}, table => ({
+  captureOnce: uniqueIndex('customer_payment_fee_capture_once').on(table.captureId),
+  feeOnce: uniqueIndex('customer_payment_fee_identity_once').on(table.stripeAccountId, table.mode, table.applicationFeeId),
+}));
+export const customerPaymentFeeRefundSchema = pgTable('customer_payment_fee_refund', {
+  ...refundIdentityColumns(),
+  applicationFeeId: text('application_fee_id').notNull(),
+  feeRefundId: text('fee_refund_id').notNull(),
+  bindingId: text('binding_id').references(() => customerPaymentFeeBindingSchema.id, { onDelete: 'restrict' }),
+  state: text('state').$type<'applied' | 'held_review'>().notNull(),
+  reviewReason: text('review_reason'),
+}, table => ({ once: uniqueIndex('customer_payment_fee_refund_once').on(table.stripeAccountId, table.mode, table.feeRefundId) }));
+export const customerPaymentRefundEventSchema = pgTable('customer_payment_refund_event', {
+  id: text('id').primaryKey(),
+  captureId: text('capture_id').notNull().references(() => customerPaymentCaptureSchema.id, { onDelete: 'restrict' }),
+  stripeAccountId: text('stripe_account_id').notNull(),
+  mode: text('mode').$type<'test'>().notNull(),
+  eventId: text('event_id').notNull(),
+  kind: text('kind').$type<'customer_refund' | 'fee_binding' | 'fee_refund'>().notNull(),
+  refundId: text('refund_id').references(() => customerPaymentRefundSchema.id, { onDelete: 'restrict' }),
+  bindingId: text('binding_id').references(() => customerPaymentFeeBindingSchema.id, { onDelete: 'restrict' }),
+  feeRefundId: text('fee_refund_id').references(() => customerPaymentFeeRefundSchema.id, { onDelete: 'restrict' }),
+  fingerprint: text('fingerprint').notNull(),
+  recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+}, table => ({ once: uniqueIndex('customer_payment_refund_event_once').on(table.stripeAccountId, table.mode, table.eventId) }));

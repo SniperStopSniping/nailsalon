@@ -14,6 +14,14 @@ export function serializeFinancialPeriodSummary(
     completedAppointmentRevenueCents:
       summary.completedAppointmentRevenueCents,
     cashCollectedCents: summary.cashCollectedCents,
+    customerPaymentCollectedCents: summary.customerPaymentCollectedCents,
+    customerPaymentHeldForReviewCents: summary.customerPaymentHeldForReviewCents,
+    customerPaymentRefundedCents: summary.customerPaymentRefundedCents,
+    customerPaymentRefundHeldForReviewCents: summary.customerPaymentRefundHeldForReviewCents,
+    customerPaymentFeeRefundedCents: summary.customerPaymentFeeRefundedCents,
+    customerPaymentFeeRefundHeldForReviewCents: summary.customerPaymentFeeRefundHeldForReviewCents,
+    customerPaymentNetCashCents: summary.customerPaymentNetCashCents,
+
     appointmentPaymentsCollectedCents:
       summary.appointmentPaymentsCollectedCents,
     depositCollectedCents: summary.depositCollectedCents,

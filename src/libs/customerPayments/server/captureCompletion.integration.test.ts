@@ -14,14 +14,18 @@ import { POST as voidPayment } from '@/app/api/appointments/[id]/payments/[payme
 import { POST as recordPayment } from '@/app/api/appointments/[id]/payments/route';
 import { POST as reopen } from '@/app/api/appointments/[id]/reopen/route';
 import { GET as clientHistory } from '@/app/api/appointments/history/route';
+import { listPayments } from '@/libs/appointmentCheckoutServer';
 import { runAppointmentManageMutation } from '@/libs/appointmentManage';
+import { resolveAppointmentPaymentLedger, resolveAppointmentPaymentLedgerForReconciliation } from '@/libs/appointmentPaymentLedger';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { buildBookingTaxSnapshot, DISABLED_TAX_CONFIG, resolveTaxConfig } from '@/libs/taxConfig';
+import { customerPaymentCaptureSchema } from '@/models/customerPaymentSchema';
 import * as schema from '@/models/Schema';
 
 import { DEFAULT_CUSTOMER_PAYMENT_DRAFT_SETTINGS } from '../settings';
 import { createCustomerPaymentPreparationRepository } from './preparationRepository';
 import { prepareCustomerPaymentQuoteForToken } from './prepareQuoteForToken';
+import { recordSyntheticCustomerRefund } from './recordSyntheticRefund';
 import { settleSyntheticCustomerPaymentCapture } from './settleSyntheticCapture';
 
 vi.mock('server-only', () => ({}));
@@ -325,6 +329,49 @@ describe('captured invoice completion reconciliation', () => {
       expect(body.error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
       expect(await f.load()).toEqual(before);
       expect(await f.payments()).toEqual(tenders);
+    });
+  }
+});
+
+describe('immutable actual refund provenance through canonical readers', () => {
+  for (const allocation of [
+    { principalCents: 10000, tipCents: 2000, state: 'applied' },
+    { principalCents: 3000, tipCents: 0, state: 'applied' },
+    { principalCents: 0, tipCents: 1000, state: 'applied' },
+    { principalCents: 20000, tipCents: 0, state: 'held_review' },
+  ] as const) {
+    it(`preserves gross and holds collection for ${JSON.stringify(allocation)}`, async () => {
+      const f = await fixture();
+      const originalTender = await f.payments();
+      const before = await f.load();
+      const [capture] = await database.select().from(customerPaymentCaptureSchema).where(eq(customerPaymentCaptureSchema.id, f.capture.id));
+      vi.stubEnv('CUSTOMER_PAYMENTS_REFUND_TEST_ENABLED', 'true');
+      const evidence = { captureId: capture!.id, stripeAccountId: capture!.stripeAccountId, paymentIntentId: capture!.paymentIntentId, currency: 'cad' as const, mode: 'test' as const, source: 'synthetic_test' as const, eventId: `evt_${randomUUID()}`, refundId: `re_${randomUUID()}`, status: 'succeeded' as const, amountCents: allocation.principalCents + allocation.tipCents, principalCents: allocation.principalCents, tipCents: allocation.tipCents, occurredAt: new Date() };
+      const refund = await recordSyntheticCustomerRefund(database, evidence);
+
+      expect(refund.state).toBe(allocation.state);
+      expect((await recordSyntheticCustomerRefund(database, evidence)).replayed).toBe(true);
+      expect(await f.payments()).toEqual(originalTender);
+
+      const net = allocation.state === 'applied' ? 12000 - evidence.amountCents : 12000;
+      const after = await f.load();
+
+      expect(after).toMatchObject({ amountPaidCents: net, tipCents: before.tipCents, finalTaxSnapshot: before.finalTaxSnapshot });
+
+      vi.stubEnv('CUSTOMER_PAYMENTS_REFUND_TEST_ENABLED', 'false');
+      const rows = await listPayments(database, f.appointmentId);
+      const input = { cachedAmountPaidCents: after.amountPaidCents, paymentRows: rows, expectedSalonId: f.salonId, appointmentStatus: after.status, paymentStatus: after.paymentStatus };
+
+      expect(resolveAppointmentPaymentLedgerForReconciliation(input)).toMatchObject({ ok: true, ledgerPaymentsCents: net, collectionHold: true });
+      expect(resolveAppointmentPaymentLedger(input).ok).toBe(false);
+      expect((await checkout(new Request('http://localhost/checkout'), f.params)).status).toBe(409);
+      expect((await complete(completionRequest({ finalPriceCents: 10000 }), f.params)).status).toBe(409);
+      expect(await f.load()).toEqual(after);
+      expect(await f.payments()).toEqual(originalTender);
+
+      vi.stubEnv('CUSTOMER_PAYMENTS_LEDGER_TEST_ENABLED', 'false');
+
+      expect((await checkout(new Request('http://localhost/checkout'), f.params)).status).toBe(409);
     });
   }
 });

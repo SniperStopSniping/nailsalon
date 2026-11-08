@@ -26,6 +26,7 @@ import {
 import { customerPaymentTipFloor } from '@/libs/customerPayments/provenance';
 import { readCustomerPaymentCaptureReport } from '@/libs/customerPayments/server/captureReportingReader';
 import { enrichCustomerPaymentProvenance } from '@/libs/customerPayments/server/provenanceReader';
+import { readCustomerPaymentRefundReport } from '@/libs/customerPayments/server/refundReportingReader';
 import { db } from '@/libs/DB';
 import {
   buildReportingProvenance,
@@ -55,6 +56,13 @@ export type FinancialReportingRangeSummary = {
   /** Immutable synthetic-test capture cash, including captured funds held for review. */
   customerPaymentCollectedCents?: number;
   customerPaymentHeldForReviewCents?: number;
+  customerPaymentRefundedCents?: number;
+  customerPaymentRefundHeldForReviewCents?: number;
+  /** Application-fee cash returns are separate from customer refunded cash. */
+  customerPaymentFeeRefundedCents?: number;
+  customerPaymentFeeRefundHeldForReviewCents?: number;
+  /** Dated gross captures minus successful customer refunds; may be negative. */
+  customerPaymentNetCashCents?: number;
   /** Event-ledger amounts; missing timestamps are excluded and disclosed below. */
   depositCollectedCents: number;
   depositRefundedCents: number;
@@ -1195,12 +1203,27 @@ export async function getFinancialReportingRangeSummary(
       )),
   ]);
 
+  const refundReport = await readCustomerPaymentRefundReport(db, {
+    salonId: input.salonId,
+    currency: reportingCurrency,
+    start: input.start,
+    end: input.end,
+  });
+  // A refund can arrive after the earlier marker query. Include its immutable
+  // capture anchor when that capture belongs to this same reporting period,
+  // rather than presenting the refund without the corresponding gross inflow.
+  const captureMarkers = new Map(customerPaymentMarkers.map(row => [row.id, row]));
+  for (const marker of refundReport.captureMarkers) {
+    if (marker.recordedAt >= input.start && marker.recordedAt < input.end) {
+      captureMarkers.set(marker.id, marker);
+    }
+  }
   const captureReport = await readCustomerPaymentCaptureReport(db, {
     salonId: input.salonId,
     currency: reportingCurrency,
     start: input.start,
     end: input.end,
-    markers: customerPaymentMarkers,
+    markers: [...captureMarkers.values()],
   });
   const legacyPaymentsCollectedCents = numberValue(cashRows[0]?.cashCollectedCents);
   const appointmentPaymentsCollectedCents
@@ -1530,6 +1553,11 @@ export async function getFinancialReportingRangeSummary(
     appointmentPaymentsCollectedCents,
     customerPaymentCollectedCents: captureReport.collectedCents,
     customerPaymentHeldForReviewCents: captureReport.heldForReviewCents,
+    customerPaymentRefundedCents: refundReport.refundedCents,
+    customerPaymentRefundHeldForReviewCents: refundReport.heldForReviewCents,
+    customerPaymentFeeRefundedCents: refundReport.feeRefundedCents,
+    customerPaymentFeeRefundHeldForReviewCents: refundReport.feeHeldForReviewCents,
+    customerPaymentNetCashCents: captureReport.collectedCents - refundReport.refundedCents,
     depositCollectedCents,
     depositRefundedCents: numberValue(depositEvents?.depositRefundedCents),
     depositForfeitedCents,
@@ -1557,7 +1585,7 @@ export async function getFinancialReportingRangeSummary(
     unknownCurrencyPaymentEventCount:
       numberValue(paymentEvents?.unknownCurrencyPaymentEventCount) + captureReport.unknownCurrencyEventCount,
     excludedForeignCurrencyPaymentEventCount:
-      numberValue(paymentEvents?.excludedForeignCurrencyPaymentEventCount) + captureReport.excludedForeignCurrencyEventCount,
+      numberValue(paymentEvents?.excludedForeignCurrencyPaymentEventCount) + captureReport.excludedForeignCurrencyEventCount + refundReport.excludedForeignCurrencyEventCount,
     unknownCurrencyDepositEventCount:
       numberValue(depositEvents?.unknownCurrencyDepositEventCount),
     excludedForeignCurrencyDepositEventCount:

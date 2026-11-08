@@ -820,6 +820,13 @@
       "when": 1794186000000,
       "tag": "0117_customer_payment_mutation_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1794189600000,
+      "tag": "0118_customer_payment_synthetic_refunds",
+      "breakpoints": true
     }
   ]
 }

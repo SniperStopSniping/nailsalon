@@ -1,12 +1,13 @@
 import { resolveAppointmentDepositFinancials } from '@/libs/appointmentDepositFinancials';
 import type { AppointmentPaymentLedgerRow } from '@/libs/appointmentPaymentLedger';
-import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
+import { resolveAppointmentPaymentLedgerForReconciliation } from '@/libs/appointmentPaymentLedger';
 import type { AppointmentTaxSnapshotInput } from '@/libs/appointmentTaxSnapshot';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { MAX_SUPPORTED_MINOR_UNIT_AMOUNT } from '@/libs/checkoutTotals';
 import type { DepositCreditRow } from '@/libs/depositCredit';
 
 import { assertCents } from './money';
+import { customerPaymentTenderSummary, isCustomerPaymentTender } from './provenance';
 import { calculateApplicationFeeRefund } from './refunds';
 
 export type CustomerPaymentTenderRow = AppointmentPaymentLedgerRow & {
@@ -101,8 +102,9 @@ export function resolveCustomerPaymentAccounting(input: CustomerPaymentAccountin
   if (tax.invoiceCurrency !== 'CAD' || appointment.invoiceCurrency !== 'CAD' || !tax.active.snapshot) {
     throw new Error('CUSTOMER_PAYMENT_FROZEN_INVOICE_REQUIRED');
   }
-  const ledger = resolveAppointmentPaymentLedger({
-    cachedAmountPaidCents: appointment.amountPaidCents,
+  const ledger = resolveAppointmentPaymentLedgerForReconciliation({
+    // Validate gross sources first; linked immutable refunds are reconciled below.
+    cachedAmountPaidCents: input.payments.length === 0 ? appointment.amountPaidCents : null,
     paymentRows: input.payments,
     expectedSalonId: appointment.salonId,
     appointmentStatus: appointment.status,
@@ -111,6 +113,8 @@ export function resolveCustomerPaymentAccounting(input: CustomerPaymentAccountin
   if (!ledger.ok || ledger.legacyPaidAssumed || ledger.appointmentPaymentsCents === null) {
     throw new Error('CUSTOMER_PAYMENT_LEDGER_RECONCILIATION_REQUIRED');
   }
+  let ordinaryLinkedRefundsCents = 0;
+  let refundHold = ledger.collectionHold;
   let unpostedCreditCents = 0;
   let prepaidTipCents = 0;
   const linkedIds: string[] = [];
@@ -128,7 +132,11 @@ export function resolveCustomerPaymentAccounting(input: CustomerPaymentAccountin
       throw new Error('CUSTOMER_PAYMENT_INVALID_CREDIT');
     }
     const refunded = money(credit.refundedPrincipalCents + credit.refundedTipCents);
-    calculateApplicationFeeRefund({ originalChargeCents: gross, originalApplicationFeeCents: credit.applicationFeeCents, cumulativeChargeRefundedCents: refunded, applicationFeeAlreadyRefundedCents: credit.applicationFeeRefundedCents });
+    if (credit.applicationFeeCents >= gross || credit.applicationFeeRefundedCents > credit.applicationFeeCents) {
+      throw new Error('CUSTOMER_PAYMENT_INVALID_FEE_REFUND');
+    }
+    // Actual fee return is independent of the proportional plan.
+    refundHold ||= refunded > 0;
     const net = gross - refunded;
     prepaidTipCents = money(prepaidTipCents + credit.tipCents - credit.refundedTipCents);
     staleGeneration ||= net > 0 && credit.invoiceGeneration !== input.invoiceGeneration;
@@ -141,8 +149,17 @@ export function resolveCustomerPaymentAccounting(input: CustomerPaymentAccountin
     } else {
       linkedIds.push(credit.canonicalPaymentId);
       const row = input.payments.find(row => row.id === credit.canonicalPaymentId);
-      if (!row || row.voidedAt !== null || row.reference !== credit.referenceId || row.amountCents !== net || matching.length !== 1) {
+      if (!row || row.voidedAt !== null || row.reference !== credit.referenceId || row.amountCents !== gross || matching.length !== 1) {
         throw new Error('CUSTOMER_PAYMENT_POSTED_TENDER_MISMATCH');
+      }
+      if (isCustomerPaymentTender(row)) {
+        const summary = customerPaymentTenderSummary(row);
+        if (summary.refundedPrincipalCents !== credit.refundedPrincipalCents
+          || summary.refundedTipCents !== credit.refundedTipCents) {
+          throw new Error('CUSTOMER_PAYMENT_REFUND_EVIDENCE_MISMATCH');
+        }
+      } else {
+        ordinaryLinkedRefundsCents = money(ordinaryLinkedRefundsCents + refunded);
       }
     }
     if (input.deposits.some(row => row.stripePaymentIntentId === credit.paymentIntentId)) {
@@ -150,11 +167,15 @@ export function resolveCustomerPaymentAccounting(input: CustomerPaymentAccountin
     }
   }
   unique(linkedIds);
+  const canonicalTenderCents = money(ledger.appointmentPaymentsCents - ordinaryLinkedRefundsCents);
+  if (appointment.amountPaidCents !== null && appointment.amountPaidCents !== canonicalTenderCents) {
+    throw new Error('CUSTOMER_PAYMENT_LEDGER_RECONCILIATION_REQUIRED');
+  }
   if ((appointment.status === 'completed' || appointment.finalTaxSnapshot !== null) && money(appointment.tipCents) < prepaidTipCents) {
     throw new Error('CUSTOMER_PAYMENT_FINAL_TIP_RECONCILIATION_REQUIRED');
   }
   const effectiveTipCents = money(Math.max(money(appointment.tipCents), prepaidTipCents));
-  const combinedTenderCents = money(ledger.appointmentPaymentsCents + unpostedCreditCents);
+  const combinedTenderCents = money(canonicalTenderCents + unpostedCreditCents);
   const canonical = resolveAppointmentDepositFinancials({
     deposits: input.deposits,
     invoiceCurrency: tax.invoiceCurrency,
@@ -176,7 +197,7 @@ export function resolveCustomerPaymentAccounting(input: CustomerPaymentAccountin
   const overpaid = canonical.balance.excessDepositCents > 0 || canonical.balance.tenderExcessCents > 0;
   const collectionBlock = terminal
     ? 'TERMINAL_APPOINTMENT'
-    : input.collectionHold !== 'none'
+    : input.collectionHold !== 'none' || refundHold
       ? 'REFUND_RECONCILIATION_REQUIRED'
       : !knownStatus
           ? 'UNKNOWN_APPOINTMENT_STATUS'
@@ -193,7 +214,7 @@ export function resolveCustomerPaymentAccounting(input: CustomerPaymentAccountin
     effectiveTipCents,
     prepaidTipCents,
     unpostedCreditCents,
-    canonicalTenderCents: ledger.appointmentPaymentsCents,
+    canonicalTenderCents,
     collectionBlock,
     ...canonical.balance,
   });
@@ -268,16 +289,10 @@ export function projectCustomerPaymentSettlement(input: CustomerPaymentAccountin
 }
 
 /**
- * Project successful refund evidence with an explicit principal/tip allocation.
- * Posted partial refunds require a void+replacement positive tender row because
- * the existing canonical ledger has no negative/refund row type. All replacement
- * writes, cache updates, fee-refund receipts and unique refund IDs belong in one
- * future atomic adapter transaction. This function must not itself execute them.
- * IMPORTANT: existing reporting excludes voided rows, so void+replacement would
- * rewrite historical as-of cash. This plan is NOT safe to apply until immutable
- * capture/refund movement reporting replaces that assumption (or reports block).
- * A collection hold is mandatory until an explicit credit-note/invoice decision;
- * a refunded invoice must not silently become payable again.
+ * Project immutable refund allocations, never void/rewrite the original tender.
+ * A posted reserved tender requires freshly verified refund evidence from the
+ * adapter. This pure plan does not create receipts or prove a fee refund happened.
+ * Gross invoice tip stays unchanged and every customer refund imposes a hold.
  */
 export function projectCustomerPaymentRefund(input: CustomerPaymentAccountingInput, request: {
   expectedRevision: number;
@@ -285,9 +300,10 @@ export function projectCustomerPaymentRefund(input: CustomerPaymentAccountingInp
   refundedAt: Date;
   principalRefundCents: number;
   tipRefundCents: number;
-  replacementPaymentId?: string;
+  /** Reserved gross tender reloaded with complete applied/refund-review proof. */
+  refundedTender?: CustomerPaymentTenderRow;
 }) {
-  const before = resolveCustomerPaymentAccounting(input);
+  resolveCustomerPaymentAccounting(input);
   if (request.expectedRevision !== input.moneyRevision) {
     throw new Error('CUSTOMER_PAYMENT_STALE_QUOTE');
   }
@@ -303,27 +319,26 @@ export function projectCustomerPaymentRefund(input: CustomerPaymentAccountingInp
     throw new Error('CUSTOMER_PAYMENT_INVALID_REFUND_ALLOCATION');
   }
   const updated = { ...credit, refundedPrincipalCents: credit.refundedPrincipalCents + request.principalRefundCents, refundedTipCents: credit.refundedTipCents + request.tipRefundCents };
-  const net = updated.principalCents + updated.tipCents - updated.refundedPrincipalCents - updated.refundedTipCents;
-  const feePlan = calculateApplicationFeeRefund({ originalChargeCents: credit.principalCents + credit.tipCents, originalApplicationFeeCents: credit.applicationFeeCents, cumulativeChargeRefundedCents: updated.refundedPrincipalCents + updated.refundedTipCents, applicationFeeAlreadyRefundedCents: credit.applicationFeeRefundedCents });
-  let replacement: CustomerPaymentTenderRow | null = null;
-  const voidPaymentId = credit.canonicalPaymentId;
-  if (voidPaymentId && net > 0) {
-    if (!request.replacementPaymentId?.trim() || input.payments.some(row => row.id === request.replacementPaymentId)) {
-      throw new Error('CUSTOMER_PAYMENT_REFUND_REPLACEMENT_ID_REQUIRED');
+  const feePlan = calculateApplicationFeeRefund({ originalChargeCents: credit.principalCents + credit.tipCents, originalApplicationFeeCents: credit.applicationFeeCents, cumulativeChargeRefundedCents: updated.refundedPrincipalCents + updated.refundedTipCents, applicationFeeAlreadyRefundedCents: 0 });
+  const original = input.payments.find(row => row.id === credit.canonicalPaymentId);
+  let payments = input.payments;
+  if (original && isCustomerPaymentTender(original)) {
+    const reloaded = request.refundedTender;
+    if (!reloaded || reloaded.id !== original.id || reloaded.amountCents !== original.amountCents) {
+      throw new Error('CUSTOMER_PAYMENT_REFUND_EVIDENCE_REQUIRED');
     }
-    replacement = { id: request.replacementPaymentId, salonId: credit.salonId, appointmentId: credit.appointmentId, reference: credit.referenceId, amountCents: net, voidedAt: null };
+    const summary = customerPaymentTenderSummary(reloaded);
+    if (!summary.collectionHold || summary.refundedPrincipalCents !== updated.refundedPrincipalCents
+      || summary.refundedTipCents !== updated.refundedTipCents) {
+      throw new Error('CUSTOMER_PAYMENT_REFUND_EVIDENCE_MISMATCH');
+    }
+    payments = input.payments.map(row => row.id === original.id ? reloaded : row);
   }
-  updated.canonicalPaymentId = replacement?.id ?? null;
-  // Adapter supplies the verified immutable refund evidence timestamp.
-  const payments = input.payments.map(row => row.id === voidPaymentId ? { ...row, voidedAt: request.refundedAt } : row);
-  if (replacement) {
-    payments.push(replacement);
-  }
-  const cache = money(payments.filter(row => row.voidedAt === null).reduce((sum, row) => money(sum + row.amountCents), 0));
-  const next: CustomerPaymentAccountingInput = { ...input, moneyRevision: input.moneyRevision + 1, payments, collectionHold: 'refund_reconciliation_required', appointment: { ...input.appointment, amountPaidCents: cache, tipCents: (input.appointment.status === 'completed' || input.appointment.finalTaxSnapshot !== null)
-    ? input.appointment.tipCents
-    : money(before.effectiveTipCents - request.tipRefundCents) }, prepayments: input.prepayments.map(row => row.referenceId === credit.referenceId ? updated : row) };
-  return { next, accounting: resolveCustomerPaymentAccounting(next), voidPaymentId, replacement, applicationFeeRefundDueCents: feePlan.additionalFeeRefundCents, reportingReconciliationRequired: voidPaymentId !== null };
+  const cache = credit.canonicalPaymentId
+    ? money(resolveCustomerPaymentAccounting(input).canonicalTenderCents - request.principalRefundCents - request.tipRefundCents)
+    : input.appointment.amountPaidCents;
+  const next: CustomerPaymentAccountingInput = { ...input, moneyRevision: input.moneyRevision + 1, payments, collectionHold: 'refund_reconciliation_required', appointment: { ...input.appointment, amountPaidCents: cache }, prepayments: input.prepayments.map(row => row.referenceId === credit.referenceId ? updated : row) };
+  return { next, accounting: resolveCustomerPaymentAccounting(next), applicationFeeRefundDueCents: Math.max(0, feePlan.targetFeeRefundCents - credit.applicationFeeRefundedCents) };
 }
 
 /** Current-balance projection only; caller must also adapt movement reporting. */

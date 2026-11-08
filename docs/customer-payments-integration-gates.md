@@ -1,8 +1,8 @@
 # Customer payment integration gates
 
-Status: default-off nonproduction preparation plus **internal synthetic** capture,
+Status: default-off nonproduction preparation plus **internal synthetic** capture/refund,
 canonical-reader, lifecycle and reporting integration. No provider collection,
-real refunds, deployment or production activation. Migrations 0115–0117 exist in
+real refunds, deployment or production activation. Migrations 0115–0118 exist in
 source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
@@ -71,7 +71,7 @@ not an application DB. The remaining gates below are not implemented payment flo
 - `src/app/api/appointments/[id]/payments/[paymentId]/void/route.ts` refuses generic
   void of captured money; manual payment/completion paths reject reserved capture
   references. Captured appointments cannot cancel, reprice, reschedule/reassign
-  or reopen before a future explicit reconciliation/refund path exists.
+  or reopen before a future explicit review-resolution path exists.
 - `migrations/0117_customer_payment_mutation_guards.sql` adds DB backstops for
   tender immutability, appointment financial/lifecycle evidence, item mutations
   and new deposits. This also protects indirect writers such as Google calendar
@@ -99,9 +99,53 @@ not an application DB. The remaining gates below are not implemented payment flo
 - `server/captureReporting.integration.test.ts` has seven passing cases for immutable
   timing, held credit, foreign currency, flag rollback, indirect mutations and
   finalization evidence. This resolves the capture-side voided-marker reporting
-  gap. There is still no installed dated refund/fee-refund reporting ledger.
+  gap. Dated synthetic refund reporting is now implemented as described below.
 
-## PostgreSQL and runtime verification boundary
+## Implemented: synthetic refunds, holds and dated reporting
+
+- `server/recordSyntheticRefund.ts`, `refundTestGate.ts`,
+  `src/models/customerPaymentSchema.ts` and migration
+  `0118_customer_payment_synthetic_refunds.sql` persist immutable successful
+  synthetic customer refunds, fee bindings, fee returns and replay receipts.
+  They accept known posted CAD captures, bind account/intent/mode/currency and
+  independently bind original application-fee identity. They are internal fixture
+  seams, not refund APIs, provider operations or signature verification.
+- Observed successful but invalid/out-of-order allocation facts are held for
+  review, not discarded or treated as failed money movement. Only applied
+  principal/tip allocations reduce the trusted paid cache. Original gross tender,
+  final invoice tip and tax remain immutable. A fee return is independent platform
+  money and never reduces customer cash or booking credit.
+- `provenance.ts`, `server/provenanceReader.ts`, `appointmentPaymentLedger.ts` and
+  migration 0118 impose a permanent-in-this-slice collection hold after any
+  customer refund, including held facts. Actual checkout, manual payment,
+  completion and lifecycle actions fail closed. Generic void cannot erase the
+  history; reducing cached payment does not make the old invoice collectible.
+  Late distinct captures are retained under review, not used to revive credit.
+- `refundReporting.ts` and `server/refundReportingReader.ts` report successful
+  observed customer/fee movements by their own dates. Review totals are subsets
+  of cash movements. `financialReportingServer.ts` preserves gross cashCollected,
+  reports customer net as captures minus customer refunds only and merges returned
+  capture anchors for between-query arrivals. Negative refund-only net is valid.
+- `financialReportingSerializer.ts`, `src/types/admin.ts`,
+  `OwnerTodayWorkspace.tsx` and client-hub reports forward seven optional customer
+  metrics. Owner breakdown explains gross, net, review subsets and separate
+  platform fee returns; missing net is omitted. Earned-service charts, legacy
+  amountPaid and deposit-refund semantics remain unchanged. No refund UI is added.
+- `server/refundReportingReader.test.ts` proves legacy no-marker paths only probe
+  old tables and ledger-off markers fail closed. Reads deliberately ignore the
+  refund-write flag. `server/refundReporting.arrival.integration.test.ts` injects
+  real synthetic capture/refund between queries and verifies 12000 gross, 3000
+  refund and 9000 net. Five `server/refundReporting.integration.test.ts` cases
+  cover dated cash, duplicates, separate fee evidence, held facts and full returns.
+- `server/recordSyntheticRefund.test.ts`,
+  `server/refundLifecycle.integration.test.ts` and
+  `server/refund.concurrency.integration.test.ts` exercise writer, canonical hold
+  and concurrent fixture behavior. These do not certify a future provider driver.
+
+## Previous capture verification: `7608d3b4`
+
+The following aggregate/build results predate the refund slice. They are retained
+as historical evidence only, not current refund build/typecheck certification.
 
 Sixteen cases passed on a dedicated disposable PostgreSQL 16.15 cluster with
 four attested physical sessions: five in
@@ -120,7 +164,33 @@ production-off smoke checks passed, including forced true flags in production.
 Scoped lint passed with one browser-harness warning; the secret scan covered
 5,566 tracked and 613 generated files. These are scoped checks, not the entire
 repository test suite or an authenticated full-app browser journey.
-These PostgreSQL proofs do not certify future provider/refund writers.
+These PostgreSQL proofs do not certify future provider execution.
+
+## Current refund verification boundary
+
+Final scoped aggregate: **1,075 tests passed in 63 files**. The 23 opt-in
+PostgreSQL cases were skipped in that aggregate and passed separately on a newly
+created private PostgreSQL 16.15 cluster: seven refund cases plus the prior 16
+preparation/settlement/purge cases. Every physical session was attested; the
+cluster and ephemeral secrets were removed afterward. No application DB was used.
+
+The final aggregate includes the 21-case synthetic refund writer suite, actual
+full/partial/tip-only lifecycle holds, immutable SQL defenses, dated refund
+reporting, arrival races, optional-field serialization and owner disclosures.
+Whitespace-only external identities are rejected before DB access and by SQL;
+valid identities are preserved exactly. Independent review found no remaining
+blocker in this slice.
+
+All 14 standalone Chromium/mobile WebKit rehearsal cases passed. Node 24
+standalone typecheck, scoped lint and the full production build passed. Webpack
+cache was temporarily disabled only for local disk space; configuration was
+restored and type checking was not bypassed. All six built-app production-off
+checks returned 404, both with default flags and all four flags forced true in
+production. The secret scan passed across 5,579 tracked and 613 generated files.
+
+These are scoped checks, not the whole repository suite, an authenticated
+full-app customer journey or real provider execution. No provider call, actual
+charge/refund, application migration, push, deployment or activation occurred.
 
 ## Remaining gate 1: real provider operations and receipts
 
@@ -135,23 +205,25 @@ These PostgreSQL proofs do not certify future provider/refund writers.
   wallet/device coverage and provider retry/late-event cases require separate
   authorized testing. Cached Connect flags do not attest provider authorization.
 
-## Remaining gate 2: refund and reconciliation ledger
+## Remaining gate 2: real refunds and explicit review resolution
 
-- Implement immutable principal/tip refund allocations and separate application-
-  fee refund receipts in the application ledger, with atomic verified evidence,
-  durable operations and invoice adjustment or collection hold. A principal refund
-  must not silently reopen collectible balance on an unchanged invoice.
-- Preserve captured gross facts and dated refund history across active/completed/
-  cancelled states. Pending/failed/uncertain refunds are not money returned.
-  Prevent generic void and duplicate/cross-account application; retain out-of-order
-  evidence for reconciliation rather than dropping or acknowledging it as applied.
-- `refunds.ts`, `accounting.ts`, `attempt.ts` and `server/rehearsalStore.ts` contain
-  pure/synthetic refund contracts only. Their passing tests do not install a
-  refund writer or make the restrictive lifecycle guards a complete refund flow.
-- Required new tests: full/partial principal/tip/fee refunds, rounding, separate
-  capture/refund reporting periods, replay/restart, disputes, uncertain provider
-  outcomes, attempted recollection, explicit invoice adjustment and PostgreSQL
-  races. Earlier-period capture reports must retain original gross money.
+- The new application-table synthetic ledger is implemented, but a real refund
+  operation driver, verified durable inbox/outbox and unmatched-evidence inbox
+  are not. Unknown/unsupported capture evidence needs retained verified receipt
+  handling before any future provider event can be acknowledged.
+- Implement immutable review decisions, invoice credit notes/adjustments and
+  authorized collection-hold clearing. No such operation exists here; refunds
+  leave holds in place. Do not make a refunded unchanged invoice collectible or
+  use generic void, row edits or flag changes to bypass the hold.
+- Preserve gross capture facts, independent customer/fee identities and dated
+  history through disputes and late/out-of-order provider events. Pending,
+  failed and uncertain operations are not confirmed money returned; first
+  reconcile uncertain outcomes before retrying a provider operation.
+- Extend the existing synthetic full/partial/replay/race tests to actual authorized
+  provider test execution, unmatched receipts, explicit review resolution and
+  hold clearing. Earlier-period cash must retain its original gross capture.
+  `refunds.ts`, `accounting.ts`, `attempt.ts` and `server/rehearsalStore.ts` still
+  supply supporting pure/local contracts, not a real refund driver.
 
 ## Remaining gate 3: booking, policy and rollout
 
@@ -179,4 +251,6 @@ These PostgreSQL proofs do not certify future provider/refund writers.
 - Extend booking/deposit regressions, real authenticated Next.js browser journeys,
   accessibility, reporting/receipt checks, full CI and security review. Separately
   approve migration rollout, deployment, pilot activation and monitoring. All
-  three feature flags remain false by default; production is refused.
+  four feature flags remain false by default; production is refused.
+  The fourth is `CUSTOMER_PAYMENTS_REFUND_TEST_ENABLED=false`, dependent on the
+  preparation and ledger-test gates; it never authorizes a provider call.

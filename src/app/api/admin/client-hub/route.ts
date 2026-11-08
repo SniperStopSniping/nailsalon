@@ -433,6 +433,14 @@ export async function GET(request: Request): Promise<Response> {
           taxCollectedCents: money.taxCents,
           tipsCents: money.tipCents,
           amountPaidCents: money.amountPaidCents,
+          customerPaymentCollectedCents: canonicalRange.customerPaymentCollectedCents,
+          customerPaymentHeldForReviewCents: canonicalRange.customerPaymentHeldForReviewCents,
+          customerPaymentRefundedCents: canonicalRange.customerPaymentRefundedCents,
+          customerPaymentRefundHeldForReviewCents: canonicalRange.customerPaymentRefundHeldForReviewCents,
+          customerPaymentFeeRefundedCents: canonicalRange.customerPaymentFeeRefundedCents,
+          customerPaymentFeeRefundHeldForReviewCents: canonicalRange.customerPaymentFeeRefundHeldForReviewCents,
+          customerPaymentNetCashCents: canonicalRange.customerPaymentNetCashCents,
+
           outstandingCents: money.outstandingCents,
           depositCreditAppliedCents: money.depositCreditAppliedCents,
           unresolvedFinancialAppointmentCount:

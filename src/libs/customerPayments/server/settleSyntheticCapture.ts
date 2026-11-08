@@ -164,7 +164,7 @@ export async function settleSyntheticCustomerPaymentCapture(database: Database, 
       if (!tender) {
         throw new Error('CUSTOMER_PAYMENT_CAPTURE_TENDER_MISSING');
       }
-      const proven = verifyCustomerPaymentTender(tender, { ...capture, synthetic: true });
+      const proven = verifyCustomerPaymentTender(tender, { ...capture, synthetic: true }, []);
       const ledger = resolveAppointmentPaymentLedger({ cachedAmountPaidCents: evidence.amountCents, paymentRows: [proven], expectedSalonId: quote.salonId, appointmentStatus: appointment.status, paymentStatus: appointment.paymentStatus });
       if (!ledger.ok) {
         throw new Error('CUSTOMER_PAYMENT_CAPTURE_LEDGER_CONFLICT');

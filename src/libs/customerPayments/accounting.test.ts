@@ -6,6 +6,7 @@ import { buildBookingTaxSnapshot, buildFinalTaxSnapshot, DISABLED_TAX_CONFIG } f
 
 import type { CustomerPaymentAccountingInput } from './accounting';
 import { assertCustomerPaymentCollectibleQuote, projectCustomerPaymentRefund, projectCustomerPaymentSettlement, projectCustomerPrepaymentApplication, resolveCustomerPaymentAccounting } from './accounting';
+import { verifyCustomerPaymentTender } from './provenance';
 
 const capturedAt = new Date('2026-11-08T12:00:00Z');
 function fixture(): CustomerPaymentAccountingInput {
@@ -192,30 +193,82 @@ describe('canonical customer-payment accounting projection', () => {
     const input = settle().next;
     const result = projectCustomerPaymentRefund(input, { refundedAt: capturedAt, expectedRevision: input.moneyRevision, referenceId: 'cp_1', principalRefundCents: 3000, tipRefundCents: 1000 });
 
-    expect(result.accounting).toMatchObject({ effectiveTipCents: 1000, prepaidTipCents: 1000, balanceCents: 3000, collectionBlock: 'REFUND_RECONCILIATION_REQUIRED' });
+    expect(result.accounting).toMatchObject({ effectiveTipCents: 2000, prepaidTipCents: 1000, balanceCents: 4000, collectionBlock: 'REFUND_RECONCILIATION_REQUIRED' });
     expect(result.applicationFeeRefundDueCents).toBe(33);
     expect(() => settle(result.next, 3000)).toThrow('REFUND_RECONCILIATION');
     expect(() => projectCustomerPaymentRefund(result.next, { refundedAt: capturedAt, expectedRevision: result.next.moneyRevision, referenceId: 'cp_1', principalRefundCents: 7001, tipRefundCents: 0 })).toThrow('INVALID_REFUND_ALLOCATION');
   });
 
-  it('projects posted refund as void+replacement, updates cache and flags reporting work', () => {
+  it('preserves immutable gross tender and invoice while deriving refunded net and hold', () => {
     const completed = complete(settle().next);
     const input = projectCustomerPrepaymentApplication(completed, { expectedRevision: completed.moneyRevision, referenceId: 'cp_1', canonicalPaymentId: 'tender_1' }).next;
-    const result = projectCustomerPaymentRefund(input, { refundedAt: capturedAt, expectedRevision: input.moneyRevision, referenceId: 'cp_1', principalRefundCents: 5000, tipRefundCents: 1000, replacementPaymentId: 'tender_2' });
+    const result = projectCustomerPaymentRefund(input, { refundedAt: capturedAt, expectedRevision: input.moneyRevision, referenceId: 'cp_1', principalRefundCents: 5000, tipRefundCents: 1000 });
 
-    expect(result.voidPaymentId).toBe('tender_1');
-    expect(result.replacement?.amountCents).toBe(6000);
+    expect(result.next.payments).toEqual(input.payments);
+    expect(result.next.payments[0]?.amountCents).toBe(12000);
     expect(result.next.appointment.amountPaidCents).toBe(6000);
-    expect(result.reportingReconciliationRequired).toBe(true);
+    expect(result.accounting.collectionBlock).toBe('REFUND_RECONCILIATION_REQUIRED');
     expect(result.accounting).toMatchObject({ canonicalTenderCents: 6000, unpostedCreditCents: 0, effectiveTipCents: 2000, prepaidTipCents: 1000 });
 
     const final = projectCustomerPaymentRefund(result.next, { refundedAt: capturedAt, expectedRevision: result.next.moneyRevision, referenceId: 'cp_1', principalRefundCents: 5000, tipRefundCents: 1000 });
 
-    expect(final.replacement).toBeNull();
+    expect(final.next.payments).toEqual(input.payments);
     expect(final.next.appointment.amountPaidCents).toBe(0);
     expect(final.next.appointment.tipCents).toBe(2000); // Frozen gross invoice, not net cash.
     expect(final.accounting.prepaidTipCents).toBe(0);
     expect(final.accounting.collectionBlock).toBe('REFUND_RECONCILIATION_REQUIRED');
     expect(final.applicationFeeRefundDueCents).toBe(100);
+  });
+});
+
+describe('immutable captured refund accounting', () => {
+  const captureId = '00000000-0000-4000-8000-000000000001';
+  const reference = `customer_payment_capture:${captureId}`;
+  const capture = { id: captureId, salonId: 'salon_1', appointmentId: 'appt_1', amountCents: 12000, tipCents: 2000, state: 'posted' as const, mode: 'test' as const, synthetic: true as const };
+  const gross = { id: `cpay_${captureId}`, salonId: 'salon_1', appointmentId: 'appt_1', amountCents: 12000, reference, method: 'online', recordedByType: 'system', voidedAt: null };
+  function posted() {
+    const input = settle().next;
+    input.prepayments = input.prepayments.map(credit => ({ ...credit, referenceId: reference, canonicalPaymentId: gross.id }));
+    input.payments = [verifyCustomerPaymentTender(gross, capture, [])];
+    input.appointment.amountPaidCents = 12000;
+    return input;
+  }
+
+  it('requires fresh proof to project a reserved tender refund and never rewrites gross', () => {
+    const input = posted();
+    const request = { expectedRevision: input.moneyRevision, referenceId: reference, refundedAt: capturedAt, principalRefundCents: 3000, tipRefundCents: 1000 };
+
+    expect(() => projectCustomerPaymentRefund(input, request)).toThrow('REFUND_EVIDENCE_REQUIRED');
+
+    const refundedTender = verifyCustomerPaymentTender(gross, capture, [{ id: 'refund1', refundId: 're_1', captureId, salonId: 'salon_1', appointmentId: 'appt_1', amountCents: 4000, principalCents: 3000, tipCents: 1000, state: 'applied' }]);
+    const result = projectCustomerPaymentRefund(input, { ...request, refundedTender });
+
+    expect(result.next.payments[0]?.amountCents).toBe(12000);
+    expect(result.next.appointment).toMatchObject({ amountPaidCents: 8000, tipCents: 2000 });
+    expect(result.accounting).toMatchObject({ canonicalTenderCents: 8000, collectionBlock: 'REFUND_RECONCILIATION_REQUIRED' });
+    expect(() => projectCustomerPaymentRefund(result.next, { ...request, refundedTender })).toThrow('STALE_QUOTE');
+    expect(resolveCustomerPaymentAccounting({ ...result.next, collectionHold: 'none' }).collectionBlock).toBe('REFUND_RECONCILIATION_REQUIRED');
+    expect(() => settle({ ...result.next, collectionHold: 'none' })).toThrow('REFUND_RECONCILIATION');
+    expect(() => resolveCustomerPaymentAccounting({ ...result.next, prepayments: input.prepayments })).toThrow('REFUND_EVIDENCE_MISMATCH');
+  });
+
+  it('holds review receipts with no applied allocation and no customer net change', () => {
+    const input = posted();
+    input.payments = [verifyCustomerPaymentTender(gross, capture, [{ id: 'review1', refundId: 're_review', captureId, salonId: 'salon_1', appointmentId: 'appt_1', amountCents: 15000, principalCents: 15000, tipCents: 0, state: 'held_review' }])];
+
+    expect(resolveCustomerPaymentAccounting(input)).toMatchObject({ canonicalTenderCents: 12000, collectionBlock: 'REFUND_RECONCILIATION_REQUIRED' });
+  });
+
+  it('keeps actual fee return independent from planned customer-proportional target', () => {
+    const input = posted();
+    input.prepayments = input.prepayments.map(credit => ({ ...credit, applicationFeeRefundedCents: 100 }));
+
+    expect(resolveCustomerPaymentAccounting(input)).toMatchObject({ canonicalTenderCents: 12000, collectionBlock: null });
+
+    const refundedTender = verifyCustomerPaymentTender(gross, capture, [{ id: 'refund1', refundId: 're_1', captureId, salonId: 'salon_1', appointmentId: 'appt_1', amountCents: 1000, principalCents: 1000, tipCents: 0, state: 'applied' }]);
+    const result = projectCustomerPaymentRefund(input, { expectedRevision: input.moneyRevision, referenceId: reference, refundedAt: capturedAt, principalRefundCents: 1000, tipRefundCents: 0, refundedTender });
+
+    expect(result.applicationFeeRefundDueCents).toBe(0);
+    expect(result.next.prepayments[0]?.applicationFeeRefundedCents).toBe(100);
   });
 });
