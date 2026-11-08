@@ -1,10 +1,10 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, foreignKey, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { type AnyPgColumn, boolean, check, foreignKey, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
 import type { CustomerPaymentSnapshot } from '@/libs/customerPayments/money';
 import type { CustomerPaymentDraftSettings } from '@/libs/customerPayments/settings';
 
-import { appointmentPaymentSchema, appointmentSchema, salonSchema } from './Schema';
+import { adminUserSchema, appointmentPaymentSchema, appointmentSchema, salonSchema } from './Schema';
 
 export const customerPaymentPolicySchema = pgTable('customer_payment_policy', {
   salonId: text('salon_id').primaryKey().references(() => salonSchema.id, { onDelete: 'cascade' }),
@@ -148,3 +148,34 @@ export const customerPaymentRefundEventSchema = pgTable('customer_payment_refund
   fingerprint: text('fingerprint').notNull(),
   recordedAt: timestamp('recorded_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 }, table => ({ once: uniqueIndex('customer_payment_refund_event_once').on(table.stripeAccountId, table.mode, table.eventId) }));
+
+/** Cumulative obligation credit snapshot, never an additional cash movement. */
+export const customerPaymentCreditDecisionSchema = pgTable('customer_payment_credit_decision', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull(),
+  appointmentId: text('appointment_id').notNull(),
+  captureId: text('capture_id').notNull().references(() => customerPaymentCaptureSchema.id, { onDelete: 'restrict' }),
+  actorId: text('actor_id').notNull().references(() => adminUserSchema.id, { onDelete: 'restrict' }),
+  previousDecisionId: text('previous_decision_id').references((): AnyPgColumn => customerPaymentCreditDecisionSchema.id, { onDelete: 'restrict' }),
+  projectionFingerprint: text('projection_fingerprint').notNull(),
+  deltaServiceCreditCents: integer('delta_service_credit_cents').notNull(),
+  deltaTaxCreditCents: integer('delta_tax_credit_cents').notNull(),
+  deltaTipCreditCents: integer('delta_tip_credit_cents').notNull(),
+  requestId: text('request_id').notNull(),
+  requestFingerprint: text('request_fingerprint').notNull(),
+  evidenceRevision: text('evidence_revision').notNull(),
+  evidence: jsonb('evidence').$type<Record<string, unknown>>().notNull(),
+  serviceCreditCents: integer('service_credit_cents').notNull(),
+  taxCreditCents: integer('tax_credit_cents').notNull(),
+  tipCreditCents: integer('tip_credit_cents').notNull(),
+  reason: text('reason').notNull(),
+  mode: text('mode').$type<'test'>().notNull().default('test'),
+  source: text('source').$type<'synthetic_test'>().notNull().default('synthetic_test'),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+}, table => ({
+  appointmentTenant: foreignKey({ name: 'customer_payment_credit_appointment_fk', columns: [table.salonId, table.appointmentId], foreignColumns: [appointmentSchema.salonId, appointmentSchema.id] }).onDelete('restrict'),
+  requestOnce: uniqueIndex('customer_payment_credit_request_once').on(table.salonId, table.requestId),
+  evidenceOnce: uniqueIndex('customer_payment_credit_evidence_once').on(table.captureId, table.evidenceRevision),
+  chainOnce: uniqueIndex('customer_payment_credit_chain_once').on(table.previousDecisionId).where(sql`${table.previousDecisionId} is not null`),
+}));
+export type CustomerPaymentCreditDecision = typeof customerPaymentCreditDecisionSchema.$inferSelect;

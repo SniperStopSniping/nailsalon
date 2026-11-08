@@ -25,6 +25,7 @@ import {
 } from '@/libs/appointmentTaxSnapshot';
 import { customerPaymentTipFloor } from '@/libs/customerPayments/provenance';
 import { readCustomerPaymentCaptureReport } from '@/libs/customerPayments/server/captureReportingReader';
+import { readCustomerPaymentCreditForReporting } from '@/libs/customerPayments/server/creditResolutionReader';
 import { enrichCustomerPaymentProvenance } from '@/libs/customerPayments/server/provenanceReader';
 import { readCustomerPaymentRefundReport } from '@/libs/customerPayments/server/refundReportingReader';
 import { db } from '@/libs/DB';
@@ -1688,6 +1689,8 @@ async function loadResolvedBalanceRows(input: {
   asOf: Date;
   clientPhoneVariants?: string[];
   technicianId?: string;
+  /** Debt-only consumers understand the adjusted obligation. Spend/receipts do not yet. */
+  creditAwareOutstanding?: boolean;
 }): Promise<ResolvedBalanceRows> {
   const appointments = await db.select({
     id: appointmentSchema.id,
@@ -1864,6 +1867,34 @@ async function loadResolvedBalanceRows(input: {
     }
 
     const provenPayments = await enrichCustomerPaymentProvenance(db, paymentsByAppointment.get(appointment.id) ?? []);
+    if (input.creditAwareOutstanding && isCompleted && taxSnapshotResolved) {
+      const credit = await readCustomerPaymentCreditForReporting(db, {
+        salonId: input.salonId,
+        appointmentId: appointment.id,
+        paymentRows: provenPayments,
+        asOf: input.asOf,
+      });
+      if (credit && credit.currency === normalizedCurrency
+        && credit.original.serviceCents === finalPriceCents
+        && credit.original.taxCents === taxAmountCents
+        && credit.original.tipCents === appointment.tipCents
+        && credit.actualNetTenderCents === appointment.amountPaidCents) {
+        // This result is used only by debt summaries/segmentation. It must not
+        // silently mark old gross-spend or unadjusted receipt consumers resolved.
+        result.completedRows.push({
+          appointmentId: appointment.id,
+          salonClientId: appointment.salonClientId,
+          clientPhone: appointment.clientPhone,
+          startTime: appointment.startTime,
+          completedOutstandingCents: 0,
+          financialState: 'resolved',
+          source: 'finalized',
+          serviceValueCents: credit.original.serviceCents,
+          financiallySettled: true,
+        });
+        continue;
+      }
+    }
     const paymentLedger = resolveAppointmentPaymentLedger({
       cachedAmountPaidCents: appointment.amountPaidCents,
       paymentRows: provenPayments,
@@ -1940,6 +1971,7 @@ export async function getFinancialBalanceSummary(
     reportingCurrency,
     asOf,
     clientPhoneVariants: input.clientPhoneVariants,
+    creditAwareOutstanding: true,
   });
   const finalizedRows = rows.completedRows.filter(row => row.source === 'finalized');
   const legacyRows = rows.completedRows.filter(row => row.source === 'legacy');
@@ -1984,16 +2016,20 @@ export async function getCompletedOutstandingRows(input: {
   currency: string;
   asOf?: Date;
 }): Promise<CompletedOutstandingRow[]> {
-  const resolution = await getCompletedFinancialResolution(input);
+  assertSalonId(input.salonId);
+  const reportingCurrency = normalizeReportingCurrency(input.currency);
+  const asOf = input.asOf ?? new Date();
+  assertValidDate(asOf, 'asOf');
+  const rows = await loadResolvedBalanceRows({ salonId: input.salonId, reportingCurrency, asOf, creditAwareOutstanding: true });
   return [
-    ...resolution.resolvedRows.map(row => ({
+    ...rows.completedRows.map(row => ({
       appointmentId: row.appointmentId,
       salonClientId: row.salonClientId,
       clientPhone: row.clientPhone,
       completedOutstandingCents: row.completedOutstandingCents,
       financialState: 'resolved' as const,
     })),
-    ...resolution.unresolvedRows.map(row => ({
+    ...rows.completedUnresolvedRows.map(row => ({
       ...row,
       completedOutstandingCents: 0,
       financialState: 'under_review' as const,

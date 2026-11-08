@@ -1,9 +1,9 @@
 # Customer payment integration gates
 
 Status: default-off nonproduction preparation plus **internal synthetic** capture/refund,
-canonical-reader, lifecycle and reporting integration. No provider collection,
-real refunds, deployment or production activation. Migrations 0115–0118 exist in
-source and have run through the real journal in isolated/disposable tests only,
+canonical-reader, lifecycle, reporting and bounded readonly credit-review integration.
+No provider collection, real refunds, deployment or production activation.
+Migrations 0115–0119 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
 ## Implemented: preparation and customer context
@@ -142,10 +142,58 @@ not an application DB. The remaining gates below are not implemented payment flo
   `server/refund.concurrency.integration.test.ts` exercise writer, canonical hold
   and concurrent fixture behavior. These do not certify a future provider driver.
 
+## Implemented: bounded synthetic credit decisions
+
+- `creditReviewTestGate.ts` adds the fifth default-off control,
+  `CUSTOMER_PAYMENTS_CREDIT_REVIEW_TEST_ENABLED=false`. Both owner GET/POST
+  `/api/admin/appointments/[id]/customer-payment-review?salonSlug=...` and the
+  dedicated `/{locale}/payment-review/{slug}/{appointmentId}` page require it plus
+  the preparation and ledger-test gates, and refuse production. The refund-write
+  flag may remain off.
+  Genuine owner authentication supplies the actor; impersonation is rejected.
+  Scope is tenant-bound and POST requires same origin. The server writer also
+  locks/rechecks actual owner membership rather than trusting body actor fields.
+- `server/recordSyntheticCreditDecision.ts`, `creditResolution.ts` and migration
+  `0119_customer_payment_credit_review.sql` accept only clean completed finalized
+  CAD invoices equal to one posted synthetic capture/sole tender, no deposits or
+  extra tenders, all customer refunds applied, and an exact net paid cache.
+  Held or unknown customer money and uncompleted invoices remain ineligible.
+- Immutable decisions record actor/reason/request, authoritative current evidence,
+  predecessor, cumulative service/tax/tip credits and corresponding new delta
+  credits. Explicit service plus tax equals cumulative refunded principal; tip
+  equals refunded tip. Original component caps and monotonic component history
+  prevent reclassification or double counting. Never sum cumulative decisions.
+  No original invoice, tender, final tax/tip, refund movement or paid cache changes.
+- `server/creditEvidence.ts` binds the current locked customer money/invoice state;
+  the pure projection has its own validated fingerprint. New customer capture or
+  refund evidence invalidates the decision. Duplicate transport, notes/contact
+  edits and independent fee movements do not stale customer credit. Replays are
+  historical acknowledgements only, not new authority or cash effects.
+- The dedicated owner UI must distinguish proposed allocation/adjusted amounts
+  from a recorded current decision and require explicit review before recording.
+  Valid proposals are labeled proposed; invalid allocations remain unresolved.
+  Recording is acknowledged separately, and a fresh verified GET is required
+  before recorded credit and verified adjusted balance appear. Browser tests cover
+  this distinction, interrupted retries and stale/navigation responses.
+  Every credit allocation/document remains synthetic and nonlegal, not an official
+  tax credit note, tax determination, refund button or checkout permission.
+- `server/creditResolutionReader.ts` is the bounded opt-in bridge used only by
+  `getFinancialBalanceSummary` and `getCompletedOutstandingRows` for debt summary
+  and segmentation. It verifies a current decision as of the reporting cutoff,
+  zero adjusted collectible balance and `ordinaryActionsBlocked: true`.
+  `getCompletedFinancialResolution`/`getCompletedFinancialRows` and generic spend,
+  receipt and communication consumers remain under review. Original dated cash,
+  refund and earned-service metrics are not rewritten as credits or new spending.
+- SQL and ordinary collection/lifecycle holds remain unchanged, including manual
+  collection, completion, cancellation, reopen, repricing and service progression.
+  Existing readonly credit survives review/refund write-flag rollback, but base
+  preparation/ledger disablement and production fail closed. The legacy no-marker
+  fast path does not query new payment tables. This is not global hold clearing.
+
 ## Previous capture verification: `7608d3b4`
 
-The following aggregate/build results predate the refund slice. They are retained
-as historical evidence only, not current refund build/typecheck certification.
+The following aggregate/build results predate the refund and credit-review slices.
+They are retained as historical evidence only, not current build/typecheck certification.
 
 Sixteen cases passed on a dedicated disposable PostgreSQL 16.15 cluster with
 four attested physical sessions: five in
@@ -166,7 +214,10 @@ Scoped lint passed with one browser-harness warning; the secret scan covered
 repository test suite or an authenticated full-app browser journey.
 These PostgreSQL proofs do not certify future provider execution.
 
-## Current refund verification boundary
+## Previous refund verification boundary: `84763bd`
+
+These results are historical evidence for the committed refund checkpoint, not
+certification of later credit-review changes; their checks are recorded below.
 
 Final scoped aggregate: **1,075 tests passed in 63 files**. The 23 opt-in
 PostgreSQL cases were skipped in that aggregate and passed separately on a newly
@@ -192,6 +243,39 @@ These are scoped checks, not the whole repository suite, an authenticated
 full-app customer journey or real provider execution. No provider call, actual
 charge/refund, application migration, push, deployment or activation occurred.
 
+## Current credit-review verification boundary
+
+Final scoped aggregate: **1,152 tests passed in 73 files**. The 27 opt-in
+PostgreSQL cases were skipped there and passed separately on genuine PostgreSQL
+16.15: four credit-decision cases plus the prior 23 preparation/capture/refund/
+purge cases. The run included the final 0119 SQL. The newly created private
+cluster and ephemeral secrets were removed; no application database was used.
+
+Coverage includes owner/tenant checks, immutable original invoice/cash, tax
+allocations, cumulative/delta chains, exact replay, later-evidence invalidation,
+independent fee movements, base/write flag boundaries and continued ordinary
+holds. Independent source and taxed lifecycle review found no remaining blocker
+in this bounded slice. A proposed-versus-recorded display defect was corrected;
+the nine affected component tests passed again after the final text spacing fix.
+
+All **20 standalone Chromium/mobile WebKit cases passed** on final source,
+including six new credit-review cases with mock transport and no external
+requests. Node 24 standalone typecheck and full production build passed. Scoped
+lint passed with two Fast Refresh warnings in the standalone harness. Webpack
+cache was disabled temporarily for local disk space and the configuration restored;
+no type-check bypass was used.
+
+All **12 built-app production-off checks returned 404**, covering draft settings,
+quotes, rehearsal, review GET/POST and the new review page with default flags and
+all five flags forced true in production. Secret scan passed across **5,603
+tracked files and 615 generated files**.
+
+These are scoped checks, not the entire repository suite or an authenticated
+full-app success journey. The credit allocations remain synthetic/nonlegal.
+No provider execution, application migration, push, deployment or activation
+occurred. `docs/customer-payments-provider-adapter-plan.md` is a source-backed
+assessment only; it installs no adapter or webhook.
+
 ## Remaining gate 1: real provider operations and receipts
 
 - `checkout.ts` builds parameters only; `attempt.ts` accepts trusted synthetic
@@ -211,10 +295,11 @@ charge/refund, application migration, push, deployment or activation occurred.
   operation driver, verified durable inbox/outbox and unmatched-evidence inbox
   are not. Unknown/unsupported capture evidence needs retained verified receipt
   handling before any future provider event can be acknowledged.
-- Implement immutable review decisions, invoice credit notes/adjustments and
-  authorized collection-hold clearing. No such operation exists here; refunds
-  leave holds in place. Do not make a refunded unchanged invoice collectible or
-  use generic void, row edits or flag changes to bypass the hold.
+- Extend the bounded synthetic readonly decisions above to separately authorized
+  broader review resolution, legal invoice credit documents/adjustments and
+  collection/lifecycle hold clearing. None of those broader operations exists
+  here; ordinary holds remain. Do not make a refunded unchanged invoice
+  collectible or use generic void, row edits or flag changes to bypass the hold.
 - Preserve gross capture facts, independent customer/fee identities and dated
   history through disputes and late/out-of-order provider events. Pending,
   failed and uncertain operations are not confirmed money returned; first
@@ -251,6 +336,7 @@ charge/refund, application migration, push, deployment or activation occurred.
 - Extend booking/deposit regressions, real authenticated Next.js browser journeys,
   accessibility, reporting/receipt checks, full CI and security review. Separately
   approve migration rollout, deployment, pilot activation and monitoring. All
-  four feature flags remain false by default; production is refused.
-  The fourth is `CUSTOMER_PAYMENTS_REFUND_TEST_ENABLED=false`, dependent on the
-  preparation and ledger-test gates; it never authorizes a provider call.
+  five feature flags remain false by default; production is refused.
+  Refund and credit-review writes depend on the preparation/ledger-test gates;
+  credit-review does not require the refund-write gate. None authorizes a provider
+  call or ordinary collection/lifecycle hold clearing.

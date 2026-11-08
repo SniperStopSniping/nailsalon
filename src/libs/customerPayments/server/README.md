@@ -275,3 +275,56 @@ independent fee refunds, and raw tender INSERT/UPDATE/DELETE fencing around refu
 holds. The synthetic writer PGlite suite additionally covers rollback, strict
 identity, production gates, late capture retention, fee-before-binding and
 policy-excess factual evidence. None of these tests certify real provider input.
+
+## Explicit synthetic review decisions and credit-aware zero-balance reads
+
+Migration 0119 and `recordSyntheticCreditDecision.ts` add immutable cumulative
+obligation-credit decisions for completed, finalized CAD invoices with exactly
+one eligible synthetic capture/tender, fully applied customer refund allocations,
+and no deposits or unknown/review customer cash. They do not clear the ordinary
+refund action/SQL hold, change cash, modify the original invoice or create a legal
+tax document. Customer service/tax/tip credit is explicit, bounded by original
+amounts, and equals actual cumulative customer principal/tip refunds.
+
+The shared fifth flag `CUSTOMER_PAYMENTS_CREDIT_REVIEW_TEST_ENABLED=true` requires
+base preparation/ledger nonproduction gates. Recording decisions does not require
+the refund-write flag. Preview/new-write authorization receives a separately
+supplied genuine server-auth actor and verifies current owner membership under
+the appointment lock. The exposed owner surface must use non-impersonated owner
+authentication; request payloads never grant actor authority. SQL independently
+checks membership, tenant/source identity, allocations and evidence revision, but
+a database actor ID by itself is not proof of an authenticated browser session.
+
+Each decision stores original monetary evidence, SQL-authoritative revision,
+separate pure-projection fingerprint, immutable actor/reason/request, parent
+decision, cumulative allocations and incremental allocations. The parent must be
+the unique current chain head. Incremental credit equals current minus prior
+cumulative credit, with no negative components or retroactive service/tax
+reclassification. Never sum cumulative snapshots as additive credits. A repeated
+request returns the exact original decision; a different payload conflicts.
+Internal exact replay can acknowledge historical decisions after membership
+revocation, but never grants new authority or claims a stale decision is current.
+
+SQL revisions bind finalized monetary invoice, customer captures/refunds/tenders
+and absence of deposits. Notes/contact/updatedAt, duplicate transport receipts,
+and independent application-fee movements do not change the customer obligation
+revision. New customer cash invalidates the prior resolved view automatically.
+The next decision must explicitly review the new evidence. Fee cash remains
+separate, including review disclosures, never customer obligation credit.
+
+`readCurrentCustomerPaymentCreditResolution` is a trusted internal tenant-scoped
+read. It requires base ledger/preparation nonproduction gates, independently of
+write flags, and holds a shared appointment lock for a consistent source snapshot.
+It validates the complete decision chain and both evidence fingerprints before
+returning an adjusted zero-balance read. It never authorizes collection, and the
+ordinary money/lifecycle mutation paths remain blocked.
+
+`creditDecision.concurrency.integration.test.ts` uses the existing attested private
+PostgreSQL target contract with dedicated `CUSTOMER_PAYMENT_CREDIT_TEST_DATABASE_URL`
+and required-mode flag `CUSTOMER_PAYMENT_CREDIT_PG_REQUIRED=true`. Missing URL
+skips; invalid/required-missing targets refuse before connecting. Four cases cover
+same/different request contention, a refund committing ahead of a waiting decision,
+and owner-membership revocation contention. The actual migration journal is used;
+immutable fixtures require teardown of only the newly created private cluster.
+Latest native PostgreSQL16.15 verification passed all four credit cases and all
+23 prior preparation/capture/refund cases. No provider or application DB was used.

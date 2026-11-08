@@ -1,4 +1,4 @@
-# Customer payments: disabled preparation, synthetic settlement and refunds
+# Customer payments: disabled preparation, synthetic money and credit review
 
 This work starts from v1.150.1 (`7e0801a94ad2ce87e67539648a62c771f3b5040c`).
 It is **not an end-to-end real payment setup**. No provider session, card or wallet
@@ -110,6 +110,48 @@ DB and no deployment is included.
   erase refunds or holds. Ledger-off markers fail closed; ordinary untagged legacy
   data still does not read the new payment tables.
 
+### Bounded synthetic credit review
+
+- Migration `0119_customer_payment_credit_review.sql` and
+  `server/recordSyntheticCreditDecision.ts` add immutable explicit owner decisions.
+  Eligibility is limited to completed, finalized CAD invoices exactly matching
+  one clean posted synthetic capture and its sole gross tender, with no deposits,
+  additional tenders or held/unknown customer money. Customer refunds must all be
+  applied and agree with the net paid cache. Unfinalized and ambiguous cases remain
+  under review.
+- The genuine-owner GET/POST
+  `/api/admin/appointments/[id]/customer-payment-review?salonSlug=...` and dedicated
+  `/{locale}/payment-review/{slug}/{appointmentId}` test page are separate from
+  checkout. The API derives its actor from real owner authentication, rejects
+  impersonation, checks tenant ownership and same-origin writes, and the writer
+  locks and rechecks actual owner membership. A request cannot supply its actor.
+- An owner explicitly allocates cumulative service, tax and tip obligation credit.
+  Service plus tax must equal applied principal refunds; tip must equal refunded
+  tip. Components are bounded by the original invoice and cannot decrease across
+  decisions. Each decision records its predecessor and only the new delta credit.
+  Never sum cumulative snapshots. These are synthetic, nonlegal allocations, not
+  tax advice, official tax credit notes or new cash payments.
+- The immutable decision binds the finalized invoice and complete customer capture
+  and refund evidence under the appointment lock. New customer monetary evidence
+  makes the recorded resolution stale and requires a new review. Duplicate delivery
+  receipts, notes/contact edits and independent fee returns do not change that
+  customer-obligation revision. Historical retries acknowledge their original
+  decision without granting current authority.
+- `creditResolution.ts` keeps original gross invoice, tender, tip and tax unchanged
+  and projects original, credited and adjusted amounts separately from actual net
+  customer cash. Only debt summary and completed-outstanding segmentation reads
+  opt into verified zero adjusted collectible balance. Generic spend/receipt
+  readers and collection, completion, reopen, cancellation, repricing and service
+  progression remain blocked after a refund. No global SQL or action hold clears.
+- Existing readonly resolution survives disabling the review/refund write flags.
+  Base preparation/ledger disablement or production remains unresolved and fail
+  closed. Untagged legacy reads do not load new payment tables.
+- UI acceptance requires an explicit distinction between proposed allocations and
+  a recorded current decision. Before recording, any adjusted-zero outcome is a
+  proposal, never an assertion that a credit exists. A fresh verified read after
+  recording is required before showing recorded credit and verified adjusted
+  balance. Component and browser tests cover this distinction.
+
 ### Separate rehearsal and pure foundations
 
 `CustomerPaymentsRehearsal.tsx` remains a synthetic presentation fixture with a
@@ -124,7 +166,7 @@ synthetic refund seam. Neither is a verified webhook driver or real refund. The 
 configurable and salon-paid here; Stripe processing expense is not invented as
 an actual customer charge. Apple Pay would be offered by Stripe only when eligible.
 
-## Four default-off controls
+## Five default-off controls
 
 - `CUSTOMER_PAYMENTS_REHEARSAL_ENABLED=false`: presentation-only
   `/en/payments-rehearsal`; no persisted salon settings or money.
@@ -140,8 +182,14 @@ an actual customer charge. Apple Pay would be offered by Stripe only when eligib
   the reviewed refund schema in disposable infrastructure. It does not enable
   a provider refund operation or clear any hold.
 
-Production is refused by all four controls. None enables Stripe execution. Do not enable these against
-an unreviewed or shared application database. Migrations 0115–0118 have been
+- `CUSTOMER_PAYMENTS_CREDIT_REVIEW_TEST_ENABLED=false`: genuine-owner synthetic
+  credit-review API and dedicated test page; also requires preparation and
+  ledger-test gates. The refund-write flag may remain off. It records an immutable
+  obligation decision, not cash,
+  a provider refund or permission to resume ordinary appointment actions.
+
+Production is refused by all five controls. None enables Stripe execution. Do not
+enable these against an unreviewed or shared application database. Migrations 0115–0119 have been
 exercised through the real journal in isolated fixtures/disposable PostgreSQL,
 not applied to a development, preview or production application DB.
 
@@ -156,8 +204,8 @@ mocked. It does not certify the authenticated full Next.js/database journey.
 
 ## Previous capture checkpoint: `7608d3b4` (2026-11-08)
 
-These results belong to the committed capture milestone, not the new refund diff.
-They do not certify the current refund aggregate, typecheck or build.
+These results belong to the committed capture milestone. They do not certify the
+subsequent refund or credit-review diffs, aggregates, typechecks or builds.
 
 - Real-journal persisted quote → synthetic capture → real provenance → checkout
   → completion tests cover zero balance, prepaid tip, frozen added tax, extra
@@ -190,7 +238,10 @@ They do not certify the current refund aggregate, typecheck or build.
 - Secret scan passed across 5,566 tracked and 613 generated files. No runtime
   credential, application database, provider call, push or deployment was used.
 
-## Current refund verification
+## Previous refund checkpoint: `84763bd`
+
+These completed checks belong to the refund checkpoint. They are historical, not
+certification of later credit-review changes; their checks are recorded below.
 
 - Final scoped aggregate: **1,075 tests passed in 63 files**. The 23 opt-in
   PostgreSQL cases were skipped there and passed separately on PostgreSQL 16.15:
@@ -214,6 +265,34 @@ They do not certify the current refund aggregate, typecheck or build.
   No application DB migration, provider call, real charge/refund, push,
   deployment or activation was performed.
 
+## Current credit-review verification boundary
+
+- Final scoped aggregate: **1,152 tests passed in 73 files**. The 27 opt-in
+  PostgreSQL cases were skipped there and passed separately on PostgreSQL 16.15:
+  four new decision races plus 23 preparation/capture/refund/purge cases. The run
+  used final 0119 SQL and separately attested physical sessions. The private
+  cluster and ephemeral secrets were removed after testing.
+- Independent review and full-journal lifecycle tests cover taxed allocations,
+  immutable originals, owner checks, monotonic credit deltas, replay, later cash
+  invalidation, fee independence and continued ordinary action holds. The nine
+  component tests passed again after the final display/spacing corrections.
+- All **20 standalone Chromium/mobile WebKit cases passed** on final source,
+  including six new credit-review cases. These use mock API transport, not an
+  authenticated full-app owner/database or real Stripe journey.
+- Node 24 standalone typecheck and full production build passed. Scoped lint
+  passed with two standalone-harness Fast Refresh warnings. Webpack cache was
+  temporarily disabled for local disk space, then configuration restored; no
+  type-check bypass was used.
+- All **12 built-app production-off checks returned 404**, with default flags and
+  all five flags forced true in production. They cover owner drafts, quotes,
+  rehearsal, review GET/POST and the new review page. Secret scan passed across
+  **5,603 tracked files and 615 generated files**.
+- These checks are scoped, not the complete repository suite or approval for
+  rollout. The provider-adapter plan is an assessment only. No provider call,
+  application database migration, real charge/refund, push, deployment or
+  activation occurred. Credit notes remain synthetic/nonlegal and ordinary
+  collection/lifecycle holds remain enforced.
+
 ## Remaining gates before collection
 
 1. Approve fee payer, fee scope, tax, cancellation/refund policy and operational
@@ -225,10 +304,10 @@ They do not certify the current refund aggregate, typecheck or build.
    account authorization before any separately approved provider execution.
 3. Add a real refund operation driver and an unmatched-evidence inbox. The current
    synthetic seam accepts known posted captures only; it is not general provider
-   event retention. Implement explicit immutable review resolution, credit notes,
-   invoice adjustments and authorized hold clearing. Holds currently remain in
-   place permanently. Preserve gross history, refund dates and fee separation
-   through disputes, out-of-order events and reconciliation.
+   event retention. The bounded synthetic readonly credit decisions above do not
+   implement legal credit documents, broader invoice adjustments or authorized
+   collection/lifecycle hold clearing. Those holds remain in place. Preserve
+   gross history, refund dates and fee separation through disputes, out-of-order events and reconciliation.
 4. Extend current synthetic reader/settlement/lifecycle proofs to each real
    provider/refund path, with PostgreSQL races, auth/tenant tests, full Next.js
    journeys, receipt/reporting checks, accessibility and full CI/security review.
