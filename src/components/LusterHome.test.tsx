@@ -27,17 +27,17 @@ describe('Luster homepage entry points', () => {
   it('offers website setup and shopping with a single owner sign-in when enabled', async () => {
     render(await HomePage({}));
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('The booking app built for nail techs and nail salons.');
-    expect(screen.getByRole('link', { name: 'Build my website' })).toHaveAttribute('href', '/onboarding-v1');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Manage your salon, book clients, and grow your business.');
+    expect(screen.getByRole('link', { name: 'Build Your Booking Page' })).toHaveAttribute('href', '/onboarding-v1');
     expect(screen.queryByRole('link', { name: 'Open owner dashboard' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Salon owner sign in' })).toHaveAttribute('href', '/owner-sign-in');
+    expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/owner-sign-in');
     expect(screen.getAllByRole('link').filter(link => link.getAttribute('href') === '/owner-sign-in')).toHaveLength(1);
 
-    const shopLinks = screen.getAllByRole('link', { name: 'Shop Luster gel' });
+    const shopLinks = screen.getAllByRole('link', { name: 'Shop Luster Gel' });
 
-    expect(shopLinks).toHaveLength(2);
-    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'Shop Luster gel' })).toBeVisible();
-    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Shop Luster gel' })).toBeVisible();
+    expect(shopLinks).toHaveLength(1);
+    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'Shop Luster Gel' })).toBeVisible();
+    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Log In' })).toBeVisible();
 
     shopLinks.forEach((link) => {
       expect(link).toHaveAttribute('href', 'https://lustergel.ca/shop');
@@ -49,29 +49,29 @@ describe('Luster homepage entry points', () => {
     mocks.enabled.mockReturnValue(false);
     render(await HomePage({}));
 
-    expect(screen.queryByRole('link', { name: 'Build my website' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Build Your Booking Page' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open owner dashboard' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Salon owner sign in' })).toHaveAttribute('href', '/owner-sign-in');
-    expect(screen.getAllByRole('link', { name: 'Shop Luster gel' })).toHaveLength(2);
+    expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/owner-sign-in');
+    expect(screen.getAllByRole('link', { name: 'Shop Luster Gel' })).toHaveLength(1);
     expect(screen.getByRole('link', { name: 'Request an invite' })).toHaveAttribute('href', expect.stringContaining('mailto:'));
   });
 
   it('defaults to the safe existing entry when no integration flag is supplied', () => {
     render(<LusterHome />);
 
-    expect(screen.queryByRole('link', { name: 'Build my website' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Build Your Booking Page' })).not.toBeInTheDocument();
   });
 
   it('keeps French copy and destinations in sync', async () => {
     render(await LocalizedHomePage({ params: Promise.resolve({ locale: 'fr' }) }));
 
-    expect(screen.getByRole('link', { name: 'Créer mon site web' })).toHaveAttribute('href', '/fr/onboarding-v1');
+    expect(screen.getByRole('link', { name: 'Créer ma page de réservation' })).toHaveAttribute('href', '/fr/onboarding-v1');
     expect(screen.queryByRole('link', { name: 'Ouvrir mon tableau de bord' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Connexion propriétaire' })).toHaveAttribute('href', '/fr/owner-sign-in');
+    expect(screen.getByRole('link', { name: 'Se connecter' })).toHaveAttribute('href', '/fr/owner-sign-in');
 
     const shopLinks = screen.getAllByRole('link', { name: 'Acheter le gel Luster' });
 
-    expect(shopLinks).toHaveLength(2);
+    expect(shopLinks).toHaveLength(1);
 
     shopLinks.forEach(link => expect(link).toHaveAttribute('href', 'https://lustergel.ca/shop'));
 
@@ -87,10 +87,10 @@ describe('Luster homepage entry points', () => {
   it('keeps shopping and one localized sign-in when French onboarding is disabled', () => {
     render(<LusterHome locale="fr" websiteSetupEnabled={false} />);
 
-    expect(screen.queryByRole('link', { name: 'Créer mon site web' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Créer ma page de réservation' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Ouvrir mon tableau de bord' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Connexion propriétaire' })).toHaveAttribute('href', '/fr/owner-sign-in');
-    expect(screen.getAllByRole('link', { name: 'Acheter le gel Luster' })).toHaveLength(2);
+    expect(screen.getByRole('link', { name: 'Se connecter' })).toHaveAttribute('href', '/fr/owner-sign-in');
+    expect(screen.getAllByRole('link', { name: 'Acheter le gel Luster' })).toHaveLength(1);
     expect(screen.getByRole('link', { name: 'Demander une invitation' })).toHaveAttribute('href', expect.stringContaining('mailto:'));
   });
 
