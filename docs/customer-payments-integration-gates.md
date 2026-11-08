@@ -1,203 +1,182 @@
 # Customer payment integration gates
 
-Status: default-off, nonproduction draft/quote preparation, plus isolated money
-rehearsal. No provider calls, charges, deployment or production activation. Added
-migration 0115 has run only in isolated PGlite and a private disposable native
-PostgreSQL test cluster, not an application database.
-The preparation repository is capable of writing the new policy/receipt/quote
-tables when separately enabled on an authorized database; it does not change
-existing money. A passing pure/component test does not certify the booking journey.
+Status: default-off nonproduction preparation plus **internal synthetic** capture,
+canonical-reader, lifecycle and reporting integration. No provider collection,
+real refunds, deployment or production activation. Migrations 0115–0117 exist in
+source and have run through the real journal in isolated/disposable tests only,
+not an application DB. The remaining gates below are not implemented payment flows.
 
-## Implemented preparation boundary
+## Implemented: preparation and customer context
 
-- `src/libs/customerPayments/preparationGate.ts` gates both new APIs before their
-  dynamic DB/auth imports and supplies the owner UI flag through
+- `src/libs/customerPayments/preparationGate.ts` rejects production and gates APIs
+  before dynamic DB/auth imports. The flag reaches owner settings through
   `src/app/[locale]/admin/layout.tsx`, `OwnerAdminClientBoundary.tsx` and
-  `OwnerAdminFeatureFlags.ts`. It defaults off and rejects production.
-- `src/app/api/admin/salon/customer-payments/route.ts` and
-  `src/components/customerPayments/CustomerPaymentDraftSettings.tsx` provide a
-  separately saved owner-only test draft. `settings.ts` permits only
-  `optional_full`/salon-paid fees. Existing tax/e-Transfer/deposit saves are unchanged.
+  `OwnerAdminFeatureFlags.ts`; absent means no draft panel/fetch.
+- `src/app/api/admin/salon/customer-payments/route.ts`, `settings.ts` and
+  `CustomerPaymentDraftSettings.tsx` provide owner/tenant-authorized test drafts,
+  same-origin writes and CAS/replay. `server/preparationRepository.ts` and
+  migration `0115_customer_payment_preparation.sql` persist separate policy,
+  immutable request receipts and short-lived non-executable quotes. Existing
+  `SettingsModal.tsx` tax/e-Transfer/deposit saves remain separate.
 - `src/app/api/public/appointments/manage/[token]/payment-quote/route.ts`,
-  `src/libs/customerPayments/server/prepareQuoteForToken.ts` and `quoteMaterial.ts`
-  authorize an existing appointment capability, derive frozen CAD full-quote
-  amounts, validate source context and return no provider account/URL/token data.
-  Input is only request ID and tip cents; the response is explicitly non-executable.
-- Only future confirmed, unstarted/unfinalized appointments with supported booked
-  items, no existing tip or payment/deposit history, an enabled test draft and a
-  single eligible cached test binding are supported. No remaining-balance,
-  existing deposit or manual-price payment path is added.
-- `migrations/0115_customer_payment_preparation.sql`,
-  `src/models/customerPaymentSchema.ts` and
-  `src/libs/customerPayments/server/preparationRepository.ts` provide separate
-  policy CAS, immutable actor-bound replay receipts and immutable short-lived
-  quote records. There is no capture/refund/operation ledger in this migration.
-- Focused evidence: new settings/API/editor/layout tests,
-  `preparationGate.test.ts`, `quoteMaterial.test.ts`,
-  `server/preparationRepository.test.ts`, `server/prepareQuoteForToken.test.ts`
-  and the quote route tests. Five `server/preparation.concurrency.integration.test.ts`
-  cases also passed against native PostgreSQL 16.15 with four separately attested
-  sessions and the real migration journal. This verifies preparation CAS/replay/
-  cap/lock ordering, not future financial writers or rollout readiness.
+  `server/prepareQuoteForToken.ts` and `quoteMaterial.ts` revalidate capability and
+  current locked sources. Input is request UUID and tip only. No provider URL,
+  account identifier or raw capability is exposed in the response. Required
+  deposits, existing money, manual pricing and ambiguous history fail closed.
+- `src/app/[locale]/[slug]/manage/[token]/ManageAppointmentView.tsx` mounts
+  `src/components/customerPayments/CustomerPaymentQuotePreview.tsx` under the
+  server flag only for obviously eligible appointments. Server API remains the
+  authority. No load-time quote request, live payment selection or checkout is
+  introduced. No-tip/custom-tip preview, actual breakdown, expiry, source-change
+  review, stable uncertain retries and stale-response/unmount guards are covered.
+- Evidence: settings/API/editor/layout tests; preparation repository/material/API
+  tests; `CustomerPaymentQuotePreview.test.tsx` plus manage `page.test.tsx` (51
+  passing); `tests/browser/customerPayments/quote-preview.spec.ts` (six passing
+  Chromium/mobile WebKit cases). Browser API transport is mocked, not proof of
+  real authenticated application DB operation.
 
-The sections below remain gates for actual collection unless explicitly marked
-implemented above. They are not claims that those adapters are installed.
+## Implemented: bounded synthetic settlement and canonical readers
 
-## 1. Authoritative selection and required deposits
+- `server/settleSyntheticCapture.ts` is an injected internal fixture seam, not a
+  route. `ledgerTestGate.ts` requires both explicit ledger-test and preparation
+  flags in nonproduction. Migration `0116_customer_payment_synthetic_capture.sql`
+  stores immutable captures and event receipts, unique account/mode/intent and
+  reserved canonical tender markers. Receipt, capture, tender and permitted
+  tip/cache effects commit atomically under locked authoritative sources.
+- Late/stale/revoked/cancelled, distinct duplicate or mismatched captures are
+  retained as held facts without usable credit or appointment revival. Pre-accept
+  retry-required outcomes are not acknowledged as accepted money. A future inbox
+  must retain external evidence independently of this settlement transaction.
+- `provenance.ts`, `server/provenanceReader.ts`,
+  `src/libs/appointmentCheckoutServer.ts` and `appointmentPaymentLedger.ts` verify
+  reserved tender against immutable capture evidence. Actual checkout/manage and
+  financial readers use that evidence rather than treating markers as manual
+  payments. Ordinary untagged rows never read a new payment table; disabled or
+  unknown markers fail closed. Flag rollback is not permission to erase history.
+- `src/app/api/appointments/[id]/complete/route.ts` preserves omitted prepaid tip,
+  rejects reducing it, and refuses forged reserved references. Frozen successful
+  finalization is exercised through the actual route. This resolves the earlier
+  synthetic completion-tip integration gap, not general refund reconciliation.
+- Evidence: `server/settleSyntheticCapture.test.ts`, `provenance.test.ts`,
+  `server/provenanceReader.test.ts` and
+  `server/captureCompletion.integration.test.ts`. Two real-journal full synthetic
+  quote-to-capture-to-provenance-to-checkout-to-completion cases passed, including
+  added tax. No provider transaction is implied.
 
-- Wire the chooser into `src/app/(unauth)/book/confirm/BookConfirmClient.tsx`
-  beside review totals only after collection/settlement is safe. It is not wired
-  to the new preparation endpoint yet. Do not reuse the deliberately unavailable
-  `src/app/(unauth)/payment-methods/page.tsx`.
-- Obtain server-owned prices, tax, discounts and deposit requirements through
-  `src/libs/customerAssistant/prepareQuote.server.ts`. The existing
-  `src/app/api/public/customer-booking/[salonId]/prepare/route.ts` requires a
-  verified handoff; it is not a generic legacy-booking quote endpoint.
-- Bind quote, tip, fee-policy version, expiry and money revision to the verified
-  tenant/customer operation. Invalidate on selection, policy, invoice or tip
-  changes and require fresh customer review. Never charge client-supplied totals.
-- Preserve `expectedDepositFingerprint`, booking idempotency/recovery keys,
-  changed-deposit review, existing hold expiry and secure deposit resume behavior.
-  Salon/network no-show deposits override an optional pay-in-person selection.
-  Do not create a second customer-payment attempt for an existing deposit hold.
-- Required tests: extend `BookConfirmClient.test.tsx`,
-  `src/app/api/appointments/route.deposits.integration.test.ts`,
-  `route.deposits.idempotency.integration.test.ts`, and
-  `src/libs/customerAssistant/prepareQuote.server.test.ts` with required-deposit
-  precedence, changed quotes, legacy/handoff differences and retry races.
+## Implemented: lifecycle and database backstops
 
-## 2. Owner settings and capability boundaries
+- `server/lifecycleGuard.ts` checks reserved history under the appointment lock,
+  including held/voided markers and with feature flags off. Guards cover actual
+  cancel, reopen, transition, reassign, appointment-edit and customer-manage paths.
+- `src/app/api/appointments/[id]/payments/[paymentId]/void/route.ts` refuses generic
+  void of captured money; manual payment/completion paths reject reserved capture
+  references. Captured appointments cannot cancel, reprice, reschedule/reassign
+  or reopen before a future explicit reconciliation/refund path exists.
+- `migrations/0117_customer_payment_mutation_guards.sql` adds DB backstops for
+  tender immutability, appointment financial/lifecycle evidence, item mutations
+  and new deposits. This also protects indirect writers such as Google calendar
+  ingress/revert, approval expiry, no-show correction, rewards and replacement
+  appointment creation. Late held-review captures retain these protections.
+- Supported progression and frozen finalization remain possible. Final gross tax
+  and tip cannot be silently rewritten. Notes/contact-only changes are not a
+  refund or reconciliation operation.
+- `salonPurge.ts` fences salon, ordered appointment and client rows before
+  destructive mutation, retains reserved markers and maps contention to a typed
+  retry conflict. Captured history is never made generically deletable.
+- Evidence: affected route/integration tests, real-journal settlement/reporting
+  cases and PostgreSQL item/add-on/deposit insertion races. Future reconciliation
+  paths need their own explicit authorization, locking and regression proof;
+  bypassing these guards is not an acceptable implementation.
 
-- `src/components/admin/SettingsModal.tsx` has separate tax/e-Transfer and deposit
-  save operations. The new gated test-draft panel is separate and persists only
-  into the new policy tables. Do not route its save through deposit activation or
-  represent a saved draft as live customer payment settings.
-- `src/app/api/admin/salon/settings/route.ts` validates and merges existing payment
-  settings and can contact providers during deposit activation. That route is
-  unchanged. The new owner-only route uses `settings.ts` and separate CAS/replay
-  persistence; it must remain independent of provider readiness activation.
-- Customer capability reuse starts at
-  `src/app/[locale]/[slug]/manage/[token]/ManageAppointmentView.tsx` and
-  `src/app/api/public/appointments/manage/[token]/route.ts`. Verify token expiry,
-  revocation and tenant/appointment binding on every money operation.
-- `src/app/api/appointments/[id]/checkout/route.ts` is staff/admin-only. Do not
-  weaken that guard for customer payment quotes. Awaiting-deposit management stays
-  read-only except the existing authorized resume action.
-- Required tests: settings payments/deposit tests, manage-token integration tests,
-  cross-tenant/revoked/expired capability denial and no secret/checkout-URL leakage
-  through status endpoints, logs or referrers.
+## Implemented: immutable capture cash reporting
 
-## 3. Canonical balance, tips and lifecycle
+- `captureReporting.ts`, `server/captureReportingReader.ts` and
+  `src/libs/financialReportingServer.ts` read immutable capture-time gross money,
+  count it once separately from legacy tender cash, disclose held cash/currency
+  and preserve the prepaid tip in canonical upcoming balances. Held cash is not
+  inferred to be collectible booking credit. Raw SQL without provenance treats
+  tagged balances as unresolved.
+- `server/captureReporting.integration.test.ts` has seven passing cases for immutable
+  timing, held credit, foreign currency, flag rollback, indirect mutations and
+  finalization evidence. This resolves the capture-side voided-marker reporting
+  gap. There is still no installed dated refund/fee-refund reporting ledger.
 
-- `src/libs/customerPayments/accounting.ts` is a projection, not a persistence
-  adapter. Its revision/generation must become real atomic invariants under the
-  same appointment lock as `appointmentPaymentLedger.ts`,
-  `appointmentDepositFinancials.ts` and `appointmentTaxSnapshot.ts`.
-- Full prepayments are separate from deposit records. Count a captured payment
-  once before and after posting into the canonical tender ledger. Unknown invoice,
-  currency, manual-price, overpayment or historical-ledger state fails closed.
-- No silent tip loss: `src/app/api/appointments/[id]/complete/route.ts` currently
-  defaults omitted `payload.tipCents` to zero. Once prepayments exist, completion,
-  repricing, rescheduling and reopening must retain already captured tips unless
-  an explicit confirmed refund changes them. UI omission is not refund intent.
-- Required tests: `src/libs/customerPayments/accounting.test.ts`,
-  `src/app/api/appointments/[id]/complete/route.integration.test.ts`,
-  `src/app/api/appointments/[id]/reopen/route.test.ts` and ledger/deposit financial
-  unit tests. Cover omitted/zero tip, tips on deposits and later balance payments,
-  concurrent completion/payment, price reductions and stale invoice generation.
+## PostgreSQL and runtime verification boundary
 
-## 4. Refunds do not create a new collection obligation
+Sixteen cases passed on a dedicated disposable PostgreSQL 16.15 cluster with
+four attested physical sessions: five in
+`server/preparation.concurrency.integration.test.ts` and eleven in
+`server/settlement.concurrency.integration.test.ts`. They cover CAS/replay/caps,
+lock ordering, duplicate captures, salon contention with retry/held outcomes and
+item/add-on/deposit insertion races and legacy purge contention. The full migration journal was applied there;
+the private cluster was stopped and removed. No existing application DB/service
+was changed. See `server/README.md` for target attestation and required-mode gates.
 
-- A captured provider payment is not an offline bookkeeping error. Before any
-  online credit reaches `appointment_payment`, protect
-  `src/app/api/appointments/[id]/payments/[paymentId]/void/route.ts` from manually
-  voiding it. Only verified refund evidence may reduce provider-backed credit.
-- A principal refund on an unchanged invoice must not silently reopen collectible
-  balance. Require an explicit invoice adjustment or reconciliation/collection
-  hold. Test active and completed appointments as well as cancelled appointments.
-- Use explicit principal/tip allocation, unique successful provider refund IDs,
-  account/intent/currency/mode binding and atomic receipt plus ledger mutation.
-  Pending/failed/uncertain refunds are not money returned. Retries reuse durable
-  operation identity and first reconcile an uncertain provider outcome.
-- `attempt.ts` fee-refund receipts and `refunds.ts` proportional calculations are
-  distinct: a calculated amount due is not proof of a fee refund. Retain and retry
-  out-of-order fee evidence without counting it or acknowledging it as applied.
-- Required tests: `attempt.test.ts`, `accounting.test.ts`,
-  `server/rehearsalStore.test.ts`, plus new void-route provider-origin tests.
-  Cover partial/full principal and tip refunds, duplicate/cross-account receipts,
-  fee receipt before customer refund, cumulative rounding, post-restart retries,
-  and attempted recollection after refund.
+Final aggregate: 969 tests passed in 54 files; the 16 opt-in PostgreSQL cases were
+skipped there and passed separately. All 14 standalone browser cases passed.
+Node 24 standalone typecheck and full production build passed; cache was
+temporarily disabled for disk space and the config restored. Six built-app
+production-off smoke checks passed, including forced true flags in production.
+Scoped lint passed with one browser-harness warning; the secret scan covered
+5,566 tracked and 613 generated files. These are scoped checks, not the entire
+repository test suite or an authenticated full-app browser journey.
+These PostgreSQL proofs do not certify future provider/refund writers.
 
-## 5. Immutable reporting and audit
+## Remaining gate 1: real provider operations and receipts
 
-- Keep original captured gross principal/tip/fee and each refund as immutable,
-  timestamped events. A mutable current net amount is not historical revenue.
-- `src/libs/financialReportingServer.ts` currently excludes rows whose
-  `voidedAt` is non-null. A void-and-replacement net tender alone would remove the
-  original capture from earlier as-of reports. Do not ship that representation as
-  the reporting source; add an explicit historical capture/refund projection.
-- Required tests: `financialReportingServer.test.ts` and
-  `financialReporting.test.ts`: capture in one period, refund in a later period,
-  multiple partial refunds, tips, fee refunds and reopened appointments. Re-running
-  the earlier report must retain the original capture and never double count.
+- `checkout.ts` builds parameters only; `attempt.ts` accepts trusted synthetic
+  evidence and does not verify signatures. Add durable operation/outbox and
+  verified inbox persistence before executing provider calls. Verify signature,
+  account, actual mode, session/intent, amount, currency, fee and metadata.
+- Revalidate authorization and financial context; use stable idempotency and
+  reconcile uncertain outcomes. Browser redirects and owner buttons cannot mark
+  payment paid. Keep new collection disabled independently of receipt handling.
+- No Stripe test-mode card/Apple Pay execution has occurred. Real test execution,
+  wallet/device coverage and provider retry/late-event cases require separate
+  authorized testing. Cached Connect flags do not attest provider authorization.
 
-## 6. Provider execution and UI truthfulness
+## Remaining gate 2: refund and reconciliation ledger
 
-- `checkout.ts` builds parameters only. The future execution adapter must verify
-  actual credentials and connected-account test mode, allowed return origins,
-  readiness, durable outbox/idempotency and timeout recovery. A runtime string
-  alone does not attest provider mode. Keep collection disabled independently of
-  receipt/reconciliation processing.
-- `attempt.ts` accepts trusted evidence; it does not verify webhook signatures.
-  Verify signature and provider identity before calling it. Browser success URLs,
-  supplied event bodies and owner buttons cannot settle money.
-- `server/rehearsalStore.ts` is temp-directory PGlite only; it deliberately has no
-  application DB or Stripe client. Its unique receipts/transaction tests do not
-  certify multi-connection PostgreSQL concurrency or actual provider behavior.
-- `CustomerPaymentChooser.tsx` must display the authoritative current quote,
-  default to no tip, show due-now/remaining and recipients, suppress repeated
-  submissions, preserve unresolved status on refresh and offer safe retry/back.
-  Apple Pay remains Stripe/device-dependent; continuing is not payment success.
-- Required verification: existing `CustomerPayments.test.tsx` and
-  `tests/browser/customerPayments/checkout.spec.ts` plus full Next booking tests,
-  disposable PostgreSQL race tests, keyboard/screen-reader checks and separately
-  authorized Stripe test-mode card/wallet/refund tests. No live provider test is
-  implied or performed by this checklist.
+- Implement immutable principal/tip refund allocations and separate application-
+  fee refund receipts in the application ledger, with atomic verified evidence,
+  durable operations and invoice adjustment or collection hold. A principal refund
+  must not silently reopen collectible balance on an unchanged invoice.
+- Preserve captured gross facts and dated refund history across active/completed/
+  cancelled states. Pending/failed/uncertain refunds are not money returned.
+  Prevent generic void and duplicate/cross-account application; retain out-of-order
+  evidence for reconciliation rather than dropping or acknowledging it as applied.
+- `refunds.ts`, `accounting.ts`, `attempt.ts` and `server/rehearsalStore.ts` contain
+  pure/synthetic refund contracts only. Their passing tests do not install a
+  refund writer or make the restrictive lifecycle guards a complete refund flow.
+- Required new tests: full/partial principal/tip/fee refunds, rounding, separate
+  capture/refund reporting periods, replay/restart, disputes, uncertain provider
+  outcomes, attempted recollection, explicit invoice adjustment and PostgreSQL
+  races. Earlier-period capture reports must retain original gross money.
 
-## Current review boundary
+## Remaining gate 3: booking, policy and rollout
 
-The new owner test-draft and capability-authorized quote persistence described
-above is implemented. The rest of this checklist records collection requirements,
-not proof those integrations exist. Existing booking/payment/deposit mutation
-routes remain unchanged; the owner settings UI now mounts a separately gated draft
-editor. Production preparation and collection stay blocked. Real ledger readers,
-atomic settlement, lifecycle/void protections, immutable reporting, provider
-execution and attested PostgreSQL races for the future financial writers remain
-required before collection. The preparation-only PostgreSQL races passed.
-
-### Earlier foundation review checkpoint
-
-These review/test results predate the actual preparation slice and are not
-evidence of installed settlement or current full-suite/build coverage.
-
-- The initial accounting refund projection could reopen collectible principal on
-  an unchanged active invoice. The reviewed revision now requires a validated
-  `collectionHold` and sets `refund_reconciliation_required` after refunds; an
-  explicit later reconciliation is required before collection can resume.
-- Original fee binding and successful fee-refund receipts in `attempt.ts` and the
-  isolated store bind account, intent/fee identity, mode, currency and cumulative
-  refund amount. Replays are deduplicated and conflicting evidence fails closed.
-- Independently reran `attempt.test.ts` and `server/rehearsalStore.test.ts`:
-  58 tests passed. This verifies synthetic pure-state/local persistence behavior,
-  not webhook authenticity, provider execution, live accounting or PostgreSQL races.
-- Existing completion-tip, generic manual-void and as-of reporting integration
-  blockers above remain unresolved. No existing application mutation path was
-  changed during this review.
-- Final-invoice tips are immutable gross amounts: the reviewed accounting revision
-  rejects a finalized invoice whose tip is below its captured net tip floor, and
-  tip refunds retain the final gross tip while recording refunded tip separately.
-  Draft tip preservation is not permission to rewrite finalized invoices.
-- Independently reran the corrected `accounting.test.ts`: 14 tests passed,
-  including final-tip rejection, retained gross tip after refund and blocked
-  recollection after active/completed refunds. Earlier runs during the edit caught
-  a stale test expectation; that expectation was corrected before this pass.
+- `src/app/(unauth)/book/confirm/BookConfirmClient.tsx` is not a new checkout flow.
+  Preserve `expectedDepositFingerprint`, booking idempotency/recovery, changed-
+  deposit review and existing hold/resume rules. Do not create a competing full
+  payment for a deposit hold. Required salon/network deposits override optional
+  in-person preference. The unavailable payment-methods page remains unavailable.
+- `src/libs/customerAssistant/prepareQuote.server.ts` and the handoff-bound prepare
+  route are not generic legacy quote APIs. The staff/admin checkout guard must
+  not be weakened for customer operations.
+- The public move and later Smart Fit discount remain separate transactions.
+  Capture/context checks prevent stale-price posting, but a conflict response can
+  arrive after the move has committed. Resolve that UX before enabling collection.
+- Treat arbitrary raw SQL writers as outside the verified contract. Official
+  tender routes serialize on the parent appointment; the SQL fences are not a
+  replacement for that lock protocol or a complete administrative integrity audit.
+- Approve fee payer/scope, tax and cancellation/refund terms; customer-paid fees
+  remain rejected. Draft owner policy is not live published policy. Connect
+  pricing, onboarding, legal obligations and reconciliation operations remain open.
+- Before any application migration, preflight existing reserved `cpay_` IDs and
+  `customer_payment_capture:` references for collisions or orphan history. Check
+  every indirect writer against the parent-lock order and rehearse retry handling;
+  the SQL insert fences also serialize legacy writers even with feature flags off.
+- Extend booking/deposit regressions, real authenticated Next.js browser journeys,
+  accessibility, reporting/receipt checks, full CI and security review. Separately
+  approve migration rollout, deployment, pilot activation and monitoring. All
+  three feature flags remain false by default; production is refused.

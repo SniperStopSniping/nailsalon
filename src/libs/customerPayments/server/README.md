@@ -1,8 +1,9 @@
-# Customer payment preparation and isolated rehearsal
+# Customer payment preparation, synthetic settlement and rehearsal
 
-Customer collection remains disabled. This directory has two separate persistence
-paths. Neither creates a provider session, charges money, refunds money, or writes
-appointment tender/deposit/invoice state.
+Customer collection remains disabled. None of these paths creates a provider
+session, charges or refunds real money. Preparation and local rehearsal do not
+write canonical appointment money. A separately gated internal synthetic test
+seam now projects fixture captures into actual tender/tip/cache tables.
 
 ## Application-table preparation
 
@@ -44,6 +45,47 @@ loading the preparation repository. No provider URLs, account IDs, raw capabilit
 server-only context are returned. Cached account flags are evidence pinned for
 staleness, never authorization to make a future provider call.
 
+## Internal synthetic capture settlement
+
+`settleSyntheticCapture.ts` is an injected-DB fixture seam, not a route or provider
+adapter. Both preparation enablement and the separate literal
+`CUSTOMER_PAYMENTS_LEDGER_TEST_ENABLED=true` are required. Production NODE_ENV,
+APP_ENV and VERCEL_ENV markers fail closed. Only `source: synthetic_test`, test
+mode and a known immutable prepared quote are admitted; a foreign original
+account is rejected before attribution to a salon.
+
+Migration `0116_customer_payment_synthetic_capture.sql` adds immutable capture
+and event receipts. They preserve actual gross/currency/fee, quoted principal/tip/
+fee, original capture time, processing time and a unique account/mode/intent.
+Event replay compares immutable content and cannot project a second tender.
+Capture/event update or deletion is refused. Restrictive foreign keys prevent
+silently deleting the quote, appointment or canonical marker beneath money history.
+
+Every accepted capture has an `appointment_payment` marker:
+`cpay_<captureUUID>`, reference `customer_payment_capture:<captureUUID>`, method
+`online`, recorded by `system`. Tender `recordedAt` is the immutable capturedAt,
+while capture `recordedAt` is processing time. Valid current source/capability/
+account/expiry evidence produces an active gross tender and matching tip/cache.
+Appointment status and paymentStatus scalars remain unchanged. Late, cancelled,
+revoked, stale, duplicate-distinct or amount/currency-mismatched captures are held
+for review with a voided marker and no appointment money/lifecycle mutation.
+They remain captured facts, never an inferred zero-money state.
+
+The writer locks the appointment first, pins the salon FK with KEY SHARE NOWAIT,
+then pins policy/capability/account and item sources, and checks the fresh clock
+after waits. Failure of the initial FK pin returns retry-required without any
+accepted capture/acknowledgement; the synthetic driver must retry. A future
+provider inbox must retain received evidence independently of this transaction. Salon SHARE contention is isolated
+in a savepoint and held for review on lock-unavailable; unrelated DB failures roll
+back and require retry. Capture, receipt, marker and any tip/cache update commit
+atomically. Provenance-aware canonical readers verify tagged tender and refuse
+unresolved markers. The accompanying `0117_customer_payment_mutation_guards.sql`
+provides DB-level financial/lifecycle/deposit defenses for indirect writers.
+
+This is synthetic settlement infrastructure only. There is no capture API, real
+provider receipt verification, automated reconciliation or refund writer. No
+migration has been applied to an application database as part of this work.
+
 ## Durable local rehearsal only
 
 `openCustomerPaymentRehearsalStore` remains a separate synthetic lifecycle test
@@ -68,7 +110,7 @@ or acknowledge it as no movement because the rehearsal projection rejects it.
 Premature fee evidence likewise needs retained receipt/retry handling in a future
 verified driver. No such production receipt driver is installed by this slice.
 
-## Required before collection or accounting integration
+## Required before real provider collection
 
 - Implement a provider adapter that independently verifies actual client and
   account test mode, rechecks authorization and every financial source, and
@@ -77,8 +119,8 @@ verified driver. No such production receipt driver is installed by this slice.
   `appointmentDepositFinancials.ts` credit before any collectible balance decision.
   Preserve required deposits and legacy-paid ambiguity. Never represent a full
   prepayment as a legacy deposit or count the same capture twice.
-- Design atomic settlement and ownership/provenance guards, including blocking
-  manual void of provider-owned tender. Preserve prepaid tips at checkout and
+- Extend the synthetic atomic settlement and ownership/provenance guards to
+  signature-verified provider evidence. Preserve prepaid tips at checkout and
   final invoice; late success must not revive released appointments.
 - Model verified refund allocations and invoice credits or collection holds so
   refunds do not silently reopen receivables. Preserve gross capture history and
@@ -86,14 +128,14 @@ verified driver. No such production receipt driver is installed by this slice.
 - Retain signature-verified webhook receipts before processing. Match event
   account, mode, session, intent, amount, currency, fee and metadata. Redirects
   are not evidence. Customer refunds and application-fee refunds remain separate.
-- Verify future money-processing races against the repository's attested
-  disposable PostgreSQL target. Preparation-only race verification is recorded
-  below; it does not certify future settlement/refund writers. PGlite serializes
-  one connection and cannot prove those locks. New money-processing schemas and
-  migrations remain future work; migration 0115 stores preparation only.
+- Verify each future provider/refund writer against the attested disposable
+  PostgreSQL target. Preparation and synthetic capture concurrency verification
+  are recorded below; neither certifies a future provider/refund writer. PGlite
+  serializes one connection and cannot prove PostgreSQL lock behavior.
 
-Existing booking, deposit, billing, receipt and reporting financial behavior is
-unchanged. These are test-only preparation foundations, not enabled payments.
+Ordinary legacy rows remain on their existing paths. Reserved synthetic capture
+markers receive stricter provenance and mutation protections. This does not enable
+customer collection or a live payment adapter.
 
 ## Opt-in PostgreSQL preparation concurrency gate
 
@@ -141,3 +183,39 @@ Absent-target guards were also verified: ordinary mode skips all five tests;
 required mode fails before connection. This verifies the preparation repository's
 current locking/CAS/replay/cap scenarios, not live payments or future financial
 writers.
+
+
+## Opt-in PostgreSQL synthetic settlement concurrency gate
+
+`settlement.concurrency.integration.test.ts` uses the same unchanged disposable
+server guard and attests all four physical sessions. It accepts only
+`CUSTOMER_PAYMENT_LEDGER_TEST_DATABASE_URL`; an ambient application URL is never
+used. Supply that URL privately to a newly provisioned dedicated disposable
+cluster, along with `LUSTER_DISPOSABLE_DATABASE=true` and any required container
+attestation. Then run:
+
+```sh
+CUSTOMER_PAYMENT_LEDGER_PG_REQUIRED=true \
+  /usr/local/bin/node node_modules/vitest/vitest.mjs run \
+  src/libs/customerPayments/server/settlement.concurrency.integration.test.ts \
+  --maxWorkers=1 --no-file-parallelism
+```
+
+No dedicated target produces eleven explicit skips; required mode with no target
+fails before connecting. Invalid supplied targets fail validation. The suite
+applies the actual migration journal, including immutable capture and mutation
+guards. Its immutable money fixtures deliberately cannot be deleted by ordinary
+cleanup. Tear down the entire private cluster afterward; never disable the guards
+or run against a shared database.
+
+Eleven cases cover simultaneous identical captures, distinct intents for one
+quote, salon KEY SHARE/FOR UPDATE retry without acknowledgement, salon SHARE/FOR
+NO KEY UPDATE contention retaining review evidence, receipt replay under exclusive
+salon contention, and service/add-on/deposit insertion races against the parent
+appointment lock. Two legacy purge cases additionally prove typed refusal before child deletion under appointment contention and successful ordinary unmarked purge without contention. A client-first writer regression observes its real salon-blocking chain, verifies typed purge refusal without deleting rows, and proves the competitor proceeds after purge rollback. These exercise real PostgreSQL blocking and NOWAIT behavior.
+
+Latest verification: all eleven synthetic settlement/purge cases and all five preparation
+cases passed serially on PostgreSQL 16.15 against the full migration journal.
+The new private loopback cluster was stopped and deleted, including its ephemeral
+password. No existing database, service or provider was contacted. This verifies
+these fixture paths, not production readiness or real provider receipt handling.

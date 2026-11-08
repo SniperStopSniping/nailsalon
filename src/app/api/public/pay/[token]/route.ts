@@ -9,6 +9,7 @@ import {
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { buildPaymentReference } from '@/libs/checkoutTotals';
+import { customerPaymentTipFloor } from '@/libs/customerPayments/provenance';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
@@ -138,7 +139,7 @@ export async function GET(_request: Request, props: { params: Promise<{ token: s
       taxAmountCents: appointment.status === 'completed'
         ? appointment.taxAmountCents
         : taxChain.active.snapshot?.taxAmountCents ?? 0,
-      tipCents: appointment.status === 'completed' ? appointment.tipCents : 0,
+      tipCents: appointment.status === 'completed' ? appointment.tipCents : customerPaymentTipFloor(paymentRows),
       appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
       appointmentStatus: appointment.status,
       paymentStatus: appointment.paymentStatus,

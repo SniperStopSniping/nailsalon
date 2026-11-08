@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
-import { listPayments } from '@/libs/appointmentCheckoutServer';
+import { hasCustomerPaymentTenderForAppointment, listPayments } from '@/libs/appointmentCheckoutServer';
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
@@ -968,6 +968,9 @@ async function withLockedManagedAppointment(
         throw new AppointmentManageError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
       }
       ensureEditable(lockedAppointment);
+      if (await hasCustomerPaymentTenderForAppointment(tx, lockedAppointment.salonId, lockedAppointment.id)) {
+        throw new AppointmentManageError('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED', 'Captured customer money must be reconciled before changing this appointment.', 409);
+      }
 
       // This engine already owns technician/appointment locks. Take the
       // mutable salon financial configuration with NOWAIT before reading it:

@@ -34,6 +34,7 @@ const {
   updateSalonClientStats,
 } = vi.hoisted(() => {
   const mockDbState = {
+    paymentRows: [] as Array<{ id: string; reference: string | null; voidedAt?: Date | null }>,
     currentAppointmentRows: [] as Array<{
       status: string;
       cancelReason: string | null;
@@ -62,6 +63,9 @@ const {
       && 'updatedAt' in projection,
     );
     const from = vi.fn((table: Record<string, unknown>) => {
+      if ('reference' in table && 'recordedByType' in table) {
+        return { where: vi.fn(async () => mockDbState.paymentRows) };
+      }
       const readsAppointmentTable = 'startTime' in table;
       const limit = vi.fn(async () => (
         readsCurrentAppointment
@@ -178,6 +182,7 @@ import { PATCH } from './route';
 describe('PATCH /api/appointments/[id]/cancel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDbState.paymentRows = [];
     mockDbState.currentAppointmentRows = [{
       status: 'cancelled',
       cancelReason: 'client_request',
@@ -223,6 +228,23 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       redirectedFromClientId: 'merged_source',
       lineagePath: ['merged_source', 'primary_client'],
     });
+  });
+
+  it.each([
+    { id: 'cpay_review', reference: null },
+    { id: 'legacy_id', reference: 'customer_payment_capture:review', voidedAt: new Date() },
+  ])('blocks cancellation for any reserved marker before dependent writes: %j', async (marker) => {
+    mockDbState.paymentRows = [marker];
+    requireAppointmentManagerAccess.mockResolvedValue({ ok: true, actorRole: 'admin', admin: { id: 'admin_1' }, appointment: mockDbState.lockedAppointmentRows[0] });
+    const response = await PATCH(new Request('http://localhost/api/appointments/appt_1/cancel', { method: 'PATCH', body: JSON.stringify({ cancelReason: 'client_request' }) }), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(forfeitAppointmentDepositInTx).not.toHaveBeenCalled();
+    expect(materializeAppointmentLifecycle).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarDeleteInTx).not.toHaveBeenCalled();
+    expect(sendSalonNotificationEmail).not.toHaveBeenCalled();
   });
 
   it('rejects wrong-role access', async () => {

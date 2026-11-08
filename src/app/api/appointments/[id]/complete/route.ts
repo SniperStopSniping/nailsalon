@@ -38,6 +38,7 @@ import {
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { customerPaymentCompletionTip, isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
@@ -52,6 +53,7 @@ import { resolveReviewAutomationPolicy } from '@/libs/reviewAutomationPolicy';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import {
   buildFinalTaxSnapshot,
+  buildTaxConfigurationSnapshot,
   resolveTaxConfig,
 } from '@/libs/taxConfig';
 import {
@@ -344,6 +346,8 @@ function defaultTaxableFor(kind: ResolvedFinalItem['kind'], taxConfig: ResolvedT
   return taxConfig.taxCustomByDefault;
 }
 
+class CompletionStagedWriteConflictError extends Error {}
+
 class CompletionCatalogReferenceError extends Error {
   constructor(readonly issues: Array<{ path: string; message: string }>) {
     super('One or more services or add-ons are unavailable. Reload the appointment and check Services & items.');
@@ -626,7 +630,6 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     // performed ids + a hand-entered finalPriceCents — its money truth stays
     // the entered price, exactly as before this phase.
     const pricedFromItems = payload.finalItems !== undefined;
-    const tipCents = payload.tipCents ?? 0;
 
     // 6. Payments recorded at checkout: presence of `payments` (even empty)
     // opts into derived payment status; absence keeps legacy 'paid'.
@@ -635,6 +638,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     // transaction below, so a concurrent refund cannot race completion.
     const paymentsProvided = payload.payments !== undefined || payload.paymentStatusIntent !== undefined;
     const paymentEntries = payload.payments ?? [];
+    if (paymentEntries.some(entry => isCustomerPaymentTender({ reference: entry.reference }))) {
+      return Response.json({ error: { code: 'CUSTOMER_PAYMENT_RESERVED_REFERENCE', message: 'Provider capture references cannot be recorded manually.' } }, { status: 409 });
+    }
     const paidSum = paymentEntries.reduce((sum, entry) => sum + entry.amountCents, 0);
     const paymentMethod = payload.paymentMethod
       ?? paymentEntries.find(entry => entry.method)?.method;
@@ -761,6 +767,38 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           } }, { status: 409 }),
         };
       }
+      const existingPaymentRows = await listPayments(tx, appointmentId);
+      const existingPaymentLedger = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: lockedAppointment.amountPaidCents,
+        paymentRows: existingPaymentRows,
+        expectedSalonId: lockedAppointment.salonId,
+        appointmentStatus: lockedAppointment.status,
+        paymentStatus: lockedAppointment.paymentStatus,
+      });
+      if (!existingPaymentLedger.ok) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: existingPaymentLedger.code,
+                message: existingPaymentLedger.detail,
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+      let tipCents: number;
+      try {
+        tipCents = customerPaymentCompletionTip(existingPaymentRows, payload.tipCents, lockedAppointment.tipCents);
+      } catch {
+        return { success: false as const, updatedAppointment: null, response: Response.json({ error: {
+          code: 'CUSTOMER_PAYMENT_PREPAID_TIP_REQUIRED',
+          message: 'The recorded prepaid tip cannot be reduced through checkout. Reconcile the payment first.',
+        } }, { status: 409 }) };
+      }
       const legacyFinalPrice = payload.finalPriceCents ?? lockedAppointment.totalPrice;
       let totals: ReturnType<typeof computeCheckoutTotals>;
       try {
@@ -837,6 +875,30 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           ),
         };
       }
+      if (existingPaymentRows.some(isCustomerPaymentTender)) {
+        const frozen = existingTaxChain.active.snapshot;
+        const proposedConfiguration = buildTaxConfigurationSnapshot(taxConfig);
+        // This limited capture slice cannot reprice or reissue an invoice.
+        // Even a later salon tax configuration change requires reconciliation,
+        // rather than silently adopting new tax or relying on the SQL backstop.
+        if (!frozen
+          || frozen.serviceSubtotalCents !== totals.finalPriceCents
+          || frozen.taxAmountCents !== totals.taxAmountCents
+          || frozen.taxableSubtotalCents !== totals.taxableSubtotalCents
+          || frozen.taxApplied !== totals.taxApplied
+          || frozen.configuration.configurationIdentity !== proposedConfiguration.configurationIdentity
+          || taxExempt
+          || (payload.taxExemptReason?.trim() || null) !== null) {
+          return {
+            success: false as const,
+            updatedAppointment: null,
+            response: Response.json({ error: {
+              code: 'CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED',
+              message: 'The proposed service amount or tax differs from the captured invoice. Reconcile the customer payment before completing this appointment.',
+            } } satisfies ErrorResponse, { status: 409 }),
+          };
+        }
+      }
       const invoiceCurrency = existingTaxChain.invoiceCurrency
         ?? (depositRows.length === 0 ? fallbackInvoiceCurrency : null);
       if (!invoiceCurrency) {
@@ -848,29 +910,6 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               error: {
                 code: 'DEPOSIT_CURRENCY_MISMATCH',
                 message: 'The historical appointment has no frozen invoice currency.',
-              },
-            } satisfies ErrorResponse,
-            { status: 409 },
-          ),
-        };
-      }
-      const existingPaymentRows = await listPayments(tx, appointmentId);
-      const existingPaymentLedger = resolveAppointmentPaymentLedger({
-        cachedAmountPaidCents: lockedAppointment.amountPaidCents,
-        paymentRows: existingPaymentRows,
-        expectedSalonId: lockedAppointment.salonId,
-        appointmentStatus: lockedAppointment.status,
-        paymentStatus: lockedAppointment.paymentStatus,
-      });
-      if (!existingPaymentLedger.ok) {
-        return {
-          success: false as const,
-          updatedAppointment: null,
-          response: Response.json(
-            {
-              error: {
-                code: existingPaymentLedger.code,
-                message: existingPaymentLedger.detail,
               },
             } satisfies ErrorResponse,
             { status: 409 },
@@ -1081,6 +1120,39 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       const normalizedTaxExemptReason = taxExempt
         ? (payload.taxExemptReason?.trim() || null)
         : null;
+      const insertPaymentEntries = async () => {
+        await tx.insert(appointmentPaymentSchema).values(
+          paymentEntries.map(entry => ({
+            id: `pay_${crypto.randomUUID()}`,
+            appointmentId,
+            salonId: existingAppointment.salonId,
+            amountCents: entry.amountCents,
+            method: entry.method ?? null,
+            reference: entry.reference ?? null,
+            note: entry.note ?? null,
+            recordedByType: actor.recordedByType,
+            recordedById: actor.recordedById,
+            recordedByName: actor.recordedByName,
+            recordedAt: now,
+          })),
+        );
+      };
+      // Captured appointments have an immediate SQL cache/tender invariant.
+      // Stage only the validated tip (not the cache), then insert the new
+      // tender before freezing the final invoice. All writes share this lock
+      // and transaction; any later failure must roll them back.
+      const stagedCapturePayments = paymentEntries.length > 0
+        && existingPaymentRows.some(isCustomerPaymentTender);
+      if (stagedCapturePayments) {
+        const staged = await tx.update(appointmentSchema)
+          .set({ tipCents: totals.tipCents })
+          .where(and(eq(appointmentSchema.id, appointmentId), eq(appointmentSchema.salonId, existingAppointment.salonId)))
+          .returning();
+        if (staged.length !== 1) {
+          throw new CompletionStagedWriteConflictError();
+        }
+        await insertPaymentEntries();
+      }
       const updateResult = await tx
         .update(appointmentSchema)
         .set({
@@ -1144,6 +1216,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         .returning();
 
       if (updateResult.length === 0) {
+        if (stagedCapturePayments) {
+          throw new CompletionStagedWriteConflictError();
+        }
         return { success: false as const, updatedAppointment: null };
       }
 
@@ -1178,22 +1253,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         );
       }
 
-      if (paymentEntries.length > 0) {
-        await tx.insert(appointmentPaymentSchema).values(
-          paymentEntries.map(entry => ({
-            id: `pay_${crypto.randomUUID()}`,
-            appointmentId,
-            salonId: existingAppointment.salonId,
-            amountCents: entry.amountCents,
-            method: entry.method ?? null,
-            reference: entry.reference ?? null,
-            note: entry.note ?? null,
-            recordedByType: actor.recordedByType,
-            recordedById: actor.recordedById,
-            recordedByName: actor.recordedByName,
-            recordedAt: now,
-          })),
-        );
+      if (paymentEntries.length > 0 && !stagedCapturePayments) {
+        await insertPaymentEntries();
       }
 
       // Audit trail, atomic with the completion.
@@ -1361,7 +1422,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       result.depositCredit,
     );
   } catch (error) {
-    if (error instanceof NextVisitOfferError || postgresErrorCode(error) === '55P03') {
+    if (error instanceof CompletionStagedWriteConflictError || error instanceof NextVisitOfferError || postgresErrorCode(error) === '55P03') {
       return Response.json({ error: { code: 'APPOINTMENT_CHANGED', message: 'This appointment or client is being updated. Refresh the appointment and review the totals before trying again.' } }, { status: 409 });
     }
     if (error instanceof CompletionCatalogReferenceError) {

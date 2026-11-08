@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { getActiveAppointmentsForCanonicalClientWithHandle } from '@/libs/activeAppointments';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
-import { resolveCheckoutActor } from '@/libs/appointmentCheckoutServer';
+import { hasCustomerPaymentTenderForAppointment, resolveCheckoutActor } from '@/libs/appointmentCheckoutServer';
 import {
   lockTechnicianAndAssertSlotFree,
   SlotConflictError,
@@ -154,7 +154,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
         }
 
         if (
-          lockedAppointment.bookingTaxSnapshot !== null
+          await hasCustomerPaymentTenderForAppointment(tx, lockedAppointment.salonId, lockedAppointment.id)
+          || lockedAppointment.bookingTaxSnapshot !== null
           || lockedAppointment.rescheduleTaxSnapshot !== null
           || lockedAppointment.finalTaxSnapshot !== null
         ) {

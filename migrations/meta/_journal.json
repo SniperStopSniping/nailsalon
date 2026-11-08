@@ -806,6 +806,20 @@
       "when": 1794178800000,
       "tag": "0115_customer_payment_preparation",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1794182400000,
+      "tag": "0116_customer_payment_synthetic_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1794186000000,
+      "tag": "0117_customer_payment_mutation_guards",
+      "breakpoints": true
     }
   ]
 }

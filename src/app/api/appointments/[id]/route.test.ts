@@ -39,6 +39,7 @@ const {
   db,
 } = vi.hoisted(() => {
   const mockDbState = {
+    paymentRows: [] as Array<{ id: string; reference: string | null; voidedAt?: Date | null }>,
     currentAppointmentRows: [] as Array<{
       status: string;
       cancelReason: string | null;
@@ -105,6 +106,9 @@ const {
       && 'updatedAt' in projection,
     );
     const from = vi.fn((table: Record<string, unknown>) => {
+      if ('reference' in table && 'recordedByType' in table) {
+        return { where: vi.fn(async () => mockDbState.paymentRows) };
+      }
       const readsAppointmentTable = 'startTime' in table;
       const readsSalonClientTable = 'loyaltyPoints' in table;
       const limit = vi.fn(async () => (
@@ -344,6 +348,7 @@ function forfeitedDepositRow(overrides: Record<string, unknown> = {}) {
 describe('appointment detail route auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDbState.paymentRows = [];
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
     getSalonById.mockResolvedValue(null);
     getTechnicianById.mockResolvedValue(null);
@@ -435,6 +440,25 @@ describe('appointment detail route auth', () => {
       },
     });
     guardModuleOr403.mockResolvedValue(null);
+  });
+
+  it.each([
+    { status: 'cancelled', cancelReason: 'client_request' },
+    { status: 'no_show' },
+    { status: 'confirmed' },
+    { cancelReason: 'client_request' },
+  ])('blocks generic lifecycle edits under the appointment lock: %j', async (body) => {
+    mockDbState.paymentRows = [{ id: 'ordinary_id', reference: 'customer_payment_capture:review', voidedAt: new Date() }];
+    requireAppointmentAccess.mockResolvedValue({ ok: true, actorRole: 'admin', admin: { id: 'admin_1' }, appointment: { ...mockDbState.lockedAppointmentRows[0] } });
+    const response = await PATCH(new Request('http://localhost/api/appointments/appt_1', { method: 'PATCH', body: JSON.stringify(body) }), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(appointmentForUpdate).toHaveBeenCalled();
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(updateAppointmentStatus).not.toHaveBeenCalled();
+    expect(materializeAppointmentLifecycle).not.toHaveBeenCalled();
+    expect(sendSalonNotificationEmail).not.toHaveBeenCalled();
   });
 
   it('rejects unauthenticated appointment updates', async () => {

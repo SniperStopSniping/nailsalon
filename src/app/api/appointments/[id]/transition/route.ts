@@ -18,6 +18,7 @@ import {
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { assertCustomerPaymentLifecycleMutable, assertCustomerPaymentServiceProgressionAllowed, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
 import { db } from '@/libs/DB';
 import {
   DepositForfeitureBlockedError,
@@ -351,6 +352,13 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           return null;
         }
 
+        if ((currentCanvasState === 'waiting' && to === 'working')
+          || (currentCanvasState === 'working' && to === 'wrap_up')) {
+          await assertCustomerPaymentServiceProgressionAllowed(tx, lockedAppointment);
+        } else {
+          await assertCustomerPaymentLifecycleMutable(tx, appointment.salonId, appointmentId);
+        }
+
         const noShowReport = legacyStatus === 'no_show'
           ? validateNoShowReport(lockedAppointment.startTime, parsed.data.noShowReport, now)
           : null;
@@ -528,6 +536,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       },
     });
   } catch (error) {
+    if (error instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(error);
+    }
     if (error instanceof NoShowReportingError) {
       return Response.json({ error: { code: error.code, message: error.message } }, { status: 400 });
     }

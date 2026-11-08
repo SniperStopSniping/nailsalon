@@ -51,6 +51,30 @@ async function seed(id: string, salonId = salon.id) {
 }
 
 describe('owner no-show correction', () => {
+  it('blocks corrections for reserved customer-payment history before source or risk changes', async () => {
+    const appointmentId = 'owner-correct-customer-payment';
+    const version = await seed(appointmentId);
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: 'cpay_review',
+      salonId: salon.id,
+      appointmentId,
+      amountCents: 5000,
+      method: 'online',
+      recordedByType: 'system',
+    });
+    const response = await POST(request({ appointmentId, expectedUpdatedAt: version, reason: 'Client attended and the no-show was marked by mistake.' }));
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+
+    const [appointment] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointmentId));
+    const [event] = await db.select().from(schema.networkNoShowEventSchema).where(eq(schema.networkNoShowEventSchema.appointmentId, appointmentId));
+
+    expect(appointment?.status).toBe('no_show');
+    expect(event?.state).toBe('active');
+    expect(await db.select().from(schema.appointmentAuditLogSchema).where(eq(schema.appointmentAuditLogSchema.appointmentId, appointmentId))).toEqual([]);
+  });
+
   it('corrects only the authorized salon, revokes shared risk while feature serving is off, and leaves forfeiture evidence intact', async () => {
     const version = await seed('owner-correct-feature-off');
     vi.stubEnv('NETWORK_NO_SHOW_ENABLED', 'false');

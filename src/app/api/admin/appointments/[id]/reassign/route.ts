@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { logAdminOverride, logTechReassignment } from '@/libs/appointmentAudit';
 import { isSlotConstraintViolation, lockTechnicianAndAssertSlotFree, lockTechnicianSchedule, SlotConflictError } from '@/libs/bookingConflictGuard';
+import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
 import { db } from '@/libs/DB';
 import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
 import {
@@ -268,6 +269,7 @@ export async function PUT(
       if (!locked || locked.technicianId !== appointment.technicianId) {
         return { kind: 'stale' as const };
       }
+      await assertCustomerPaymentLifecycleMutable(tx, salon.id, appointmentId);
       if (locked.status === 'awaiting_payment') {
         return { kind: 'hold' as const };
       }
@@ -395,6 +397,9 @@ export async function PUT(
       },
     });
   } catch (error) {
+    if (error instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(error);
+    }
     if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
       return Response.json({ error: { code: 'TECHNICIAN_UNAVAILABLE', message: 'This technician has an overlapping appointment, buffer, or blocked time.' } }, { status: 409 });
     }

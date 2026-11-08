@@ -1,6 +1,8 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { hasCustomerPaymentTenderForAppointment } from '@/libs/appointmentCheckoutServer';
+
 const {
   callOrder,
   requireAppointmentManagerAccess,
@@ -126,7 +128,7 @@ const {
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/routeAccessGuards', () => ({ requireAppointmentManagerAccess }));
-vi.mock('@/libs/appointmentCheckoutServer', () => ({ resolveCheckoutActor }));
+vi.mock('@/libs/appointmentCheckoutServer', () => ({ resolveCheckoutActor, hasCustomerPaymentTenderForAppointment: vi.fn(async () => false) }));
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
   ClientLifecycleStabilizationError: class extends Error {},
   resolveTerminalSalonClientWithHandle,
@@ -181,6 +183,7 @@ function request(): Request {
 describe('POST /api/appointments/:id/reopen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(hasCustomerPaymentTenderForAppointment).mockResolvedValue(false);
     callOrder.length = 0;
     lockedAppointment.current = { ...completedAppointment };
     appointmentUpdateResult.current = [{
@@ -200,6 +203,16 @@ describe('POST /api/appointments/:id/reopen', () => {
         return [];
       },
     );
+  });
+
+  it('refuses captured tender even without a historical tax snapshot', async () => {
+    vi.mocked(hasCustomerPaymentTenderForAppointment).mockResolvedValue(true);
+    const response = await POST(request(), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('INVOICE_REVISION_UNSUPPORTED');
+    expect(dependentUpdate).not.toHaveBeenCalled();
+    expect(auditInsert).not.toHaveBeenCalled();
   });
 
   it('locks source lineage, technician, and appointment before the active check and CAS', async () => {

@@ -1,3 +1,5 @@
+import { hasVerifiedCustomerPaymentTender, isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
+
 /**
  * Canonical provenance check for appointment tender.
  *
@@ -10,6 +12,11 @@ export const PAYMENT_LEDGER_RECONCILIATION_REQUIRED
   = 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED' as const;
 
 export type AppointmentPaymentLedgerRow = {
+  id?: string;
+  reference?: string | null;
+  appointmentId?: string;
+  method?: string | null;
+  recordedByType?: string;
   salonId?: string;
   amountCents: number;
   voidedAt: Date | string | null;
@@ -63,6 +70,9 @@ export function resolveAppointmentPaymentLedger(
     input.expectedSalonId !== undefined
     && input.paymentRows.some(row => row.salonId !== input.expectedSalonId)
   ) {
+    return blocked(input, null);
+  }
+  if (input.paymentRows.some(row => isCustomerPaymentTender(row) && !hasVerifiedCustomerPaymentTender(row))) {
     return blocked(input, null);
   }
   const cached = input.cachedAmountPaidCents;

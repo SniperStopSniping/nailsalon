@@ -12,6 +12,7 @@ import {
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
+import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { updateSalonClientStats } from '@/libs/queries';
@@ -97,6 +98,9 @@ export async function POST(
         .limit(1);
       if (!payment) {
         return { kind: 'error' as const, response: errorJson(404, 'PAYMENT_NOT_FOUND', 'Payment not found') };
+      }
+      if (isCustomerPaymentTender(payment)) {
+        return { kind: 'error' as const, response: errorJson(409, 'CUSTOMER_PAYMENT_REFUND_REQUIRED', 'Provider captures cannot be manually voided. Use an audited refund/reconciliation flow.') };
       }
       if (payment.voidedAt) {
         return { kind: 'error' as const, response: errorJson(409, 'ALREADY_VOIDED', 'Payment is already voided') };

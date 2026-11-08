@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { buildBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { requireClientApiSession, requireClientSalonFromQuery } from '@/libs/clientApiGuards';
+import { enrichCustomerPaymentProvenance } from '@/libs/customerPayments/server/provenanceReader';
 import { db } from '@/libs/DB';
 import {
   appointmentDepositSchema,
@@ -109,7 +110,7 @@ export async function GET(request: Request): Promise<Response> {
     for (const appointment of appointments) {
       const paymentLedger = resolveAppointmentPaymentLedger({
         cachedAmountPaidCents: appointment.amountPaidCents,
-        paymentRows: paymentsByAppointment.get(appointment.id) ?? [],
+        paymentRows: await enrichCustomerPaymentProvenance(db, paymentsByAppointment.get(appointment.id) ?? []),
         expectedSalonId: salon.id,
         appointmentStatus: appointment.status,
         paymentStatus: appointment.paymentStatus,

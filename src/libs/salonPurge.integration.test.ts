@@ -453,6 +453,31 @@ beforeEach(async () => {
 });
 
 describe('purgeSalonData', () => {
+  it.each(['full', 'appointments', 'staff'] as const)('retains reserved capture history before a %s purge mutates anything', async (kind) => {
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: 'cpay_orphan_fixture',
+      salonId: SALON,
+      appointmentId: 'appt_target',
+      amountCents: 100,
+      method: 'online',
+      reference: 'customer_payment_capture:orphan_fixture',
+      recordedByType: 'system',
+      voidedAt: new Date(),
+    });
+    const before = await snapshot(SALON);
+
+    await expect(db.transaction(tx => kind === 'full'
+      ? purgeSalonData(tx as unknown as PurgeTx, SALON)
+      : purgeSalonGroups(tx as unknown as PurgeTx, SALON, [kind])))
+      .rejects.toMatchObject({
+        name: 'SalonPurgeBlockedError',
+        blockers: [{ table: 'appointment_payment', column: 'customer_payment_capture', count: 1 }],
+      });
+    expect(await snapshot(SALON)).toEqual(before);
+    expect((await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, 'appt_target')))[0]?.technicianId)
+      .toBe('tech_target');
+  });
+
   it('removes the salon and every one of its rows', async () => {
     const before = await snapshot(SALON);
 

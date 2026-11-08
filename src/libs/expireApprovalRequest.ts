@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq, isNotNull, lte } from 'drizzle-orm';
 
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
+import { hasCustomerPaymentTenderForAppointment } from '@/libs/appointmentCheckoutServer';
 import { materializeAppointmentLifecycle } from '@/libs/communicationMaterialization';
 import type { db } from '@/libs/DB';
 import { appointmentAuditLogSchema, appointmentSchema } from '@/models/Schema';
@@ -70,7 +71,8 @@ type ExpireApprovalRequestTransaction = Parameters<Parameters<typeof db.transact
 export type ExpireApprovalRequestOutcome =
   | { outcome: 'transitioned'; notificationIntentId: string | null }
   | { outcome: 'already_expired' }
-  | { outcome: 'not_expirable' };
+  | { outcome: 'not_expirable' }
+  | { outcome: 'customer_payment_reconciliation_required' };
 
 export type ExpireApprovalRequestArgs = {
   appointmentId: string;
@@ -108,6 +110,10 @@ export async function expireApprovalRequest(
     && requestExpiresAt.getTime() <= transactionNow.getTime();
   if (!isExpirableNow || requestExpiresAt === null) {
     return { outcome: 'not_expirable' };
+  }
+
+  if (await hasCustomerPaymentTenderForAppointment(tx, locked.salonId, appointmentId)) {
+    return { outcome: 'customer_payment_reconciliation_required' };
   }
 
   const [transitioned] = await tx

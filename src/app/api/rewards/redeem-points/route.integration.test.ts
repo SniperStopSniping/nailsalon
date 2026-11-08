@@ -98,6 +98,8 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  // Isolated PGlite fixture reset; production deletes remain immutable.
+  await client.exec('TRUNCATE appointment_payment CASCADE');
   vi.clearAllMocks();
   holder.failAfterTransactionBody = false;
   holder.db = exposedDb();
@@ -152,6 +154,30 @@ afterAll(async () => {
 });
 
 describe('points redemption Calendar mutation', () => {
+  it('blocks points repricing for a voided customer-payment marker', async () => {
+    await realDb.insert(schema.appointmentPaymentSchema).values({
+      id: 'manual_marker',
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      amountCents: 5000,
+      method: 'online',
+      recordedByType: 'system',
+      reference: 'customer_payment_capture:review',
+      voidedAt: new Date(),
+    });
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+
+    const [appointment] = await realDb.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    const [salonClient] = await realDb.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.id, CLIENT_ID));
+
+    expect(appointment?.totalPrice).toBe(5000);
+    expect(salonClient?.loyaltyPoints).toBe(5000);
+    await expect(realDb.select().from(schema.integrationOutboxSchema)).resolves.toEqual([]);
+  });
+
   it('blocks D6.1 snapshot repricing before points, price, or Calendar mutation', async () => {
     const capturedAt = new Date('2099-05-01T12:00:00.000Z');
     const bookingTaxSnapshot = buildBookingTaxSnapshot({

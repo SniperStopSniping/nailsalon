@@ -3,6 +3,7 @@ import 'server-only';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { logAppointmentChange } from '@/libs/appointmentAudit';
+import { hasCustomerPaymentTenderForAppointment } from '@/libs/appointmentCheckoutServer';
 import {
   AppointmentManageError,
   getAppointmentCalendarEventForSync,
@@ -768,6 +769,9 @@ export async function processGoogleCalendarInboundSync(
             if (!lockedAppointment) {
               return null;
             }
+            if (await hasCustomerPaymentTenderForAppointment(tx, connection.salonId, lockedAppointment.id)) {
+              return { reconciliationRequired: true as const };
+            }
             const [lockedSourceEvent] = await tx.select({
               appointmentId: googleCalendarEventSchema.appointmentId,
               calendarId: googleCalendarEventSchema.calendarId,
@@ -855,6 +859,10 @@ export async function processGoogleCalendarInboundSync(
             return { terminalAppointment, previous: lockedAppointment };
           });
           if (!cancellation) {
+            continue;
+          }
+          if ('reconciliationRequired' in cancellation) {
+            summary.conflicts += 1;
             continue;
           }
           const { terminalAppointment: cancelled, previous } = cancellation;

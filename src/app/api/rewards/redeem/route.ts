@@ -12,6 +12,7 @@ import {
   requireClientApiSession,
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
+import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
@@ -312,6 +313,7 @@ export async function POST(request: Request): Promise<Response> {
       ) {
         throw new RewardRedemptionConflictError();
       }
+      await assertCustomerPaymentLifecycleMutable(tx, salon.id, appointmentId);
       if (
         lockedAppointment.invoiceCurrency !== null
         || lockedAppointment.bookingTaxSnapshot !== null
@@ -471,6 +473,9 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json(response, { status: 200 });
   } catch (error) {
+    if (error instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(error);
+    }
     if (error instanceof RewardFinancialRepricingRequiredError) {
       return Response.json(
         {

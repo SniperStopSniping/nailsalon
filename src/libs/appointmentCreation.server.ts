@@ -108,6 +108,7 @@ import { getClientSmsPurposeEligibility } from '@/libs/clientSmsEligibility.serv
 import type { CustomerBookingMaterial } from '@/libs/customerAssistant/bookingOperationContracts';
 import { CustomerBookingOperationError, linkCustomerBookingOperation, lockCustomerBookingOperation, type LockedCustomerBookingOperation, readCustomerBookingOperation } from '@/libs/customerAssistant/operationStore.server';
 import { validateCustomerReviewLocationInTx } from '@/libs/customerAssistant/validateReviewLocation.server';
+import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
 import { db } from '@/libs/DB';
 import {
   buildDepositCheckoutIdempotencyKey,
@@ -4375,6 +4376,8 @@ async function createAppointmentFromRequestCore(
               throw new Error('RESCHEDULE_CONFLICT');
             }
 
+            await assertCustomerPaymentLifecycleMutable(tx, salon.id, normalizedOriginalApptId);
+
             // The original is locked; now refuse to strand client money on it.
             // The shared predicate deliberately differs from salon purge for
             // canceled deposits, while retaining successful refunds for 30 days.
@@ -4644,6 +4647,9 @@ async function createAppointmentFromRequestCore(
               details: { holdExpiresAt: error.holdExpiresAt?.toISOString() ?? null },
             },
           } satisfies ErrorResponse, { status: 409 });
+        }
+        if (error instanceof CustomerPaymentLifecycleBlockedError) {
+          return customerPaymentLifecycleBlockedResponse(error);
         }
         if (error instanceof RescheduleRequiresManageFlowError) {
           return Response.json(

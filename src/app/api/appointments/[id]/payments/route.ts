@@ -16,6 +16,7 @@ import {
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
+import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
@@ -95,6 +96,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       return errorJson(400, 'VALIDATION_ERROR', 'Invalid request data', validated.error.flatten());
     }
     const payment = validated.data;
+    if (isCustomerPaymentTender({ reference: payment.reference })) {
+      return errorJson(409, 'CUSTOMER_PAYMENT_RESERVED_REFERENCE', 'Provider capture references cannot be recorded manually.');
+    }
     const actor = resolveCheckoutActor(access);
     const now = new Date();
 

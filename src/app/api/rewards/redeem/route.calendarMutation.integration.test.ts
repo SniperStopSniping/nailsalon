@@ -68,6 +68,7 @@ const pricedAppointment = {
   totalPrice: 4500,
   updatedAt: new Date('2099-01-01T00:00:00.001Z'),
 };
+let paymentMarkers: Array<{ id: string; reference: string | null }> = [];
 let lockedReward = reward;
 let lockedAppointment = appointment;
 let lockedDeposits: Array<{ id: string }> = [];
@@ -98,6 +99,7 @@ function request() {
 describe('reward redemption Calendar mutation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    paymentMarkers = [];
     lockedReward = reward;
     lockedAppointment = appointment;
     lockedDeposits = [];
@@ -124,20 +126,32 @@ describe('reward redemption Calendar mutation', () => {
         });
       const tx = {
         select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => {
-              const rows = lockedSelections.shift() ?? [];
-              return {
-                for: vi.fn(() => ({ limit: vi.fn(async () => rows) })),
-                limit: vi.fn(async () => rows),
-              };
-            }),
-          })),
+          from: vi.fn((table: Record<string, unknown>) => 'recordedByType' in table
+            ? { where: vi.fn(async () => paymentMarkers) }
+            : ({
+                where: vi.fn(() => {
+                  const rows = lockedSelections.shift() ?? [];
+                  return {
+                    for: vi.fn(() => ({ limit: vi.fn(async () => rows) })),
+                    limit: vi.fn(async () => rows),
+                  };
+                }),
+              })),
         })),
         update: transactionUpdate,
       };
       return work(tx);
     });
+  });
+
+  it('blocks reward repricing for a reserved provider marker', async () => {
+    paymentMarkers = [{ id: 'cpay_review', reference: null }];
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
   });
 
   it('atomically enqueues the winning appointment revision with the price mutation', async () => {

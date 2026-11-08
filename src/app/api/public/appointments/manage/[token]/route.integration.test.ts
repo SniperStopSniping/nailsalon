@@ -1028,3 +1028,32 @@ describe('customer manage-link cancellation', () => {
       .where(eq(schema.salonClientSchema.id, CLIENT_ID));
   });
 });
+
+describe('customer payment lifecycle cancellation fence', () => {
+  it.each(['id', 'reference', 'voided'] as const)('rejects a reserved %s marker without cancellation or delivery', async (kind) => {
+    const { appointmentId, token } = await seedAppointmentWithToken();
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: kind === 'id' ? `cpay_${appointmentId}` : `manual_${appointmentId}`,
+      salonId: SALON_ID,
+      appointmentId,
+      amountCents: 4500,
+      method: 'online',
+      recordedByType: 'system',
+      reference: kind === 'id' ? null : `customer_payment_capture:${appointmentId}`,
+      voidedAt: kind === 'voided' ? new Date() : null,
+    });
+    const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+
+    const [unchanged] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(unchanged?.status).toBe('confirmed');
+    expect(unchanged?.totalPrice).toBe(4500);
+    expect(await salonDeliveriesFor(appointmentId)).toEqual([]);
+    expect(await customerDeliveriesFor(appointmentId)).toEqual([]);
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+  });
+});

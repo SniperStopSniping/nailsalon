@@ -19,6 +19,7 @@ import {
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
 import { db } from '@/libs/DB';
 import { resolveDepositCredit } from '@/libs/depositCredit';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
@@ -39,7 +40,7 @@ import {
   getAppointmentServiceNames,
   getSalonById,
   getTechnicianById,
-  updateAppointmentStatus,
+  type updateAppointmentStatus,
 } from '@/libs/queries';
 import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
@@ -548,6 +549,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               };
             }
 
+            await assertCustomerPaymentLifecycleMutable(tx, existingAppointment.salonId, appointmentId);
+
             if (lockedAppointment.status === 'cancelled') {
               if (lockedAppointment.cancelReason === requestedReason) {
                 return {
@@ -759,6 +762,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               conflictStatus: 'missing',
             };
           }
+          await assertCustomerPaymentLifecycleMutable(tx, existingAppointment.salonId, appointmentId);
           if (lockedAppointment.deletedAt) {
             throw new NoShowReportingError('NO_SHOW_INVALID_STATE', 'A deleted appointment cannot be marked no-show.');
           }
@@ -969,6 +973,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               conflictStatus: 'missing',
             };
           }
+          await assertCustomerPaymentLifecycleMutable(tx, existingAppointment.salonId, appointmentId);
           if (lockedAppointment.status !== existingAppointment.status) {
             return {
               applied: false,
@@ -1255,30 +1260,34 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       }
       updatedAppointment = transition.appointment;
     } else if (!data.status) {
-      const [result] = await db.update(appointmentSchema).set({
-        cancelReason: data.cancelReason,
-        updatedAt: new Date(Math.max(Date.now(), existingAppointment.updatedAt.getTime() + 1)),
-      }).where(and(
-        eq(appointmentSchema.id, appointmentId),
-        eq(appointmentSchema.salonId, existingAppointment.salonId),
-        eq(appointmentSchema.status, existingAppointment.status),
-        eq(appointmentSchema.updatedAt, existingAppointment.updatedAt),
-      )).returning();
+      const result = await db.transaction(async (tx) => {
+        const [lockedAppointment] = await tx.select().from(appointmentSchema).where(and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, existingAppointment.salonId),
+        )).for('update').limit(1);
+        if (!lockedAppointment) {
+          return null;
+        }
+        await assertCustomerPaymentLifecycleMutable(tx, existingAppointment.salonId, appointmentId);
+        const [changed] = await tx.update(appointmentSchema).set({
+          cancelReason: data.cancelReason,
+          updatedAt: new Date(Math.max(Date.now(), lockedAppointment.updatedAt.getTime() + 1)),
+        }).where(and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, existingAppointment.salonId),
+          eq(appointmentSchema.status, existingAppointment.status),
+          eq(appointmentSchema.updatedAt, existingAppointment.updatedAt),
+        )).returning();
+        return changed;
+      });
       if (!result) {
         return Response.json({ error: { code: 'APPOINTMENT_CHANGED', message: 'This appointment changed while you were editing. Refresh it and try again.' } }, { status: 409 });
       }
       updatedAppointment = result;
     } else {
-      const result = await updateAppointmentStatus(
-        appointmentId,
-        existingAppointment.salonId,
-        data.status ?? existingAppointment.status,
-        data.cancelReason,
-      );
-      if (!result) {
-        throw new Error('Failed to update appointment');
-      }
-      updatedAppointment = result;
+      // All supported statuses are handled by the locked branches above.
+      // Never fall through to the legacy unguarded status writer.
+      return Response.json({ error: { code: 'VALIDATION_ERROR', message: 'Unsupported appointment transition.' } }, { status: 400 });
     }
 
     // 6. Only the request that committed the cancellation transition may
@@ -1357,6 +1366,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       meta: { timestamp: new Date().toISOString() },
     });
   } catch (error) {
+    if (error instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(error);
+    }
     if (error instanceof NoShowReportingError) {
       return Response.json({ error: { code: error.code, message: error.message } }, { status: 400 });
     }

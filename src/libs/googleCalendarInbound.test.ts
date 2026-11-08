@@ -62,7 +62,7 @@ const {
     return query;
   };
   const select = vi.fn(() => ({
-    from: vi.fn(() => createSelectQuery()),
+    from: vi.fn((table?: unknown) => table && typeof table === 'object' && 'recordedByType' in table ? { where: vi.fn(async () => []) } : createSelectQuery()),
   }));
   const updateResults: Array<
     unknown[] | ((values: Record<string, unknown>) => unknown[])

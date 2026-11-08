@@ -10,6 +10,7 @@ import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { loadBookingPolicy } from '@/libs/bookingPolicy';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
+import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
 import { db } from '@/libs/DB';
 import type { GoogleCalendarBusyWindow } from '@/libs/googleCalendar';
 import {
@@ -448,6 +449,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
         if (!locked || locked.discountType) {
           return false;
         }
+        await assertCustomerPaymentLifecycleMutable(tx, managed.capability.salonId, managed.capability.appointmentId);
         const mutationVersion = new Date(Math.max(
           Date.now(),
           locked.updatedAt.getTime() + 1,
@@ -528,6 +530,9 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       smartFitOutcome = decision.outcome;
     }
   } catch (smartFitError) {
+    if (smartFitError instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(smartFitError);
+    }
     smartFitOutcome = 'none';
     // Pricing is a bonus here; never fail a committed move over it.
     console.error('[AppointmentManageLink] Smart Fit evaluation failed after the move committed:', {
@@ -613,55 +618,64 @@ export async function PATCH(request: Request, context: { params: Promise<{ token
   // A valid customer capability can cancel any pending/confirmed appointment,
   // including last-minute changes. The locked status check below is authoritative.
 
-  const cancelled = await db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(appointmentSchema).where(and(
-      eq(appointmentSchema.id, managed.capability.appointmentId),
-      eq(appointmentSchema.salonId, managed.capability.salonId),
-    )).for('update').limit(1);
-    if (!locked || !['pending', 'confirmed'].includes(locked.status)) {
-      return null;
-    }
-    const mutationVersion = new Date(Math.max(
-      Date.now(),
-      locked.updatedAt.getTime() + 1,
-    ));
-    const [terminalAppointment] = await tx
-      .update(appointmentSchema)
-      .set({
-        status: 'cancelled',
-        cancelReason: body.reason?.trim() || 'client_request',
-        updatedAt: mutationVersion,
-      })
-      .where(and(
+  let cancelled;
+  try {
+    cancelled = await db.transaction(async (tx) => {
+      const [locked] = await tx.select().from(appointmentSchema).where(and(
         eq(appointmentSchema.id, managed.capability.appointmentId),
         eq(appointmentSchema.salonId, managed.capability.salonId),
-        inArray(appointmentSchema.status, ['pending', 'confirmed']),
-      ))
-      .returning();
-    if (!terminalAppointment) {
-      return null;
+      )).for('update').limit(1);
+      if (!locked || !['pending', 'confirmed'].includes(locked.status)) {
+        return null;
+      }
+      await assertCustomerPaymentLifecycleMutable(tx, managed.capability.salonId, managed.capability.appointmentId);
+      const mutationVersion = new Date(Math.max(
+        Date.now(),
+        locked.updatedAt.getTime() + 1,
+      ));
+      const [terminalAppointment] = await tx
+        .update(appointmentSchema)
+        .set({
+          status: 'cancelled',
+          cancelReason: body.reason?.trim() || 'client_request',
+          updatedAt: mutationVersion,
+        })
+        .where(and(
+          eq(appointmentSchema.id, managed.capability.appointmentId),
+          eq(appointmentSchema.salonId, managed.capability.salonId),
+          inArray(appointmentSchema.status, ['pending', 'confirmed']),
+        ))
+        .returning();
+      if (!terminalAppointment) {
+        return null;
+      }
+
+      const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
+      await materializeAppointmentLifecycle({
+        tx,
+        appointment: terminalAppointment,
+        eventType: 'appointment_cancelled',
+        supersede: true,
+        manageUrl: buildAppointmentManageUrl(
+          { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
+          (await context.params).token,
+        ),
+      });
+
+      await enqueueGoogleCalendarDeleteInTx(tx, {
+        appointmentId: terminalAppointment.id,
+        salonId: terminalAppointment.salonId,
+        mutationVersion: terminalAppointment.updatedAt,
+        googleCalendarEventId: terminalAppointment.googleCalendarEventId,
+      });
+      return terminalAppointment;
+    });
+  } catch (error) {
+    if (error instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(error);
     }
-
-    const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
-    await materializeAppointmentLifecycle({
-      tx,
-      appointment: terminalAppointment,
-      eventType: 'appointment_cancelled',
-      supersede: true,
-      manageUrl: buildAppointmentManageUrl(
-        { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
-        (await context.params).token,
-      ),
-    });
-
-    await enqueueGoogleCalendarDeleteInTx(tx, {
-      appointmentId: terminalAppointment.id,
-      salonId: terminalAppointment.salonId,
-      mutationVersion: terminalAppointment.updatedAt,
-      googleCalendarEventId: terminalAppointment.googleCalendarEventId,
-    });
-    return terminalAppointment;
-  });
+    throw error;
+  }
   if (!cancelled) {
     return Response.json({ error: { code: 'APPOINTMENT_NOT_ACTIVE', message: 'This appointment is no longer active.' } }, { status: 409 });
   }

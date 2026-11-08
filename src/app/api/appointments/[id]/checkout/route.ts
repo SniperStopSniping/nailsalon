@@ -14,6 +14,7 @@ import {
 } from '@/libs/appointmentTaxSnapshot';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { buildPaymentReference, derivePaymentStatus } from '@/libs/checkoutTotals';
+import { customerPaymentTipFloor } from '@/libs/customerPayments/provenance';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { getSalonById } from '@/libs/queries';
@@ -191,7 +192,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       taxAmountCents: hasFinalInvoice
         ? appointment.taxAmountCents
         : activeTaxSnapshot?.taxAmountCents ?? 0,
-      tipCents: hasFinalInvoice ? appointment.tipCents : 0,
+      tipCents: hasFinalInvoice ? appointment.tipCents : customerPaymentTipFloor(payments),
       appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
       appointmentStatus: appointment.status,
       paymentStatus: appointment.paymentStatus,

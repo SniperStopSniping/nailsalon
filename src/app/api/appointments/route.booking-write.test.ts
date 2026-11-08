@@ -399,6 +399,9 @@ function selectionAwareSelect<T>(
   } = DEFAULT_LOCKED_SALON_FINANCIAL_CONFIGURATION,
 ) {
   return (selection?: Record<string, unknown>) => {
+    if (selection && 'reference' in selection && 'id' in selection) {
+      return { from: vi.fn(() => ({ where: vi.fn(async () => []) })) };
+    }
     if (selection && 'isBlocked' in selection) {
       return mockSelectRows([{ isBlocked: false }], selection);
     }
