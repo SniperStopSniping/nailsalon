@@ -1047,6 +1047,164 @@ describe('BookConfirmClient', () => {
     expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
   });
 
+  describe('test payment preview handoff', () => {
+    const previewLabel = 'Review test payment quote';
+    const managePath = '/en/salon-a/manage/confirmed-token';
+    const receipt = (extra: Record<string, unknown> = {}) => ({ data: {
+      appointment: { id: 'appt_confirmed', status: 'confirmed' },
+      manageUrl: `${window.location.origin}${managePath}`,
+      ...extra,
+    } });
+
+    it('offers an explicit same-origin handoff only after one confirmed booking, without preparing a quote', async () => {
+      let finish!: (response: Response) => void;
+      fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => {
+        finish = resolve;
+      }));
+      renderBasicConfirm({ customerPaymentPreviewEnabled: true });
+
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+
+      const confirm = screen.getByRole('button', { name: /confirm appointment/i });
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+
+      await act(async () => finish(new Response(JSON.stringify(receipt()), { status: 201 })));
+      const link = await screen.findByRole('link', { name: previewLabel });
+
+      expect(link).toHaveAttribute('href', `${managePath}#customer-payment-preview`);
+      expect(link).toHaveAttribute('referrerpolicy', 'no-referrer');
+      expect(screen.getByText(/No payment can be made here/)).toBeVisible();
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(routerPush).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: /pay now|secure payment/i })).not.toBeInTheDocument();
+      expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({ expectedDepositFingerprint: 'deposit-v1:none' });
+      expect(Object.keys(JSON.parse(fetchMock.mock.calls[0]![1].body)).filter(key => /payment|quote|tip/i.test(key))).toEqual([]);
+    });
+
+    it.each([undefined, false])('preserves the existing result when the preview flag is %s', async (enabled) => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(receipt()), { status: 201 }));
+      renderBasicConfirm({ customerPaymentPreviewEnabled: enabled });
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+      await screen.findByRole('heading', { name: 'Appointment confirmed' });
+
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Test payment preview' })).not.toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it.each(['before', 'after'])('never carries the preview capability to a newer booking view navigated %s the response', async (navigationTiming) => {
+      let finish!: (response: Response) => void;
+      fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => {
+        finish = resolve;
+      }));
+      const { rerender } = renderBasicConfirm({ customerPaymentPreviewEnabled: true });
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+      if (navigationTiming === 'after') {
+        await act(async () => finish(new Response(JSON.stringify(receipt()), { status: 201 })));
+        await screen.findByRole('link', { name: previewLabel });
+      }
+      rerender(
+        <BookConfirmClient
+          services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+          subtotalBeforeDiscount={65}
+          discountAmount={0}
+          totalPrice={65}
+          totalDuration={75}
+          technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+          salonSlug="salon-a"
+          dateStr="2026-03-20"
+          timeStr="12:00"
+          bookingFlow={[]}
+          location={null}
+          customerPaymentPreviewEnabled
+        />,
+      );
+      if (navigationTiming === 'before') {
+        await act(async () => finish(new Response(JSON.stringify(receipt()), { status: 201 })));
+      }
+
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      { manageUrl: null },
+      { manageUrl: 'https://production.luster.test/manage/token' },
+      { appointment: { id: 'appt_request', status: 'pending' } },
+      { appointment: { id: 'appt_unknown' } },
+      { appointment: { id: 'appt_hold', status: 'confirmed', depositHoldExpiresAt: '2030-03-20T15:35:00Z' } },
+      { deposit: { required: true } },
+      { deposit: { required: false, amountCents: 2500 } },
+    ])('does not offer a handoff for missing capability, external origin, unconfirmed or deposit receipts: %j', async (extra) => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(receipt(extra)), { status: 201 }));
+      renderBasicConfirm({ customerPaymentPreviewEnabled: true });
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+      await screen.findByRole('heading', { name: extra.appointment?.status === 'pending' ? 'Request received' : 'Appointment confirmed' });
+
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('accepts an authoritative no-deposit result without bypassing the displayed fingerprint', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(receipt({ deposit: { required: false } })), { status: 201 }));
+      renderBasicConfirm({ customerPaymentPreviewEnabled: true });
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      expect(await screen.findByRole('link', { name: previewLabel })).toHaveAttribute('href', `${managePath}#customer-payment-preview`);
+    });
+
+    it('keeps the preview hidden when a required deposit was displayed', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(receipt()), { status: 201 }));
+      renderBasicConfirm({ customerPaymentPreviewEnabled: true, depositFingerprint: 'deposit-v1:cad:2500', depositDisclosure: { label: '$25 deposit required', amountCents: 2500 } });
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+      await screen.findByRole('heading', { name: 'Appointment confirmed' });
+
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+      expect(JSON.parse(fetchMock.mock.calls[0]![1].body).expectedDepositFingerprint).toBe('deposit-v1:cad:2500');
+    });
+
+    it('preserves required-deposit checkout and never offers a competing preview', async () => {
+      const navigateToCheckout = vi.fn();
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(receipt({
+        appointment: { id: 'appt_hold', status: 'awaiting_payment' },
+        deposit: { required: true, checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_1', holdExpiresAt: '2030-03-20T15:35:00Z' },
+      })), { status: 201 }));
+      renderBasicConfirm({ customerPaymentPreviewEnabled: true, navigateToCheckout });
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+      await waitFor(() => expect(navigateToCheckout).toHaveBeenCalledOnce());
+
+      expect(navigateToCheckout).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_1');
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Appointment confirmed' })).not.toBeInTheDocument();
+    });
+
+    it('does not infer payment eligibility from a recovered receipt', async () => {
+      publicRecoveryMock.read.mockReturnValue({
+        version: 1,
+        salonId: 'salon_internal_a',
+        attemptId: '11111111-1111-4111-8111-111111111111',
+        recoveryKey: '22222222-2222-4222-8222-222222222222',
+        confirmationPath: `${window.location.pathname}${window.location.search}`,
+        state: 'resolved',
+        response: receipt({
+          appointmentId: 'appt_confirmed',
+          appointment: { id: 'appt_confirmed', status: 'confirmed', startTime: '2030-01-02T15:00:00Z', totalDurationMinutes: 75, bookingTaxSnapshot: { invoiceTotalCents: 7345, currency: 'CAD' } },
+          services: [{ service: { id: 'booked-service', name: 'Original service' }, priceAtBooking: 6500, durationAtBooking: 75 }],
+          addOns: [],
+        }),
+      });
+      renderBasicConfirm({ salonId: 'salon_internal_a', customerPaymentPreviewEnabled: true });
+      await screen.findByRole('heading', { name: 'Appointment confirmed' });
+
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
   it('puts the confirmed arrival before the receipt and focuses it once', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {

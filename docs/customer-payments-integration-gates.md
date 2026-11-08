@@ -5,7 +5,9 @@ canonical-reader, lifecycle, reporting, bounded readonly credit review and an
 offline signed-fixture inbox/outbox with capture, refund and dispute correlation,
 plus canonical offline fixture capture application and a separately proven
 immutable refund/fee/dispute cash ledger.
-No provider collection, real refunds, deployment or production activation.
+A separate unregistered SDK checkout adapter is implemented and tested only with
+closed offline HTTP responses. No provider collection, real refunds, deployment
+or production activation.
 Migrations 0115–0125 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
@@ -276,14 +278,43 @@ tracked files and 615 generated files**.
 These are scoped checks, not the entire repository suite or an authenticated
 full-app success journey. The credit allocations remain synthetic/nonlegal.
 No provider execution, application migration, push, deployment or activation
-occurred. `docs/customer-payments-provider-adapter-plan.md` is a source-backed
-assessment only; it installs no adapter or webhook.
+occurred. At that checkpoint, `docs/customer-payments-provider-adapter-plan.md`
+was a source-backed assessment only; no adapter or webhook was installed.
+
+## Inactive SDK checkout and booking handoff checkpoint
+
+See `customer-payments-inactive-stripe-checkout.md` for the separate server-only
+SDK adapter and its strict nonfinancial, unregistered boundary. It implements
+Session create/retrieve with immutable request identities, platform/account/mode
+preflight, actual-send guards, uncertainty and sticky review. Existing offline
+provenance and no-network import guards are unchanged. A fresh, deposit-free
+confirmed booking can link to its authoritative test preview under the existing
+server gate; no checkout or customer payment selection is enabled.
+
+Final sequential validation passed 2,294 scoped tests across 110 files, with 60
+opt-in PostgreSQL cases skipped in that aggregate and then all 60 passed across
+10 files against a fresh disposable native PostgreSQL cluster. The aggregate
+includes 95 closed-transport SDK adapter cases; these counts overlap. All 20
+mock desktop/mobile browser cases, full TypeScript, scoped lint and full local
+production build passed. Lint retained three existing Fast Refresh warnings.
+All 12 built production-off checks returned 404 with default flags and all eight
+flags forced true. Temporary build settings were restored, owned servers stopped,
+and the private PostgreSQL cluster and ephemeral secrets removed.
+
+An earlier interrupted aggregate produced failure markers but no final report.
+The complete sequential rerun passed without runtime changes, weaker assertions
+or longer test timeouts between runs. The interrupted run is not counted as a
+pass, and its cause was not established. No provider request, application database
+migration, credential change, push, merge, deployment or activation occurred.
+This verifies an inactive local SDK seam and test-preview navigation, not real
+Stripe payment execution or release readiness.
 
 ## Remaining gate 1: real provider operations and receipts
 
 - `checkout.ts` builds parameters only; `attempt.ts` accepts trusted synthetic
-  evidence and does not verify signatures. Extend the offline journal below to a
-  separately authorized real adapter before provider calls. Verify signature,
+  evidence and does not verify signatures. The separate inactive SDK adapter does
+  not install a durable real-provider driver. Integrate a separately authorized
+  durable operation and receipt boundary before provider calls. Verify signature,
   account, actual mode, session/intent, amount, currency, fee and metadata.
 - Revalidate authorization and financial context; use stable idempotency and
   reconcile uncertain outcomes. Browser redirects and owner buttons cannot mark
@@ -617,7 +648,8 @@ occurred. This is protocol rehearsal, not real-provider readiness.
 
 ## Remaining gate 3: booking, policy and rollout
 
-- `src/app/(unauth)/book/confirm/BookConfirmClient.tsx` is not a new checkout flow.
+- `src/app/(unauth)/book/confirm/BookConfirmClient.tsx` now has a gated navigation
+  handoff to the existing test quote preview, not a new checkout flow.
   Preserve `expectedDepositFingerprint`, booking idempotency/recovery, changed-
   deposit review and existing hold/resume rules. Do not create a competing full
   payment for a deposit hold. Required salon/network deposits override optional

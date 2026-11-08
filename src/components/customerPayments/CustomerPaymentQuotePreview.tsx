@@ -145,7 +145,7 @@ export function CustomerPaymentQuotePreview({ token }: { token: string }) {
   }
 
   return (
-    <section aria-labelledby={`${id}-heading`} aria-busy={busy} className="my-5 space-y-4 rounded-xl border bg-white p-4 text-gray-900">
+    <section id="customer-payment-preview" aria-labelledby={`${id}-heading`} aria-busy={busy} className="my-5 space-y-4 rounded-xl border bg-white p-4 text-gray-900">
       <h2 id={`${id}-heading`} className="text-xl font-semibold">Test payment quote preview</h2>
       <p>For this appointment only. This preview cannot collect money or confirm payment. Your booking, existing deposit requirements and in-person arrangements are unchanged.</p>
       <fieldset disabled={uncertain} className="space-y-2">

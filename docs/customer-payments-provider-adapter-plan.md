@@ -1,9 +1,23 @@
-# Verified provider adapter: offline journal and remaining boundary
+# Provider boundary: offline journal and inactive SDK checkout
 
 The offline journal described below is implemented for signed fixtures and a
-closed fake transport. It is not an installed Stripe adapter or authorization to
-run payments. No Stripe account/API operation, credential change,
-webhook registration, application migration or deployment was performed.
+closed fake transport. It is not registered Stripe execution or authorization to
+run payments. A separate unregistered SDK checkout implementation is described
+below. No external Stripe API operation, credential change, webhook registration,
+application migration or deployment was performed by this implementation or its
+tests.
+
+## Unregistered SDK checkout implementation
+
+`inactiveStripe/` is now a separate implemented, server-only SDK create/retrieve
+adapter with strict test-runtime gates. It is outside the closed offline journal
+import graph and is not registered anywhere in the application. Its installed-SDK
+HTTP tests are fully offline; diagnostic results have no verified-provider or
+financial authority. Durable real-operation journal/settlement and actual provider
+verification remain unfinished. The booking confirmation change links only to an
+existing non-executable quote preview. See
+[the inactive checkout boundary](customer-payments-inactive-stripe-checkout.md)
+for preflight, idempotency, Session/quote lifetime and recovery constraints.
 
 ## Existing code and integration hazard
 
@@ -98,8 +112,8 @@ separate capture-only canonical rehearsal with source `offline_fixture_test`,
 fresh complete evidence, atomic binding and durable later-evidence holds. It uses
 only already persisted closed-fake-transport results in disposable databases.
 See `customer-payments-canonical-fixture-plan.md` for its strict boundaries.
-Real-provider verification, canonical real-provider settlement and provider
-execution remain unimplemented. Retention or a correlated result cannot replace
+Real-provider verification, canonical real-provider settlement and registered
+provider execution remain unimplemented. Retention or a correlated result cannot replace
 those checks.
 
 ## Offline Stripe v1 protocol contract

@@ -10,6 +10,7 @@ import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { BOOKING_SMS_WORDING_VERSION } from '@/libs/bookingSmsConsent';
 import { getClientSession } from '@/libs/clientAuth';
+import { isCustomerPaymentPreparationEnabled } from '@/libs/customerPayments/preparationGate';
 import {
   buildDepositDisclosure,
   buildDepositDisclosureFingerprint,
@@ -490,6 +491,7 @@ export default async function BookConfirmPage(
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
           salonId={salon.id}
+          customerPaymentPreviewEnabled={isCustomerPaymentPreparationEnabled()}
           rebookingSettings={resolveRebookingPromptSettings(salon.settings)}
           services={services}
           addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({

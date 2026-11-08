@@ -16,13 +16,17 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe('appointment-bound non-executable quote preview', () => {
   it('never requests on mount and displays only server quote amounts', async () => {
     render(<CustomerPaymentQuotePreview token="test-token" />);
 
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('region', { name: 'Test payment quote preview' })).toHaveAttribute('id', 'customer-payment-preview');
     expect(screen.getByRole('button', { name: 'No tip' })).toHaveAttribute('aria-pressed', 'true');
 
     fetchMock.mockResolvedValueOnce(response());
@@ -104,5 +108,49 @@ describe('appointment-bound non-executable quote preview', () => {
     unmount();
 
     expect(fetchMock.mock.calls[0]![1].signal.aborted).toBe(true);
+  });
+
+  it('expires the displayed quote and requires a fresh request before amounts return', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(response(quote(0, { expiresAt: new Date(Date.now() + 1000).toISOString() })));
+    render(<CustomerPaymentQuotePreview token="test-token" />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Prepare test quote' })));
+
+    expect(screen.getByText('Preview total: $118.65')).toBeVisible();
+
+    await act(async () => vi.advanceTimersByTime(1001));
+
+    expect(screen.queryByText('Preview total: $118.65')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('This test quote expired');
+
+    fetchMock.mockResolvedValueOnce(response());
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Prepare test quote' })));
+
+    expect(screen.getByText('Preview total: $118.65')).toBeVisible();
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body).requestId).not.toBe(JSON.parse(fetchMock.mock.calls[0]![1].body).requestId);
+  });
+
+  it('ignores an old response after navigation replaces the keyed appointment preview', async () => {
+    let finish!: (value: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => {
+      finish = resolve;
+    }));
+    const { rerender } = render(<CustomerPaymentQuotePreview key="old-token" token="old-token" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare test quote' }));
+    rerender(<CustomerPaymentQuotePreview key="new-token" token="new-token" />);
+
+    expect(fetchMock.mock.calls[0]![1].signal.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await act(async () => finish(response()));
+
+    expect(screen.queryByText('Preview total: $118.65')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Prepare test quote' })).toBeEnabled();
+
+    fetchMock.mockResolvedValueOnce(response());
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare test quote' }));
+    await screen.findByText('Preview total: $118.65');
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/appointments/manage/new-token/payment-quote', expect.anything());
   });
 });
