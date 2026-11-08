@@ -1,11 +1,50 @@
-# Customer payments: disabled test foundation
+# Customer payments: disabled draft and quote preparation
 
 This change starts from v1.150.1 (`7e0801a94ad2ce87e67539648a62c771f3b5040c`).
 It does **not** enable customer payments, connect a bank account, create Stripe
-objects, collect fees, change salon settings, apply a migration, or change the
-existing deposit flow. No production release is included.
+objects, collect fees, mutate existing invoice/tender/deposit money, or change the
+existing deposit flow. It now includes separately gated persistence of owner test
+drafts and immutable non-executable quotes. Migration 0115 was added and exercised
+only in in-memory fixtures; it has not been applied to a development, preview or
+production application database. No production release is included.
 
 ## Implemented
+
+### Actual bounded preparation slice
+
+- Owner-only GET/PATCH `/api/admin/salon/customer-payments?salonSlug=...`
+  persists a separate test draft and immutable request receipt. Absent policy is
+  disabled. Only optional full-payment preparation with salon-paid fees is
+  supported; required-full/new required-deposit settings and customer-paid fees
+  fail validation. Existing salon tax, e-Transfer and deposit settings are untouched.
+- `CUSTOMER_PAYMENTS_PREPARATION_ENABLED` defaults off. A server-derived flag
+  exposes the separate draft editor in existing owner Settings/Payments. Save is
+  explicitly a test draft, not activation or published cancellation terms.
+  Owner/tenant authorization, same-origin writes, revision checks and replay
+  receipts prevent an ambiguous retry from becoming another update.
+- POST `/api/public/appointments/manage/[token]/payment-quote` uses an existing
+  appointment capability, revalidated under the appointment lock. The request
+  accepts only a UUID request ID and optional-tip amount, not prices, tax, tenant
+  or account. Sources are booked item and frozen tax snapshots, draft policy and
+  the existing server-owned test account binding. Raw tokens/account IDs/provider
+  URLs are not returned.
+- Preparation supports only a future, confirmed, not-started, non-finalized CAD
+  appointment at an active published salon with fixed/catalog-priced items, no
+  existing tip, no tender/deposit history and a single eligible cached test
+  account binding. Unsupported or ambiguous money/manual-price/deposit cases
+  fail closed rather than attempting a remaining-balance or deposit payment.
+  Cached account readiness is not verified provider authorization.
+- Quotes expire within five minutes, bounded by capability expiry and appointment
+  start. Replays revalidate authoritative source context and reject changes.
+  Responses and storage explicitly state test-only/non-executable and collection
+  disabled. There is no customer checkout button wired to this endpoint.
+- `migrations/0115_customer_payment_preparation.sql` and
+  `src/models/customerPaymentSchema.ts` define separate policy, immutable policy
+  receipt and immutable prepared-quote tables. The repository is
+  `src/libs/customerPayments/server/preparationRepository.ts`. The migration
+  adds no provider operation, capture/refund ledger or settlement adapter.
+
+### Isolated UI and pure money foundations
 
 - Controlled salon settings and customer checkout components with optional full
   payment, required deposit, required full payment, or pay in person where allowed.
@@ -33,8 +72,9 @@ existing deposit flow. No production release is included.
   preservation, explicit final-invoice application and refund collection holds.
   These projections are not installed in existing booking or reporting routes.
 
-## Try the UI locally
+## Separate gates and local verification
 
+The presentation-only rehearsal remains independent of persisted preparation.
 Use the repository's safe local development setup with synthetic/test credentials
 and local/disposable infrastructure. Set `CUSTOMER_PAYMENTS_REHEARSAL_ENABLED=true`
 in that local environment and visit `/en/payments-rehearsal`. It returns 404 by
@@ -50,6 +90,13 @@ The standalone browser harness needs no provider credentials or application DB:
 It binds to loopback, tests Chromium and mobile WebKit, and does not send provider
 requests. This is a component rehearsal, not proof of the full Next.js booking
 journey or a real wallet transaction.
+
+The new preparation gate is not needed by that synthetic harness. Its owner panel
+and quote API require the preparation schema and authorized local/disposable
+application fixtures; do not enable them against an unreviewed database. A test
+draft save changes only the new policy/receipt tables, and quote preparation
+changes only the new quote table. No migration outside in-memory fixtures was
+performed as part of this slice. Neither flag enables a provider call.
 
 ## Financial decisions still open
 
@@ -67,8 +114,9 @@ journey or a real wallet transaction.
 ## Required phases before collection
 
 1. **Review policy and data model.** Approve fee payer, tax and refund treatment;
-   version the policy and immutable invoice/quote snapshots. Design additive
-   schema changes and migration/rollback, preserving historical deposits.
+   version the policy and immutable invoice/quote snapshots. Review the added preparation migration and its rollout/rollback separately.
+   Design the still-missing money ledger and settlement schema without changing
+   historical deposits.
 2. **Integrate authoritative booking accounting.** Authorize through appointment
    capabilities and server-owned salon binding. Lock and reconcile the existing
    tender/deposit ledger, prices, tax, discounts and remaining balance. Record
@@ -111,7 +159,10 @@ isolated-store boundary, and `src/libs/customerPayments/` for contracts and test
 
 Verify current pricing and the actual account configuration before activation.
 
-## Verification checkpoint: 2026-11-08
+## Earlier foundation checkpoint: 2026-11-08
+
+The following results predate the persisted draft/quote slice. They do not attest
+a build or end-to-end test of the new preparation API and migration.
 
 - 319 focused tests passed on Node 24: new payment/accounting/rehearsal tests,
   tenant routing, and eight existing deposit/tender regression suites.
@@ -131,9 +182,46 @@ Verify current pricing and the actual account configuration before activation.
 
 Not verified or complete: the full existing test suite and CI, PostgreSQL
 multi-connection races, real Stripe test-mode sessions/wallets/refunds, installed
-booking/settings/canonical-ledger/reporting adapters, and live account/pricing/tax
-readiness. Local Docker reported it could not start, so the required attested
+booking/collection/canonical-ledger/reporting adapters, and live account/pricing/tax
+readiness. Owner test-draft settings persistence is now implemented separately. Local Docker reported it could not start, so the required attested
 disposable PostgreSQL target was not available for this checkpoint.
 
 This is a passing disabled foundation, **not** end-to-end customer payments ready
 to enable. Continue the implementation gates above before collection.
+
+## Bounded preparation verification (2026-11-08)
+
+- 446 focused tests passed on Node 24 across preparation, presentation, API,
+  owner settings, tenant/tax behavior and eight existing deposit/tender suites.
+  The actual appointment service has 13 migration-backed cases, including
+  revocation/expiry between initial capability lookup and transaction, stale
+  replay, live-account rejection, historical tenant anomalies and unchanged
+  appointment/tender/deposit state.
+- Six Chromium/mobile WebKit cases passed for the owner draft editor with an
+  explicitly mocked API: save/reload, stale revision recovery and identical-request
+  retry after a lost response. They verify mobile width and no external requests.
+  This is not evidence of a real authenticated browser/database journey. The
+  first cold Vite load exceeded 30 seconds; this new test suite uses 90 seconds.
+- Migration 0115 was exercised through the full journal in isolated PGlite fixtures
+  and a newly created private native PostgreSQL 16.15 test cluster. No application
+  database was migrated.
+- Five genuine PostgreSQL concurrency cases passed using four separately attested
+  physical connections: competing policy CAS, identical policy replay, quote replay,
+  the 49-to-50 quote limit and policy/quote lock ordering. Missing-target skip and
+  required-target failure guards also passed. See `server/README.md` for the gate.
+- Docker could not start because disk was full. The existing native PostgreSQL
+  binaries were found under `/opt/homebrew/bin`, so no installation was needed.
+  The new loopback-only cluster, synthetic password and temporary data were stopped
+  and removed after testing. Existing clusters/services and external databases were
+  not touched.
+- Scoped lint has no errors (two pre-existing SettingsModal fast-refresh warnings).
+- The full Node 24 build, including Next's type check, passed. Webpack's disk cache
+  was disabled only for this invocation because the Mac has limited free space;
+  the configuration was restored. Both new routes returned default-off HTTP 404
+  with no-store headers when exercised against the built local application.
+- The source and generated-client secret scan passed. No provider request,
+  application migration, charge, push, deployment or production activation ran.
+
+The result is actual bounded preparation code, **not an end-to-end payment setup**.
+Real balance readers, provider operations, receipts, atomic settlement, refunds,
+reporting and lifecycle protections remain gates before any collection.

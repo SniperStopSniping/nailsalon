@@ -55,6 +55,7 @@ import {
 } from 'react';
 
 import { useOwnerAdminFeatureFlags } from '@/app/[locale]/admin/OwnerAdminFeatureFlags';
+import { CustomerPaymentDraftSettings } from '@/components/customerPayments/CustomerPaymentDraftSettings';
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
@@ -1990,6 +1991,8 @@ function percentStringToBps(value: string): number {
 }
 
 type SettingsModalProps = {
+  /** Server-gated test draft editor; never enables collection. */
+  customerPaymentDraftsEnabled?: boolean;
   initialView?: string;
   onClose: () => void;
   salonSlug?: string | null;
@@ -2027,6 +2030,7 @@ export function SettingsModal({
   leafTitle,
   renderLeafLayout,
   paymentFocus,
+  customerPaymentDraftsEnabled: explicitCustomerPaymentDraftsEnabled,
 }: SettingsModalProps) {
   const { salonSlug: providerSalonSlug } = useSalon();
   const salonSlug = explicitSalonSlug ?? providerSalonSlug ?? null;
@@ -2034,7 +2038,9 @@ export function SettingsModal({
   const params = useParams();
   const searchParams = useSearchParams();
   const locale = String(params?.locale || 'en');
-  const { sectionLibraryV1Enabled } = useOwnerAdminFeatureFlags();
+  const ownerFeatureFlags = useOwnerAdminFeatureFlags();
+  const { sectionLibraryV1Enabled } = ownerFeatureFlags;
+  const customerPaymentDraftsEnabled = explicitCustomerPaymentDraftsEnabled ?? ownerFeatureFlags.customerPaymentDraftsEnabled ?? false;
   /**
    * The Booking Page hub owns website appearance and the business record.
    * Settings links there instead of keeping a second editor for either
@@ -2088,6 +2094,7 @@ export function SettingsModal({
   const [notificationsDirty, setNotificationsDirty] = useState(false);
   const [profileDirty, setProfileDirty] = useState(false);
   const [paymentsDirty, setPaymentsDirty] = useState(false);
+  const [customerPaymentDraftDirty, setCustomerPaymentDraftDirty] = useState(false);
   const [smartFitDirty, setSmartFitDirty] = useState(false);
   const [bookingExperienceDirty, setBookingExperienceDirty] = useState(false);
   const [bookingPolicyDirty, setBookingPolicyDirty] = useState(false);
@@ -3584,7 +3591,7 @@ export function SettingsModal({
     'booking': bookingConfigDirty,
     'currency': bookingConfigDirty,
     'booking-flow': bookingFlowDirty,
-    'payments': paymentsDirty,
+    'payments': paymentsDirty || customerPaymentDraftDirty,
     'smart-fit': smartFitDirty,
     'notifications': notificationsDirty,
     'communications': communicationsDirty,
@@ -4796,6 +4803,8 @@ export function SettingsModal({
                     )}
               </Section>
             </div>
+
+            {customerPaymentDraftsEnabled && salonSlug && <CustomerPaymentDraftSettings key={salonSlug} salonSlug={salonSlug} onDirtyChange={setCustomerPaymentDraftDirty} />}
 
             <div id="payments-deposits" className="scroll-mt-24">
               <Section

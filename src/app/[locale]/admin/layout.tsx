@@ -3,6 +3,7 @@ import { Inter, Newsreader } from 'next/font/google';
 import { businessSetupSelfServeEnabled } from '@/features/business-setup/access.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { isSectionLibraryV1Enabled } from '@/features/section-library-v1/config.server';
+import { isCustomerPaymentPreparationEnabled } from '@/libs/customerPayments/preparationGate';
 
 import { OwnerAdminClientBoundary } from './OwnerAdminClientBoundary';
 
@@ -45,6 +46,7 @@ export default async function OwnerAdminLayout(
       <style>{ownerFontVariables}</style>
       <div className={`${ownerSans.variable} ${ownerDisplay.variable} contents`}>
         <OwnerAdminClientBoundary
+          customerPaymentDraftsEnabled={isCustomerPaymentPreparationEnabled()}
           aiBusinessSetupEnabled={businessSetupSelfServeEnabled()}
           locale={(await props.params).locale}
           onboardingV1IntegrationEnabled={isOnboardingV1IntegrationEnabled()}

@@ -1,13 +1,53 @@
 # Customer payment integration gates
 
-Status: local, disabled rehearsal only. No live charges, provider/account changes,
-application-database writes, deployment or production activation are authorized by
-this checklist. A passing pure/component test does not certify the booking journey.
+Status: default-off, nonproduction draft/quote preparation, plus isolated money
+rehearsal. No provider calls, charges, deployment or production activation. Added
+migration 0115 has run only in isolated PGlite and a private disposable native
+PostgreSQL test cluster, not an application database.
+The preparation repository is capable of writing the new policy/receipt/quote
+tables when separately enabled on an authorized database; it does not change
+existing money. A passing pure/component test does not certify the booking journey.
+
+## Implemented preparation boundary
+
+- `src/libs/customerPayments/preparationGate.ts` gates both new APIs before their
+  dynamic DB/auth imports and supplies the owner UI flag through
+  `src/app/[locale]/admin/layout.tsx`, `OwnerAdminClientBoundary.tsx` and
+  `OwnerAdminFeatureFlags.ts`. It defaults off and rejects production.
+- `src/app/api/admin/salon/customer-payments/route.ts` and
+  `src/components/customerPayments/CustomerPaymentDraftSettings.tsx` provide a
+  separately saved owner-only test draft. `settings.ts` permits only
+  `optional_full`/salon-paid fees. Existing tax/e-Transfer/deposit saves are unchanged.
+- `src/app/api/public/appointments/manage/[token]/payment-quote/route.ts`,
+  `src/libs/customerPayments/server/prepareQuoteForToken.ts` and `quoteMaterial.ts`
+  authorize an existing appointment capability, derive frozen CAD full-quote
+  amounts, validate source context and return no provider account/URL/token data.
+  Input is only request ID and tip cents; the response is explicitly non-executable.
+- Only future confirmed, unstarted/unfinalized appointments with supported booked
+  items, no existing tip or payment/deposit history, an enabled test draft and a
+  single eligible cached test binding are supported. No remaining-balance,
+  existing deposit or manual-price payment path is added.
+- `migrations/0115_customer_payment_preparation.sql`,
+  `src/models/customerPaymentSchema.ts` and
+  `src/libs/customerPayments/server/preparationRepository.ts` provide separate
+  policy CAS, immutable actor-bound replay receipts and immutable short-lived
+  quote records. There is no capture/refund/operation ledger in this migration.
+- Focused evidence: new settings/API/editor/layout tests,
+  `preparationGate.test.ts`, `quoteMaterial.test.ts`,
+  `server/preparationRepository.test.ts`, `server/prepareQuoteForToken.test.ts`
+  and the quote route tests. Five `server/preparation.concurrency.integration.test.ts`
+  cases also passed against native PostgreSQL 16.15 with four separately attested
+  sessions and the real migration journal. This verifies preparation CAS/replay/
+  cap/lock ordering, not future financial writers or rollout readiness.
+
+The sections below remain gates for actual collection unless explicitly marked
+implemented above. They are not claims that those adapters are installed.
 
 ## 1. Authoritative selection and required deposits
 
 - Wire the chooser into `src/app/(unauth)/book/confirm/BookConfirmClient.tsx`
-  beside review totals, not into the deliberately unavailable
+  beside review totals only after collection/settlement is safe. It is not wired
+  to the new preparation endpoint yet. Do not reuse the deliberately unavailable
   `src/app/(unauth)/payment-methods/page.tsx`.
 - Obtain server-owned prices, tax, discounts and deposit requirements through
   `src/libs/customerAssistant/prepareQuote.server.ts`. The existing
@@ -29,11 +69,13 @@ this checklist. A passing pure/component test does not certify the booking journ
 ## 2. Owner settings and capability boundaries
 
 - `src/components/admin/SettingsModal.tsx` has separate tax/e-Transfer and deposit
-  save operations. Add a separately gated payment setup; do not route rehearsal
-  changes through deposit activation or imply local state was saved to a salon.
+  save operations. The new gated test-draft panel is separate and persists only
+  into the new policy tables. Do not route its save through deposit activation or
+  represent a saved draft as live customer payment settings.
 - `src/app/api/admin/salon/settings/route.ts` validates and merges existing payment
-  settings and can contact providers during deposit activation. New configuration
-  needs an explicit schema, authorization and test-only persistence design.
+  settings and can contact providers during deposit activation. That route is
+  unchanged. The new owner-only route uses `settings.ts` and separate CAS/replay
+  persistence; it must remain independent of provider readiness activation.
 - Customer capability reuse starts at
   `src/app/[locale]/[slug]/manage/[token]/ManageAppointmentView.tsx` and
   `src/app/api/public/appointments/manage/[token]/route.ts`. Verify token expiry,
@@ -124,13 +166,19 @@ this checklist. A passing pure/component test does not certify the booking journ
 
 ## Current review boundary
 
-The checklist records integration requirements, not proof they are implemented.
-The new accounting and fee-refund changes require their own focused review and
-regression results. Existing booking/settings/payment mutation routes remain
-unchanged; production collection stays blocked until every applicable gate above
-has evidence and a separately authorized rollout.
+The new owner test-draft and capability-authorized quote persistence described
+above is implemented. The rest of this checklist records collection requirements,
+not proof those integrations exist. Existing booking/payment/deposit mutation
+routes remain unchanged; the owner settings UI now mounts a separately gated draft
+editor. Production preparation and collection stay blocked. Real ledger readers,
+atomic settlement, lifecycle/void protections, immutable reporting, provider
+execution and attested PostgreSQL races for the future financial writers remain
+required before collection. The preparation-only PostgreSQL races passed.
 
-### Independent review checkpoint
+### Earlier foundation review checkpoint
+
+These review/test results predate the actual preparation slice and are not
+evidence of installed settlement or current full-suite/build coverage.
 
 - The initial accounting refund projection could reopen collectible principal on
   an unchanged active invoice. The reviewed revision now requires a validated
