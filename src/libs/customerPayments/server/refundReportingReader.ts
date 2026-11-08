@@ -16,7 +16,7 @@ export async function readCustomerPaymentRefundReport(database: Pick<typeof db, 
   start: Date;
   end: Date;
 }) {
-  const empty = () => ({ ...projectCustomerPaymentRefundReport({ ...input, captures: [], markers: [], refunds: [], bindings: [], feeRefunds: [] }), captureMarkers: [] as (typeof appointmentPaymentSchema.$inferSelect)[] });
+  const empty = (hasCustomerPaymentMarker = false) => ({ hasCustomerPaymentMarker, ...projectCustomerPaymentRefundReport({ ...input, captures: [], markers: [], refunds: [], bindings: [], feeRefunds: [] }), captureMarkers: [] as (typeof appointmentPaymentSchema.$inferSelect)[] });
   const [marker] = await database.select({ id: appointmentPaymentSchema.id }).from(appointmentPaymentSchema)
     .innerJoin(appointmentSchema, eq(appointmentSchema.id, appointmentPaymentSchema.appointmentId))
     .where(and(eq(appointmentSchema.salonId, input.salonId), sql`(left(${appointmentPaymentSchema.id}, 5) = 'cpay_' OR left(COALESCE(${appointmentPaymentSchema.reference}, ''), 25) = 'customer_payment_capture:')`)).limit(1);
@@ -34,7 +34,7 @@ export async function readCustomerPaymentRefundReport(database: Pick<typeof db, 
   ]);
   const captureIds = [...new Set([...refunds, ...feeRefunds].map(row => row.captureId))];
   if (captureIds.length === 0) {
-    return empty();
+    return empty(true);
   }
   const [captures, bindings] = await Promise.all([
     database.select().from(customerPaymentCaptureSchema).where(and(eq(customerPaymentCaptureSchema.salonId, input.salonId), inArray(customerPaymentCaptureSchema.id, captureIds))),
@@ -47,5 +47,5 @@ export async function readCustomerPaymentRefundReport(database: Pick<typeof db, 
     eq(appointmentPaymentSchema.salonId, input.salonId),
     inArray(appointmentPaymentSchema.id, captures.map(row => row.tenderId)),
   ));
-  return { ...projectCustomerPaymentRefundReport({ ...input, captures, bindings, markers, refunds, feeRefunds }), captureMarkers: markers };
+  return { ...projectCustomerPaymentRefundReport({ ...input, captures, bindings, markers, refunds, feeRefunds }), captureMarkers: markers, hasCustomerPaymentMarker: true };
 }

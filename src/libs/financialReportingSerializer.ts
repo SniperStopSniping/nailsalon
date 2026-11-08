@@ -20,7 +20,13 @@ export function serializeFinancialPeriodSummary(
     customerPaymentRefundHeldForReviewCents: summary.customerPaymentRefundHeldForReviewCents,
     customerPaymentFeeRefundedCents: summary.customerPaymentFeeRefundedCents,
     customerPaymentFeeRefundHeldForReviewCents: summary.customerPaymentFeeRefundHeldForReviewCents,
-    customerPaymentNetCashCents: summary.customerPaymentNetCashCents,
+    ...(summary.customerPaymentNetCashCents === undefined ? {} : { customerPaymentNetCashCents: summary.customerPaymentNetCashCents }),
+    customerPaymentUnallocatedRefundCents: summary.customerPaymentUnallocatedRefundCents,
+    customerPaymentDisputeWithdrawnCents: summary.customerPaymentDisputeWithdrawnCents,
+    customerPaymentDisputeReinstatedCents: summary.customerPaymentDisputeReinstatedCents,
+    customerPaymentDisputeFeeCents: summary.customerPaymentDisputeFeeCents,
+    customerPaymentDisputeNetCents: summary.customerPaymentDisputeNetCents,
+    customerPaymentMovementReconciliationRequired: summary.customerPaymentMovementReconciliationRequired,
 
     appointmentPaymentsCollectedCents:
       summary.appointmentPaymentsCollectedCents,

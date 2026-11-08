@@ -5991,5 +5991,6 @@ export const danielaSendSchema = pgTable('daniela_send', {
 export * from './customerPaymentCorrelationSchema';
 export * from './customerPaymentDisputeCorrelationSchema';
 export * from './customerPaymentFixtureApplicationSchema';
+export * from './customerPaymentFixtureMovementSchema';
 export * from './customerPaymentProviderSchema';
 export * from './customerPaymentRefundCorrelationSchema';

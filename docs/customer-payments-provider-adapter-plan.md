@@ -102,6 +102,16 @@ Real-provider verification, canonical real-provider settlement and provider
 execution remain unimplemented. Retention or a correlated result cannot replace
 those checks.
 
+## Offline cash extension (0125)
+
+A separate immutable fixture movement ledger now consumes freshly revalidated
+refund/fee/dispute evidence without provider execution. It requires complete
+provenance, unique succeeded operations where applicable, atomic ownership and
+exact reconciliation sets. Customer refunds remain unallocated; no legal credit
+or hold clearing is implied. Missing dispute balance facts remain unknown even
+when lifecycle status is won. This is not live-provider payload compatibility.
+See `customer-payments-fixture-movement-plan.md`.
+
 ## Provider facts supporting the design
 
 - [Stripe webhook guidance](https://docs.stripe.com/webhooks) requires the original

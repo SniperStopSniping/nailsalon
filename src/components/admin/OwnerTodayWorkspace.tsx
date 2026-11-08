@@ -1132,6 +1132,11 @@ export function OwnerTodayWorkspace({
                       ['Customer payments (gross)', todayPeriod.customerPaymentCollectedCents ?? 0],
                       ['Customer captures under review', todayPeriod.customerPaymentHeldForReviewCents ?? 0],
                       ['Customer refunds', todayPeriod.customerPaymentRefundedCents ?? 0],
+                      ['Customer refunds with unresolved allocations', todayPeriod.customerPaymentUnallocatedRefundCents ?? 0],
+                      ['Dispute principal withdrawn', todayPeriod.customerPaymentDisputeWithdrawnCents ?? 0],
+                      ['Dispute principal reinstated', todayPeriod.customerPaymentDisputeReinstatedCents ?? 0],
+                      ['Dispute fees (signed)', todayPeriod.customerPaymentDisputeFeeCents ?? 0],
+                      ['Dispute net movement (signed)', todayPeriod.customerPaymentDisputeNetCents ?? 0],
                       ['Customer refunds under review', todayPeriod.customerPaymentRefundHeldForReviewCents ?? 0],
                       ...(todayPeriod.customerPaymentNetCashCents === undefined
                         ? []
@@ -1139,7 +1144,7 @@ export function OwnerTodayWorkspace({
                       ['Platform fee refunds (separate)', todayPeriod.customerPaymentFeeRefundedCents ?? 0],
                       ['Platform fee refunds under review', todayPeriod.customerPaymentFeeRefundHeldForReviewCents ?? 0],
                     ] as const;
-                    const customerPaymentsInUse = customerPaymentMetrics.some(([, cents]) => cents !== 0);
+                    const customerPaymentsInUse = todayPeriod.customerPaymentMovementReconciliationRequired || customerPaymentMetrics.some(([, cents]) => cents !== 0);
                     const secondaryMetrics = [
                       [customerPaymentsInUse ? 'Collected today (gross)' : 'Collected today', todayPeriod.cashCollectedCents],
                       ...(customerPaymentsInUse ? customerPaymentMetrics : []),
@@ -1319,6 +1324,12 @@ export function OwnerTodayWorkspace({
                             {customerPaymentsInUse && (
                               <p className="text-xs text-stone-500">
                                 Customer net cash is gross captures minus successful customer refunds in this period, including amounts under review. Review amounts are shown separately, not deducted again. Platform fee refunds are separate platform money. These figures are not profit or payouts.
+                              </p>
+                            )}
+                            {(todayPeriod.customerPaymentMovementReconciliationRequired || (todayPeriod.customerPaymentUnallocatedRefundCents ?? 0) > 0 || (todayPeriod.customerPaymentDisputeWithdrawnCents ?? 0) > 0 || (todayPeriod.customerPaymentDisputeReinstatedCents ?? 0) > 0) && (
+                              <p className="text-xs text-amber-700">
+                                {todayPeriod.customerPaymentMovementReconciliationRequired && 'Cash movement reconciliation is required; complete customer net cash is unavailable. '}
+                                Refund allocations and booking credit remain unresolved. Disputes and fee returns are separate cash movements, not booking credit.
                               </p>
                             )}
                             {forfeitureTaxBuckets.length > 0 && (

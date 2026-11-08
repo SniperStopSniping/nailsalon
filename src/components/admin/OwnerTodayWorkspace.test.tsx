@@ -124,6 +124,12 @@ function buildFinancialSummary(options?: {
   customerPaymentFeeRefundedCents?: number;
   customerPaymentFeeRefundHeldForReviewCents?: number;
   customerPaymentNetCashCents?: number;
+  customerPaymentUnallocatedRefundCents?: number;
+  customerPaymentDisputeWithdrawnCents?: number;
+  customerPaymentDisputeReinstatedCents?: number;
+  customerPaymentDisputeFeeCents?: number;
+  customerPaymentDisputeNetCents?: number;
+  customerPaymentMovementReconciliationRequired?: boolean;
 
   depositCollectedCents?: number;
   depositRefundedCents?: number;
@@ -162,6 +168,12 @@ function buildFinancialSummary(options?: {
     customerPaymentFeeRefundedCents: includeTodayDetails ? options?.customerPaymentFeeRefundedCents : undefined,
     customerPaymentFeeRefundHeldForReviewCents: includeTodayDetails ? options?.customerPaymentFeeRefundHeldForReviewCents : undefined,
     customerPaymentNetCashCents: includeTodayDetails ? options?.customerPaymentNetCashCents : undefined,
+    customerPaymentUnallocatedRefundCents: includeTodayDetails ? options?.customerPaymentUnallocatedRefundCents : undefined,
+    customerPaymentDisputeWithdrawnCents: includeTodayDetails ? options?.customerPaymentDisputeWithdrawnCents : undefined,
+    customerPaymentDisputeReinstatedCents: includeTodayDetails ? options?.customerPaymentDisputeReinstatedCents : undefined,
+    customerPaymentDisputeFeeCents: includeTodayDetails ? options?.customerPaymentDisputeFeeCents : undefined,
+    customerPaymentDisputeNetCents: includeTodayDetails ? options?.customerPaymentDisputeNetCents : undefined,
+    customerPaymentMovementReconciliationRequired: includeTodayDetails ? options?.customerPaymentMovementReconciliationRequired : undefined,
 
     cashCollectedCents: includeTodayDetails
       ? (options?.cashCollectedCents ?? 0)
@@ -477,6 +489,39 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     await waitFor(() => expect(revenue).toHaveTextContent('Customer payments (gross)$120.00'));
 
     expect(revenue).toHaveTextContent('Customer captures under review$20.00');
+    expect(revenue).not.toHaveTextContent('Customer payment net cash');
+  });
+
+  it('shows known fixture movements and unresolved booking credit without fabricating net cash', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supportingResponse = supportingWorkspaceResponse(url);
+      if (supportingResponse) {
+        return supportingResponse;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse(buildFinancialSummary({
+          customerPaymentRefundedCents: 1000,
+          customerPaymentUnallocatedRefundCents: 1000,
+          customerPaymentDisputeWithdrawnCents: 5000,
+          customerPaymentDisputeReinstatedCents: 2000,
+          customerPaymentDisputeFeeCents: -100,
+          customerPaymentDisputeNetCents: -2900,
+          customerPaymentMovementReconciliationRequired: true,
+        }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+    renderWorkspace();
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+    await openRevenueBreakdown();
+    await waitFor(() => expect(revenue).toHaveTextContent('Dispute principal withdrawn$50.00'));
+
+    expect(revenue).toHaveTextContent('Dispute principal reinstated$20.00');
+    expect(revenue).toHaveTextContent('Dispute fees (signed)-$1.00');
+    expect(revenue).toHaveTextContent('Dispute net movement (signed)-$29.00');
+    expect(revenue).toHaveTextContent('complete customer net cash is unavailable');
+    expect(revenue).toHaveTextContent('Refund allocations and booking credit remain unresolved');
     expect(revenue).not.toHaveTextContent('Customer payment net cash');
   });
 

@@ -85,6 +85,7 @@ async function load(tx: Transaction, operationId: string, parentOperationId: str
   return { source, sourceRevision: providerCorrelationFingerprint(source), result, inboxIds: ids, parentOwnership, siblingClaims, asOf: parent.asOf, evaluatedAt: parent.evaluatedAt };
 }
 async function ownership(tx: Transaction, operationId: string, result: ProviderRefundCorrelationResult, reserve: boolean) {
+  requireCustomerPaymentProviderFixtureEnabled();
   const candidate = result.candidate;
   if (!candidate) {
     return { result, candidateId: null, missingClaim: false, facts: [] };
@@ -189,3 +190,6 @@ export function createProviderRefundCorrelation(database: Database) {
   };
 }
 export type ProviderRefundCorrelationJournal = ReturnType<typeof createProviderRefundCorrelation>;
+
+/** Internal canonical writer seam; caller owns the admission-fenced transaction. */
+export { ownership as reserveProviderRefundOwnership };

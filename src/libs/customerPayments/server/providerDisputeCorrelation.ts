@@ -169,6 +169,7 @@ async function ownBalance(tx: Transaction, operationId: string, candidate: Provi
   return { candidate, keyHash, candidateId: stored?.id ?? null, missingClaim, facts, conflict: Boolean(conflict), unrecorded: !reserve && missingClaim };
 }
 async function ownership(tx: Transaction, operationId: string, result: ProviderDisputeCorrelationResult, reserve: boolean) {
+  requireCustomerPaymentProviderFixtureEnabled();
   const dispute = result.disputeCandidate ? await ownDispute(tx, operationId, result.disputeCandidate, reserve) : null;
   const balances = [];
   for (const candidate of result.balanceCandidates) {
@@ -272,3 +273,6 @@ export function createProviderDisputeCorrelation(database: Database) {
   };
 }
 export type ProviderDisputeCorrelationJournal = ReturnType<typeof createProviderDisputeCorrelation>;
+
+/** Internal canonical writer seam; caller owns the admission-fenced transaction. */
+export { ownership as reserveProviderDisputeOwnership };

@@ -27,6 +27,12 @@ export type FinancialPeriodSummary = {
   customerPaymentFeeRefundedCents?: number;
   customerPaymentFeeRefundHeldForReviewCents?: number;
   customerPaymentNetCashCents?: number;
+  customerPaymentUnallocatedRefundCents?: number;
+  customerPaymentDisputeWithdrawnCents?: number;
+  customerPaymentDisputeReinstatedCents?: number;
+  customerPaymentDisputeFeeCents?: number;
+  customerPaymentDisputeNetCents?: number;
+  customerPaymentMovementReconciliationRequired?: boolean;
 
   appointmentPaymentsCollectedCents?: number;
   depositCollectedCents?: number;

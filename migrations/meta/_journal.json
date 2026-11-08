@@ -869,6 +869,13 @@
       "when": 1794211200000,
       "tag": "0124_customer_payment_fixture_application",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1794214800000,
+      "tag": "0125_customer_payment_fixture_movements",
+      "breakpoints": true
     }
   ]
 }

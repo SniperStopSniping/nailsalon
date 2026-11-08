@@ -3,9 +3,10 @@
 Status: default-off nonproduction preparation plus **internal synthetic** capture/refund,
 canonical-reader, lifecycle, reporting, bounded readonly credit review and an
 offline signed-fixture inbox/outbox with capture, refund and dispute correlation,
-plus a verified offline capture-only canonical fixture application.
+plus canonical offline fixture capture application and a separately proven
+immutable refund/fee/dispute cash ledger.
 No provider collection, real refunds, deployment or production activation.
-Migrations 0115–0124 exist in source and have run through the real journal in isolated/disposable tests only,
+Migrations 0115–0125 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
 ## Implemented: preparation and customer context
@@ -531,10 +532,46 @@ No actual Stripe call, card/Apple Pay charge, provider refund, application
 migration, push, deployment, account change or spending was performed. See
 `customer-payments-canonical-fixture-plan.md` for the exact authority boundary.
 
+## Implemented: immutable offline fixture movements (0125)
+
+Migration 0125 adds dedicated immutable movement and reconciliation tables. The
+injected `reconcileMovements({ captureApplicationId })` accepts no caller money,
+status, time or financial parent and recomputes a bounded complete natural source
+graph. Successful customer/fee movements require matching succeeded operations.
+Disputes require explicit signed balance evidence, not a won/closed status.
+All ownership reservations, movement rows and the exact complete snapshot commit
+atomically; late conflict rolls the full transaction back. Material changes stale
+completeness but never erase earlier cash. No provider call is introduced.
+
+Customer refunds remain unallocated and fee returns are observed independently
+of future refund policy. Dispute principal, signed fees and net remain separate
+from customer net cash. Capture, tender, booking caches, invoices and credit are
+unchanged; ordinary holds remain. `offline_fixture_test` never becomes synthetic
+or real-provider proof. Historical reads require strict test gates while writer
+switches may be off. Bounded arrival retries preserve verified historical rows,
+flag incomplete current reconciliation and omit net instead of inventing zero.
+
+The eighth feature flag, `CUSTOMER_PAYMENTS_FIXTURE_MOVEMENTS_ENABLED`, defaults
+false and depends on fixture application and its existing strict test gates.
+There is no new route, provider transport or production activation.
+
+Final integrated verification passed 1,834 scoped tests across 101 files, with
+60 opt-in PostgreSQL tests skipped there and all 60 passed separately across ten
+files on genuine PostgreSQL 16.15. The aggregate includes 35 independently
+reviewed full-journal boundary cases. Six new native movement cases, strict
+unallocated/no-credit markers and bounded exact retry of known lock-contention
+outcomes are covered without relaxing the admission fence or integrity checks.
+All 20 mock desktop/mobile browser cases, full typecheck, scoped lint and full
+production build passed. All 12 production-off checks returned 404, including
+with all eight flags forced on. Temporary build settings were restored and the
+private database and secrets removed. Nothing was pushed, deployed, migrated to
+an application DB or sent to a provider. See
+`customer-payments-fixture-movement-plan.md` for exact semantics and limits.
+
 ## Remaining gate 2: real refunds and explicit review resolution
 
 - The application-table synthetic ledger and offline fixture journal are
-  implemented, but a real refund operation driver and verified provider-to-money
+  implemented, but a real refund operation driver and verified real-provider-to-money
   adapter are not. Real unknown/unsupported capture evidence needs approved
   authenticated receipt handling before a future provider event is acknowledged.
 - Extend the bounded synthetic readonly decisions above to separately authorized
@@ -578,7 +615,7 @@ migration, push, deployment, account change or spending was performed. See
 - Extend booking/deposit regressions, real authenticated Next.js browser journeys,
   accessibility, reporting/receipt checks, full CI and security review. Separately
   approve migration rollout, deployment, pilot activation and monitoring. All
-  seven feature flags remain false by default; production is refused.
+  eight feature flags remain false by default; production is refused.
   Refund and credit-review writes depend on the preparation/ledger-test gates;
   credit-review does not require the refund-write gate. None authorizes a provider
   call or ordinary collection/lifecycle hold clearing.

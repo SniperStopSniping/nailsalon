@@ -26,6 +26,7 @@ import {
 import { customerPaymentTipFloor } from '@/libs/customerPayments/provenance';
 import { readCustomerPaymentCaptureReport } from '@/libs/customerPayments/server/captureReportingReader';
 import { readCustomerPaymentCreditForReporting } from '@/libs/customerPayments/server/creditResolutionReader';
+import { readOfflineFixtureMovementReport } from '@/libs/customerPayments/server/fixtureMovementReportingReader';
 import { enrichCustomerPaymentProvenance } from '@/libs/customerPayments/server/provenanceReader';
 import { readCustomerPaymentRefundReport } from '@/libs/customerPayments/server/refundReportingReader';
 import { db } from '@/libs/DB';
@@ -54,7 +55,7 @@ export type FinancialReportingRangeSummary = {
   /** Gross inflow: non-voided appointment payments plus dated deposit collections. */
   cashCollectedCents: number;
   appointmentPaymentsCollectedCents: number;
-  /** Immutable synthetic-test capture cash, including captured funds held for review. */
+  /** Immutable test capture cash, including captured funds held for review. */
   customerPaymentCollectedCents?: number;
   customerPaymentHeldForReviewCents?: number;
   customerPaymentRefundedCents?: number;
@@ -64,6 +65,15 @@ export type FinancialReportingRangeSummary = {
   customerPaymentFeeRefundHeldForReviewCents?: number;
   /** Dated gross captures minus successful customer refunds; may be negative. */
   customerPaymentNetCashCents?: number;
+  /** Offline cash facts only: no principal/tip allocation or booking credit. */
+  customerPaymentUnallocatedRefundCents?: number;
+  customerPaymentDisputeWithdrawnCents?: number;
+  customerPaymentDisputeReinstatedCents?: number;
+  /** Signed provider fixture balance-transaction fee/net amounts. */
+  customerPaymentDisputeFeeCents?: number;
+  customerPaymentDisputeNetCents?: number;
+  /** True suppresses complete customer net cash without erasing known cash. */
+  customerPaymentMovementReconciliationRequired?: boolean;
   /** Event-ledger amounts; missing timestamps are excluded and disclosed below. */
   depositCollectedCents: number;
   depositRefundedCents: number;
@@ -1210,11 +1220,18 @@ export async function getFinancialReportingRangeSummary(
     start: input.start,
     end: input.end,
   });
+  const fixtureMovementReport = await readOfflineFixtureMovementReport(db, {
+    hasCustomerPaymentMarker: refundReport.hasCustomerPaymentMarker,
+    salonId: input.salonId,
+    currency: reportingCurrency,
+    start: input.start,
+    end: input.end,
+  });
   // A refund can arrive after the earlier marker query. Include its immutable
   // capture anchor when that capture belongs to this same reporting period,
   // rather than presenting the refund without the corresponding gross inflow.
   const captureMarkers = new Map(customerPaymentMarkers.map(row => [row.id, row]));
-  for (const marker of refundReport.captureMarkers) {
+  for (const marker of [...refundReport.captureMarkers, ...fixtureMovementReport.captureMarkers]) {
     if (marker.recordedAt >= input.start && marker.recordedAt < input.end) {
       captureMarkers.set(marker.id, marker);
     }
@@ -1554,11 +1571,17 @@ export async function getFinancialReportingRangeSummary(
     appointmentPaymentsCollectedCents,
     customerPaymentCollectedCents: captureReport.collectedCents,
     customerPaymentHeldForReviewCents: captureReport.heldForReviewCents,
-    customerPaymentRefundedCents: refundReport.refundedCents,
+    customerPaymentRefundedCents: refundReport.refundedCents + fixtureMovementReport.refundedCents,
     customerPaymentRefundHeldForReviewCents: refundReport.heldForReviewCents,
-    customerPaymentFeeRefundedCents: refundReport.feeRefundedCents,
+    customerPaymentFeeRefundedCents: refundReport.feeRefundedCents + fixtureMovementReport.feeRefundedCents,
     customerPaymentFeeRefundHeldForReviewCents: refundReport.feeHeldForReviewCents,
-    customerPaymentNetCashCents: captureReport.collectedCents - refundReport.refundedCents,
+    ...(fixtureMovementReport.movementReconciliationRequired ? {} : { customerPaymentNetCashCents: captureReport.collectedCents - refundReport.refundedCents - fixtureMovementReport.refundedCents }),
+    customerPaymentUnallocatedRefundCents: fixtureMovementReport.unallocatedRefundCents,
+    customerPaymentDisputeWithdrawnCents: fixtureMovementReport.disputeWithdrawnCents,
+    customerPaymentDisputeReinstatedCents: fixtureMovementReport.disputeReinstatedCents,
+    customerPaymentDisputeFeeCents: fixtureMovementReport.disputeFeeCents,
+    customerPaymentDisputeNetCents: fixtureMovementReport.disputeNetCents,
+    customerPaymentMovementReconciliationRequired: fixtureMovementReport.movementReconciliationRequired,
     depositCollectedCents,
     depositRefundedCents: numberValue(depositEvents?.depositRefundedCents),
     depositForfeitedCents,
@@ -1586,7 +1609,7 @@ export async function getFinancialReportingRangeSummary(
     unknownCurrencyPaymentEventCount:
       numberValue(paymentEvents?.unknownCurrencyPaymentEventCount) + captureReport.unknownCurrencyEventCount,
     excludedForeignCurrencyPaymentEventCount:
-      numberValue(paymentEvents?.excludedForeignCurrencyPaymentEventCount) + captureReport.excludedForeignCurrencyEventCount + refundReport.excludedForeignCurrencyEventCount,
+      numberValue(paymentEvents?.excludedForeignCurrencyPaymentEventCount) + captureReport.excludedForeignCurrencyEventCount + refundReport.excludedForeignCurrencyEventCount + fixtureMovementReport.excludedForeignCurrencyEventCount,
     unknownCurrencyDepositEventCount:
       numberValue(depositEvents?.unknownCurrencyDepositEventCount),
     excludedForeignCurrencyDepositEventCount:

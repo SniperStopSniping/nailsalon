@@ -35,6 +35,14 @@ describe('customer payment financial serialization', () => {
     });
   });
 
+  it('forwards known fixture cash and omits unproved net cash', () => {
+    const fields = { customerPaymentUnallocatedRefundCents: 1000, customerPaymentDisputeWithdrawnCents: 5000, customerPaymentDisputeReinstatedCents: 2000, customerPaymentDisputeFeeCents: -100, customerPaymentDisputeNetCents: -2900, customerPaymentMovementReconciliationRequired: true };
+    const result = serializeFinancialPeriodSummary(summary(fields), 'UTC', true);
+
+    expect(result).toMatchObject(fields);
+    expect(Object.hasOwn(result, 'customerPaymentNetCashCents')).toBe(false);
+  });
+
   it('does not fabricate zero customer metrics for an older summary', () => {
     const result = serializeFinancialPeriodSummary(summary(), 'UTC', true);
 

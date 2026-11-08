@@ -198,8 +198,12 @@ an actual customer charge. Apple Pay would be offered by Stripe only when eligib
   Historical fixture reads require test mode and preparation/ledger, independently
   of both fixture writer switches.
 
-Production is refused by all seven controls. None enables Stripe execution. Do not
-enable these against an unreviewed or shared application database. Migrations 0115–0124 are exercised only in tests and have been
+- `CUSTOMER_PAYMENTS_FIXTURE_MOVEMENTS_ENABLED=false`: immutable offline refund,
+  application-fee return and dispute cash posting. Requires fixture application
+  and its existing test gates. No provider call, allocation or hold clearing.
+
+Production is refused by all eight controls. None enables Stripe execution. Do not
+enable these against an unreviewed or shared application database. Migrations 0115–0125 are exercised only in tests and have been
 exercised through the real journal in isolated fixtures/disposable PostgreSQL,
 not applied to a development, preview or production application DB.
 
@@ -423,6 +427,30 @@ notifications are mocked, and every provider fact is fake. Final verification pa
 20 mocked browser cases, typecheck, scoped lint, full production build and 12
 production-off checks. Exact limits are recorded in the integration gates.
 No actual card, Apple Pay, provider refund or payout has been executed.
+
+## Canonical offline fixture movements (0125)
+
+A dedicated immutable `offline_fixture_test` ledger now records successful
+customer refunds, independent fee returns and explicit dispute cash from a fresh,
+complete canonical source graph. Each atomic batch binds immutable source and
+ownership evidence, every existing/new movement and current material revision.
+Unknown evidence, missing operations, conflicts and missing balance transactions
+remain incomplete. A won dispute without balance evidence cannot prove restored
+cash. Original cash history survives later contradictions.
+
+Customer refunds are explicitly unallocated. No principal, tax, tip, invoice or
+booking credit is invented or changed, and no hold is cleared. Natural provider
+movement identities prevent duplicate posting across events and changed parents.
+Reporting separates fee/dispute cash, retains dated historical facts and omits
+complete net cash when current reconciliation cannot be proven. Bounded read
+retries fail closed without treating missing historical evidence as concurrency.
+
+Final validation passed 1,834 scoped regressions, 60 separate genuine PostgreSQL
+cases, 20 mock browser cases, typecheck, scoped lint, full production build and
+12 production-off checks with all eight flags tested. See
+`customer-payments-fixture-movement-plan.md` for the authority boundary and
+`customer-payments-integration-gates.md` for limits. This is still offline fixture
+cash, not an end-to-end real payment setup.
 
 ## Remaining gates before collection
 

@@ -56,6 +56,29 @@ async function admissionRefused(action: Promise<unknown>, waiter: number) {
   expect(failure.cause?.code ?? failure.code).toBe('55P03');
   expect((await clients[3]!.query<{ blockers: number[] }>('SELECT pg_blocking_pids($1) AS blockers', [waiter])).rows[0]!.blockers).toEqual([]);
 }
+// NOWAIT intentionally permits a bounded refusal under a busy machine. Both
+// calls start concurrently; only a known rolled-back 55P03 retries after all
+// original calls settle. A business/identity error is never retried here.
+async function concurrentFixtureCalls<T>(calls: (() => Promise<T>)[]): Promise<T[]> {
+  const outcomes = await Promise.allSettled(calls.map(call => call()));
+
+  expect(outcomes.some(outcome => outcome.status === 'fulfilled')).toBe(true);
+
+  const values: T[] = [];
+  for (const [index, outcome] of outcomes.entries()) {
+    if (outcome.status === 'fulfilled') {
+      values.push(outcome.value);
+    } else {
+      const failure = outcome.reason as { code?: string; cause?: { code?: string } };
+
+      expect(failure.cause?.code ?? failure.code).toBe('55P03');
+
+      values.push(await calls[index]!());
+    }
+  }
+  return values;
+}
+
 const receivedAt = new Date('2026-11-08T12:00:00Z');
 const eventCreated = Math.floor(receivedAt.getTime() / 1000) - 1;
 let config: ProviderFixtureConfig = { endpointId: 'endpoint_correlation', platformId: 'acct_fixtureplatform', accountScope: 'connected', expectedAccountId: 'acct_fixtureconnected', apiVersion: '2024-06-20', livemode: false };
@@ -221,7 +244,7 @@ suite('provider dispute correlation — attested PostgreSQL concurrency', () => 
     const f = await graphFixture();
     await f.correlation.correlateOperation(f.identity.id);
     const d = await disputeFixture(f);
-    const results = await Promise.all([createProviderDisputeCorrelation(databases[1]!).correlateOperation(f.identity.id), createProviderDisputeCorrelation(databases[2]!).correlateOperation(f.identity.id)]);
+    const results = await concurrentFixtureCalls([() => createProviderDisputeCorrelation(databases[1]!).correlateOperation(f.identity.id), () => createProviderDisputeCorrelation(databases[2]!).correlateOperation(f.identity.id)]);
 
     expect(results[0]!.id).toBe(results[1]!.id);
     expect(results[0]!.result.state).toBe('correlated');
