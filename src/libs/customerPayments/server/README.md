@@ -380,3 +380,40 @@ before connecting. Four real-PG cases cover receipt replay/conflict/fanout,
 operation replay, competing/expired leases and crash reconciliation without money
 writes. All sessions are independently attested and use the actual journal. Only
 new private cluster teardown may remove these immutable fixtures.
+
+### Offline correlation and charge deduplication (0121)
+
+`createProviderCorrelation` stores privately paired Session supplements without
+changing original inbox review or delivery state. It auto-discovers bounded
+Session/PI/charge/fee relationships, including conflicting receipt payload edges.
+Explicit inbox IDs retain extra evidence; they cannot hide discovered evidence.
+Scope is capped at 1,024 rows and graph closure at 256; overflow returns review.
+A candidate is unique by platform/account/test/charge. Immutable claims retain
+competing owners and facts, and effective reads review every affected owner.
+
+All writes use a fixture-only global mutex revision increment. Waiting stale
+repeatable-read writers must retry their whole transaction, not reuse an old
+snapshot. This is deliberately not a production throughput design. Inbox ingest
+is unchanged and is not fenced by this mutex. Reads use a consistent MVCC
+snapshot and recompute current graph/conflicts/ownership, never trusting a saved
+`correlated` result. `snapshotStartedAt` (`asOf`) is transaction start, not a
+promise to include subsequent arrivals; `evaluatedAt` is a separate current DB
+clock for expiry checks. The next read sees later committed relevant evidence.
+Source revisions bind selected conflict/projection identities and fingerprints;
+source snapshots omit unrelated quote context and request metadata.
+
+SQL checks shape, hashes, scope and immutability. It does not establish signature
+or financial authority. Runtime supplement ingestion requires the private signed
+pair; effective reads validate structured persisted facts again. No correlation
+or candidate is a capture or authorization to change financial rows.
+
+`providerCorrelation.concurrency.integration.test.ts` requires a dedicated
+`CUSTOMER_PAYMENT_CORRELATION_TEST_DATABASE_URL`, with optional required-mode
+`CUSTOMER_PAYMENT_CORRELATION_PG_REQUIRED=true`. Missing targets skip; invalid or
+required-missing targets fail before connection. Every physical session is
+independently attested by the existing disposable database safeguards. Run with
+`/usr/local/bin/node node_modules/vitest/vitest.mjs run src/libs/customerPayments/server/providerCorrelation.concurrency.integration.test.ts --maxWorkers=1 --no-file-parallelism`.
+Four actual PostgreSQL cases cover duplicate graph replay, pending/no-candidate
+writer serialization, competing charge owners and an overlapping snapshot read
+versus a new conflict commit. Current full prior-plus-correlation suite: 35/35.
+Use only a fresh private disposable target; do not point this at an application DB.

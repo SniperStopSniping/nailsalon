@@ -178,6 +178,22 @@ describe('fenced dispatch and uncertainty', () => {
     }
   });
 
+  it('accepts test Session results and rejects live, malformed, or secret-shaped results', async () => {
+    for (const objectId of ['cs_test_fixture', 'cs_fixture']) {
+      const state = dispatch(identity('checkout_create'));
+      const fake = createOfflineOperationTransport([{ identity: state.identity, dispatch: { type: 'accepted', objectId }, reconciliation: { type: 'exists', objectId } }]);
+      const done = applyOperationCommand(state, fence(state), { type: 'observe_dispatch', observation: await fake.execute(state, now) });
+
+      expect(done.result).toEqual({ provenance: 'offline_fixture', objectId });
+    }
+    for (const objectId of ['cs_live_fixture', 'cs_test_', 'cs_test_bad_id', 'cs_test_fixture_secret_value', 'cs_live_', 'cs__fixture']) {
+      const state = dispatch(identity('checkout_create'));
+      const fake = createOfflineOperationTransport([{ identity: state.identity, dispatch: { type: 'accepted', objectId }, reconciliation: { type: 'exists', objectId } }]);
+
+      await expect(fake.execute(state, now).then(observation => applyOperationCommand(state, fence(state), { type: 'observe_dispatch', observation }))).rejects.toThrow();
+    }
+  });
+
   it('accepts authoritative existence after retention but never sends again', async () => {
     const state = dispatch(identity('customer_refund'));
     const uncertain = expireOperationLease(state, { expectedVersion: state.version, now: now + OPERATION_RETENTION_MS });

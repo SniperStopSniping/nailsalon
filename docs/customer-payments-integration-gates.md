@@ -2,9 +2,9 @@
 
 Status: default-off nonproduction preparation plus **internal synthetic** capture/refund,
 canonical-reader, lifecycle, reporting, bounded readonly credit review and an
-offline signed-fixture inbox/outbox.
+offline signed-fixture inbox/outbox with separate capture correlation.
 No provider collection, real refunds, deployment or production activation.
-Migrations 0115–0120 exist in source and have run through the real journal in isolated/disposable tests only,
+Migrations 0115–0121 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
 ## Implemented: preparation and customer context
@@ -290,7 +290,7 @@ assessment only; it installs no adapter or webhook.
   wallet/device coverage and provider retry/late-event cases require separate
   authorized testing. Cached Connect flags do not attest provider authorization.
 
-## Offline provider journal checkpoint
+## Previous provider-journal checkpoint: `af3baf98`
 
 Additive migration 0120 and `server/providerJournal.ts` now persist offline signed fixture
 receipts, conflict evidence, independent consumer/version deliveries, immutable
@@ -331,6 +331,50 @@ Verification on final runtime/SQL:
   removed. No application migration, provider execution, push or deployment was
   performed. These are scoped checks, not the entire repository suite, an
   authenticated full-app journey or real card/Apple Pay execution.
+
+## Offline capture-correlation checkpoint
+
+Migration 0121 and `server/providerCorrelation.ts` add signed Session supplements,
+immutable evidence links and versioned capture-correlation snapshots. Original
+inbox receipts, review classifications and consumer holds remain unchanged.
+Session ID must come from the persisted successful operation. Session, intent,
+charge, quote and independently scoped fee facts must agree. Missing evidence
+stays pending; contradictory or timing-ambiguous money remains review.
+
+A candidate is unique by platform, connected account, test mode and charge ID,
+independent of event/endpoint IDs. Conflicting operation ownership is retained,
+and both effective reads become review. Automatic bounded discovery includes
+original and conflicting payload relationship edges, so supplied IDs cannot hide
+contradictions. Overflow fails closed. A guarded reader always recomputes the
+current evidence and ownership instead of trusting the stored result.
+
+The fixture-only writer mutex increments a guarded revision so a queued writer
+with an old repeatable-read snapshot retries. Reads expose transaction snapshot
+start separately from evaluation time. This does not prevent later inbox arrivals;
+the next read sees those arrivals. All results explicitly prohibit financial
+posting. No tender, refund, tax invoice, credit decision or collection hold changes.
+
+Verification on the correlation slice:
+
+- **1,344 scoped tests passed in 82 files**. The 35 opt-in PostgreSQL cases were
+  skipped in that aggregate and passed separately in six files on PostgreSQL
+  16.15. All 20 mock desktop/mobile browser cases also passed.
+- The aggregate includes 32 pure graph tests, 40 Session supplement tests and 22
+  independently reviewed full-journal boundary cases. These cover every event
+  arrival order, conflicting duplicate payloads, replayed supplements, ownership
+  conflicts, unchanged original review/financial rows and suppressed-write
+  rollback. These counts overlap the aggregate, not additional tests.
+- Four new physical PostgreSQL cases verify duplicate writers, the pending graph
+  snapshot race, competing charge ownership and a conflict committed during a
+  separate snapshot read. The private cluster and temporary secrets were removed.
+- Standalone Node 24 typecheck, scoped lint and the production build passed
+  with type validation enabled.
+  Local webpack cache was temporarily disabled for disk space, then restored.
+  All **12 built-app production-off checks** returned 404 with default flags and
+  all six flags forced true in production. No correlation route is registered.
+- No application migration, provider call, canonical financial change, push,
+  deployment or spend was performed. Browser journeys use mocks and do not
+  establish authenticated full-app or real card/Apple Pay execution.
 
 ## Remaining gate 2: real refunds and explicit review resolution
 

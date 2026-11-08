@@ -841,6 +841,13 @@
       "when": 1794196800000,
       "tag": "0120_customer_payment_provider_journal",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1794200400000,
+      "tag": "0121_customer_payment_provider_correlation",
+      "breakpoints": true
     }
   ]
 }

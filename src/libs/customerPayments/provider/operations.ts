@@ -234,7 +234,9 @@ export function expireOperationLease(state: OperationState, input: { expectedVer
 }
 function objectResult(state: OperationState, objectId: string): OperationResult {
   const prefix = state.identity.kind === 'checkout_create' ? 'cs_' : state.identity.kind === 'customer_refund' ? 're_' : 'fr_';
-  if (!new RegExp(`^${prefix}[A-Za-z0-9]+$`).test(objectId)) {
+  // Legacy short fixture IDs remain readable; live and secret-shaped IDs do not.
+  const pattern = state.identity.kind === 'checkout_create' ? /^cs_(?:test_)?[A-Za-z0-9]+$/ : new RegExp(`^${prefix}[A-Za-z0-9]+$`);
+  if (!pattern.test(objectId)) {
     fail('RESULT_KIND_MISMATCH');
   }
   return { provenance: 'offline_fixture', objectId };

@@ -57,7 +57,7 @@ implemented offline subset and its remaining limits are described afterward.
    payment success.
 
 The implementation lives in `src/libs/customerPayments/provider/`,
-`server/providerJournal.ts`, and additive migration0120. Its dedicated switch
+`server/providerJournal.ts`, and additive migration 0120. Its dedicated switch
 requires `NODE_ENV=test`, preparation enabled and no production deployment marker.
 No route or worker is registered, and the global Stripe client is not imported.
 Signatures are verified by an injected offline verifier; the durable provenance is
@@ -73,11 +73,18 @@ closed response map, not a callback capable of performing arbitrary network work
 Application migrations and all external provider work remain disabled. Read the
 adjacent provider README for the precise provenance and authority boundaries.
 
-The receipt normalizer currently covers intent, charge, refund, application-fee
-and fee-return fixture facts. A Checkout Session-to-intent relationship adapter,
-immutable business-movement deduplication across different event IDs, disputes and
-financial settlement are still unimplemented. Event retention does not stand in
-for those checks.
+The original receipt normalizer covers intent, charge, refund, application-fee
+and fee-return fixture facts. A separate signed Session supplement and offline
+Session-to-intent-to-charge correlation layer now preserve old reviewed receipts
+unchanged. Additive migration 0121 deduplicates charge candidates across event and
+endpoint IDs and retains contradictory ownership claims. Effective reads rebuild
+the complete bounded evidence closure from a consistent snapshot rather than
+trusting an old successful graph result.
+
+This is capture correlation only, with no financial authority. Real-provider
+verification, refund/dispute movement correlation, canonical settlement and
+provider execution remain unimplemented. Event retention or an offline correlated
+result does not stand in for those checks.
 
 ## Provider facts supporting the design
 

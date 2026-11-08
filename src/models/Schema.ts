@@ -5988,4 +5988,5 @@ export const danielaSendSchema = pgTable('daniela_send', {
 }));
 
 // Offline provider-fixture journal only. No runtime provider or financial authority.
+export * from './customerPaymentCorrelationSchema';
 export * from './customerPaymentProviderSchema';

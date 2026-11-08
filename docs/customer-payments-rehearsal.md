@@ -193,7 +193,7 @@ an actual customer charge. Apple Pay would be offered by Stripe only when eligib
   `NODE_ENV=test`; it has no route, scheduled worker or financial posting authority.
 
 Production is refused by all six controls. None enables Stripe execution. Do not
-enable these against an unreviewed or shared application database. Migrations 0115–0120 have been
+enable these against an unreviewed or shared application database. Migrations 0115–0121 have been
 exercised through the real journal in isolated fixtures/disposable PostgreSQL,
 not applied to a development, preview or production application DB.
 
@@ -297,7 +297,7 @@ certification of later credit-review changes; their checks are recorded below.
   activation occurred. Credit notes remain synthetic/nonlegal and ordinary
   collection/lifecycle holds remain enforced.
 
-## Offline provider journal checkpoint
+## Previous provider-journal checkpoint: `af3baf98`
 
 The additive migration 0120 journal persists authenticated offline fixture receipts, immutable
 operation identities, consumer-specific deliveries and audited state transitions.
@@ -321,6 +321,28 @@ checks** passed, including all six flags forced true in production. No type bypa
 was used; the temporary local webpack-cache change was restored. Private test
 infrastructure was removed. See the integration-gates document for test overlap
 and the remaining unverified external/full-app boundary.
+
+## Offline capture-correlation checkpoint
+
+Separate signed Session supplements now link the successful operation's Session
+to its intent and charge without changing old reviewed receipts. Charge candidates
+are deduplicated across event and endpoint deliveries. Exact quote/account/mode/
+currency/amount relationships are required, with fees checked separately.
+
+Missing evidence stays pending; conflicting money or competing owners remain
+review. Guarded reads rebuild the full bounded evidence closure and charge claims,
+including later conflicting payloads, rather than trusting a cached result.
+Snapshot start and evaluation time are separate. Every result prohibits financial
+posting, and original collection holds and all financial tables remain unchanged.
+
+Correlation verification: **1,344 scoped regressions passed**, plus **35 actual
+PostgreSQL cases** run separately and **20 mock desktop/mobile browser cases**.
+The new PostgreSQL coverage includes stale writer snapshots, duplicate charge
+ownership and conflicts arriving during a read. Private test infrastructure was
+removed. These results do not establish real provider or financial authority.
+Standalone Node 24 typecheck, scoped lint, the production build with type
+validation and all **12 built-app production-off checks** passed. The temporary cache setting was restored. No
+application migration, provider call, push, deployment or spend was performed.
 
 ## Remaining gates before collection
 

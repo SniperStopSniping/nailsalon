@@ -46,6 +46,46 @@ operation. An explicitly absent fixture result can requeue only inside the
 original conservative idempotency window. Expiry or unresolved evidence requires
 review. The window never resets on a retry.
 
+## Offline Session correlation and charge deduplication
+
+`sessionEvidence.ts` adds a separately verified Session projection tied to the
+original receipt object and exact payload digest. It does not change the old
+normalizer, receipt fingerprint, review classification or consumer holds. Original
+receipt and supplemental arrival times are retained separately; later redelivery
+cannot erase an original timing error. Quote references are UUIDs and no metadata,
+customer details, signatures or raw payloads are stored in the supplement.
+
+`correlation.ts` anchors Session identity to the successful persisted operation's
+result, then checks reciprocal Session, intent and charge relationships against
+the immutable quote. It validates account, platform, mode, API version, requested
+and captured amounts, currency and fee evidence. Metadata or a matching quote
+reference alone is insufficient. Valid unpaid-to-paid asynchronous evidence is
+distinguished from contradictory paid-to-unpaid, expired or failed evidence.
+Missing supporting events remain pending; malformed relationships and contradictory
+or ambiguous money are review.
+
+`server/providerCorrelation.ts` and migration 0121 retain immutable supporting
+links, projections, versioned snapshots and charge claims. The candidate key is
+platform, connected account, test mode and charge ID, never event or endpoint ID.
+Replays and cross-endpoint delivery cannot create a second candidate. Competing
+operation claims remain retained and make both effective results review.
+
+Effective reads rediscover the bounded relationship closure, including conflicting
+payload relationships and later refunds. Caller-supplied IDs cannot hide new
+contradictions. Evidence overflow fails to review instead of silently truncating
+into a successful result. The reader recomputes the graph and charge ownership;
+a stored correlated snapshot alone is not authority.
+
+Transactions use repeatable-read snapshots. A fixture-only singleton revision
+serializes graph writes and forces stale waiting writers to retry the whole local
+transaction. This does not lock future inbox ingestion. Results expose snapshot
+start, evaluation time and evidence revisions; a later read sees later arrivals.
+The graph remains bounded offline infrastructure, not a scalable production queue.
+
+Every result has `financialPostingAllowed: false`. Correlation never posts tender,
+returns money, changes a tax invoice, clears existing collection holds or promotes
+fixture provenance to verified real-provider authority.
+
 ## Deliberately missing authority
 
 There is no real Stripe client, live/test API call, endpoint registration,
