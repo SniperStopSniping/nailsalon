@@ -1,8 +1,14 @@
-import { CalendarCheck2, Mail, Sparkles } from 'lucide-react';
+import { ArrowRight, Bell, CalendarCheck2, Mail, Palette, ShieldCheck, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
-import { MarketingFooter, MarketingHeader } from '@/components/marketing/MarketingChrome';
-import { getMarketingLocale, LUSTER_SHOP_URL, marketingCopy, marketingPages } from '@/libs/marketingContent';
+import styles from '@/components/marketing/home.module.css';
+import { homeContent } from '@/components/marketing/homeContent';
+import { HomeHeader } from '@/components/marketing/HomeHeader';
+import { HomeOffer } from '@/components/marketing/HomeOffer';
+import { MarketingFooter } from '@/components/marketing/MarketingChrome';
+import { ProductCarousel } from '@/components/marketing/ProductCarousel';
+import { isFoundingLifetimeOfferOpen } from '@/libs/billing/foundingLifetime';
+import { getMarketingLocale, marketingCopy, marketingPages } from '@/libs/marketingContent';
 import { buildMarketingJsonLd, marketingPath } from '@/libs/marketingSeo';
 import en from '@/locales/en.json';
 import fr from '@/locales/fr.json';
@@ -13,75 +19,101 @@ export function LusterHome({ locale = 'en', websiteSetupEnabled = false }: {
 }) {
   const language = getMarketingLocale(locale);
   const copy = marketingCopy[language];
+  const home = homeContent[language];
   const features = language === 'fr' ? fr.LusterHome : en.LusterHome;
 
   return (
-    <div className="min-h-screen bg-[#fffaf7] text-stone-950">
+    <div className={styles.home}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(buildMarketingJsonLd(language)).replace(/</gu, '\\u003c') }} />
-      <MarketingHeader locale={language} />
-      <main>
-        <section className="mx-auto grid max-w-6xl gap-10 px-5 pb-16 pt-12 sm:px-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-center lg:py-20">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#a70f3c]">{copy.eyebrow}</p>
-            <h1 className="mt-4 max-w-3xl text-4xl font-black leading-[1.05] tracking-[-0.04em] sm:text-6xl">{copy.heading}</h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-stone-600">{copy.intro}</p>
-            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+      <a href="#main-content" className={styles.skip}>{home.skip}</a>
+      <HomeHeader locale={language} />
+      <main id="main-content">
+        <section id="booking-app" className={styles.hero} aria-labelledby="home-title">
+          <div className={styles.heroCopy}>
+            <p className={styles.eyebrow}>{home.eyebrow}</p>
+            <h1 id="home-title">{home.heading}</h1>
+            <p className={styles.intro}>{home.intro}</p>
+            <div className={styles.actions}>
               {websiteSetupEnabled
-                ? <Link href={marketingPath('/onboarding-v1', language)} className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#b80f43] px-6 py-3.5 text-center font-bold text-white shadow-lg shadow-rose-900/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a70f3c]">{copy.start}</Link>
-                : <a href="mailto:support@lustergel.app?subject=Luster%20booking%20invite" className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#b80f43] px-6 py-3.5 text-center font-bold text-white shadow-lg shadow-rose-900/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a70f3c]">{copy.invite}</a>}
-              <a href={LUSTER_SHOP_URL} className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white px-6 py-3.5 text-center font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a70f3c]">{copy.shop}</a>
+                ? (
+                    <Link href={marketingPath('/onboarding-v1', language)} className={styles.primary}>
+                      {home.build}
+                      <ArrowRight aria-hidden="true" />
+                    </Link>
+                  )
+                : (
+                    <a href="mailto:support@lustergel.app?subject=Luster%20booking%20invite" className={styles.primary}>
+                      {copy.invite}
+                      <ArrowRight aria-hidden="true" />
+                    </a>
+                  )}
+              <Link href={marketingPath('/owner-sign-in', language)} className={styles.secondary}>{home.login}</Link>
             </div>
-            <p className="mt-5 text-sm leading-6 text-stone-600">{features.preview_reassurance}</p>
-            <p className="mt-4 text-sm leading-6 text-stone-600">{features.customer_help}</p>
+            {websiteSetupEnabled && <HomeOffer locale={language} initiallyOpen={isFoundingLifetimeOfferOpen()} />}
+            <ul className={styles.featureRow}>
+              {[CalendarCheck2, Bell, ShieldCheck, Palette].map((Icon, index) => (
+                <li key={home.features[index]}>
+                  <Icon aria-hidden="true" />
+                  <span>{home.features[index]}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+          <ProductCarousel locale={language} />
+        </section>
+        <section id="features" className={styles.section} aria-labelledby="home-features-title">
+          <h2 id="home-features-title" className={styles.sectionHeading}>{language === 'fr' ? 'Vos réservations, votre activité. Tout est relié.' : 'Your bookings, your business. All together.'}</h2>
+          <p className={styles.sectionIntro}>{features.preview_reassurance}</p>
+          <div className={styles.featureCards}>
             {[
               { icon: CalendarCheck2, title: features.scheduling_title, body: features.scheduling_copy },
               { icon: Mail, title: features.booking_title, body: features.booking_copy },
               { icon: Sparkles, title: features.website_title, body: features.website_copy },
             ].map(item => (
-              <article key={item.title} className="rounded-[1.75rem] border border-rose-100 bg-white p-6 shadow-[0_18px_50px_rgba(70,35,35,0.07)]">
-                <item.icon aria-hidden="true" className="size-6 text-[#b80f43]" />
-                <h2 className="mt-4 text-xl font-bold">{item.title}</h2>
-                <p className="mt-2 leading-7 text-stone-600">{item.body}</p>
+              <article key={item.title} className={styles.featureCard}>
+                <item.icon aria-hidden="true" />
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
               </article>
             ))}
           </div>
+          <p className={styles.sectionIntro}>{features.customer_help}</p>
         </section>
-        <section className="mx-auto max-w-6xl px-5 pb-16 sm:px-8" aria-labelledby="booking-workflow-title">
-          <h2 id="booking-workflow-title" className="max-w-3xl text-3xl font-bold tracking-tight">{copy.workflow}</h2>
-          <ol className="mt-8 grid list-none gap-6 md:grid-cols-3">
+        <section className={styles.section} aria-labelledby="booking-workflow-title">
+          <h2 id="booking-workflow-title" className={styles.sectionHeading}>{copy.workflow}</h2>
+          <ol className={styles.steps}>
             {copy.steps.map((step, index) => (
-              <li key={step.heading} className="rounded-3xl border border-rose-100 bg-white p-6">
-                <span aria-hidden="true" className="text-sm font-bold text-[#a70f3c]">
+              <li key={step.heading}>
+                <span aria-hidden="true" className={styles.stepNumber}>
                   0
                   {index + 1}
                 </span>
-                <h3 className="mt-3 text-xl font-bold">{step.heading}</h3>
-                <p className="mt-3 leading-7 text-stone-600">{step.body}</p>
+                <h3>{step.heading}</h3>
+                <p>{step.body}</p>
               </li>
             ))}
           </ol>
         </section>
-        <section className="mx-auto max-w-6xl px-5 pb-16 sm:px-8" aria-labelledby="booking-cost-title">
-          <div className="rounded-3xl bg-[#f6e8ed] p-7 sm:p-10">
-            <h2 id="booking-cost-title" className="max-w-3xl text-3xl font-bold tracking-tight">{copy.pricing}</h2>
-            <p className="mt-5 max-w-3xl leading-8 text-stone-700">{copy.pricingBody}</p>
-            <Link href={marketingPath('/free-booking', language)} className="mt-4 inline-flex min-h-11 items-center font-bold underline underline-offset-4">{language === 'fr' ? 'Voir ce qui est inclus' : 'See what’s included'}</Link>
+        <section id="pricing" className={styles.section} aria-labelledby="booking-cost-title">
+          <div className={styles.pricingPanel}>
+            <h2 id="booking-cost-title" className={styles.sectionHeading}>{copy.pricing}</h2>
+            <p className={styles.sectionIntro}>{copy.pricingBody}</p>
+            <Link href={marketingPath('/free-booking', language)} className={styles.textLink}>{language === 'fr' ? 'Voir ce qui est inclus' : 'See what’s included'}</Link>
           </div>
         </section>
-        <section className="mx-auto max-w-6xl px-5 pb-16 sm:px-8" aria-labelledby="booking-resources-title">
-          <h2 id="booking-resources-title" className="max-w-3xl text-3xl font-bold tracking-tight">{copy.explore}</h2>
-          <div className="mt-7 grid gap-5 sm:grid-cols-2">
+        <section id="resources" className={styles.section} aria-labelledby="booking-resources-title">
+          <h2 id="booking-resources-title" className={styles.sectionHeading}>{copy.explore}</h2>
+          <div className={styles.resources}>
             {Object.values(marketingPages[language]).map(page => (
-              <article key={page.path} className="rounded-3xl border border-rose-100 bg-white p-6">
-                <h3 className="text-xl font-bold"><Link href={marketingPath(page.path, language)} className="underline underline-offset-4">{page.title.replace(' | Luster', '')}</Link></h3>
-                <p className="mt-3 leading-7 text-stone-600">{page.description}</p>
+              <article key={page.path}>
+                <h3><Link href={marketingPath(page.path, language)} className="underline underline-offset-4">{page.title.replace(' | Luster', '')}</Link></h3>
+                <p>{page.description}</p>
               </article>
             ))}
           </div>
         </section>
       </main>
+      <div className={styles.language}><a href={language === 'fr' ? '/en' : '/fr'} hrefLang={language === 'fr' ? 'en' : 'fr'} aria-label={copy.languageLabel}>{copy.language}</a></div>
       <MarketingFooter locale={language} />
     </div>
   );
