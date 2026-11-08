@@ -110,3 +110,30 @@ isolated-store boundary, and `src/libs/customerPayments/` for contracts and test
 - [Payouts and availability](https://docs.stripe.com/payouts)
 
 Verify current pricing and the actual account configuration before activation.
+
+## Verification checkpoint: 2026-11-08
+
+- 319 focused tests passed on Node 24: new payment/accounting/rehearsal tests,
+  tenant routing, and eight existing deposit/tender regression suites.
+- The standalone Chromium and mobile WebKit browser tests passed, including
+  no-tip default, fee disclosure, required-deposit selection, back navigation,
+  mobile width and no external requests.
+- The built Next.js page passed a local Chromium smoke test on Node 24 with
+  synthetic credentials: opt-in, online selection, tip, total and continuation.
+  No browser exceptions or external requests occurred. The default-off page
+  returned HTTP 404.
+- Scoped ESLint, `npm run check-types`, and source/commit/client-bundle secret
+  scanning passed.
+- Full builds passed on Node 22 and Node 24. The ordinary Node 24 build first
+  exhausted local disk capacity. Its retry passed with Webpack's filesystem cache
+  disabled for that invocation only; the configuration was restored afterward.
+  No deployment, provider request, application migration or charge was performed.
+
+Not verified or complete: the full existing test suite and CI, PostgreSQL
+multi-connection races, real Stripe test-mode sessions/wallets/refunds, installed
+booking/settings/canonical-ledger/reporting adapters, and live account/pricing/tax
+readiness. Local Docker reported it could not start, so the required attested
+disposable PostgreSQL target was not available for this checkpoint.
+
+This is a passing disabled foundation, **not** end-to-end customer payments ready
+to enable. Continue the implementation gates above before collection.
