@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #f5f3ef;
+  font-family: Arial, sans-serif;
+}
+main {
+  max-width: 640px;
+  margin: 24px auto;
+  padding: 16px;
+  display: grid;
+  gap: 24px;
+}
+h1 {
+  font-size: 28px;
+  font-weight: 700;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #365bd6;
+  outline-offset: 3px;
+}

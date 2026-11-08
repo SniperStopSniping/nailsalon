@@ -35,6 +35,8 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'owner-sign-up',
   'pay',
   'payment-methods',
+  // Disabled, nonproduction customer-payment UI rehearsal.
+  'payments-rehearsal',
   'preferences',
   // Public plan pricing (Gate C2) — dark behind PUBLIC_PRICING_ENABLED.
   'pricing',
