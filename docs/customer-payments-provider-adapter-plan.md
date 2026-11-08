@@ -81,10 +81,16 @@ endpoint IDs and retains contradictory ownership claims. Effective reads rebuild
 the complete bounded evidence closure from a consistent snapshot rather than
 trusting an old successful graph result.
 
-This is capture correlation only, with no financial authority. Real-provider
-verification, refund/dispute movement correlation, canonical settlement and
-provider execution remain unimplemented. Event retention or an offline correlated
-result does not stand in for those checks.
+Additive migration 0122 and `server/providerRefundCorrelation.ts` extend the
+offline graph to separately signed customer-refund and application-fee-return
+evidence. They bind the exact successful operation result, current parent graph
+and scoped business movement ID, preserving independent lifecycle, ownership and
+cumulative-limit review. Original review records and financial tables stay intact.
+
+These are offline correlations without financial authority. Real-provider
+verification, dispute movement handling, canonical provider-to-money settlement
+and provider execution remain unimplemented. Event retention or an offline
+correlated result does not stand in for those checks.
 
 ## Provider facts supporting the design
 

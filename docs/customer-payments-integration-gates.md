@@ -2,9 +2,9 @@
 
 Status: default-off nonproduction preparation plus **internal synthetic** capture/refund,
 canonical-reader, lifecycle, reporting, bounded readonly credit review and an
-offline signed-fixture inbox/outbox with separate capture correlation.
+offline signed-fixture inbox/outbox with separate capture and refund correlation.
 No provider collection, real refunds, deployment or production activation.
-Migrations 0115–0121 exist in source and have run through the real journal in isolated/disposable tests only,
+Migrations 0115–0122 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
 ## Implemented: preparation and customer context
@@ -332,7 +332,7 @@ Verification on final runtime/SQL:
   performed. These are scoped checks, not the entire repository suite, an
   authenticated full-app journey or real card/Apple Pay execution.
 
-## Offline capture-correlation checkpoint
+## Previous capture-correlation checkpoint: `310f4511`
 
 Migration 0121 and `server/providerCorrelation.ts` add signed Session supplements,
 immutable evidence links and versioned capture-correlation snapshots. Original
@@ -375,6 +375,59 @@ Verification on the correlation slice:
 - No application migration, provider call, canonical financial change, push,
   deployment or spend was performed. Browser journeys use mocks and do not
   establish authenticated full-app or real card/Apple Pay execution.
+
+## Offline refund-correlation checkpoint
+
+Migration 0122 and `server/providerRefundCorrelation.ts` add immutable signed
+refund supplements, supporting evidence links, versioned snapshots and movement
+claims. They do not change original inbox review, consumer holds or money tables.
+Customer refund lifecycle and platform fee-return observation remain distinct.
+A successful operation result identifies the exact `re_` or `fr_` object; it is
+not itself proof of a successful customer refund.
+
+The reader freshly rebuilds the complete bounded parent graph and current charge
+ownership. It partitions only supported, separately validated movement evidence;
+unsupported aggregates and capture contradictions remain review. The original
+capture reader still reviews refunds. This slice requires a fully matched parent
+including actual application-fee evidence, even for customer-refund correlation.
+Missing fee evidence is not inferred.
+
+Movement identity includes platform, account scope, test mode, kind and provider
+object ID. Parent fee/charge and event/endpoint IDs are not deduplication keys, so
+a conflicting parent cannot manufacture a second movement. Exact quote, tenant,
+operation, amount, currency and parent relationships are checked. Current reads
+include unclaimed related movements in separate customer and fee cumulative caps.
+Incomplete evidence produces null diagnostic totals; completed totals never
+authorize accounting. Pending, failed, canceled and contradictory lifecycle facts
+cannot assert successful refunds. Refunds may follow quote expiry but cannot
+precede the proven capture or fee creation.
+
+Every result prohibits financial posting. No credit allocation, tax adjustment,
+collection hold clearing or provider execution is implemented by this layer.
+
+Verification on the refund-correlation slice:
+
+- **1,458 scoped tests passed in 85 files**. The 39 opt-in PostgreSQL cases were
+  skipped there and passed separately in seven files on PostgreSQL 16.15.
+- The aggregate includes 27 signed refund-supplement tests, 41 pure correlation
+  cases and 46 independently reviewed full-journal boundary cases, including
+  direct exported-helper refusal before database access or callback execution.
+  These are overlapping checks, not additional counts.
+- The new physical PostgreSQL cases verify pending writer serialization,
+  competing movement ownership, cumulative sibling limits and a consistent
+  snapshot while another session inserts refund evidence. Runtime/migration
+  hashes were unchanged throughout the final run.
+- All **20 mock desktop/mobile browser cases** passed. Private PostgreSQL
+  infrastructure and its temporary secrets were removed.
+- Standalone Node 24 typecheck, scoped lint and the production build passed on
+  the final source with type validation enabled. Local webpack cache was
+  temporarily disabled for disk space and restored afterward.
+- All **12 built-app production-off checks** returned 404, both with default
+  flags and with all six flags forced true in production. No refund-correlation
+  route or provider worker is registered.
+- No application migration, provider call, canonical financial change, push,
+  deployment or spend was performed. These remain scoped/offline checks, not
+  authenticated full-app journeys or real card/Apple Pay/refund execution.
 
 ## Remaining gate 2: real refunds and explicit review resolution
 

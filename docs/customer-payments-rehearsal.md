@@ -322,7 +322,7 @@ was used; the temporary local webpack-cache change was restored. Private test
 infrastructure was removed. See the integration-gates document for test overlap
 and the remaining unverified external/full-app boundary.
 
-## Offline capture-correlation checkpoint
+## Previous capture-correlation checkpoint: `310f4511`
 
 Separate signed Session supplements now link the successful operation's Session
 to its intent and charge without changing old reviewed receipts. Charge candidates
@@ -343,6 +343,30 @@ removed. These results do not establish real provider or financial authority.
 Standalone Node 24 typecheck, scoped lint, the production build with type
 validation and all **12 built-app production-off checks** passed. The temporary cache setting was restored. No
 application migration, provider call, push, deployment or spend was performed.
+
+## Offline refund-correlation checkpoint
+
+Separate signed refund supplements now distinguish customer refund lifecycle from
+platform application-fee returns. Exact successful operation IDs and current
+parent evidence are required. Duplicate events cannot create duplicate movements;
+conflicting parents, ownership or amounts stay review. Unclaimed related refunds
+are included in separate customer and fee caps.
+
+Current reads rebuild parent evidence and ownership rather than trusting a saved
+capture result. This conservative slice requires actual parent fee evidence too.
+Incomplete totals remain unknown, and all totals are diagnostic only. Original
+review records, capture holds and every financial ledger remain unchanged. There
+is no refund execution, money posting, invoice change or collection activation.
+
+Refund-correlation verification: **1,458 scoped regressions passed**, plus
+**39 actual PostgreSQL cases** run separately and **20 mock desktop/mobile
+browser cases**. Independent review exercises immutable evidence and claims,
+failed-write rollback, changed parent facts, duplicate ownership, cumulative
+limits and original review/financial rows remaining unchanged.
+Standalone Node 24 typecheck, scoped lint, the production build with type
+validation and all **12 production-off checks** passed. The temporary cache
+setting was restored. No application migration, provider call, financial effect,
+push, deployment or spend was performed.
 
 ## Remaining gates before collection
 

@@ -86,6 +86,41 @@ Every result has `financialPostingAllowed: false`. Correlation never posts tende
 returns money, changes a tax invoice, clears existing collection holds or promotes
 fixture provenance to verified real-provider authority.
 
+## Offline customer refund and application-fee return correlation
+
+`refundEvidence.ts` binds a separately signed supplement to the exact original
+receipt and payload digest. Only `refund.created`, `refund.updated`, `refund.failed`
+and `application_fee.refund.updated` are supported. Original normalization and
+review remain unchanged. Customer status is preserved; platform fee returns use
+`fee_return_observed` with no fabricated refund status or connected account.
+Object occurrence time is distinct from event and receipt arrival times.
+
+`refundCorrelation.ts` freshly recomputes the parent graph after partitioning
+only the supported, validated movement evidence. It never trusts an old correlated
+snapshot or filters unknown aggregates/capture contradictions. The original
+capture reader remains held by refund evidence. Full parent fee proof is required
+in this bounded slice, even for a customer refund.
+
+The requested refund operation must bind its exact successful provider object
+result and immutable parent/quote context. Earlier pending then later succeeded
+can correlate; terminal failures, canceled/action-required refunds and later or
+same-time pending contradictions remain review. Refunds may occur after quote
+expiry but cannot precede proven capture or fee creation. Fee return observations
+never imply customer money returned, or vice versa.
+
+Migration 0122 and `server/providerRefundCorrelation.ts` preserve supporting links,
+versioned snapshots and scoped movement claims. Business identity is platform,
+account scope, test mode, kind and `re_`/`fr_` ID, not event, endpoint or parent ID.
+Conflicting parents or operation ownership remain retained review. Complete
+bounded discovery includes unclaimed related money, conflicts and current claims.
+Distinct customer and fee amounts have independent parent caps; incomplete totals
+are null. Completed totals are diagnostic, never financial accounting.
+
+The shared fixture mutex and repeatable-read retry protocol remain in force.
+Effective reads expose snapshot/evaluation times and recompute current evidence.
+Original reviews, consumer holds, canonical financial tables and collection rules
+are unchanged. Every result has `financialPostingAllowed: false`.
+
 ## Deliberately missing authority
 
 There is no real Stripe client, live/test API call, endpoint registration,

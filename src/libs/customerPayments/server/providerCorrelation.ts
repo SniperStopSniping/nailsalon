@@ -35,6 +35,7 @@ function overflow(): ProviderCorrelationResult {
   return { source: 'offline_fixture_correlation', state: 'review', reasons: ['EVIDENCE_SET_OVERFLOW'], financialPostingAllowed: false, captureCandidate: null, fee: { state: 'review', feeId: null } };
 }
 async function snapshot<T>(database: Database, write: boolean, body: (tx: Transaction) => Promise<T>): Promise<T> {
+  requireCustomerPaymentProviderFixtureEnabled();
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await database.transaction(async (tx) => {
@@ -62,6 +63,7 @@ async function clock(tx: Transaction) {
   return { evaluatedAt: new Date(row!.now), snapshotStartedAt: new Date(row!.snapshotStartedAt) };
 }
 async function load(tx: Transaction, operationId: string, explicit: readonly string[], write: boolean) {
+  requireCustomerPaymentProviderFixtureEnabled();
   let operationQuery = tx.select().from(operations).where(eq(operations.id, operationId)).limit(1).$dynamic();
   if (write) {
     operationQuery = operationQuery.for('update');
@@ -143,7 +145,7 @@ async function load(tx: Transaction, operationId: string, explicit: readonly str
   const projectionEvidence = sessionRows.filter(row => selected.has(row.inboxId)).map(row => ({ id: row.id, inboxId: row.inboxId, fingerprint: row.fingerprint })).sort((a, b) => a.id.localeCompare(b.id));
   const source = plain({ operation, quote, receipts, sessions, conflictEvidence, projectionEvidence, overflow: over });
   const result = over ? overflow() : correlateProviderFixture(input);
-  return { source, sourceRevision: providerCorrelationFingerprint(source), result, inboxIds: receipts.map(row => row.inboxId).sort(), asOf, evaluatedAt };
+  return { input, overflow: over, source, sourceRevision: providerCorrelationFingerprint(source), result, inboxIds: receipts.map(row => row.inboxId).sort(), asOf, evaluatedAt };
 }
 function candidateWhere(candidate: ProviderCaptureCandidate) {
   const key = candidate.chargeKey;
@@ -252,3 +254,7 @@ export function createProviderCorrelation(database: Database) {
   };
 }
 export type ProviderCorrelationJournal = ReturnType<typeof createProviderCorrelation>;
+
+// Internal fixture consumers must recompute current facts inside the same RR
+// transaction and check current charge ownership; saved snapshots are not proof.
+export { load as loadProviderCorrelationSource, snapshot as withProviderCorrelationSnapshot };

@@ -417,3 +417,44 @@ Four actual PostgreSQL cases cover duplicate graph replay, pending/no-candidate
 writer serialization, competing charge owners and an overlapping snapshot read
 versus a new conflict commit. Current full prior-plus-correlation suite: 35/35.
 Use only a fresh private disposable target; do not point this at an application DB.
+
+### Offline refund and separate fee-return correlation (0122)
+
+`createProviderRefundCorrelation` retains paired signed-fixture refund supplements
+and immutable movement audit/support/claim rows. Customer refunds (`re_`) and
+platform application-fee returns (`fr_`) have independent scoped keys and totals.
+Keys exclude parent charge/fee IDs so contradictory parent claims collide rather
+than manufacture a second movement. No returned fee is inferred from a customer
+refund, and no result changes original inbox review, consumer holds or cash rows.
+
+The parent capture is re-proved from current complete source facts after the pure
+projector partitions only exact supported movement receipts. All unrelated source
+contradictions remain blocking. Current parent charge ownership is rechecked; an
+old saved `correlated` result alone is never proof. All discovered sibling movement
+facts count toward their separate parent gross/actual-fee caps, including observed
+successes without a locally prepared refund operation. Missing supplements remain
+pending; malformed or failed money facts require review. Incomplete totals are
+explicitly null, never a misleading partial sum or zero. A completed scan retains
+observed successful fixture totals (diagnostic only), even when they exceed the
+permitted parent cap.
+
+The 0121 shared revision-update mutex, repeatable-read snapshots, bounded retry,
+explicit overflow review and separate snapshot/evaluation timestamps also apply.
+Each write verifies durable candidate, support-link, audit and claim persistence.
+Current reads recompute new sibling evidence and competing ownership; a stale
+saved result cannot authorize a refund. The original capture reader continues to
+review refund-related evidence. This new view never clears that review.
+
+`providerRefundCorrelation.concurrency.integration.test.ts` is opt-in through
+`CUSTOMER_PAYMENT_REFUND_CORRELATION_TEST_DATABASE_URL` and required-mode
+`CUSTOMER_PAYMENT_REFUND_CORRELATION_PG_REQUIRED=true`. The unchanged disposable
+server and every-session attestation apply. Missing target skips, invalid targets
+fail before connecting. Run with `/usr/local/bin/node node_modules/vitest/vitest.mjs run src/libs/customerPayments/server/providerRefundCorrelation.concurrency.integration.test.ts --maxWorkers=1 --no-file-parallelism`.
+The physical-session tests cover pending-write serialization, competing movement
+owners, distinct sibling cumulative limits and an overlapping snapshot read during
+new sibling evidence arrival. No network provider, API route or financial bridge
+is installed by this slice.
+Final native PostgreSQL verification passed 39/39 (prior 35 plus four new
+movement cases), including the final pure-projection review fixes. Source and
+migration hashes matched before and after the run. The new private cluster and
+temporary secrets were stopped/removed; no listener remained.
