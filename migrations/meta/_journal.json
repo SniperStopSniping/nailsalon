@@ -855,6 +855,13 @@
       "when": 1794204000000,
       "tag": "0122_customer_payment_refund_correlation",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1794207600000,
+      "tag": "0123_customer_payment_dispute_correlation",
+      "breakpoints": true
     }
   ]
 }

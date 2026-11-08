@@ -344,7 +344,7 @@ Standalone Node 24 typecheck, scoped lint, the production build with type
 validation and all **12 built-app production-off checks** passed. The temporary cache setting was restored. No
 application migration, provider call, push, deployment or spend was performed.
 
-## Offline refund-correlation checkpoint
+## Previous refund-correlation checkpoint: `126579b5`
 
 Separate signed refund supplements now distinguish customer refund lifecycle from
 platform application-fee returns. Exact successful operation IDs and current
@@ -367,6 +367,27 @@ Standalone Node 24 typecheck, scoped lint, the production build with type
 validation and all **12 production-off checks** passed. The temporary cache
 setting was restored. No application migration, provider call, financial effect,
 push, deployment or spend was performed.
+
+## Offline dispute-correlation checkpoint
+
+Signed dispute evidence now separates lifecycle status from explicit withdrawal
+and reinstatement transactions. Each transaction is deduplicated independently of
+the dispute and event IDs; principal, fee and net amounts remain distinct. Closed
+or won disputes do not imply restored money or cleared collection holds.
+
+Current reads follow original, conflicting and malformed-but-identified embedded
+transaction references. Unknown same-account identity coverage conservatively
+requires review. This is a deliberately bounded offline contract, not verified
+live-provider compatibility. Existing review and financial records are unchanged.
+
+A capture-only canonical rehearsal is planned separately. See
+`docs/customer-payments-canonical-fixture-plan.md`; the correlation result itself
+still grants no settlement authority.
+
+At this intermediate checkpoint, **1,599 scoped regressions**, **44 separate
+PostgreSQL cases**, standalone typecheck and scoped lint passed. The full build
+and browser/production-off smoke checks will be rerun after the coordinated
+canonical rehearsal phase; their prior complete pass is `126579b5`.
 
 ## Remaining gates before collection
 

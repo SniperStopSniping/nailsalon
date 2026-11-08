@@ -458,3 +458,52 @@ Final native PostgreSQL verification passed 39/39 (prior 35 plus four new
 movement cases), including the final pure-projection review fixes. Source and
 migration hashes matched before and after the run. The new private cluster and
 temporary secrets were stopped/removed; no listener remained.
+
+### Offline disputes and balance reversals (0123)
+
+`createProviderDisputeCorrelation` provides a separate, gated current-evidence
+view anchored to the original checkout operation. `persistDisputeProjection`
+requires the exact privately branded receipt/projection pair and binds either the
+original immutable inbox fingerprint or an exact retained conflicting receipt.
+A conflict projection records its explicit conflict ID. Uniqueness and readback
+include the receipt fingerprint, so original and conflicting anchors cannot be
+silently substituted. Original inbox review and consumer state never change.
+
+Dispute identity (`dp_`) and signed balance identity (`txn_`) are independent.
+Dispute status stays in immutable audit snapshots but is not part of immutable
+ownership facts. Transaction keys omit dispute/parent IDs, so reuse cannot become
+a second independent movement. Status won/lost and funds-event names do not
+manufacture money. Only separately validated, expanded signed transaction facts
+can support diagnostic withdrawn/reinstated amounts; these have no accounting
+or settlement authority. One dispute per parent is the bounded supported view;
+additional disputes require review rather than guessed aggregation.
+
+Every read re-proves the parent from fresh complete source facts and current
+charge ownership. Only exact supported dispute receipt subsets are partitioned;
+refund, fee-return, aggregate and unrelated contradictions remain blocking.
+Discovery traverses scoped supplemental dispute/transaction/charge/intent edges,
+including retained conflicting payload projections and sanitized identity
+references from malformed money entries. Thus another unclaimed dispute can
+invalidate a previously recorded view before it obtains any movement claim.
+Missing supplements or incomplete/overflow identity coverage in the same fixture
+account conservatively require review; absence of a discovered edge is not proof
+of absence. These deliberate account-wide fixture holds are not a production
+throughput or reconciliation policy. Bounded overflow is explicit review.
+
+The shared guarded mutex revision, repeatable-read snapshots, rollback/readback
+checks, and separate snapshot/evaluation times remain in force. SQL validates
+nested balance/reference shapes and immutable anchors; it does not establish
+signature or financial authority. No canonical balances, tenders, refunds, tax,
+tips, customer collection permissions or provider state are changed.
+
+`providerDisputeCorrelation.concurrency.integration.test.ts` uses dedicated
+`CUSTOMER_PAYMENT_DISPUTE_CORRELATION_TEST_DATABASE_URL`, optional required-mode
+`CUSTOMER_PAYMENT_DISPUTE_CORRELATION_PG_REQUIRED=true`, and unchanged disposable
+server/per-session attestation. Missing targets skip; invalid or required-missing
+targets fail before connecting. Run with `/usr/local/bin/node node_modules/vitest/vitest.mjs run src/libs/customerPayments/server/providerDisputeCorrelation.concurrency.integration.test.ts --maxWorkers=1 --no-file-parallelism`.
+The physical-session cases cover pending write serialization, transaction replay,
+competing parent owners, unclaimed supplemental transaction reuse and overlapping
+snapshot reads during newly linked evidence arrival. Final native PostgreSQL
+verification passed 44/44 (prior 39 plus five dispute cases). Before/after source,
+evidence, core and migration hashes matched. The new private cluster and secrets
+were removed, with no remaining listener.

@@ -121,6 +121,37 @@ Effective reads expose snapshot/evaluation times and recompute current evidence.
 Original reviews, consumer holds, canonical financial tables and collection rules
 are unchanged. Every result has `financialPostingAllowed: false`.
 
+## Offline dispute lifecycle and balance transactions
+
+`disputeEvidence.ts` adds exact-pair signed supplements for dispute created,
+updated, closed, funds-withdrawn and funds-reinstated events. Lifecycle status
+never manufactures a transaction. Expanded balance details have distinct scoped
+`txn_` identities and preserve signed principal, fee and net amounts. Availability
+is retained separately from occurrence and immutable money identity.
+
+Malformed money retains sanitized transaction/source references for graph
+discovery; incomplete or overflowing coverage is explicit, never silently treated
+as empty. `server/providerDisputeCorrelation.ts` accepts a supplement only against
+its exact original receipt or retained conflict fingerprint. Uniqueness includes
+that receipt anchor. Originals and conflicting payloads remain immutable.
+
+The new loader recomputes bounded supplemental relationships, including
+cross-parent transaction reuse before another claim is recorded. Missing or
+incomplete same-account dispute projections conservatively require review because
+unknown embedded transactions cannot be ruled out. Existing capture/refund
+readers keep their prior behavior; the new dispute view never clears their holds.
+
+`disputeCorrelation.ts` supports one dispute per parent, independently tracks
+lifecycle, and bounds explicit withdrawals/reinstatements chronologically.
+Same-second opposing movements remain ambiguous. Inquiry, closed or won status
+is never customer credit or proof of reinstatement. Narrow CAD/no-FX/type/category
+contracts are offline fixtures, not tested live-provider compatibility.
+
+Migration 0123 stores append-only projection, support, snapshot, dispute-claim and
+balance-claim records. Transaction keys exclude dispute IDs; lifecycle and
+availability updates do not create new money identities. No financial rows or
+original reviews are changed. Every result has `financialPostingAllowed: false`.
+
 ## Deliberately missing authority
 
 There is no real Stripe client, live/test API call, endpoint registration,

@@ -2,9 +2,9 @@
 
 Status: default-off nonproduction preparation plus **internal synthetic** capture/refund,
 canonical-reader, lifecycle, reporting, bounded readonly credit review and an
-offline signed-fixture inbox/outbox with separate capture and refund correlation.
+offline signed-fixture inbox/outbox with capture, refund and dispute correlation.
 No provider collection, real refunds, deployment or production activation.
-Migrations 0115–0122 exist in source and have run through the real journal in isolated/disposable tests only,
+Migrations 0115–0123 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
 ## Implemented: preparation and customer context
@@ -376,7 +376,7 @@ Verification on the correlation slice:
   deployment or spend was performed. Browser journeys use mocks and do not
   establish authenticated full-app or real card/Apple Pay execution.
 
-## Offline refund-correlation checkpoint
+## Previous refund-correlation checkpoint: `126579b5`
 
 Migration 0122 and `server/providerRefundCorrelation.ts` add immutable signed
 refund supplements, supporting evidence links, versioned snapshots and movement
@@ -428,6 +428,48 @@ Verification on the refund-correlation slice:
 - No application migration, provider call, canonical financial change, push,
   deployment or spend was performed. These remain scoped/offline checks, not
   authenticated full-app journeys or real card/Apple Pay/refund execution.
+
+## Offline dispute-correlation checkpoint
+
+Migration 0123 and `server/providerDisputeCorrelation.ts` retain separate dispute
+identity, lifecycle observations and explicit balance-transaction identities. Won,
+lost and closed statuses never create a withdrawal or reinstatement. Original
+inbox reviews, capture/refund views, consumer holds and financial rows are unchanged.
+
+`disputeEvidence.ts` supports five signed dispute event types with narrowly
+validated expanded balance details. Gross principal, provider fees and net balance
+amounts stay separate. Availability dates/status are observations, not immutable
+money identity or proof of collection. Reinstatement cannot precede proved
+withdrawal or exceed it; same-second opposing movements remain ambiguous. This
+fixture contract permits one dispute per parent and caps lifetime withdrawals at
+disputed principal. It is not a verified live Stripe payload contract.
+
+Malformed balance details retain bounded sanitized transaction/source references
+for discovery. Complete, incomplete and overflow reference coverage are explicit.
+The loader follows these supplemental relationships across original and exact
+retained conflicting payloads, including reuse before a second claim exists.
+Scoped transaction keys exclude the dispute ID so changing a parent cannot hide
+a duplicate movement.
+
+Any same-account dispute receipt or retained conflict without its paired signed
+projection, or with unknown reference coverage, conservatively holds the current
+dispute view for review. This intentionally broad offline restriction prevents
+unknown embedded transactions from being silently omitted. Source revisions bind
+missing identities as well as selected projections and conflicts.
+
+All results still prohibit financial posting. The separate capture-only canonical
+rehearsal described in `docs/customer-payments-canonical-fixture-plan.md` is the
+next phase, not an authority granted by this correlation layer.
+
+Checkpoint verification: **1,599 scoped regressions passed in 88 files**, with
+44 opt-in PostgreSQL cases skipped in that aggregate and passed separately in
+eight files on genuine PostgreSQL 16.15. The aggregate includes 60 new evidence
+cases, 34 pure dispute cases and 47 independent full-journal boundary cases.
+Standalone Node 24 typecheck and scoped lint passed. Final PostgreSQL source
+hashes matched before/after; its private cluster and temporary secrets were removed.
+Full build and browser/production-off smoke checks are deferred to the coordinated
+canonical rehearsal phase. Their previous full pass remains at `126579b5`; this
+intermediate checkpoint is not a release or end-to-end payment certification.
 
 ## Remaining gate 2: real refunds and explicit review resolution
 

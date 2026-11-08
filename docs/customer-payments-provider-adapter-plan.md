@@ -87,9 +87,14 @@ evidence. They bind the exact successful operation result, current parent graph
 and scoped business movement ID, preserving independent lifecycle, ownership and
 cumulative-limit review. Original review records and financial tables stay intact.
 
+Migration 0123 and `server/providerDisputeCorrelation.ts` add bounded offline
+dispute lifecycle and explicit balance-transaction correlation. Status alone does
+not imply money movement. Sanitized references preserve malformed/conflicting
+transaction discovery; incomplete same-account coverage remains review.
+
 These are offline correlations without financial authority. Real-provider
-verification, dispute movement handling, canonical provider-to-money settlement
-and provider execution remain unimplemented. Event retention or an offline
+verification, canonical provider-to-money settlement and provider execution
+remain unimplemented. Event retention or an offline
 correlated result does not stand in for those checks.
 
 ## Provider facts supporting the design
