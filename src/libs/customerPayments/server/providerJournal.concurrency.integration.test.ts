@@ -39,16 +39,18 @@ function barrier() {
   });
   return { promise, release };
 }
-async function blockedBy(waiter: number, blocker: number) {
-  const deadline = Date.now() + 4000;
-  while (Date.now() < deadline) {
-    const result = await clients[3]!.query<{ blockers: number[] }>('SELECT pg_blocking_pids($1) AS blockers', [waiter]);
-    if (result.rows[0]?.blockers.includes(blocker)) {
-      return;
-    }
-    await new Promise(resolve => setTimeout(resolve, 10));
+async function admissionRefused(action: Promise<unknown>, waiter: number) {
+  const [outcome] = await Promise.allSettled([action]);
+
+  expect(outcome!.status).toBe('rejected');
+
+  if (outcome!.status !== 'rejected') {
+    throw new Error('Expected bounded admission contention');
   }
-  throw new Error('Expected genuine PG blocking not observed');
+  const failure = outcome.reason as { code?: string; cause?: { code?: string } };
+
+  expect(failure.cause?.code ?? failure.code).toBe('55P03');
+  expect((await clients[3]!.query<{ blockers: number[] }>('SELECT pg_blocking_pids($1) AS blockers', [waiter])).rows[0]!.blockers).toEqual([]);
 }
 async function receipt(eventId: string, extra: Record<string, unknown> = {}) {
   const receivedAt = new Date();
@@ -116,19 +118,20 @@ suite('provider journal — attested PostgreSQL concurrency', () => {
 
     const entered = barrier();
     const release = barrier();
-    const wrapped = { select: databases[1]!.select.bind(databases[1]), transaction: (callback: Parameters<Database['transaction']>[0]) => databases[1]!.transaction(async (tx) => {
+    const wrapped = { select: databases[1]!.select.bind(databases[1]), transaction: (callback: Parameters<Database['transaction']>[0], options: Parameters<Database['transaction']>[1]) => databases[1]!.transaction(async (tx) => {
       const result = await callback(tx);
       entered.release();
       await release.promise;
       return result;
-    }) };
+    }, options) };
     const first = createProviderJournal(wrapped as never).ingestReceipt(evidence);
     const handled = Promise.allSettled([first.finally(() => entered.release())]);
     await entered.promise;
     const second = createProviderJournal(databases[2]!).ingestReceipt(evidence);
     const outcomes = Promise.allSettled([first, second]);
+    // Admission is NOWAIT: refuse bounded contention, then retry after commit.
     try {
-      await blockedBy(pids[2]!, pids[1]!);
+      await admissionRefused(second, pids[2]!);
     } finally {
       release.release();
       await outcomes;
@@ -136,7 +139,7 @@ suite('provider journal — attested PostgreSQL concurrency', () => {
     }
     const inbox = await first;
 
-    expect((await second).id).toBe(inbox.id);
+    expect((await createProviderJournal(databases[2]!).ingestReceipt(evidence)).id).toBe(inbox.id);
 
     const journal = createProviderJournal(database);
     const d1 = await journal.ensureDelivery(inbox.id, 'deposit', 1);

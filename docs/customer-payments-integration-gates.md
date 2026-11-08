@@ -2,9 +2,10 @@
 
 Status: default-off nonproduction preparation plus **internal synthetic** capture/refund,
 canonical-reader, lifecycle, reporting, bounded readonly credit review and an
-offline signed-fixture inbox/outbox with capture, refund and dispute correlation.
+offline signed-fixture inbox/outbox with capture, refund and dispute correlation,
+plus a verified offline capture-only canonical fixture application.
 No provider collection, real refunds, deployment or production activation.
-Migrations 0115–0123 exist in source and have run through the real journal in isolated/disposable tests only,
+Migrations 0115–0124 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
 ## Implemented: preparation and customer context
@@ -458,8 +459,8 @@ unknown embedded transactions from being silently omitted. Source revisions bind
 missing identities as well as selected projections and conflicts.
 
 All results still prohibit financial posting. The separate capture-only canonical
-rehearsal described in `docs/customer-payments-canonical-fixture-plan.md` is the
-next phase, not an authority granted by this correlation layer.
+rehearsal described in `docs/customer-payments-canonical-fixture-plan.md` has its
+own distinct provenance and validation, not authority granted by this layer.
 
 Checkpoint verification: **1,599 scoped regressions passed in 88 files**, with
 44 opt-in PostgreSQL cases skipped in that aggregate and passed separately in
@@ -470,6 +471,65 @@ hashes matched before/after; its private cluster and temporary secrets were remo
 Full build and browser/production-off smoke checks are deferred to the coordinated
 canonical rehearsal phase. Their previous full pass remains at `126579b5`; this
 intermediate checkpoint is not a release or end-to-end payment certification.
+
+## Capture-only canonical fixture checkpoint (0124)
+
+`server/applyProviderFixtureCapture.ts` accepts only an operation UUID and an
+injected database. It freshly proves authoritative quote material and the bounded
+natural provider graph, while retaining complete platform receipt/conflict
+identity. Existing inspection pointers are not money authority. The distinct
+`offline_fixture_test` application binds fresh source/ownership snapshots and
+hashes, final platform revision, stable charge identity, quote, observed success
+and canonical capture/tender/cache. Original reviewed receipts are never promoted.
+
+The precreated admission fence, material source revisions and deferred SQL checks
+make source/application work and protected appointment mutations atomic and
+fail-closed. Source BEFORE admission does not itself invalidate; AFTER actual
+material changes append permanent holds. Same-key replays, harmless leases and
+derived correlation/support work do not hold an existing application. New
+endpoint identities may hold it. All earlier applications in the same fixture
+platform are conservatively held by new material facts, including unrelated
+appointments. This is explicitly not a production scaling or hold-clearing design.
+
+Separate provenance/reporting preserves gross cash with both fixture writer
+switches off, but requires preparation/ledger and strict test mode. Holds block
+actual collection, completion and lifecycle routes. Synthetic refunds and credit
+workflows cannot adopt fixture source. Refund allocation, fee/dispute posting,
+legal credits, provider execution and activation remain unimplemented here.
+
+Verification on final integrated runtime and SQL:
+
+- **1,714 scoped tests passed in 95 files**. The 54 opt-in PostgreSQL cases were
+  skipped there and passed separately across nine files on genuine PostgreSQL
+  16.15. These are scoped regressions, not the entire repository test suite.
+- The aggregate includes 36 independently reviewed full-journal boundary cases,
+  23 application/gate cases, four actual checkout/completion/reporting cases and
+  the pure/reader regressions. These counts overlap the aggregate.
+- Actual routes preserve a CAD 10000 service, 1300 tax and 2000 prepaid tip as
+  13300 gross exactly once. Later refund/dispute/conflict evidence preserves gross
+  and blocks mutation with writer flags off. Authentication and notifications
+  are mocked; provider facts and transport are offline fixtures.
+- Ten new physical-session cases plus the prior 44 prove source/application races,
+  competing owners, stale snapshots before late evidence and before first
+  application, opposite lock order, harmless repeats, rollback, deferred orphan
+  binding and safe synthetic contention/refusal/retry. SQL/fence hashes were
+  unchanged through that run. Private PostgreSQL infrastructure and secrets were
+  removed; no existing service or application database was changed.
+- All **20 standalone desktop/mobile browser cases** passed with mock transports.
+  Standalone Node 24 typecheck and scoped lint passed.
+- The full production build passed with type validation enabled. Its first
+  attempt compiled but exhausted Node's default type-check heap; the successful
+  retry used a temporary 6 GiB process heap. Webpack cache was temporarily disabled
+  for local disk space, then the configuration was restored. No checks were
+  bypassed and no permanent build setting changed.
+- All **12 built-app production-off checks** returned 404, with default flags and
+  all seven flags forced true in production. Direct helper refusal and strict
+  test-only fixture authority are independently tested; no application route or
+  provider worker is registered.
+
+No actual Stripe call, card/Apple Pay charge, provider refund, application
+migration, push, deployment, account change or spending was performed. See
+`customer-payments-canonical-fixture-plan.md` for the exact authority boundary.
 
 ## Remaining gate 2: real refunds and explicit review resolution
 
@@ -518,7 +578,7 @@ intermediate checkpoint is not a release or end-to-end payment certification.
 - Extend booking/deposit regressions, real authenticated Next.js browser journeys,
   accessibility, reporting/receipt checks, full CI and security review. Separately
   approve migration rollout, deployment, pilot activation and monitoring. All
-  six feature flags remain false by default; production is refused.
+  seven feature flags remain false by default; production is refused.
   Refund and credit-review writes depend on the preparation/ledger-test gates;
   credit-review does not require the refund-write gate. None authorizes a provider
   call or ordinary collection/lifecycle hold clearing.

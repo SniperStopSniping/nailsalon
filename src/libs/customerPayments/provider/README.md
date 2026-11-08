@@ -152,10 +152,24 @@ balance-claim records. Transaction keys exclude dispute IDs; lifecycle and
 availability updates do not create new money identities. No financial rows or
 original reviews are changed. Every result has `financialPostingAllowed: false`.
 
+## Separate capture-only canonical fixture application
+
+Migration 0124 and `server/applyProviderFixtureCapture.ts` add an explicitly
+injected, operation-ID-only canonical rehearsal. It recomputes fresh evidence and
+uses distinct `offline_fixture_test` provenance; it never promotes the original
+inbox review or changes a correlation result into real-provider proof. Capture,
+tender, binding and cache commit together. Later material evidence appends a
+permanent hold while preserving gross cash. All execution remains limited to
+private disposable tests with no provider calls. The application gate is default
+off, strict test-only and independent of historical fixture read visibility.
+
+See `docs/customer-payments-canonical-fixture-plan.md` for the admission/revision
+fence, conservative platform-wide holds, reader gates and deferred refund work.
+
 ## Deliberately missing authority
 
 There is no real Stripe client, live/test API call, endpoint registration,
-financial posting, customer refund, fee return, credential configuration or
+real financial posting, customer refund, fee return, credential configuration or
 deployment. No synthetic result is a legal tax credit note or real payment proof.
 Future integration must verify real provider/account relationships, authorization,
 current quote and refund limits, canonical settlement, tax/fee policies and

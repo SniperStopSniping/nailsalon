@@ -63,8 +63,9 @@ No route or worker is registered, and the global Stripe client is not imported.
 Signatures are verified by an injected offline verifier; the durable provenance is
 explicitly `offline_signed_fixture`, never real provider authority.
 
-Every relevant money consumer stops at review because no financial bridge is
-installed. A separate consumer can complete an irrelevant-event inspection without
+The journal consumers remain under review. A separate explicitly gated
+capture-only canonical fixture application is described below; it does not
+promote these consumers to real financial authority. A separate consumer can complete an irrelevant-event inspection without
 suppressing the relevant consumer. Operation success identifies only a fixture
 object. Interrupted dispatch/result persistence requires reconciliation of the
 original operation, not a new key. The fake transport is a privately branded
@@ -92,10 +93,14 @@ dispute lifecycle and explicit balance-transaction correlation. Status alone doe
 not imply money movement. Sanitized references preserve malformed/conflicting
 transaction discovery; incomplete same-account coverage remains review.
 
-These are offline correlations without financial authority. Real-provider
-verification, canonical provider-to-money settlement and provider execution
-remain unimplemented. Event retention or an offline
-correlated result does not stand in for those checks.
+These correlations themselves have no financial authority. Migration 0124 adds a
+separate capture-only canonical rehearsal with source `offline_fixture_test`,
+fresh complete evidence, atomic binding and durable later-evidence holds. It uses
+only already persisted closed-fake-transport results in disposable databases.
+See `customer-payments-canonical-fixture-plan.md` for its strict boundaries.
+Real-provider verification, canonical real-provider settlement and provider
+execution remain unimplemented. Retention or a correlated result cannot replace
+those checks.
 
 ## Provider facts supporting the design
 

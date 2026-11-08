@@ -5,7 +5,8 @@ import { and, eq } from 'drizzle-orm';
 import type { AppointmentPayment } from '@/models/Schema';
 
 import { isCustomerPaymentLedgerTestEnabled } from '../ledgerTestGate';
-import { isCustomerPaymentTender, verifyCustomerPaymentTender } from '../provenance';
+import { isCustomerPaymentTender, verifyCustomerPaymentTender, verifyOfflineFixtureCaptureTender } from '../provenance';
+import { readOfflineFixtureCaptureEvidence } from './fixtureApplicationReader';
 
 type Reader = { select: (fields?: Record<string, unknown>) => any };
 
@@ -41,6 +42,7 @@ export async function enrichCustomerPaymentProvenance<T extends AppointmentPayme
         && refund.mode === 'test' && refund.source === 'synthetic_test'))) {
       return rows;
     }
+    const fixtureEvidence = await readOfflineFixtureCaptureEvidence(database, captures);
     return rows.map((row) => {
       if (!isCustomerPaymentTender(row)) {
         return row;
@@ -58,6 +60,13 @@ export async function enrichCustomerPaymentProvenance<T extends AppointmentPayme
         return row;
       }
       try {
+        if (capture.source === 'offline_fixture_test') {
+          const evidence = fixtureEvidence.find(item => item.application.captureId === capture.id);
+          if (!evidence || refunds.some((refund: typeof customerPaymentRefundSchema.$inferSelect) => refund.captureId === capture.id)) {
+            return row;
+          }
+          return verifyOfflineFixtureCaptureTender(row, capture, evidence);
+        }
         return verifyCustomerPaymentTender(row, {
           id: capture.id,
           salonId: capture.salonId,

@@ -15,6 +15,7 @@ import { assertVerifiedProviderReceipt, type VerifiedProviderReceipt } from '../
 import { type OperationState, validateOperationState } from '../provider/operations';
 import { assertVerifiedOfflineSessionProjection, type VerifiedCheckoutSessionEvidence } from '../provider/sessionEvidence';
 import { requireCustomerPaymentProviderFixtureEnabled } from '../providerTestGate';
+import { withProviderFixtureTransaction } from './providerFixtureFence';
 
 type Database = Pick<typeof db, 'select' | 'transaction'>;
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -36,33 +37,22 @@ function overflow(): ProviderCorrelationResult {
 }
 async function snapshot<T>(database: Database, write: boolean, body: (tx: Transaction) => Promise<T>): Promise<T> {
   requireCustomerPaymentProviderFixtureEnabled();
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await database.transaction(async (tx) => {
-        // Fixture-only global writer serialization, not an inbox ingestion fence.
-        if (write) {
-          const locked = await tx.update(mutex).set({ revision: sql`${mutex.revision} + 1` }).where(eq(mutex.id, 1)).returning();
-          if (locked.length !== 1) {
-            throw new Error('CUSTOMER_PAYMENT_CORRELATION_MUTEX_MISSING');
-          }
-        }
-        return body(tx);
-      }, { isolationLevel: 'repeatable read' });
-    } catch (error) {
-      const failure = error as { code?: string; cause?: { code?: string } };
-      if (!write || attempt >= 2 || !['40001', '40P01'].includes(failure.cause?.code ?? failure.code ?? '')) {
-        throw error;
+  if (write) {
+    return withProviderFixtureTransaction(database, async (tx) => {
+      const locked = await tx.update(mutex).set({ revision: sql`${mutex.revision} + 1` }).where(eq(mutex.id, 1)).returning();
+      if (locked.length !== 1) {
+        throw new Error('CUSTOMER_PAYMENT_CORRELATION_MUTEX_MISSING');
       }
-      // A serialization failure rolls the complete fixture transaction back.
-      // Retry the same deterministic inputs, never a provider action.
-    }
+      return body(tx);
+    });
   }
+  return database.transaction(body, { isolationLevel: 'repeatable read' });
 }
 async function clock(tx: Transaction) {
   const [row] = await tx.select({ now: sql<string>`clock_timestamp()`, snapshotStartedAt: sql<string>`transaction_timestamp()` }).from(sql`(SELECT 1) AS correlation_clock`);
   return { evaluatedAt: new Date(row!.now), snapshotStartedAt: new Date(row!.snapshotStartedAt) };
 }
-async function load(tx: Transaction, operationId: string, explicit: readonly string[], write: boolean) {
+async function load(tx: Transaction, operationId: string, explicit: readonly string[], write: boolean, options: { ignoreRetainedLinks?: boolean } = {}) {
   requireCustomerPaymentProviderFixtureEnabled();
   let operationQuery = tx.select().from(operations).where(eq(operations.id, operationId)).limit(1).$dynamic();
   if (write) {
@@ -82,7 +72,7 @@ async function load(tx: Transaction, operationId: string, explicit: readonly str
     throw new Error('CUSTOMER_PAYMENT_CORRELATION_QUOTE_NOT_FOUND');
   }
   const quote = { id: quoteRow.id, salonId: quoteRow.salonId, appointmentId: quoteRow.appointmentId, stripeAccountId: quoteRow.stripeAccountId, mode: quoteRow.mode, fingerprint: quoteRow.fingerprint, createdAt: quoteRow.createdAt, expiresAt: quoteRow.expiresAt, snapshot: { currency: quoteRow.snapshot.currency, chargeCents: quoteRow.snapshot.chargeCents, applicationFeeCents: quoteRow.snapshot.applicationFeeCents } };
-  const retained = await tx.select().from(links).where(eq(links.operationId, operationId)).orderBy(asc(links.inboxId)).limit(SCOPE_LIMIT + 1);
+  const retained = options.ignoreRetainedLinks ? [] : await tx.select().from(links).where(eq(links.operationId, operationId)).orderBy(asc(links.inboxId)).limit(SCOPE_LIMIT + 1);
   const requested = [...new Set([...explicit, ...retained.map(row => row.inboxId)])].sort();
   const scoped = await tx.select().from(inboxes).where(and(eq(inboxes.platformId, operation.identity.platformId), or(
     eq(inboxes.accountScope, 'platform'),

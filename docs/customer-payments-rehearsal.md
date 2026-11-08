@@ -166,7 +166,7 @@ synthetic refund seam. Neither is a verified webhook driver or real refund. The 
 configurable and salon-paid here; Stripe processing expense is not invented as
 an actual customer charge. Apple Pay would be offered by Stripe only when eligible.
 
-## Six default-off controls
+## Seven default-off controls
 
 - `CUSTOMER_PAYMENTS_REHEARSAL_ENABLED=false`: presentation-only
   `/en/payments-rehearsal`; no persisted salon settings or money.
@@ -192,8 +192,14 @@ an actual customer charge. Apple Pay would be offered by Stripe only when eligib
   outbox fixtures with a closed fake transport. Requires preparation enabled and
   `NODE_ENV=test`; it has no route, scheduled worker or financial posting authority.
 
-Production is refused by all six controls. None enables Stripe execution. Do not
-enable these against an unreviewed or shared application database. Migrations 0115–0121 have been
+- `CUSTOMER_PAYMENTS_FIXTURE_APPLICATION_ENABLED=false`: capture-only canonical
+  application from freshly revalidated offline fixture evidence. Requires the
+  provider/preparation/ledger test gates; there is no route or provider call.
+  Historical fixture reads require test mode and preparation/ledger, independently
+  of both fixture writer switches.
+
+Production is refused by all seven controls. None enables Stripe execution. Do not
+enable these against an unreviewed or shared application database. Migrations 0115–0124 are exercised only in tests and have been
 exercised through the real journal in isolated fixtures/disposable PostgreSQL,
 not applied to a development, preview or production application DB.
 
@@ -380,14 +386,43 @@ transaction references. Unknown same-account identity coverage conservatively
 requires review. This is a deliberately bounded offline contract, not verified
 live-provider compatibility. Existing review and financial records are unchanged.
 
-A capture-only canonical rehearsal is planned separately. See
-`docs/customer-payments-canonical-fixture-plan.md`; the correlation result itself
+The separate capture-only canonical fixture application is described below and in
+`docs/customer-payments-canonical-fixture-plan.md`. The correlation result itself
 still grants no settlement authority.
 
 At this intermediate checkpoint, **1,599 scoped regressions**, **44 separate
 PostgreSQL cases**, standalone typecheck and scoped lint passed. The full build
 and browser/production-off smoke checks will be rerun after the coordinated
 canonical rehearsal phase; their prior complete pass is `126579b5`.
+
+## Capture-only canonical fixture application (0124)
+
+The injected operation-ID-only application now connects authoritative prepared
+quotes and persisted closed-fake-provider facts to capture/tender/cache records.
+Its distinct `offline_fixture_test` source is never synthetic or real-provider
+proof. Immutable source and ownership snapshots, the final platform revision,
+charge identity, quote and observed success-event time are bound together.
+
+Atomic deferred database checks reject partial or mismatched bindings. Admission
+and source revision fences coordinate application, ingestion and protected
+appointment mutations with NOWAIT/full-transaction retry. Materially new facts
+append permanent holds without erasing gross money. This phase deliberately
+holds earlier applications across the same fixture platform, including unrelated
+appointments, and is not a production scaling or reconciliation design.
+
+Exact same receipt-key replays and harmless inspection/derived correlation stay
+non-material. A new endpoint receipt identity can conservatively create a hold.
+Fresh fixture readers retain history when future writes are off, but require
+`NODE_ENV=test`. They keep held cash visible while ordinary collection,
+completion, lifecycle and unsupported credit decisions fail closed.
+
+Four full-journal integration cases exercise the actual checkout, completion,
+reporting and blocked mutation routes. Added tax and prepaid tip stay intact;
+later refund, dispute and conflicting evidence preserve gross history. Auth and
+notifications are mocked, and every provider fact is fake. Final verification passed 1,714 scoped regressions, 54 separate PostgreSQL cases,
+20 mocked browser cases, typecheck, scoped lint, full production build and 12
+production-off checks. Exact limits are recorded in the integration gates.
+No actual card, Apple Pay, provider refund or payout has been executed.
 
 ## Remaining gates before collection
 

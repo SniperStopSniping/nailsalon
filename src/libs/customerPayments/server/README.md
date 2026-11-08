@@ -3,7 +3,9 @@
 Customer collection remains disabled. None of these paths creates a provider
 session, charges or refunds real money. Preparation and local rehearsal do not
 write canonical appointment money. A separately gated internal synthetic test
-seam now projects fixture captures into actual tender/tip/cache tables.
+seam projects synthetic captures into actual tender/tip/cache tables. A separate
+strict-test-only offline fixture application now uses distinct provenance and
+atomic bindings, only in private disposable tests. Neither is a provider adapter.
 
 ## Application-table preparation
 
@@ -507,3 +509,77 @@ snapshot reads during newly linked evidence arrival. Final native PostgreSQL
 verification passed 44/44 (prior 39 plus five dispute cases). Before/after source,
 evidence, core and migration hashes matched. The new private cluster and secrets
 were removed, with no remaining listener.
+
+### Capture-only canonical fixture application (0124)
+
+`createProviderFixtureCaptureApplication(database).applyCapture({ operationId })`
+requires `CUSTOMER_PAYMENTS_FIXTURE_APPLICATION_ENABLED=true` plus the existing
+provider/preparation/ledger test gates. It rejects production and accepts only an
+operation UUID with an injected database. It executes no transport and imports
+no global DB or Stripe client. Already persisted closed-fake-transport results,
+not caller money or a saved correlation result, supply operation evidence.
+
+Its canonical source is `offline_fixture_test`. The application stores immutable
+fresh source/ownership snapshots and hashes, final platform revision, quote,
+charge/intent/account, selected observed-success event and capture/tender binding.
+The source/ownership hashes are checked in server readers/writer and SQL, not via
+an arbitrary callback in the shared pure ledger. Original inbox review and old
+synthetic provenance/refund/credit contracts stay separate.
+
+Canonical source discovery ignores retained derived inspection links while still
+binding the natural relationship closure and every platform receipt/conflict
+identity. An unrelated inspection pointer may change a diagnostic correlation
+view, but cannot create or remove canonical money authority. New factual source
+rows and ownership, unlike derived audits or delivery leases, advance the material
+platform revision. Same-key ON CONFLICT replays do not advance it.
+
+The precreated singleton admission row is locked NOWAIT and updated before source
+or application work; it is distinct from the material platform revision. Source
+BEFORE triggers admit, while AFTER actual changes invalidate. Old repeatable-read
+writers retry the entire local transaction on contention/serialization, not
+provider dispatch. The old correlation mutex is also acquired NOWAIT. Raw SQL
+source writes are fenced too; there is no bypass setting.
+
+Application, capture, reserved tender and paid/tip projection commit together.
+Deferred constraints reject missing or inconsistent bindings. Later material
+facts append permanent holds without modifying gross money. Appointment-first
+protected mutations take admission FOR SHARE NOWAIT and compare the returned
+current platform revision, rather than trusting possibly stale hold visibility.
+This conservative fence can also refuse overlapping legacy/synthetic marker work;
+it must roll back, never report a false successful or held capture.
+
+The first phase deliberately holds all earlier applications in the same fixture
+platform, including unrelated appointments and new endpoint receipt identities.
+This is not a production invalidation, throughput or hold-clearing design.
+Separate fixture readers keep gross reporting visible when either writer switch
+is off, while preparation/ledger and strict `NODE_ENV=test` remain required.
+Held applications block ordinary collection, completion, lifecycle and unsupported
+credit actions. Refund allocations, fee returns, dispute posting and legal credits
+are not inferred or implemented by this capture application.
+
+`fixtureApplication.concurrency.integration.test.ts` uses
+`CUSTOMER_PAYMENT_FIXTURE_APPLICATION_TEST_DATABASE_URL` and optional required-mode
+`CUSTOMER_PAYMENT_FIXTURE_APPLICATION_PG_REQUIRED=true`. The same private target
+and every-session attestation are mandatory. Missing target skips; invalid or
+required-missing targets fail before connecting. Run with Node 24:
+
+```sh
+/usr/local/bin/node node_modules/vitest/vitest.mjs run src/libs/customerPayments/server/fixtureApplication.concurrency.integration.test.ts --maxWorkers=1 --no-file-parallelism
+```
+
+The native cases cover competing applications, source/application contention,
+rollback, harmless repeats, old snapshots before source changes and before first
+application, opposite lock order, synthetic compatibility, deferred orphans and
+write-flag rollback. Independent full-journal boundaries separately cover partial
+write rollback, immutable binding/source separation, scope/quote identity,
+hash corruption, permanent holds and unsupported credit/refund paths. Actual
+checkout/completion/reporting integration retains added tax and prepaid tip.
+These checks do not execute a real card, wallet, refund, dispute or payout.
+
+Final native verification passed **54/54** across nine files: the ten new
+application races plus the prior 44 preparation, settlement, refund, credit,
+provider and correlation cases. SQL and fence hashes were stable across the run.
+The fresh private PostgreSQL 16.15 cluster used a lock-table budget of 256 because
+the complete migration journal exhausted the default 64 during schema creation.
+Only that temporary cluster was configured; no existing service changed. Its
+cluster and temporary secrets were removed and the loopback port released.

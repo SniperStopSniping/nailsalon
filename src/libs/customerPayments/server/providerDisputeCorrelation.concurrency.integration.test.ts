@@ -43,16 +43,18 @@ function barrier() {
   });
   return { promise, release };
 }
-async function blockedBy(waiter: number, blocker: number) {
-  const deadline = Date.now() + 4000;
-  while (Date.now() < deadline) {
-    const result = await clients[3]!.query<{ blockers: number[] }>('SELECT pg_blocking_pids($1) AS blockers', [waiter]);
-    if (result.rows[0]?.blockers.includes(blocker)) {
-      return;
-    }
-    await new Promise(resolve => setTimeout(resolve, 10));
+async function admissionRefused(action: Promise<unknown>, waiter: number) {
+  const [outcome] = await Promise.allSettled([action]);
+
+  expect(outcome!.status).toBe('rejected');
+
+  if (outcome!.status !== 'rejected') {
+    throw new Error('Expected bounded admission contention');
   }
-  throw new Error('Expected genuine PG blocking not observed');
+  const failure = outcome.reason as { code?: string; cause?: { code?: string } };
+
+  expect(failure.cause?.code ?? failure.code).toBe('55P03');
+  expect((await clients[3]!.query<{ blockers: number[] }>('SELECT pg_blocking_pids($1) AS blockers', [waiter])).rows[0]!.blockers).toEqual([]);
 }
 const receivedAt = new Date('2026-11-08T12:00:00Z');
 const eventCreated = Math.floor(receivedAt.getTime() / 1000) - 1;
@@ -197,15 +199,16 @@ suite('provider dispute correlation — attested PostgreSQL concurrency', () => 
     await entered.promise;
     const second = createProviderDisputeCorrelation(databases[2]!).correlateOperation(f.identity.id);
     const outcomes = Promise.allSettled([first, second]);
+    // Admission is NOWAIT: refuse bounded contention, then retry after commit.
     try {
-      await blockedBy(pids[2]!, pids[1]!);
+      await admissionRefused(second, pids[2]!);
     } finally {
       release.release();
       await outcomes;
       await handled;
     }
     const a = await first;
-    const b = await second;
+    const b = await createProviderDisputeCorrelation(databases[2]!).correlateOperation(f.identity.id);
 
     expect(a.result.state).toBe('pending');
     expect(a.result.balanceCandidates).toEqual([]);

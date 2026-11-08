@@ -13,6 +13,7 @@ import { assertVerifiedProviderReceipt, type VerifiedProviderReceipt } from '../
 import { applyOperationCommand, claimOperation as claimPure, createOperation, type OperationCommand, type OperationIdentity, type OperationState, validateOperationIdentity, validateOperationState } from '../provider/operations';
 import { requireCustomerPaymentProviderFixtureEnabled } from '../providerTestGate';
 import { customerPaymentFingerprint } from './preparationRepository';
+import { withProviderFixtureTransaction } from './providerFixtureFence';
 
 type Database = Pick<typeof db, 'select' | 'transaction'>;
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -59,7 +60,7 @@ export function createProviderJournal(database: Database) {
       assertVerifiedProviderReceipt(receipt);
       const { receivedAt: _receivedAt, ...content } = receipt;
       const fingerprint = customerPaymentFingerprint(content);
-      const result = await database.transaction(async (tx) => {
+      const result = await withProviderFixtureTransaction(database, async (tx) => {
         await tx.insert(inboxes).values({ id: randomUUID(), endpointId: receipt.endpointId, platformId: receipt.platformId, accountScope: receipt.accountScope, accountKey: receipt.accountId ?? '', mode: receipt.mode, receiptIdentity: receipt.receiptIdentity, fingerprint, receipt: json(receipt) }).onConflictDoNothing();
         const [existing] = await tx.select().from(inboxes).where(inboxKey(receipt)).for('update').limit(1);
         if (!existing) {
@@ -80,7 +81,7 @@ export function createProviderJournal(database: Database) {
     },
     async getInbox(id: string) {
       requireCustomerPaymentProviderFixtureEnabled();
-      return database.transaction(async (tx) => {
+      return withProviderFixtureTransaction(database, async (tx) => {
         const [row] = await tx.select().from(inboxes).where(eq(inboxes.id, id)).for('share').limit(1);
         if (!row) {
           return null;
@@ -93,7 +94,7 @@ export function createProviderJournal(database: Database) {
       requireCustomerPaymentProviderFixtureEnabled();
       consumerSchema.parse(consumer);
       z.number().int().min(1).max(1000000).parse(consumerVersion);
-      return database.transaction(async (tx) => {
+      return withProviderFixtureTransaction(database, async (tx) => {
         const [inbox] = await tx.select().from(inboxes).where(eq(inboxes.id, inboxId)).for('update').limit(1);
         if (!inbox) {
           throw new Error('CUSTOMER_PAYMENT_PROVIDER_INBOX_NOT_FOUND');
@@ -116,7 +117,7 @@ export function createProviderJournal(database: Database) {
       requireCustomerPaymentProviderFixtureEnabled();
       workerSchema.parse(input.workerId);
       leaseSchema.parse(input.leaseMs);
-      return database.transaction(async (tx) => {
+      return withProviderFixtureTransaction(database, async (tx) => {
         const row = await lockDelivery(tx, id);
         const time = await now(tx);
         if (!['pending', 'retry', 'processing'].includes(row.state) || (row.leaseUntil !== null && row.leaseUntil.getTime() > time)) {
@@ -135,7 +136,7 @@ export function createProviderJournal(database: Database) {
       tokenSchema.parse(input.leaseToken);
       z.enum(['completed', 'review', 'retry']).parse(input.outcome);
       z.string().max(1000).optional().parse(input.detail);
-      return database.transaction(async (tx) => {
+      return withProviderFixtureTransaction(database, async (tx) => {
         const row = await lockDelivery(tx, id);
         if (row.version !== input.expectedVersion || row.leaseToken !== input.leaseToken || row.state !== 'processing' || !row.leaseUntil || row.leaseUntil.getTime() <= await now(tx)) {
           throw new Error('CUSTOMER_PAYMENT_PROVIDER_DELIVERY_FENCE');
@@ -151,7 +152,7 @@ export function createProviderJournal(database: Database) {
       requireCustomerPaymentProviderFixtureEnabled();
       const identity = validateOperationIdentity(raw);
       const fingerprint = customerPaymentFingerprint(identity);
-      return database.transaction(async (tx) => {
+      return withProviderFixtureTransaction(database, async (tx) => {
         const [quote] = await tx.select().from(customerPaymentPreparedQuoteSchema).where(eq(customerPaymentPreparedQuoteSchema.id, identity.quoteId)).limit(1);
         if (!quote || quote.salonId !== identity.salonId || quote.appointmentId !== identity.appointmentId || quote.mode !== 'test' || quote.fingerprint !== identity.contextHash
           || (identity.accountScope === 'connected' && identity.accountId !== quote.stripeAccountId)) {
@@ -189,7 +190,7 @@ export function createProviderJournal(database: Database) {
       workerSchema.parse(input.workerId);
       leaseSchema.parse(input.leaseMs);
       z.enum(['dispatch', 'reconcile']).parse(input.purpose);
-      return database.transaction(async (tx) => {
+      return withProviderFixtureTransaction(database, async (tx) => {
         const [row] = await tx.select().from(states).where(eq(states.operationId, id)).for('update').limit(1);
         if (!row) {
           throw new Error('CUSTOMER_PAYMENT_PROVIDER_OPERATION_NOT_FOUND');
@@ -207,7 +208,7 @@ export function createProviderJournal(database: Database) {
       requireCustomerPaymentProviderFixtureEnabled();
       versionSchema.parse(input.expectedVersion);
       tokenSchema.parse(input.leaseToken);
-      return database.transaction(async (tx) => {
+      return withProviderFixtureTransaction(database, async (tx) => {
         const [row] = await tx.select().from(states).where(eq(states.operationId, id)).for('update').limit(1);
         if (!row) {
           throw new Error('CUSTOMER_PAYMENT_PROVIDER_OPERATION_NOT_FOUND');

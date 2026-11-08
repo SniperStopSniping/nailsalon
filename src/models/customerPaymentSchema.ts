@@ -56,7 +56,7 @@ export const customerPaymentCaptureSchema = pgTable('customer_payment_capture', 
   quoteId: text('quote_id').notNull(),
   stripeAccountId: text('stripe_account_id').notNull(),
   mode: text('mode').$type<'test'>().notNull().default('test'),
-  source: text('source').$type<'synthetic_test'>().notNull().default('synthetic_test'),
+  source: text('source').$type<'synthetic_test' | 'offline_fixture_test'>().notNull().default('synthetic_test'),
   paymentIntentId: text('payment_intent_id').notNull(),
   tenderId: text('tender_id').notNull().references(() => appointmentPaymentSchema.id, { onDelete: 'restrict' }),
   currency: text('currency').notNull(),
@@ -77,7 +77,7 @@ export const customerPaymentCaptureSchema = pgTable('customer_payment_capture', 
   intentOnce: uniqueIndex('customer_payment_capture_intent_once').on(table.stripeAccountId, table.mode, table.paymentIntentId),
   tenderOnce: uniqueIndex('customer_payment_capture_tender_once').on(table.tenderId),
   tenderMarker: check('customer_payment_capture_tender_marker', sql`${table.tenderId} = 'cpay_' || ${table.id}`),
-  syntheticOnly: check('customer_payment_capture_synthetic_only', sql`${table.mode} = 'test' AND ${table.source} = 'synthetic_test'`),
+  testSourceOnly: check('customer_payment_capture_test_source_only', sql`${table.mode} = 'test' AND ${table.source} IN ('synthetic_test', 'offline_fixture_test')`),
 }));
 export type CustomerPaymentCapture = typeof customerPaymentCaptureSchema.$inferSelect;
 
