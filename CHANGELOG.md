@@ -1,3 +1,10 @@
+## [1.151.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.151.0...v1.151.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **admin:** match Clients and Calendar sheet spacing to Services ([#503](https://github.com/SniperStopSniping/nailsalon/issues/503)) ([bc4e725](https://github.com/SniperStopSniping/nailsalon/commit/bc4e7254f8cf2c80d2ae37d17f3d57351b19bfd2))
+
 # [1.151.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.150.2...v1.151.0) (2026-11-09)
 
 
