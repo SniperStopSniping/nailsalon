@@ -11,6 +11,7 @@ import { AppModal, BackButton, ModalHeader } from '@/components/admin/AppModal';
 import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
 import { OwnerWorkspaceHeader } from '@/components/admin/OwnerWorkspaceHeader';
 import { OwnerWorkspaceNav, type OwnerWorkspaceTab } from '@/components/admin/OwnerWorkspaceNav';
+import { addDaysToDateKey, getDateKeyInTimeZone, zonedTimeToUtc } from '@/libs/timeZone';
 import en from '@/locales/en.json';
 
 // Isolated browser fixture: render production components with synthetic API data.
@@ -20,7 +21,11 @@ const empty = query.get('state') === 'empty';
 const error = query.get('state') === 'error';
 const now = new Date();
 const time = (minutes: number) => new Date(now.getTime() + minutes * 60_000).toISOString();
-const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto' }).format(now);
+const timeZone = 'America/Toronto';
+const date = getDateKeyInTimeZone(now, timeZone);
+const tomorrowDate = addDaysToDateKey(date, 1);
+const tomorrowAtTen = zonedTimeToUtc({ date: tomorrowDate, time: '10:00', timeZone });
+const tomorrowOffset = (tomorrowAtTen.getTime() - now.getTime()) / 60_000;
 const appointment = (id: string, name: string, minutes: number, status = 'confirmed') => ({
   id,
   clientName: name,
@@ -70,6 +75,13 @@ window.fetch = async (input) => {
         timeZone: 'America/Toronto',
         technicians: [{ id: 'qa-tech', name: 'Daniela' }],
         appointments: empty ? [] : [appointment('qa-current', 'Sofia Martin', -10, 'in_progress'), appointment('qa-next', 'Emma Chen', 70), appointment('qa-later', 'Olivia James', 150)],
+        tomorrow: {
+          date: tomorrowDate,
+          appointments: empty
+            ? []
+            : ['Ariana King', 'Carla Torres', 'Emma Robinson', 'Melissa Davis', 'Noor Khalil', 'Yuki Aoki'].map((name, index) =>
+                appointment(`qa-tomorrow-${index}`, name, tomorrowOffset + index * 60)),
+        },
         dueClients: [],
         failedConfirmations: [],
         googleEventsNeedingReview: 0,

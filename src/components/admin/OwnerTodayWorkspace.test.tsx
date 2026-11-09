@@ -7,6 +7,7 @@ import {
   RETENTION_DATA_CHANGED_EVENT,
 } from '@/libs/dashboardEvents';
 import type { ReportingProvenance } from '@/libs/financialReporting';
+import { addDaysToDateKey, zonedTimeToUtc } from '@/libs/timeZone';
 import type { OwnerFinancialSummary } from '@/types/ownerFinancialSummary';
 
 import { OwnerTodayWorkspace } from './OwnerTodayWorkspace';
@@ -28,12 +29,30 @@ const todayDate = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 }).format(new Date());
 
+function scheduleFixture(
+  appointment: Partial<{ id: string; clientName: string | null; startTime: string; endTime: string; status: string; clientSensitivities: string }>,
+  index: number,
+) {
+  return {
+    id: appointment.id ?? `appt_${index}`,
+    clientName: appointment.clientName ?? `Client ${index}`,
+    startTime: appointment.startTime ?? new Date(Date.now() + 3_600_000).toISOString(),
+    endTime: appointment.endTime ?? new Date(Date.now() + 7_200_000).toISOString(),
+    status: appointment.status ?? 'confirmed',
+    totalDurationMinutes: 60,
+    technicianId: 'tech_daniela',
+    services: ['Gel manicure'],
+    clientSensitivities: appointment.clientSensitivities ?? null,
+  };
+}
+
 const todayPayload = {
   data: {
     date: todayDate,
     timeZone: 'America/Toronto',
     technicians: [],
     appointments: [],
+    tomorrow: { date: addDaysToDateKey(todayDate, 1), appointments: [] as ReturnType<typeof scheduleFixture>[] },
     dueClients: [],
     failedConfirmations: [],
     googleEventsNeedingReview: 0,
@@ -963,19 +982,8 @@ describe('OwnerTodayWorkspace revenue for a collaborator', () => {
 });
 
 describe('OwnerTodayWorkspace first fold', () => {
-  // Relative to the real clock: "still to come" is a fact about now, and a
-  // hard-coded date would quietly stop testing it.
-  const IN_AN_HOUR = new Date(Date.now() + 3_600_000).toISOString();
-  const IN_TWO_HOURS = new Date(Date.now() + 7_200_000).toISOString();
-
   function todayWith(
-    appointmentOverrides: Array<Partial<{
-      id: string;
-      clientName: string | null;
-      startTime: string;
-      endTime: string;
-      status: string;
-    }>>,
+    appointmentOverrides: Parameters<typeof scheduleFixture>[0][],
     integrationOverrides?: Record<string, unknown>,
     technicians = [{ id: 'tech_daniela', name: 'Daniela' }],
   ) {
@@ -983,19 +991,8 @@ describe('OwnerTodayWorkspace first fold', () => {
       data: {
         ...todayPayload.data,
         technicians,
-        appointments: appointmentOverrides.map((appointment, index) => ({
-          id: appointment.id ?? `appt_${index}`,
-          clientName: appointment.clientName ?? `Client ${index}`,
-          startTime: appointment.startTime ?? IN_AN_HOUR,
-          endTime: appointment.endTime ?? IN_TWO_HOURS,
-          status: appointment.status ?? 'confirmed',
-          totalPrice: 8000,
-          totalDurationMinutes: 60,
-          technicianName: 'Daniela',
-          technicianId: 'tech_daniela',
-          services: ['Gel manicure'],
-          clientSensitivities: null,
-        })),
+        tomorrow: { ...todayPayload.data.tomorrow },
+        appointments: appointmentOverrides.map(scheduleFixture),
         integrationHealth: {
           ...todayPayload.data.integrationHealth,
           ...(integrationOverrides ?? {}),
@@ -1022,7 +1019,7 @@ describe('OwnerTodayWorkspace first fold', () => {
     });
   }
 
-  it('surfaces a booking request ahead of the appointment hero and opens its existing sheet', async () => {
+  it('surfaces a booking request separately and opens its existing sheet', async () => {
     mockWorkspace(todayWith([
       { id: 'appt_confirmed', status: 'confirmed' },
       {
@@ -1047,7 +1044,7 @@ describe('OwnerTodayWorkspace first fold', () => {
     expect(onOpenAppointment).toHaveBeenCalledWith('appt_audit_a11');
   });
 
-  it('puts urgent appointment work above the appointment hero and schedule', async () => {
+  it('puts urgent appointment work above the schedule', async () => {
     mockWorkspace(todayWith([{ id: 'appt_pending', status: 'pending' }]));
 
     renderWorkspace();
@@ -1074,21 +1071,42 @@ describe('OwnerTodayWorkspace first fold', () => {
     expect(screen.queryByTestId('owner-needs-attention')).not.toBeInTheDocument();
   });
 
-  it('uses a confirmed appointment as Next and does not render the old count tile', async () => {
-    mockWorkspace(todayWith([
-      { id: 'a', status: 'confirmed' },
-      { id: 'b', status: 'confirmed' },
-      { id: 'c', status: 'confirmed' },
-      { id: 'd', status: 'pending' },
-    ]));
+  it('shows the selected salon date and switches between complete appointment counts', async () => {
+    const tomorrowDate = addDaysToDateKey(todayDate, 1);
+    const time = zonedTimeToUtc({ date: tomorrowDate, time: '10:00', timeZone: 'America/Toronto' });
+    const tomorrow = todayWith([{
+      id: 'tomorrow-appt',
+      clientName: 'Emma Robinson',
+      startTime: time.toISOString(),
+      endTime: new Date(time.getTime() + 3_600_000).toISOString(),
+      clientSensitivities: 'HEMA sensitivity',
+    }]).data.appointments;
+    const payload = todayWith([{ id: 'today-appt', clientName: 'Sofia Martin' }]);
+    mockWorkspace({ data: { ...payload.data, tomorrow: { date: tomorrowDate, appointments: tomorrow } } });
+    const onOpenAppointment = vi.fn();
 
-    renderWorkspace();
+    renderWorkspace({ onOpenAppointment });
 
-    const hero = await screen.findByTestId('owner-current-next-appointment');
+    const agenda = within(screen.getByTestId('owner-today-agenda'));
 
-    expect(hero).toHaveTextContent('Next appointment');
-    expect(hero).toHaveTextContent('Client 0');
-    expect(screen.queryByTestId('owner-today-count-tile')).not.toBeInTheDocument();
+    expect(await agenda.findByRole('tab', { name: 'Today (1)' })).toHaveAttribute('aria-selected', 'true');
+    expect(agenda.getByRole('heading')).toHaveTextContent('Today ·');
+
+    await userEvent.click(agenda.getByRole('tab', { name: 'Tomorrow (1)' }));
+
+    expect(agenda.getByRole('heading').querySelector('time')).toHaveAttribute('datetime', tomorrowDate);
+
+    const row = agenda.getByRole('button', { name: /10:00 AM Emma R\. Gel manicure · 60 min/ });
+
+    expect(row).not.toHaveTextContent(/confirmed|Daniela|HEMA/i);
+    expect(agenda.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(agenda.queryByText('Sofia M.')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Client sensitivities · Tomorrow' })).toBeVisible();
+    expect(screen.getByText('HEMA sensitivity')).toBeVisible();
+
+    await userEvent.click(row);
+
+    expect(onOpenAppointment).toHaveBeenCalledWith('tomorrow-appt');
   });
 
   it('opens the revenue card on its headline figures, with the detail behind a disclosure', async () => {
@@ -1141,21 +1159,36 @@ describe('OwnerTodayWorkspace first fold', () => {
     expect(utilities).toHaveTextContent('Manage integrations');
   });
 
-  it('keeps the hero and urgent request out of Rest of Today while retaining ordinary schedule rows', async () => {
-    mockWorkspace(todayWith([
-      { id: 'a', status: 'confirmed' },
-      { id: 'b', status: 'confirmed' },
-      { id: 'c', status: 'pending' },
-    ]));
+  it('previews five rows from the full count and expands only the selected day', async () => {
+    const statuses = ['completed', 'in_progress', 'awaiting_payment', 'pending', 'confirmed', 'confirmed'];
+    mockWorkspace(todayWith(statuses.map((status, index) => ({
+      id: `appt_${index}`,
+      clientName: ['Ariana', 'Bella', 'Carla', 'Dina', 'Emma', 'Fiona'][index],
+      startTime: new Date(Date.now() + index * 3_600_000).toISOString(),
+      endTime: new Date(Date.now() + (index + 1) * 3_600_000).toISOString(),
+      status,
+    }))));
 
     renderWorkspace();
 
-    const agenda = await screen.findByTestId('owner-today-agenda');
+    const agenda = within(screen.getByTestId('owner-today-agenda'));
+    await agenda.findByRole('tab', { name: 'Today (6)' });
 
-    await waitFor(() => expect(within(agenda).getAllByText('Client 1')).toHaveLength(1));
+    expect(agenda.getAllByRole('listitem').map(row => row.querySelector('button > span > span')?.textContent))
+      .toEqual(['Ariana', 'Bella', 'Carla', 'Dina', 'Emma']);
 
-    expect(within(agenda).queryByText('Client 0')).not.toBeInTheDocument();
-    expect(within(agenda).queryByText('Client 2')).not.toBeInTheDocument();
+    await userEvent.click(agenda.getByRole('button', { name: 'View all appointments' }));
+
+    expect(agenda.getAllByRole('listitem')).toHaveLength(6);
+    expect(agenda.getByRole('button', { name: 'Show fewer appointments' })).toHaveAttribute('aria-expanded', 'true');
+
+    await userEvent.click(agenda.getByRole('tab', { name: 'Tomorrow (0)' }));
+
+    expect(agenda.getByText('No appointments tomorrow')).toBeVisible();
+
+    await userEvent.click(agenda.getByRole('tab', { name: 'Today (6)' }));
+
+    expect(agenda.getAllByRole('listitem')).toHaveLength(5);
   });
 
   it('uses the active roster for the team filter, even when names duplicate', async () => {
@@ -1169,6 +1202,7 @@ describe('OwnerTodayWorkspace first fold', () => {
     ], undefined, technicians);
     today.data.appointments[0]!.technicianId = 'tech_avery_one';
     today.data.appointments[1]!.technicianId = 'tech_avery_two';
+    today.data.tomorrow.appointments = [today.data.appointments[1]!];
     mockWorkspace(today);
 
     renderWorkspace();
@@ -1183,10 +1217,12 @@ describe('OwnerTodayWorkspace first fold', () => {
     expect(averyFilters[0]).toHaveAttribute('aria-pressed', 'true');
     expect(averyFilters[1]).toHaveAttribute('aria-pressed', 'false');
 
-    const hero = screen.getByTestId('owner-current-next-appointment');
+    const agenda = within(screen.getByTestId('owner-today-agenda'));
 
-    expect(hero).toHaveTextContent('First Avery client');
-    expect(hero).not.toHaveTextContent('Second Avery client');
+    expect(agenda.getByRole('tab', { name: 'Today (1)' })).toBeInTheDocument();
+    expect(agenda.getByRole('tab', { name: 'Tomorrow (0)' })).toBeInTheDocument();
+    expect(agenda.getByText('First c.')).toBeInTheDocument();
+    expect(agenda.queryByText('Second c.')).not.toBeInTheDocument();
   });
 
   it('does not create a team filter from a single appointment name', async () => {
@@ -1196,7 +1232,7 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     renderWorkspace();
 
-    await screen.findByTestId('owner-current-next-appointment');
+    await screen.findByRole('tab', { name: 'Today (1)' });
 
     expect(screen.queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
   });
@@ -1214,44 +1250,89 @@ describe('OwnerTodayWorkspace first fold', () => {
     expect(screen.queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
   });
 
-  it('keeps pending and unresolved appointments out of Rest of Today after surfacing them in urgent attention', async () => {
+  it('includes pending and overdue appointments in the schedule and keeps their actions separate', async () => {
     const pastStart = new Date(Date.now() - 7_200_000).toISOString();
     const pastEnd = new Date(Date.now() - 3_600_000).toISOString();
     mockWorkspace(todayWith([
-      { id: 'unresolved', clientName: 'Earlier client', status: 'confirmed', startTime: pastStart, endTime: pastEnd },
-      { id: 'pending', clientName: 'Requested client', status: 'pending' },
-      { id: 'next', clientName: 'Later client', status: 'confirmed' },
+      { id: 'unresolved', clientName: 'Earlier Client', status: 'confirmed', startTime: pastStart, endTime: pastEnd },
+      { id: 'pending', clientName: 'Requested Client', status: 'pending' },
+      { id: 'next', clientName: 'Later Client', status: 'confirmed' },
     ]));
 
     renderWorkspace();
 
     const urgent = await screen.findByTestId('owner-urgent-attention');
-    const agenda = screen.getByTestId('owner-today-agenda');
+    const agenda = within(screen.getByTestId('owner-today-agenda'));
 
-    expect(urgent).toHaveTextContent('Earlier client needs an update');
-    expect(urgent).toHaveTextContent('Booking request from Requested client');
-    expect(within(agenda).queryByText('Earlier client')).not.toBeInTheDocument();
-    expect(within(agenda).queryByText('Requested client')).not.toBeInTheDocument();
-    expect(screen.getByTestId('owner-current-next-appointment')).toHaveTextContent('Later client');
+    expect(urgent).toHaveTextContent('Earlier Client needs an update');
+    expect(urgent).toHaveTextContent('Booking request from Requested Client');
+    expect(agenda.getByRole('tab', { name: 'Today (3)' })).toBeInTheDocument();
+    expect(agenda.getAllByRole('listitem')).toHaveLength(3);
+    expect(agenda.getByText('Earlier C.')).toBeInTheDocument();
+    expect(agenda.getByText('Requested C.')).toBeInTheDocument();
+    expect(agenda.getByText('Later C.')).toBeInTheDocument();
   });
 
-  it('shows an authoritative in-progress appointment as Current and keeps a past-ended confirmed appointment actionable', async () => {
-    const PAST_START = new Date(Date.now() - 7_200_000).toISOString();
-    const PAST_END = new Date(Date.now() - 3_600_000).toISOString();
-    mockWorkspace(todayWith([
-      { id: 'unresolved', clientName: 'Earlier client', status: 'confirmed', startTime: PAST_START, endTime: PAST_END },
-      { id: 'current', clientName: 'Current client', status: 'in_progress' },
-      { id: 'hold', clientName: 'Payment hold', status: 'awaiting_payment' },
-    ]));
+  it('keeps the same-day schedule on refresh failure and updates both counts on retry', async () => {
+    const payload = todayWith([{ id: 'one' }]);
+    mockWorkspace(payload);
+    const successfulFetch = fetchMock.getMockImplementation()!;
+    let response = payload;
+    let failed = false;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      if (!String(input).startsWith('/api/admin/today?')) {
+        return successfulFetch(input);
+      }
+      return failed
+        ? Response.json({ error: { message: 'Schedule unavailable.' } }, { status: 503 })
+        : Response.json(response);
+    });
 
     renderWorkspace();
+    const agenda = within(screen.getByTestId('owner-today-agenda'));
+    await agenda.findByRole('tab', { name: 'Today (1)' });
 
-    const urgent = await screen.findByTestId('owner-urgent-attention');
-    const hero = await screen.findByTestId('owner-current-next-appointment');
+    failed = true;
+    act(() => window.dispatchEvent(new Event(APPOINTMENT_DATA_CHANGED_EVENT)));
 
-    expect(urgent).toHaveTextContent('Earlier client needs an update');
-    expect(hero).toHaveTextContent('Current appointment');
-    expect(hero).toHaveTextContent('Current client');
-    expect(hero).not.toHaveTextContent('Payment hold');
+    expect(await agenda.findByRole('alert')).toHaveTextContent('Showing the last available schedule.');
+    expect(agenda.getByRole('tab', { name: 'Today (1)' })).toBeInTheDocument();
+
+    failed = false;
+    response = todayWith([]);
+    response.data.tomorrow.appointments = payload.data.appointments;
+    await userEvent.click(agenda.getByRole('button', { name: 'Try again' }));
+
+    expect(await agenda.findByRole('tab', { name: 'Today (0)' })).toBeInTheDocument();
+    expect(agenda.getByRole('tab', { name: 'Tomorrow (1)' })).toBeInTheDocument();
+  });
+
+  it('refreshes both dates after a backgrounded dashboard crosses salon midnight', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T03:50:00Z'));
+    const payload = todayWith([]);
+    payload.data.date = '2026-10-31';
+    payload.data.tomorrow.date = '2026-11-01';
+    mockWorkspace(payload);
+
+    try {
+      renderWorkspace();
+      const agenda = within(screen.getByTestId('owner-today-agenda'));
+      await agenda.findByRole('tab', { name: 'Today (0)' });
+
+      expect(agenda.getByRole('heading').querySelector('time')).toHaveAttribute('datetime', '2026-10-31');
+
+      payload.data.date = '2026-11-01';
+      payload.data.tomorrow.date = '2026-11-02';
+      payload.data.appointments = todayWith([{ id: 'after-midnight', clientName: 'Emma Robinson' }]).data.appointments;
+      clock.mockReturnValue(Date.parse('2026-11-01T04:10:00Z'));
+      act(() => document.dispatchEvent(new Event('visibilitychange')));
+
+      await agenda.findByRole('tab', { name: 'Today (1)' });
+
+      expect(agenda.getByRole('heading').querySelector('time')).toHaveAttribute('datetime', '2026-11-01');
+      expect(agenda.getByText('Emma R.')).toBeVisible();
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

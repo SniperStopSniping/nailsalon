@@ -6,7 +6,7 @@ test('Today and More retain readable text across owner surfaces', async ({ page 
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'Today', exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Sofia Martin', { exact: true })).toBeVisible();
+  await expect(page.getByText('Sofia M.', { exact: true })).toBeVisible();
 
   await expectReadableText(page);
   await page.getByRole('tab', { name: 'More', exact: true }).click();
