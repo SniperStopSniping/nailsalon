@@ -212,34 +212,35 @@ test('mobile More is ranked in task groups and Hours opens first with browser hi
   expect(unexpected).toEqual([]);
 });
 
-test('Services keeps Library and Advanced Catalog out of the 320px menu until More opens them', async ({ page }) => {
+test('Services opens the Library in one tap at 320px', async ({ page }) => {
   const { unexpected } = await mockInformationApi(page);
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto('/?app=services&salon=isla');
 
-  const more = page.getByRole('button', { name: 'Advanced Settings' });
+  const tabs = page.getByRole('tablist', { name: 'Service menu sections' });
+  const library = tabs.getByRole('tab', { name: 'Library', exact: true });
+  const advanced = tabs.getByRole('tab', { name: 'Advanced Settings' });
 
-  await expect(more).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.getByTestId('services-tab-menu')).toBeVisible();
-  await expect(page.getByTestId('services-tab-addons')).toBeVisible();
-  await expect(page.getByTestId('services-more-tabs')).toHaveCount(0);
-  await expect(page.getByTestId('services-tab-library')).toHaveCount(0);
-  await expect(page.getByTestId('services-tab-catalog')).toHaveCount(0);
+  await expect(tabs.getByRole('tab', { name: 'My Menu' })).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.getByRole('tab', { name: 'Add-ons' })).toBeVisible();
+  await expect(library).toBeInViewport({ ratio: 1 });
+  await expect(advanced).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-  await more.tap();
+  await library.tap();
 
-  await expect(more).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByTestId('services-more-tabs')).toBeVisible();
-  await expect(page.getByTestId('services-tab-library')).toBeVisible();
-  await expect(page.getByTestId('services-tab-catalog')).toBeVisible();
+  await expect(library).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('library-template-luster_manicure')).toBeVisible();
 
-  await page.getByTestId('services-tab-library').tap();
+  await page.getByTestId('library-segment-addons').tap();
 
-  await expect(more).toBeDisabled();
-  await expect(more).toHaveAttribute('aria-controls', 'services-more-tabs');
-  await expect(page.getByTestId('services-tab-library')).toBeVisible();
+  await expect(page.getByTestId('library-template-chrome')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await advanced.tap();
+
+  await expect(advanced).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('catalog-config-tab')).toBeVisible();
   expect(unexpected).toEqual([]);
 });
 
@@ -437,7 +438,7 @@ for (const width of [320, 1280]) {
     await page.goto('/?app=services&salon=isla');
 
     await expect(page.getByText('Synthetic approval manicure', { exact: true })).toBeVisible();
-    await expect(page.getByTestId('services-more-tabs')).toHaveCount(0);
+    await expect(page.getByTestId('catalog-config-tab')).toHaveCount(0);
 
     await page.getByRole('tab', { name: 'Booking approval', exact: true }).click();
 

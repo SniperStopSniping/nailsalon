@@ -2234,6 +2234,14 @@ function AddOnEditDialog({
   );
 }
 
+const SERVICE_MENU_TABS = [
+  { id: 'menu', label: 'My Menu', span: 'col-span-2' },
+  { id: 'addons', label: 'Add-ons', span: 'col-span-2' },
+  { id: 'library', label: 'Library', span: 'col-span-2' },
+  { id: 'approval', label: 'Booking approval', span: 'col-span-3' },
+  { id: 'catalog', label: 'Advanced Settings', span: 'col-span-3' },
+] as const;
+
 export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModalProps) {
   const [services, setServices] = useState<ServiceData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2291,18 +2299,12 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [menuDisplaySaved, setMenuDisplaySaved] = useState(false);
   const showServiceImagesSaveInFlight = useRef(false);
   const showServiceImagesSaveAbort = useRef<AbortController | null>(null);
-  const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons' | 'catalog' | 'approval'>('menu');
-  const [showMoreTabs, setShowMoreTabs] = useState(false);
-  const isAdvancedTab = activeTab === 'library' || activeTab === 'catalog';
-  // An active advanced editor must retain its own selector. In particular,
-  // collapsing More while a catalog form has unsaved changes would hide the
-  // only way back without leaving that editor.
-  const advancedTabsVisible = showMoreTabs || isAdvancedTab;
+  const [activeTab, setActiveTab] = useState<(typeof SERVICE_MENU_TABS)[number]['id']>('menu');
   /**
    * Tab-switch scroll memory (w2-services "scroll position on tab switch",
    * recorded NOT TESTED in the audit).
    *
-   * All four tabs render into one scroller — `AppModal`'s
+   * All tabs render into one scroller — `AppModal`'s
    * `app-modal-scroll-region` — so switching tabs used to leave the owner
    * wherever the *previous* tab had been scrolled to: leaving My Menu 900 px
    * down dropped them into the middle of the Library. Each tab now keeps its
@@ -3068,7 +3070,6 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       // Reorder is a My Menu mode. Leaving the tab in it would strand the
       // owner in a list whose rows no longer open.
       setReorderMode(false);
-      setShowMoreTabs(next === 'library' || next === 'catalog');
       setActiveTab(next);
     },
     [getTabScroller],
@@ -3170,88 +3171,21 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           )}
         />
         <div className="px-4 pb-2">
-          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-[var(--owner-blush)] p-1" role="tablist" aria-label="Service menu sections">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'menu'}
-              data-testid="services-tab-menu"
-              onClick={() => selectTab('menu')}
-              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                activeTab === 'menu' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
-              }`}
-            >
-              My Menu
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'addons'}
-              data-testid="services-tab-addons"
-              onClick={() => selectTab('addons')}
-              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                activeTab === 'addons' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
-              }`}
-            >
-              Add-ons
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'approval'}
-              data-testid="services-tab-approval"
-              onClick={() => selectTab('approval')}
-              className={`min-h-11 rounded-full px-2 text-[13px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${activeTab === 'approval' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'}`}
-            >
-              Booking approval
-            </button>
-            <button
-              type="button"
-              aria-expanded={advancedTabsVisible}
-              aria-controls={advancedTabsVisible ? 'services-more-tabs' : undefined}
-              onClick={() => setShowMoreTabs(current => !current)}
-              disabled={isAdvancedTab}
-              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-default disabled:opacity-100 ${
-                advancedTabsVisible ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
-              }`}
-            >
-              Advanced Settings
-            </button>
+          <div className="grid grid-cols-6 gap-1 rounded-2xl bg-[var(--owner-blush)] p-1" role="tablist" aria-label="Service menu sections">
+            {SERVICE_MENU_TABS.map(({ id, label, span }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === id}
+                data-testid={`services-tab-${id}`}
+                onClick={() => selectTab(id)}
+                className={`${span} min-h-11 rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${activeTab === id ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'}`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-          {advancedTabsVisible && (
-            <div
-              id="services-more-tabs"
-              data-testid="services-more-tabs"
-              className="mt-2 grid grid-cols-2 gap-2"
-              role="group"
-              aria-label="Advanced service settings"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'library'}
-                data-testid="services-tab-library"
-                onClick={() => selectTab('library')}
-                className={`min-h-11 rounded-xl border px-3 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                  activeTab === 'library' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
-                }`}
-              >
-                Library
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === 'catalog'}
-                data-testid="services-tab-catalog"
-                onClick={() => selectTab('catalog')}
-                className={`min-h-11 rounded-xl border px-3 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
-                  activeTab === 'catalog' ? 'border-[var(--owner-accent)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)]'
-                }`}
-              >
-                Rules & options
-              </button>
-            </div>
-          )}
         </div>
         {activeTab === 'menu' && (
           <>
@@ -3508,9 +3442,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             <div className="px-1">
               <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Advanced menu settings</h3>
               <p className="mt-0.5 text-[12px] leading-4 text-[var(--owner-muted)]">
-                How your menu looks to clients. These used to sit above every
-                service; they live in Advanced Settings so My Menu opens
-                straight onto your services.
+                Choose how your menu looks to clients on your public booking page.
               </p>
             </div>
             <div

@@ -359,14 +359,7 @@ function findCall(predicate: (url: string, init?: RequestInit) => boolean) {
  * which cost the list ~120 px of permanent chrome on a phone.
  */
 function openSetupTab() {
-  openMoreTabs();
   fireEvent.click(screen.getByTestId('services-tab-catalog'));
-}
-
-function openMoreTabs() {
-  if (!screen.queryByTestId('services-more-tabs')) {
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
-  }
 }
 
 /** Ordering is an explicit mode rather than controls on every browsing row. */
@@ -388,7 +381,7 @@ describe('ServicesModal', () => {
     render(<ServicesModal onClose={vi.fn()} salonSlug="salon-a" />);
     await screen.findByText('Synthetic manicure');
 
-    expect(screen.queryByTestId('services-more-tabs')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('catalog-config-tab')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Booking approval' }));
     const panel = screen.getByTestId('catalog-confirmation-panel');
@@ -416,7 +409,6 @@ describe('ServicesModal', () => {
 
     expect(screen.queryByTestId('service-images-visibility-row')).not.toBeInTheDocument();
 
-    openMoreTabs();
     fireEvent.click(screen.getByTestId('services-tab-library'));
 
     expect(screen.queryByTestId('service-images-visibility-row')).not.toBeInTheDocument();
@@ -1080,7 +1072,6 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
-    openMoreTabs();
     fireEvent.click(await screen.findByTestId('services-tab-library'));
 
     expect(screen.getByTestId('service-library-tab')).toBeInTheDocument();
@@ -1108,7 +1099,6 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
-    openMoreTabs();
     fireEvent.click(await screen.findByTestId('services-tab-library'));
     fireEvent.change(screen.getByTestId('library-search'), { target: { value: 'BIAB' } });
 
@@ -1125,7 +1115,6 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
-    openMoreTabs();
     fireEvent.click(await screen.findByTestId('services-tab-library'));
     fireEvent.click(await screen.findByTestId('bulk-add-open'));
 
@@ -1164,7 +1153,6 @@ describe('ServicesModal', () => {
     });
 
     render(<ServicesModal onClose={() => {}} onOpenStaff={onOpenStaff} salonSlug="isla-nail-studio" />);
-    openMoreTabs();
     fireEvent.click(await screen.findByTestId('services-tab-library'));
     fireEvent.click(await screen.findByTestId('bulk-add-open'));
     fireEvent.click(await screen.findByTestId('bulk-add-confirm'));
@@ -1568,7 +1556,6 @@ describe('ServicesModal — service detail owner actions', () => {
         'No add-ons yet. Create your own, or add one from the Service Library.',
       );
 
-      openMoreTabs();
       fireEvent.click(screen.getByTestId('services-tab-library'));
       // Add-ons are a segment of the library now, not one shelf among the
       // service shelves.
