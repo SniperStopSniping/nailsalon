@@ -33,6 +33,12 @@ review before this complete payment branch can pass release CI:
    payment-safe locking and history retention. The additive-only check rejects
    it before the approved-postimage check. Adding a hash alone is insufficient.
 
+Update in `codex/luster-payments-live-20261109`: the purge extension now preserves
+every existing line in both `origin/main` and the V133 reviewed head. A payment-
+specific error subclass keeps the existing error contract, and PostgreSQL's
+default ascending order preserves the parent lock order without rewriting imports.
+The exact postimage still needs review and admission; the CI allowlist is unchanged.
+
 ## Application migration remains separate
 
 Migration 0117 changes existing appointment, tender, service, add-on and deposit

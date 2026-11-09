@@ -22,7 +22,7 @@
  */
 
 import type { SQL } from 'drizzle-orm';
-import { and, asc, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
 import type { db } from '@/libs/DB';
@@ -96,9 +96,9 @@ export type PurgeTx = {
 export class SalonPurgeBlockedError extends Error {
   readonly blockers: { table: string; column: string; count: number }[];
 
-  constructor(blockers: { table: string; column: string; count: number }[], message?: string) {
+  constructor(blockers: { table: string; column: string; count: number }[]) {
     super(
-      message ?? `Cannot purge salon: ${blockers.length} cross-tenant reference(s) still point at this salon's records (${blockers
+      `Cannot purge salon: ${blockers.length} cross-tenant reference(s) still point at this salon's records (${blockers
         .map(b => `${b.table}.${b.column}`)
         .join(', ')}).`,
     );
@@ -852,6 +852,14 @@ export async function assertNoUnsettledDeposits(tx: PurgeTx, salonId: string): P
 }
 
 /** Parent-first fencing preserves atomic legacy purge behavior with capture guards. */
+class CustomerPaymentPurgeBlockedError extends SalonPurgeBlockedError {
+  constructor(blockers: { table: string; column: string; count: number }[], message: string) {
+    super(blockers);
+    this.message = message;
+  }
+}
+
+/** Acquire all parent locks without waiting on a writer in the reverse order. */
 async function lockPaymentSafePurge(tx: PurgeTx, salonId: string): Promise<void> {
   try {
     // Prevent new salon-owned parents while the ordered existing set is locked.
@@ -859,17 +867,17 @@ async function lockPaymentSafePurge(tx: PurgeTx, salonId: string): Promise<void>
     await tx.select({ id: salonSchema.id }).from(salonSchema)
       .where(eq(salonSchema.id, salonId)).for('update', { noWait: true });
     await tx.select({ id: appointmentSchema.id }).from(appointmentSchema)
-      .where(eq(appointmentSchema.salonId, salonId)).orderBy(asc(appointmentSchema.id))
+      .where(eq(appointmentSchema.salonId, salonId)).orderBy(appointmentSchema.id)
       .for('update', { noWait: true });
     // Booking can hold a client while waiting on this salon. Do not wait back
     // on that row during staff/client unlinking or full purge.
     await tx.select({ id: salonClientSchema.id }).from(salonClientSchema)
-      .where(eq(salonClientSchema.salonId, salonId)).orderBy(asc(salonClientSchema.id))
+      .where(eq(salonClientSchema.salonId, salonId)).orderBy(salonClientSchema.id)
       .for('update', { noWait: true });
   } catch (error) {
     const failure = error as { code?: string; cause?: { code?: string } };
     if ((failure.cause?.code ?? failure.code) === '55P03') {
-      throw new SalonPurgeBlockedError(
+      throw new CustomerPaymentPurgeBlockedError(
         [{ table: 'appointment', column: 'active_transaction', count: 1 }],
         'Salon data is being updated. No data was reset or deleted. Try again after the appointment update finishes.',
       );
@@ -884,7 +892,7 @@ async function lockPaymentSafePurge(tx: PurgeTx, salonId: string): Promise<void>
       OR left(COALESCE(${appointmentPaymentSchema.reference}, ''), 25) = 'customer_payment_capture:')`,
   ));
   if (count > 0) {
-    throw new SalonPurgeBlockedError(
+    throw new CustomerPaymentPurgeBlockedError(
       [{ table: 'appointment_payment', column: 'customer_payment_capture', count }],
       'Customer payment history must be reconciled and retained before this salon data can be reset or deleted.',
     );
@@ -908,7 +916,7 @@ async function withPurgeContentionHandling(operation: () => Promise<PurgeResult>
   } catch (error) {
     const failure = error as { code?: string; cause?: { code?: string } };
     if (['55P03', '40P01'].includes(failure.cause?.code ?? failure.code ?? '')) {
-      throw new SalonPurgeBlockedError(
+      throw new CustomerPaymentPurgeBlockedError(
         [{ table: 'appointment', column: 'active_transaction', count: 1 }],
         'Salon data is being updated. No data was reset or deleted. Try again after the update finishes.',
       );
