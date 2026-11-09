@@ -1,7 +1,7 @@
 import '@/styles/global.css';
 import './review.css';
 
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { AppModal } from '@/components/admin/AppModal';
@@ -12,13 +12,47 @@ import { ServicesModal } from '@/components/admin/ServicesModal';
 import { SalonProvider } from '../clientProfile/salon-provider';
 import { installReviewApi } from './review-api';
 
+const AdminModalHost = lazy(() => import('@/components/admin/AdminModalHost').then(module => ({ default: module.AdminModalHost })));
+
 installReviewApi();
 export function CoreTabsReview() {
-  const [closed, setClosed] = useState(false);
-  const [destination, setDestination] = useState('');
   const screen = new URLSearchParams(window.location.search).get('screen') ?? 'calendar';
   const inSheet = new URLSearchParams(window.location.search).get('surface') === 'sheet';
+  const [closed, setClosed] = useState(inSheet && screen === 'clients');
+  const [destination, setDestination] = useState('');
   const close = () => setClosed(true);
+  if (inSheet && screen === 'clients') {
+    return (
+      <SalonProvider>
+        <button type="button" onClick={() => setClosed(false)}>Open Clients</button>
+        <Suspense fallback={null}>
+          <AdminModalHost
+            activeModal={closed ? null : 'clients'}
+            activeSalonSlug="isla-browser"
+            isFreeSolo
+            onCloseModal={close}
+            showNotifications={false}
+            setShowNotifications={() => {}}
+            showFraudSignals={false}
+            setShowFraudSignals={() => {}}
+            showScheduleCalendar={false}
+            setShowScheduleCalendar={() => {}}
+            showWalkIn={false}
+            setShowWalkIn={() => {}}
+            userName="Browser fixture"
+            userInitial="B"
+            analyticsProps={{}}
+            fraudSignals={[]}
+            fraudSignalsTotalCount={0}
+            fraudSignalsLoading={false}
+            fraudSignalsError={null}
+            fetchFraudSignals={() => {}}
+            onFraudSignalResolved={() => {}}
+          />
+        </Suspense>
+      </SalonProvider>
+    );
+  }
   return (
     <SalonProvider>
       <main className={`owner-workspace-theme owner-theme-scope mx-auto min-h-screen bg-[var(--owner-ground)] ${screen === 'calendar' ? 'max-w-5xl' : 'max-w-2xl'}`}>

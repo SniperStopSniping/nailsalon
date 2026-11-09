@@ -47,22 +47,22 @@ type AppModalProps = {
   /**
    * How much backdrop stays visible above the sheet.
    *
-   * `'comfortable'` (the default, unchanged for every existing caller) keeps a
+   * `'comfortable'` (the default) keeps a
    * thumb-sized >= 44 px band so tap-outside-to-dismiss is a real target.
    *
-   * `'tall'` trades that band for working height. Only appropriate for a
-   * content-dense sheet that carries its OWN always-visible dismissal
-   * affordances — the drag handle plus an in-header Back control — so
-   * dismissal never depends on hitting the backdrop.
+   * `'tall'` keeps a slim backdrop band and `'flush'` reaches the viewport
+   * edge with safe-area padding inside the sheet. Both layouts require an
+   * in-header Back control so dismissal works without tapping the backdrop.
    */
-  topInset?: 'comfortable' | 'tall';
+  topInset?: 'comfortable' | 'tall' | 'flush';
 };
 
-const SHEET_TOP_INSET: Record<'comfortable' | 'tall', string> = {
+const SHEET_TOP_INSET: Record<NonNullable<AppModalProps['topInset']>, string> = {
   comfortable: 'max(calc(env(safe-area-inset-top, 0px) + 12px), 44px)',
   // Roughly 2 mm of backdrop on a phone. Never under the notch: the safe-area
   // inset is added, not replaced, so a device reporting one still clears it.
   tall: 'max(calc(env(safe-area-inset-top, 0px) + 8px), 10px)',
+  flush: '0px',
 };
 
 export function AppModal({
@@ -121,8 +121,8 @@ export function AppModal({
         <>
           {/*
             Backdrop. It covers the viewport and any tap outside the sheet
-            dismisses; the sheet's own top inset below keeps a reachable strip
-            of it on a phone. Keyboard users dismiss with Escape (handled by
+            dismisses when the sheet leaves a strip exposed.
+            Keyboard users dismiss with Escape (handled by
             useModalFocusLifecycle), so this stays out of the a11y tree.
           */}
           <motion.div
@@ -144,7 +144,7 @@ export function AppModal({
             aria-label={title ?? ariaLabel}
             data-modal-focus-root="true"
             data-testid="app-modal-panel"
-            className="owner-theme-scope fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden rounded-t-owner-sheet bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-[0_-8px_40px_rgba(59,25,43,0.12)]"
+            className={`owner-theme-scope fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-[0_-8px_40px_rgba(59,25,43,0.12)] ${topInset === 'flush' ? 'rounded-none' : 'rounded-t-owner-sheet'}`}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -168,6 +168,7 @@ export function AppModal({
             onDragEnd={allowDragToDismiss ? handleDragEnd : undefined}
             style={{
               top: SHEET_TOP_INSET[topInset],
+              paddingTop: topInset === 'flush' ? 'env(safe-area-inset-top, 0px)' : undefined,
               paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             }}
           >
