@@ -219,6 +219,7 @@ export function AdminModalHost({
         label="Clients"
         isOpen={activeModal === 'clients'}
         onClose={onCloseModal}
+        topInset="flush"
       >
         <ClientsModal
           onClose={onCloseModal}
