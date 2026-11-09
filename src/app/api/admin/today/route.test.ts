@@ -4,8 +4,9 @@ import { PGlite } from '@electric-sql/pglite';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import * as schema from '@/models/Schema';
 
 import { GET } from './route';
@@ -46,6 +47,8 @@ vi.mock('@/libs/publicUrl', () => ({
   buildSalonTenantPublicUrl: vi.fn((pathname: string) => `https://today.example${pathname}`),
 }));
 
+const fixtureNow = new Date('2026-11-08T12:00:00Z');
+
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -56,9 +59,7 @@ beforeAll(async () => {
   await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
   holder.db = db;
 
-  const now = new Date();
-  const appointmentStart = new Date(now);
-  appointmentStart.setUTCHours(12, 0, 0, 0);
+  const now = fixtureNow;
 
   await db.insert(schema.salonSchema).values({
     id: 'salon_today',
@@ -137,8 +138,8 @@ beforeAll(async () => {
     salonClientId: 'today_archived',
     clientPhone: '4165554102',
     clientName: 'Archived Due',
-    startTime: appointmentStart,
-    endTime: new Date(appointmentStart.getTime() + 3_600_000),
+    startTime: now,
+    endTime: new Date(now.getTime() + 3_600_000),
     status: 'completed',
     totalPrice: 5000,
     totalDurationMinutes: 60,
@@ -151,6 +152,14 @@ afterAll(async () => {
 });
 
 describe('GET /api/admin/today', () => {
+  beforeEach(() => {
+    vi.setSystemTime(fixtureNow);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('keeps archived appointments visible but excludes archived and merged clients from rebook-due results', async () => {
     const response = await GET(new Request(
       'http://localhost/api/admin/today?salonSlug=today-salon',
@@ -158,6 +167,7 @@ describe('GET /api/admin/today', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(body.data).not.toHaveProperty('tomorrow');
     expect(body.data.dueClients.map((row: { id: string }) => row.id)).toEqual([
       'today_active',
     ]);
@@ -168,6 +178,71 @@ describe('GET /api/admin/today', () => {
         technicianId: 'today_tech_avery_one',
       }),
     ]);
+  });
+
+  it('returns both salon-local days across the fall DST transition for opted-in callers', async () => {
+    const today = new Date('2026-11-01T02:00:00Z');
+    const firstTomorrow = '2026-11-01T04:00:00Z';
+    const lastTomorrow = '2026-11-02T04:45:00Z';
+    const rows = [
+      { id: 'next-day-late', start: lastTomorrow, status: 'awaiting_payment' },
+      { id: 'next-day-first', start: firstTomorrow, status: 'confirmed' },
+      { id: 'today-spans-midnight', start: '2026-11-01T03:50:00Z', status: 'completed' },
+      { id: 'after-tomorrow', start: '2026-11-02T05:00:00Z', status: 'confirmed' },
+      { id: 'next-day-cancelled', start: '2026-11-01T17:00:00Z', status: 'cancelled' },
+      { id: 'next-day-no-show', start: '2026-11-01T17:00:00Z', status: 'no_show' },
+      { id: 'next-day-deleted', start: '2026-11-01T17:00:00Z', status: 'confirmed', deletedAt: today },
+      { id: 'other-salon-appt', start: '2026-11-01T17:00:00Z', status: 'confirmed', salonId: 'salon_other' },
+    ];
+    await db.insert(schema.appointmentSchema).values(rows.map(({ start, ...row }) => ({
+      ...row,
+      salonId: row.salonId ?? 'salon_today',
+      clientPhone: '4165554109',
+      startTime: new Date(start),
+      endTime: new Date(new Date(start).getTime() + 3_600_000),
+      totalPrice: 5000,
+      totalDurationMinutes: 60,
+    })));
+    await db.insert(schema.serviceSchema).values({
+      id: 'today-service',
+      salonId: 'salon_today',
+      name: 'Renamed manicure',
+      price: 5000,
+      durationMinutes: 60,
+      category: 'manicure',
+    });
+    await db.insert(schema.appointmentServicesSchema).values({
+      id: 'tomorrow-service-snapshot',
+      appointmentId: 'next-day-first',
+      serviceId: 'today-service',
+      priceAtBooking: 5000,
+      durationAtBooking: 60,
+      nameSnapshot: 'Russian Manicure',
+    });
+
+    vi.mocked(getBookingConfigForSalon).mockResolvedValueOnce({
+      ...await getBookingConfigForSalon('salon_today'),
+      timezone: 'America/Toronto',
+    });
+    vi.setSystemTime(today);
+    const response = await GET(new Request('http://localhost/api/admin/today?salonSlug=today-salon&includeTomorrow=1'));
+
+    expect(response.status).toBe(200);
+
+    const { data } = await response.json();
+
+    expect(data.date).toBe('2026-10-31');
+    expect(data.timeZone).toBe('America/Toronto');
+    expect(data.appointments).toEqual([
+      expect.objectContaining({ id: 'today-spans-midnight', status: 'completed' }),
+    ]);
+    expect(data.tomorrow).toEqual({
+      date: '2026-11-01',
+      appointments: [
+        expect.objectContaining({ id: 'next-day-first', startTime: new Date(firstTomorrow).toISOString(), services: ['Russian Manicure'], totalDurationMinutes: 60 }),
+        expect.objectContaining({ id: 'next-day-late', startTime: new Date(lastTomorrow).toISOString(), status: 'awaiting_payment' }),
+      ],
+    });
   });
 
   it('returns the active, tenant-scoped technician roster independently of today appointment names', async () => {

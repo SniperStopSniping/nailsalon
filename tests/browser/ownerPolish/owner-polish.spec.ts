@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('Today stays readable and retains its financial details at phone widths', async ({ page }, testInfo) => {
   await page.goto('/');
 
-  await expect(page.getByTestId('owner-current-next-appointment')).toContainText('Sofia Martin');
+  await expect(page.getByTestId('owner-today-agenda')).toContainText('Sofia M.');
   await expect(page.getByTestId('owner-revenue-summary')).toContainText('$110.00');
 
   for (const width of [320, 390, 430, 1366]) {
@@ -38,6 +38,39 @@ test('Today stays readable and retains its financial details at phone widths', a
   await expect(page.getByText('Collected today', { exact: true })).toBeHidden();
 });
 
+test('appointment tabs support keyboard switching and inline expansion', async ({ page }) => {
+  await page.goto('/');
+  const agenda = page.getByTestId('owner-today-agenda');
+  const today = agenda.getByRole('tab', { name: 'Today (3)' });
+  const tomorrow = agenda.getByRole('tab', { name: 'Tomorrow (6)' });
+
+  await expect(today).toHaveAttribute('aria-selected', 'true');
+
+  await today.focus();
+  await page.keyboard.press('ArrowRight');
+
+  await expect(tomorrow).toBeFocused();
+  await expect(tomorrow).toHaveAttribute('aria-selected', 'true');
+  await expect(agenda.getByRole('heading')).toHaveText(/^Tomorrow · /);
+  await expect(agenda.getByRole('listitem')).toHaveCount(5);
+  await expect(agenda.getByRole('listitem').first()).toContainText('10:00 AM');
+  await expect(agenda.getByRole('listitem').first()).toContainText('Ariana K.');
+  await expect(page.getByTestId('owner-revenue-summary')).toContainText('$110.00');
+
+  await agenda.getByRole('button', { name: 'View all appointments' }).click();
+
+  await expect(agenda.getByRole('listitem')).toHaveCount(6);
+
+  await agenda.getByRole('button', { name: /Yuki A\./ }).click();
+
+  await expect(page.getByRole('dialog').getByRole('status')).toHaveText('appointment: qa-tomorrow-5');
+
+  await page.keyboard.press('Escape');
+  await agenda.getByRole('button', { name: 'Show fewer appointments' }).click();
+
+  await expect(agenda.getByRole('listitem')).toHaveCount(5);
+});
+
 test('quick actions preserve callbacks, modal dismissal and trigger focus', async ({ page }) => {
   await page.goto('/');
   const actions = [['New Appointment', 'new-appointment'], ['Walk-in', 'walk-in'], ['Message Client', 'send-sms']];
@@ -59,9 +92,11 @@ test('quick actions preserve callbacks, modal dismissal and trigger focus', asyn
 test('five tabs keep keyboard navigation and More destinations keep working', async ({ page }, testInfo) => {
   await page.goto('/');
 
-  await expect(page.getByRole('tab')).toHaveCount(5);
+  const workspaceTabs = page.getByRole('tablist', { name: 'Owner workspace sections' });
 
-  const today = page.getByRole('tab', { name: 'Today', exact: true });
+  await expect(workspaceTabs.getByRole('tab')).toHaveCount(5);
+
+  const today = workspaceTabs.getByRole('tab', { name: 'Today', exact: true });
   await today.focus();
   await page.keyboard.press('ArrowLeft');
 
