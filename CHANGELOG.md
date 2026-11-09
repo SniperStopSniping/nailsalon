@@ -1,3 +1,10 @@
+## [1.151.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.151.1...v1.151.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **services:** show the library in the main tabs ([#501](https://github.com/SniperStopSniping/nailsalon/issues/501)) ([9ab2f00](https://github.com/SniperStopSniping/nailsalon/commit/9ab2f00059a344b707862207d6616a553cb129f0))
+
 ## [1.151.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.151.0...v1.151.1) (2026-11-09)
 
 
