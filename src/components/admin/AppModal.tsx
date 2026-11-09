@@ -47,14 +47,13 @@ type AppModalProps = {
   /**
    * How much backdrop stays visible above the sheet.
    *
-   * `'comfortable'` (the default) keeps a
-   * thumb-sized >= 44 px band so tap-outside-to-dismiss is a real target.
+   * `'comfortable'` keeps a thumb-sized backdrop band of at least 44 px
+   * for tap-outside dismissal.
    *
-   * `'tall'` keeps a slim backdrop band and `'flush'` reaches the viewport
-   * edge with safe-area padding inside the sheet. Both layouts require an
-   * in-header Back control so dismissal works without tapping the backdrop.
+   * `'tall'` leaves a slim backdrop band and requires an in-header Back
+   * control for dismissal.
    */
-  topInset?: 'comfortable' | 'tall' | 'flush';
+  topInset?: 'comfortable' | 'tall';
 };
 
 const SHEET_TOP_INSET: Record<NonNullable<AppModalProps['topInset']>, string> = {
@@ -62,7 +61,6 @@ const SHEET_TOP_INSET: Record<NonNullable<AppModalProps['topInset']>, string> = 
   // Roughly 2 mm of backdrop on a phone. Never under the notch: the safe-area
   // inset is added, not replaced, so a device reporting one still clears it.
   tall: 'max(calc(env(safe-area-inset-top, 0px) + 8px), 10px)',
-  flush: '0px',
 };
 
 export function AppModal({
@@ -144,7 +142,7 @@ export function AppModal({
             aria-label={title ?? ariaLabel}
             data-modal-focus-root="true"
             data-testid="app-modal-panel"
-            className={`owner-theme-scope fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-[0_-8px_40px_rgba(59,25,43,0.12)] ${topInset === 'flush' ? 'rounded-none' : 'rounded-t-owner-sheet'}`}
+            className="owner-theme-scope fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden rounded-t-owner-sheet bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-[0_-8px_40px_rgba(59,25,43,0.12)]"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -168,7 +166,6 @@ export function AppModal({
             onDragEnd={allowDragToDismiss ? handleDragEnd : undefined}
             style={{
               top: SHEET_TOP_INSET[topInset],
-              paddingTop: topInset === 'flush' ? 'env(safe-area-inset-top, 0px)' : undefined,
               paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             }}
           >
