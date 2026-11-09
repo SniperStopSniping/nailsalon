@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 
 async function noOverflow(page: Page) {
@@ -119,26 +119,47 @@ test('clients: search, clear, profile sections and back preserve the directory',
   await noOverflow(page);
 });
 
-test('clients: the directory and insights sheet reach the top of the viewport', async ({ page }) => {
+test('Clients and Calendar sheets match the Services top inset', async ({ page }) => {
+  await page.goto('/?screen=services&surface=sheet');
+  const services = page.getByRole('dialog', { name: 'Services', exact: true });
+  const topOffset = (sheet: Locator) => sheet.evaluate(
+    panel => panel.getBoundingClientRect().top - (window.visualViewport?.offsetTop ?? 0),
+  );
+
+  await expect(services.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
+
+  const servicesStyle = await services.evaluate(panel => ({
+    inset: Number.parseFloat(getComputedStyle(panel).top),
+    radius: getComputedStyle(panel).borderTopLeftRadius,
+  }));
+
+  await expect.poll(() => topOffset(services)).toBeCloseTo(servicesStyle.inset, 0);
+  expect(servicesStyle.inset).toBeGreaterThan(0);
+
   await page.goto('/?screen=clients&surface=sheet');
   const sheet = page.getByRole('dialog', { name: 'Clients', exact: true });
-  const topOffset = () => sheet.evaluate(
-    panel => Math.abs(panel.getBoundingClientRect().top - (window.visualViewport?.offsetTop ?? 0)),
-  );
 
   await page.getByRole('button', { name: 'Open Clients' }).click();
 
   await expect(sheet.getByRole('button', { name: /SM Sofia Martin/ })).toBeVisible();
-  await expect.poll(topOffset).toBeLessThan(1);
+  await expect.poll(() => topOffset(sheet)).toBeCloseTo(servicesStyle.inset, 0);
+  await expect(sheet).toHaveCSS('border-top-left-radius', servicesStyle.radius);
 
   await sheet.getByRole('tab', { name: 'Insights & Follow-ups' }).click();
 
   await expect(sheet.getByRole('heading', { name: 'Client health' })).toBeInViewport();
-  await expect.poll(topOffset).toBeLessThan(1);
+  await expect.poll(() => topOffset(sheet)).toBeCloseTo(servicesStyle.inset, 0);
 
   await sheet.getByRole('button', { name: 'Back', exact: true }).click();
 
   await expect(sheet).toBeHidden();
+
+  await page.goto('/?screen=calendar&surface=sheet');
+  const calendar = page.getByRole('dialog', { name: 'Calendar', exact: true });
+
+  await expect(calendar.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
+  await expect.poll(() => topOffset(calendar)).toBeCloseTo(servicesStyle.inset, 0);
+  await expect(calendar).toHaveCSS('border-top-left-radius', servicesStyle.radius);
 });
 
 test('services: search recovery and detail navigation preserve the catalog', async ({ page }) => {

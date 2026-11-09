@@ -219,7 +219,7 @@ export function AdminModalHost({
         label="Clients"
         isOpen={activeModal === 'clients'}
         onClose={onCloseModal}
-        topInset="flush"
+        topInset="tall"
       >
         <ClientsModal
           onClose={onCloseModal}
@@ -373,6 +373,7 @@ export function AdminModalHost({
         isOpen={showScheduleCalendar}
         onClose={onCloseModal}
         allowDragToDismiss={false}
+        topInset="tall"
       >
         <ScheduleCalendarModal
           key={activeSalonSlug}

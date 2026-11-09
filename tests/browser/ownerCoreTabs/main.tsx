@@ -4,7 +4,6 @@ import './review.css';
 import { lazy, Suspense, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { AppModal } from '@/components/admin/AppModal';
 import { ClientsModal } from '@/components/admin/ClientsModal';
 import { ScheduleCalendarModal } from '@/components/admin/ScheduleCalendarModal';
 import { ServicesModal } from '@/components/admin/ServicesModal';
@@ -13,6 +12,7 @@ import { SalonProvider } from '../clientProfile/salon-provider';
 import { installReviewApi } from './review-api';
 
 const AdminModalHost = lazy(() => import('@/components/admin/AdminModalHost').then(module => ({ default: module.AdminModalHost })));
+const sheetNames = { calendar: 'Calendar', clients: 'Clients', services: 'Services' };
 
 installReviewApi();
 export function CoreTabsReview() {
@@ -21,13 +21,15 @@ export function CoreTabsReview() {
   const [closed, setClosed] = useState(inSheet && screen === 'clients');
   const [destination, setDestination] = useState('');
   const close = () => setClosed(true);
-  if (inSheet && screen === 'clients') {
+  if (inSheet && (screen === 'calendar' || screen === 'clients' || screen === 'services')) {
     return (
       <SalonProvider>
-        <button type="button" onClick={() => setClosed(false)}>Open Clients</button>
+        <button type="button" onClick={() => setClosed(false)}>
+          { `Open ${sheetNames[screen]}` }
+        </button>
         <Suspense fallback={null}>
           <AdminModalHost
-            activeModal={closed ? null : 'clients'}
+            activeModal={closed || screen === 'calendar' ? null : screen}
             activeSalonSlug="isla-browser"
             isFreeSolo
             onCloseModal={close}
@@ -35,7 +37,7 @@ export function CoreTabsReview() {
             setShowNotifications={() => {}}
             showFraudSignals={false}
             setShowFraudSignals={() => {}}
-            showScheduleCalendar={false}
+            showScheduleCalendar={!closed && screen === 'calendar'}
             setShowScheduleCalendar={() => {}}
             showWalkIn={false}
             setShowWalkIn={() => {}}
@@ -64,9 +66,7 @@ export function CoreTabsReview() {
                 {screen}
               </p>
             )
-          : inSheet
-            ? <AppModal isOpen onClose={close} topInset="tall"><ServicesModal onClose={close} salonSlug="isla-browser" /></AppModal>
-            : screen === 'clients' ? <ClientsModal onClose={close} /> : screen === 'services' ? <ServicesModal onClose={close} salonSlug="isla-browser" /> : <ScheduleCalendarModal onClose={close} salonSlug="isla-browser" onNavigate={(app, view) => setDestination(`${app}/${view}`)} />}
+          : screen === 'clients' ? <ClientsModal onClose={close} /> : screen === 'services' ? <ServicesModal onClose={close} salonSlug="isla-browser" /> : <ScheduleCalendarModal onClose={close} salonSlug="isla-browser" onNavigate={(app, view) => setDestination(`${app}/${view}`)} />}
         {destination && (
           <p role="status">
             Navigate to
