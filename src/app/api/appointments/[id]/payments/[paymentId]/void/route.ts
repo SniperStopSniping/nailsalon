@@ -13,6 +13,7 @@ import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
 import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
+import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { updateSalonClientStats } from '@/libs/queries';
@@ -76,6 +77,8 @@ export async function POST(
       if (!appointment) {
         return { kind: 'error' as const, response: errorJson(404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found') };
       }
+
+      await assertCustomerPaymentReservationMutable(tx, appointment.salonId, appointmentId);
 
       const depositRows = await loadAppointmentDepositCreditRows({
         salonId: appointment.salonId,
@@ -281,6 +284,9 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     console.error('Error voiding payment:', error);
     return errorJson(500, 'INTERNAL_ERROR', 'Failed to void payment');
   }

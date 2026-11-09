@@ -11,6 +11,7 @@ import {
   runAppointmentManageMutation,
 } from '@/libs/appointmentManage';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
+import { hasCustomerPaymentReservationForAppointment } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import {
   GoogleCalendarConnectionWriteFenceError,
@@ -769,7 +770,8 @@ export async function processGoogleCalendarInboundSync(
             if (!lockedAppointment) {
               return null;
             }
-            if (await hasCustomerPaymentTenderForAppointment(tx, connection.salonId, lockedAppointment.id)) {
+            if (await hasCustomerPaymentReservationForAppointment(tx, connection.salonId, lockedAppointment.id)
+              || await hasCustomerPaymentTenderForAppointment(tx, connection.salonId, lockedAppointment.id)) {
               return { reconciliationRequired: true as const };
             }
             const [lockedSourceEvent] = await tx.select({

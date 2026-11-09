@@ -1,10 +1,13 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { closedCheckoutOperationSchema } from '@/models/Schema';
+
 vi.mock('server-only', () => ({}));
 
 const {
   db,
+  customerPaymentReservationRows,
   insertValues,
   insertResults,
   selectResults,
@@ -35,12 +38,13 @@ const {
   }
 
   const selectResults: unknown[][] = [];
-  const createSelectQuery = () => {
+  const customerPaymentReservationRows: unknown[] = [];
+  const createSelectQuery = (rows?: unknown[]) => {
     let consumed = false;
     let value: unknown[] = [];
     const consume = () => {
       if (!consumed) {
-        value = selectResults.shift() ?? [];
+        value = rows ?? selectResults.shift() ?? [];
         consumed = true;
       }
       return value;
@@ -62,7 +66,15 @@ const {
     return query;
   };
   const select = vi.fn(() => ({
-    from: vi.fn((table?: unknown) => table && typeof table === 'object' && 'recordedByType' in table ? { where: vi.fn(async () => []) } : createSelectQuery()),
+    from: vi.fn((table?: unknown) => {
+      if (table === closedCheckoutOperationSchema) {
+        return createSelectQuery(customerPaymentReservationRows);
+      }
+      if (table && typeof table === 'object' && 'recordedByType' in table) {
+        return { where: vi.fn(async () => []) };
+      }
+      return createSelectQuery();
+    }),
   }));
   const updateResults: Array<
     unknown[] | ((values: Record<string, unknown>) => unknown[])
@@ -141,6 +153,7 @@ const {
         insert,
       })),
     },
+    customerPaymentReservationRows,
     insertValues,
     insertResults,
     selectResults,
@@ -275,6 +288,7 @@ describe('processGoogleCalendarInboundSync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     selectResults.length = 0;
+    customerPaymentReservationRows.length = 0;
     updateResults.length = 0;
     insertResults.length = 0;
     listGoogleCalendarEventsForSalon.mockResolvedValue([]);
@@ -770,6 +784,25 @@ describe('processGoogleCalendarInboundSync', () => {
       .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
     expect(logAppointmentChange.mock.invocationCallOrder[0])
       .toBeLessThan(sendAppointmentOperationalEmailOnce.mock.invocationCallOrder[0]!);
+  });
+
+  it('holds a Google deletion when an SDK payment reservation exists', async () => {
+    const mirror = linkedMirror();
+    customerPaymentReservationRows.push({ id: 'sdk-operation-1' });
+    selectResults.push([connection], [salon], [mirror], [mirror], [appointment]);
+    listGoogleCalendarEventsForSalon.mockResolvedValue([remoteCancellation()]);
+
+    const result = await processGoogleCalendarInboundSync();
+
+    expect(result.cancelledAppointments).toBe(0);
+    expect(updateSet).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: 'cancelled',
+      googleCalendarEventId: null,
+    }));
+    expect(enqueueGoogleCalendarDeleteInTx).not.toHaveBeenCalled();
+    expect(sendAppointmentOperationalEmailOnce).not.toHaveBeenCalled();
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(logAppointmentChange).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'cancelled' }));
   });
 
   it('does not cancel when a later durable Google intent supersedes the outbound tombstone', async () => {

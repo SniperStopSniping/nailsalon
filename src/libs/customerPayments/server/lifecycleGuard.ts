@@ -5,14 +5,10 @@ import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger
 import { customerPaymentTipFloor, isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
 import type { Appointment } from '@/models/Schema';
 
-export class CustomerPaymentLifecycleBlockedError extends Error {
-  readonly code = 'CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED';
+import { CustomerPaymentLifecycleBlockedError } from './lifecycleErrors';
+import { assertCustomerPaymentReservationMutable } from './reservationGuard';
 
-  constructor() {
-    super('Customer payment history must be reconciled before changing this appointment.');
-    this.name = 'CustomerPaymentLifecycleBlockedError';
-  }
-}
+export { CustomerPaymentLifecycleBlockedError } from './lifecycleErrors';
 
 /** Caller holds the tenant-bound appointment lock, before any dependent writes. */
 export async function assertCustomerPaymentLifecycleMutable(
@@ -20,8 +16,9 @@ export async function assertCustomerPaymentLifecycleMutable(
   salonId: string,
   appointmentId: string,
 ): Promise<void> {
+  await assertCustomerPaymentReservationMutable(database, salonId, appointmentId);
   // Includes voided/review markers, even with the feature switched off. The
-  // canonical legacy ledger is sufficient; no new payment tables are read.
+  // tender provenance check remains based on the canonical legacy ledger.
   if (await hasCustomerPaymentTenderForAppointment(database, salonId, appointmentId)) {
     throw new CustomerPaymentLifecycleBlockedError();
   }
@@ -37,6 +34,7 @@ export async function assertCustomerPaymentServiceProgressionAllowed(
   database: Parameters<typeof hasCustomerPaymentTenderForAppointment>[0],
   appointment: Pick<Appointment, 'id' | 'salonId' | 'amountPaidCents' | 'tipCents' | 'status' | 'paymentStatus'>,
 ): Promise<void> {
+  await assertCustomerPaymentReservationMutable(database, appointment.salonId, appointment.id);
   if (!await hasCustomerPaymentTenderForAppointment(database, appointment.salonId, appointment.id)) {
     return;
   }

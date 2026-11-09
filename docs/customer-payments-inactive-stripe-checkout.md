@@ -12,6 +12,10 @@ durable fence now exercises this immutable operation contract; see
 `customer-payments-durable-checkout-fence.md`. It does not invoke this SDK adapter
 or give its observations provider or financial authority.
 
+The later closed SDK reservation lane joins the installed SDK kernel to a durable
+journal using only scripted HTTP responses. It remains nonfinancial and
+unregistered; see `customer-payments-durable-sdk-reservation.md`.
+
 The factory requires an explicit `enabled: true` test purpose, a caller-supplied
 test credential and fixed platform/connected-account/return-origin binding. It
 never loads credentials from environment files or the global Stripe client.

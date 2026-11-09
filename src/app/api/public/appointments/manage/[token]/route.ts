@@ -11,6 +11,7 @@ import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSu
 import { loadBookingPolicy } from '@/libs/bookingPolicy';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import type { GoogleCalendarBusyWindow } from '@/libs/googleCalendar';
 import {
@@ -671,6 +672,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ token
       return terminalAppointment;
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof CustomerPaymentLifecycleBlockedError) {
       return customerPaymentLifecycleBlockedResponse(error);
     }

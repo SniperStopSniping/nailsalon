@@ -883,6 +883,13 @@
       "when": 1794218400000,
       "tag": "0126_customer_payment_closed_checkout",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1794222000000,
+      "tag": "0127_customer_payment_sdk_reservation",
+      "breakpoints": true
     }
   ]
 }

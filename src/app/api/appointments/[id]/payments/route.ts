@@ -17,6 +17,7 @@ import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
 import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
+import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
@@ -196,6 +197,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           },
         };
       }
+
+      await assertCustomerPaymentReservationMutable(tx, appointment.salonId, appointmentId);
 
       // A durable retry above must replay its original response even if this
       // mutable invoice evidence later needs reconciliation. New money may
@@ -478,6 +481,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       },
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     console.error('Error recording payment:', error);
     return errorJson(500, 'INTERNAL_ERROR', 'Failed to record payment');
   }

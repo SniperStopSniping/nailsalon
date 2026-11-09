@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { setNetworkNoShowAuditActorInTx } from '@/libs/networkNoShowAudit.server';
 import { checkEndpointRateLimit, rateLimitResponse } from '@/libs/rateLimit';
@@ -59,6 +60,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.json({ corrected: true }, { headers });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof CustomerPaymentLifecycleBlockedError) {
       return customerPaymentLifecycleBlockedResponse(error);
     }

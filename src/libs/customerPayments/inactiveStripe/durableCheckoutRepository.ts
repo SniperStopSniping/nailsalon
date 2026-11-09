@@ -8,22 +8,38 @@ import { z } from 'zod';
 
 import type { db } from '@/libs/DB';
 import { closedCheckoutAuditSchema as audits, closedCheckoutConflictSchema as conflicts, closedCheckoutObjectSchema as objects, closedCheckoutObservationSchema as observations, closedCheckoutOperationSchema as operations, type ClosedCheckoutReason, closedCheckoutStateSchema as states } from '@/models/customerPaymentClosedCheckoutSchema';
+import { customerPaymentPreparedQuoteSchema } from '@/models/customerPaymentSchema';
 
 import type { InactiveStripeCheckoutOperation } from './checkoutContract';
 import { assertInactiveStripeCheckoutOperation, checkoutAdapterError, freezeCheckoutValue, requireInactiveStripeCheckoutRuntime } from './checkoutContract';
 import { inspectInactiveStripeSession } from './checkoutResponse';
+import { type ClosedSdkCheckoutAuthorization, type ClosedSdkCheckoutOutcome, getSdkClosedOutcome } from './closedCheckoutSdkTransport';
 import type { ClosedCheckoutFixtureTransport } from './closedCheckoutTransport';
 import { assertClosedCheckoutFixtureTransport, consumeClosedCheckoutFixture } from './closedCheckoutTransport';
 import { assertDurableCheckoutQuoteBinding } from './durableCheckoutQuoteBinding';
+import { assertSdkCheckoutBearer, lockSdkCheckoutSources, reconstructSdkCheckoutOperation, type SdkCheckoutReserveInput, sdkCheckoutReserveSchema, type SdkCheckoutResumeInput, sdkCheckoutResumeSchema, validateSdkCheckoutSources } from './durableCheckoutSdkReservation';
 
 type Database = Pick<typeof db, 'select' | 'transaction'>;
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 type State = typeof states.$inferSelect;
 export type DurableCheckoutLease = Readonly<{ operationId: string; version: number; token: string; activity: 'create' | 'retrieve' }>;
-export type DurableCheckoutResult = Readonly<State & { identityHash: string; source: 'closed_test_fixture'; providerOriginVerified: false; financialPostingAllowed: false }>;
+export type DurableCheckoutExecutionKind = 'static_fixture_v1' | 'sdk_closed_http_v1';
+export type DurableCheckoutResult = Readonly<State & { executionKind: DurableCheckoutExecutionKind; identityHash: string; source: 'closed_test_fixture'; providerOriginVerified: false; financialPostingAllowed: false }>;
 export type ClosedCheckoutOutcome = { ok: true; response: unknown } | { ok: false };
 const uuid = z.string().uuid();
 const claimSchema = z.object({ operationId: uuid, version: z.number().int().min(0).max(2147483646), token: uuid, activity: z.enum(['create', 'retrieve']) }).strict();
+const committedSdkAuthorizations = new WeakMap<ClosedSdkCheckoutAuthorization, { identityHash: string; parameterHash: string; claim: DurableCheckoutLease }>();
+/** Actual HTTP seam only: consume a known-committed, exact-operation, one-use permit. */
+export function consumeCommittedSdkAuthorization(authorization: ClosedSdkCheckoutAuthorization, operation: InactiveStripeCheckoutOperation, claim: DurableCheckoutLease): ClosedSdkCheckoutAuthorization {
+  gate(operation);
+  const origin = committedSdkAuthorizations.get(authorization);
+  if (!origin || origin.identityHash !== operation.identityHash || origin.parameterHash !== operation.parameterHash
+    || origin.claim.operationId !== claim.operationId || origin.claim.version !== claim.version || origin.claim.token !== claim.token || origin.claim.activity !== claim.activity) {
+    return checkoutAdapterError('SDK_COMMITTED_AUTHORIZATION_REQUIRED');
+  }
+  committedSdkAuthorizations.delete(authorization);
+  return authorization;
+}
 const outcomes = new WeakMap<ClosedCheckoutOutcome, { identityHash: string; claim: DurableCheckoutLease }>();
 function snapshotOperation(operation: InactiveStripeCheckoutOperation) {
   gate();
@@ -50,8 +66,8 @@ async function clock(tx: Pick<Transaction, 'select'>): Promise<Date> {
 function fresh(operation: InactiveStripeCheckoutOperation, now: number) {
   return now >= operation.material.createdAt && now < operation.material.quoteExpiresAt;
 }
-function result(operation: InactiveStripeCheckoutOperation, state: State): DurableCheckoutResult {
-  return freezeCheckoutValue({ ...state, identityHash: operation.identityHash, source: 'closed_test_fixture' as const, providerOriginVerified: false as const, financialPostingAllowed: false as const });
+function resultKind(operation: InactiveStripeCheckoutOperation, state: State, executionKind: DurableCheckoutExecutionKind): DurableCheckoutResult {
+  return freezeCheckoutValue({ ...state, executionKind, identityHash: operation.identityHash, source: 'closed_test_fixture' as const, providerOriginVerified: false as const, financialPostingAllowed: false as const });
 }
 function lease(state: State): DurableCheckoutLease {
   if (!state.leaseToken || !state.activity) {
@@ -59,9 +75,9 @@ function lease(state: State): DurableCheckoutLease {
   }
   return Object.freeze({ operationId: state.operationId, version: state.version, token: state.leaseToken, activity: state.activity });
 }
-function fenced(state: State, claim: DurableCheckoutLease, now: Date) {
+function fenced(state: State, claim: DurableCheckoutLease, now: Date, allowReviewRead = false) {
   if (state.operationId !== claim.operationId || state.version !== claim.version || state.leaseToken !== claim.token
-    || state.activity !== claim.activity || !state.leaseUntil || state.leaseUntil <= now || state.state === 'review') {
+    || state.activity !== claim.activity || !state.leaseUntil || state.leaseUntil <= now || (state.state === 'review' && !(allowReviewRead && claim.activity === 'retrieve'))) {
     checkoutAdapterError('DURABLE_LEASE_FENCED');
   }
 }
@@ -77,10 +93,18 @@ async function transaction<T>(database: Database, callback: (tx: Transaction) =>
     return callback(tx);
   }, { isolationLevel: 'read committed' });
 }
-async function load(tx: Transaction, operation: InactiveStripeCheckoutOperation) {
+async function loadKind(tx: Transaction, operation: InactiveStripeCheckoutOperation, executionKind: DurableCheckoutExecutionKind) {
   operation = snapshotOperation(operation);
   const [identity] = await tx.select().from(operations).where(eq(operations.id, operation.material.operationId)).limit(1);
-  if (!identity || identity.identityHash !== operation.identityHash || identity.parameterHash !== operation.parameterHash) {
+  if (identity && identity.executionKind !== executionKind) {
+    return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+  }
+  if (!identity || identity.identityHash !== operation.identityHash || identity.parameterHash !== operation.parameterHash
+    || identity.source !== 'closed_test_fixture' || identity.mode !== 'test' || identity.financialPostingAllowed !== false || identity.providerOriginVerified !== false
+    || identity.requestId !== operation.material.requestId || identity.salonId !== operation.material.salonId || identity.appointmentId !== operation.material.appointmentId
+    || identity.quoteId !== operation.material.quoteId || identity.contextHash !== operation.material.contextHash
+    || identity.platformAccountId !== operation.binding.platformAccountId || identity.connectedAccountId !== operation.binding.connectedAccountId
+    || identity.operationCreatedAt.getTime() !== operation.material.createdAt || identity.quoteExpiresAt.getTime() !== operation.material.quoteExpiresAt || identity.sessionExpiresAt.getTime() !== operation.material.sessionExpiresAt) {
     return checkoutAdapterError('DURABLE_IDENTITY_MISMATCH');
   }
   const [state] = await tx.select().from(states).where(eq(states.operationId, identity.id)).for('update').limit(1);
@@ -100,10 +124,12 @@ async function save(tx: Transaction, state: State, patch: Partial<Omit<State, 'o
   }
   return rows[0]!;
 }
-async function review(tx: Transaction, state: State, reason: ClosedCheckoutReason) {
-  return state.state === 'review' ? state : save(tx, state, { state: 'review', reason, ...noLease });
+async function reviewKind(tx: Transaction, state: State, reason: ClosedCheckoutReason, sdk = false) {
+  return state.state === 'review'
+    ? (sdk && state.leaseToken ? save(tx, state, { ...noLease }) : state)
+    : save(tx, state, { state: 'review', reason, ...noLease });
 }
-async function sourceValid(tx: Transaction, operation: InactiveStripeCheckoutOperation) {
+async function staticSourceValid(tx: Transaction, operation: InactiveStripeCheckoutOperation) {
   try {
     await assertDurableCheckoutQuoteBinding(tx, operation, await clock(tx));
     return fresh(operation, (await clock(tx)).getTime());
@@ -125,18 +151,51 @@ async function retainConflict(tx: Transaction, operationId: string, contenderIde
 }
 
 /**
- * Durable fencing for the immutable inactive SDK contract, exercised only by CLOSED fixtures.
- * Revalidating a non-executable prepared quote is stale-source detection, not a booking hold.
- * This factory imports neither the SDK adapter nor an application database instance.
+ * One durable journal, with immutable lanes for legacy static and CLOSED HTTP SDK fixtures.
+ * SDK admission adds an unresolved financial reservation, never a booking-slot hold.
+ * No application database instance, real-provider authority or settlement lives here.
  */
-export function createDurableCheckoutRepository(database: Database) {
+function createRepository(database: Database, executionKind: DurableCheckoutExecutionKind) {
   gate();
-  return Object.freeze({
+  const sdk = executionKind === 'sdk_closed_http_v1';
+  const load = (tx: Transaction, operation: InactiveStripeCheckoutOperation) => loadKind(tx, operation, executionKind);
+  const result = (operation: InactiveStripeCheckoutOperation, state: State) => resultKind(operation, state, executionKind);
+  const review = (tx: Transaction, state: State, reason: ClosedCheckoutReason) => reviewKind(tx, state, reason, sdk);
+  async function sourceValid(tx: Transaction, operation: InactiveStripeCheckoutOperation, observationOnly = false) {
+    if (!sdk) {
+      return staticSourceValid(tx, operation);
+    }
+    try {
+      const [identity] = await tx.select().from(operations).where(eq(operations.id, operation.material.operationId)).limit(1);
+      if (!identity || identity.executionKind !== executionKind) {
+        return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+      }
+      const sources = await lockSdkCheckoutSources(tx, operation.material);
+      await validateSdkCheckoutSources(tx, sources, operation, observationOnly ? new Date(operation.material.createdAt) : await clock(tx), identity);
+      return observationOnly || fresh(operation, (await clock(tx)).getTime());
+    } catch (error) {
+      const failure = error as { code?: string; cause?: { code?: string } };
+      if (failure.code || failure.cause?.code) {
+        throw error;
+      }
+      return false;
+    }
+  }
+  const repository = {
     async reserve(operation: InactiveStripeCheckoutOperation): Promise<DurableCheckoutResult> {
       operation = snapshotOperation(operation);
+      if (sdk) {
+        return checkoutAdapterError('SDK_AUTHENTICATED_RESERVATION_REQUIRED');
+      }
       const reserved = await transaction(database, async (tx) => {
         const m = operation.material;
         const known = await tx.select().from(operations).where(or(eq(operations.id, m.operationId), eq(operations.requestId, m.requestId), and(eq(operations.salonId, m.salonId), eq(operations.appointmentId, m.appointmentId))));
+        if (known.some(owner => owner.executionKind !== executionKind)) {
+          return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+        }
+        if (known.some(owner => owner.salonId !== m.salonId)) {
+          return checkoutAdapterError('DURABLE_IDENTITY_SCOPE_MISMATCH');
+        }
         if (known.length === 1 && known[0]!.id === m.operationId && known[0]!.identityHash === operation.identityHash) {
           return { state: await load(tx, operation), conflict: false };
         }
@@ -155,6 +214,7 @@ export function createDurableCheckoutRepository(database: Database) {
           return checkoutAdapterError('DURABLE_QUOTE_BINDING_REJECTED');
         }
         const inserted = await tx.insert(operations).values({
+          executionKind,
           id: m.operationId,
           requestId: m.requestId,
           salonId: m.salonId,
@@ -183,6 +243,147 @@ export function createDurableCheckoutRepository(database: Database) {
         return checkoutAdapterError('DURABLE_IDENTITY_CONFLICT_RETAINED');
       }
       return result(operation, reserved.state);
+    },
+    async reserveAuthenticated(input: SdkCheckoutReserveInput) {
+      gate();
+      if (!sdk) {
+        return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+      }
+      input = Object.freeze(sdkCheckoutReserveSchema.parse(input));
+      const reserved = await transaction(database, async (tx) => {
+        const bearer = await assertSdkCheckoutBearer(tx, input, await clock(tx));
+        const sources = await lockSdkCheckoutSources(tx, input, bearer);
+        const quote = sources.quote;
+        const operation = reconstructSdkCheckoutOperation({ id: input.operationId, requestId: input.requestId, salonId: input.salonId, appointmentId: input.appointmentId, quoteId: quote.id, platformAccountId: input.platformAccountId, connectedAccountId: quote.stripeAccountId, contextHash: quote.fingerprint, operationCreatedAt: quote.createdAt, quoteExpiresAt: quote.expiresAt, sessionExpiresAt: new Date(Math.ceil(quote.expiresAt.getTime() / 1000) * 1000 + 1800000) }, quote);
+        // Authentication, including exact locked hash, happens before collision side effects.
+        const known = await tx.select().from(operations).where(or(eq(operations.id, input.operationId), eq(operations.requestId, input.requestId), and(eq(operations.salonId, input.salonId), eq(operations.appointmentId, input.appointmentId))));
+        if (known.some(owner => owner.executionKind !== executionKind)) {
+          return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+        }
+        if (known.some(owner => owner.salonId !== input.salonId || owner.appointmentId !== input.appointmentId)) {
+          return checkoutAdapterError('DURABLE_IDENTITY_SCOPE_MISMATCH');
+        }
+        if (known.length === 1 && known[0]!.id === input.operationId && known[0]!.identityHash === operation.identityHash) {
+          return { operation, state: await load(tx, operation), conflict: false };
+        }
+        if (known.length) {
+          for (const owner of known) {
+            const [state] = await tx.select().from(states).where(eq(states.operationId, owner.id)).for('update').limit(1);
+            if (!state) {
+              return checkoutAdapterError('DURABLE_STATE_MISSING');
+            }
+            await retainConflict(tx, owner.id, operation.identityHash, 'identity_conflict', null);
+            await review(tx, state, 'identity_conflict');
+          }
+          return { operation, state: null, conflict: true };
+        }
+        const reservation = await validateSdkCheckoutSources(tx, sources, operation, await clock(tx));
+        if (!fresh(operation, (await clock(tx)).getTime())) {
+          return checkoutAdapterError('SDK_QUOTE_EXPIRED');
+        }
+        const m = operation.material;
+        const inserted = await tx.insert(operations).values({ executionKind, ...reservation, id: m.operationId, requestId: m.requestId, salonId: m.salonId, appointmentId: m.appointmentId, quoteId: m.quoteId, contextHash: m.contextHash, identityHash: operation.identityHash, parameterHash: operation.parameterHash, platformAccountId: operation.binding.platformAccountId, connectedAccountId: operation.binding.connectedAccountId, operationCreatedAt: new Date(m.createdAt), quoteExpiresAt: new Date(m.quoteExpiresAt), sessionExpiresAt: new Date(m.sessionExpiresAt) }).returning();
+        const initial = await tx.insert(states).values({ operationId: m.operationId }).returning();
+        if (inserted.length !== 1 || initial.length !== 1) {
+          return checkoutAdapterError('DURABLE_RESERVATION_WRITE_FAILED');
+        }
+        const [audit] = await tx.select().from(audits).where(and(eq(audits.operationId, m.operationId), eq(audits.version, 0))).limit(1);
+        if (!audit) {
+          return checkoutAdapterError('DURABLE_AUDIT_WRITE_FAILED');
+        }
+        return { operation, state: initial[0]!, conflict: false };
+      });
+      if (reserved.conflict || !reserved.state) {
+        return checkoutAdapterError('DURABLE_IDENTITY_CONFLICT_RETAINED');
+      }
+      return { operation: reserved.operation, result: result(reserved.operation, reserved.state) };
+    },
+    async resumeAuthenticated(input: SdkCheckoutResumeInput) {
+      gate();
+      if (!sdk) {
+        return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+      }
+      input = Object.freeze(sdkCheckoutResumeSchema.parse(input));
+      return transaction(database, async (tx) => {
+        const bearer = await assertSdkCheckoutBearer(tx, input, await clock(tx));
+        const [identity] = await tx.select().from(operations).where(and(eq(operations.id, input.operationId), eq(operations.salonId, input.salonId), eq(operations.appointmentId, input.appointmentId))).limit(1);
+        if (!identity || identity.executionKind !== executionKind) {
+          return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+        }
+        const sources = await lockSdkCheckoutSources(tx, identity, bearer);
+        if (identity.capabilityId !== bearer.capabilityId || identity.reconstruction?.version !== 1 || identity.reconstruction?.returnTemplate !== 'closed_invalid_v1') {
+          return checkoutAdapterError('SDK_RECONSTRUCTION_REJECTED');
+        }
+        const operation = reconstructSdkCheckoutOperation(identity, sources.quote);
+        return { operation, result: result(operation, await load(tx, operation)) };
+      });
+    },
+    /**
+     * Trusted internal diagnostic recovery only, never customer checkout admission.
+     * The immutable exact Session binding survives capability pruning/revocation.
+     * Requiring an already consumed create and bound Session makes this read-only.
+     */
+    async restoreForReconciliation(input: { operationId: string; salonId: string; appointmentId: string }) {
+      gate();
+      if (!sdk) {
+        return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+      }
+      input = Object.freeze(z.object({ operationId: uuid, salonId: z.string().min(1).max(200), appointmentId: z.string().min(1).max(200) }).strict().parse(input));
+      return transaction(database, async (tx) => {
+        const [identity] = await tx.select().from(operations).where(and(eq(operations.id, input.operationId), eq(operations.salonId, input.salonId), eq(operations.appointmentId, input.appointmentId))).limit(1);
+        if (!identity || identity.executionKind !== executionKind) {
+          return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+        }
+        const [quote] = await tx.select().from(customerPaymentPreparedQuoteSchema).where(eq(customerPaymentPreparedQuoteSchema.id, identity.quoteId)).for('share').limit(1);
+        if (!quote || identity.reconstruction?.version !== 1 || identity.reconstruction?.returnTemplate !== 'closed_invalid_v1') {
+          return checkoutAdapterError('SDK_RECONSTRUCTION_REJECTED');
+        }
+        const operation = reconstructSdkCheckoutOperation(identity, quote);
+        const state = await load(tx, operation);
+        if (!state.session || !state.dispatchIntentAt || !state.createConsumedAt) {
+          return checkoutAdapterError('DURABLE_EXACT_SESSION_REQUIRED');
+        }
+        return { operation, result: result(operation, state) };
+      });
+    },
+    async consumeSdkPermit(operation: InactiveStripeCheckoutOperation, claim: DurableCheckoutLease) {
+      operation = snapshotOperation(operation);
+      claim = Object.freeze(claimSchema.parse(claim));
+      if (!sdk) {
+        return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+      }
+      // Commit uncertainty propagates: only a resolved transaction creates a permit.
+      // No callback, SDK call or HTTP I/O is executed while these locks are held.
+      const committed = await transaction(database, async (tx) => {
+        let state = await load(tx, operation);
+        fenced(state, claim, await clock(tx), true);
+        if (!state.dispatchIntentAt || (claim.activity === 'create' && state.createConsumedAt) || (claim.activity === 'retrieve' && !state.session)) {
+          return checkoutAdapterError('DURABLE_CONSUME_REJECTED');
+        }
+        if (claim.activity === 'create' && !await sourceValid(tx, operation)) {
+          return { result: result(operation, await review(tx, state, 'source_context_changed')), lease: null, permit: null };
+        }
+        fenced(state, claim, await clock(tx), true);
+        state = await save(tx, state, claim.activity === 'create' ? { createConsumedAt: await clock(tx), reason: 'create_consumed' } : { reason: 'retrieval_pending' });
+        const sampleStarted = performance.now();
+        const now = await clock(tx);
+        fenced(state, lease(state), now, true);
+        return { result: result(operation, state), lease: lease(state), permit: Object.freeze({ databaseNow: now.getTime(), sampleStarted, quoteExpiresAt: claim.activity === 'create' ? operation.material.quoteExpiresAt : null, leaseUntil: state.leaseUntil!.getTime(), sessionId: claim.activity === 'create' ? null : state.session!.sessionId }) };
+      });
+      const authorization = Object.freeze(committed);
+      if (authorization.permit && authorization.lease) {
+        committedSdkAuthorizations.set(authorization, { identityHash: operation.identityHash, parameterHash: operation.parameterHash, claim });
+      }
+      return authorization;
+    },
+    async recordSdkOutcome(operation: InactiveStripeCheckoutOperation, claim: DurableCheckoutLease, outcome: ClosedSdkCheckoutOutcome): Promise<DurableCheckoutResult> {
+      operation = snapshotOperation(operation);
+      claim = Object.freeze(claimSchema.parse(claim));
+      if (!sdk) {
+        return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+      }
+      const safe = getSdkClosedOutcome(outcome, operation, claim);
+      return repository.recordOutcome(operation, claim, brandOutcome(safe, operation, claim));
     },
     async inspect(operation: InactiveStripeCheckoutOperation) {
       operation = snapshotOperation(operation);
@@ -233,7 +434,7 @@ export function createDurableCheckoutRepository(database: Database) {
       input = z.object({ workerId: uuid, leaseMs: z.number().int().min(10).max(300000) }).strict().parse(input);
       return transaction(database, async (tx) => {
         const state = await load(tx, operation);
-        if (state.state === 'review') {
+        if (state.state === 'review' && (!sdk || !state.session)) {
           return { result: result(operation, state), lease: null };
         }
         if (!state.dispatchIntentAt) {
@@ -254,6 +455,9 @@ export function createDurableCheckoutRepository(database: Database) {
     async consume(operation: InactiveStripeCheckoutOperation, claim: DurableCheckoutLease, transport: ClosedCheckoutFixtureTransport): Promise<{ result: DurableCheckoutResult; lease: DurableCheckoutLease | null; outcome: Promise<ClosedCheckoutOutcome> | null }> {
       operation = snapshotOperation(operation);
       claim = Object.freeze(claimSchema.parse(claim));
+      if (sdk) {
+        return checkoutAdapterError('DURABLE_EXECUTION_KIND_MISMATCH');
+      }
       assertClosedCheckoutFixtureTransport(transport);
       const latched = await transaction(database, async (tx) => {
         let state = await load(tx, operation);
@@ -300,7 +504,7 @@ export function createDurableCheckoutRepository(database: Database) {
         return { result: result(operation, state), lease: lease(state), outcome };
       });
     },
-    async recordOutcome(operation: InactiveStripeCheckoutOperation, claim: DurableCheckoutLease, outcome: ClosedCheckoutOutcome) {
+    async recordOutcome(operation: InactiveStripeCheckoutOperation, claim: DurableCheckoutLease, outcome: ClosedCheckoutOutcome): Promise<DurableCheckoutResult> {
       operation = snapshotOperation(operation);
       claim = Object.freeze(claimSchema.parse(claim));
       const origin = outcomes.get(outcome);
@@ -308,17 +512,25 @@ export function createDurableCheckoutRepository(database: Database) {
         return checkoutAdapterError('DURABLE_CLOSED_OUTCOME_REQUIRED');
       }
       return transaction(database, async (tx) => {
-        const state = await load(tx, operation);
+        let state = await load(tx, operation);
         const [attempt] = await tx.select().from(audits).where(and(eq(audits.operationId, state.operationId), eq(audits.version, claim.version))).limit(1);
         if (!attempt || claim.operationId !== state.operationId || attempt.snapshot.lease_token !== claim.token
           || attempt.snapshot.activity !== claim.activity || !state.dispatchIntentAt
           || (claim.activity === 'create' && !attempt.snapshot.create_consumed_at)) {
           return checkoutAdapterError('DURABLE_OUTCOME_WITHOUT_CONSUMPTION');
         }
+        if (sdk && !await sourceValid(tx, operation, true)) {
+          state = await review(tx, state, 'source_context_changed');
+        }
         const now = await clock(tx);
+        const ownsLease = state.version === claim.version && state.leaseToken === claim.token
+          && state.activity === claim.activity && state.leaseUntil !== null && state.leaseUntil > now;
         const current = state.state !== 'review' && state.version === claim.version && state.leaseToken === claim.token
           && state.activity === claim.activity && state.leaseUntil !== null && state.leaseUntil > now;
         if (!outcome.ok) {
+          if (sdk && state.state === 'review' && ownsLease) {
+            return result(operation, await save(tx, state, { reason: 'retrieval_unresolved', ...noLease }));
+          }
           return current
             ? result(operation, await save(tx, state, { state: 'uncertain', reason: claim.activity === 'create' ? 'create_outcome_unknown' : 'retrieval_unresolved', ...noLease }))
             : result(operation, state);
@@ -354,6 +566,16 @@ export function createDurableCheckoutRepository(database: Database) {
           const [owner] = await tx.select().from(objects).where(scope(id)).limit(1);
           if (owner && owner.operationId !== state.operationId) {
             conflict = true;
+            const [otherIdentity] = await tx.select().from(operations).where(eq(operations.id, owner.operationId)).limit(1);
+            if (!otherIdentity) {
+              return checkoutAdapterError('DURABLE_STATE_MISSING');
+            }
+            if (otherIdentity.executionKind !== executionKind) {
+              // Retain this lane's conflict without adopting or mutating another
+              // execution kind's evidence/state authority.
+              await retainConflict(tx, state.operationId, operation.identityHash, 'object_ownership_conflict', id);
+              continue;
+            }
             const [other] = await tx.select().from(states).where(eq(states.operationId, owner.operationId)).for('update').limit(1);
             if (!other) {
               return checkoutAdapterError('DURABLE_STATE_MISSING');
@@ -377,7 +599,30 @@ export function createDurableCheckoutRepository(database: Database) {
         if (conflict) {
           return result(operation, await review(tx, state, 'object_ownership_conflict'));
         }
+        if (sdk && state.session) {
+          const differingIds = [
+            session.sessionId !== state.session.sessionId ? session.sessionId : null,
+            state.session.paymentIntentId && session.paymentIntentId !== state.session.paymentIntentId ? session.paymentIntentId : null,
+            state.session.feeCheck === 'captured_charge_amount_matches' && session.chargeId !== state.session.chargeId ? session.chargeId : null,
+          ].filter((id): id is string => id !== null);
+          if (differingIds.length) {
+            for (const id of differingIds) {
+              await retainConflict(tx, state.operationId, operation.identityHash, 'object_ownership_conflict', id);
+            }
+            return result(operation, await review(tx, state, 'session_evidence_mismatch'));
+          }
+        }
         if (!current) {
+          if (sdk) {
+            try {
+              inspectInactiveStripeSession(outcome.response, operation, state.session);
+            } catch {
+              return result(operation, await review(tx, state, 'session_evidence_mismatch'));
+            }
+            // A first valid late Session remains durably bound for exact-ID reads,
+            // but neither review nor the unresolved financial reservation clears.
+            return result(operation, await save(tx, state, { state: 'review', reason: state.state === 'review' ? state.reason : 'session_evidence_mismatch', session, ...noLease }));
+          }
           // Retain the stale evidence/ownership, but never grant it current state authority.
           return result(operation, await review(tx, state, 'session_evidence_mismatch'));
         }
@@ -389,6 +634,20 @@ export function createDurableCheckoutRepository(database: Database) {
         return result(operation, await save(tx, state, { state: 'session_observed', reason: 'session_response', session, ...noLease }));
       });
     },
-  });
+  };
+  return Object.freeze(repository);
+}
+
+/** Historical in-process fixture lane. Cannot reserve, inspect or consume SDK rows. */
+export function createDurableCheckoutRepository(database: Database) {
+  const { reserveAuthenticated: _reserve, resumeAuthenticated: _resume, restoreForReconciliation: _restore, consumeSdkPermit: _permit, recordSdkOutcome: _outcome, ...repository } = createRepository(database, 'static_fixture_v1');
+  return Object.freeze(repository);
+}
+
+/** Unregistered diagnostic SDK lane: authentication is mandatory for reservation/reconstruction. */
+export function createDurableSdkCheckoutRepository(database: Database) {
+  const { reserve: _reserve, consume: _consume, recordOutcome: _outcome, ...repository } = createRepository(database, 'sdk_closed_http_v1');
+  return Object.freeze(repository);
 }
 export type DurableCheckoutRepository = ReturnType<typeof createDurableCheckoutRepository>;
+export type DurableSdkCheckoutRepository = ReturnType<typeof createDurableSdkCheckoutRepository>;

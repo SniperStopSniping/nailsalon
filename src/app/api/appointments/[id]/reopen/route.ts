@@ -16,6 +16,7 @@ import {
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { updateSalonClientStats } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
@@ -153,6 +154,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           throw new ReopenConflictError();
         }
 
+        await assertCustomerPaymentReservationMutable(tx, lockedAppointment.salonId, appointmentId);
+
         if (
           await hasCustomerPaymentTenderForAppointment(tx, lockedAppointment.salonId, lockedAppointment.id)
           || lockedAppointment.bookingTaxSnapshot !== null
@@ -271,6 +274,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       },
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof InvoiceRevisionUnsupportedError) {
       return errorJson(
         409,

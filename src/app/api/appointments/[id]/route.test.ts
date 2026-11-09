@@ -106,6 +106,9 @@ const {
       && 'updatedAt' in projection,
     );
     const from = vi.fn((table: Record<string, unknown>) => {
+      if ('executionKind' in table) {
+        return { where: vi.fn(() => ({ limit: vi.fn(async () => []) })) };
+      }
       if ('reference' in table && 'recordedByType' in table) {
         return { where: vi.fn(async () => mockDbState.paymentRows) };
       }

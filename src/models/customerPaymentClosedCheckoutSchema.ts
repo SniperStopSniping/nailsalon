@@ -16,6 +16,12 @@ export type ClosedCheckoutReason = 'not_dispatched' | 'create_leased' | 'dispatc
 export const closedCheckoutOperationSchema = pgTable('customer_payment_closed_checkout_operation', {
   id: text('id').primaryKey(),
   requestId: text('request_id').notNull(),
+  executionKind: text('execution_kind').$type<'static_fixture_v1' | 'sdk_closed_http_v1'>().notNull().default('static_fixture_v1'),
+  capabilityId: text('capability_id'),
+  bindingId: text('binding_id'),
+  sourceRevisions: jsonb('source_revisions').$type<Record<string, number>>(),
+  financialContextHash: text('financial_context_hash'),
+  reconstruction: jsonb('reconstruction').$type<{ version: 1; returnTemplate: 'closed_invalid_v1' }>(),
   salonId: text('salon_id').notNull(),
   appointmentId: text('appointment_id').notNull(),
   quoteId: text('quote_id').notNull(),
@@ -85,3 +91,14 @@ export const closedCheckoutObservationSchema = pgTable('customer_payment_closed_
   feeCheck: text('fee_check'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 }, table => ({ once: primaryKey({ columns: [table.operationId, table.fingerprint] }) }));
+
+/** Serialized source pins; immutable facts contain no token hash or secret source value. */
+export const checkoutSourceRevisionSchema = pgTable('customer_payment_checkout_source_revision', {
+  sourceKey: text('source_key').primaryKey(),
+  revision: integer('revision').notNull(),
+});
+export const checkoutSourceFactSchema = pgTable('customer_payment_checkout_source_fact', {
+  sourceKey: text('source_key').notNull().references(() => checkoutSourceRevisionSchema.sourceKey, { onDelete: 'restrict' }),
+  revision: integer('revision').notNull(),
+  changedAt: timestamp('changed_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+}, table => ({ once: primaryKey({ columns: [table.sourceKey, table.revision] }) }));

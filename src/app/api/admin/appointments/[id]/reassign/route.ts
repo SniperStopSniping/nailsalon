@@ -9,7 +9,6 @@
  * - Validates new tech availability
  * - Full audit logging
  */
-
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -17,6 +16,7 @@ import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { logAdminOverride, logTechReassignment } from '@/libs/appointmentAudit';
 import { isSlotConstraintViolation, lockTechnicianAndAssertSlotFree, lockTechnicianSchedule, SlotConflictError } from '@/libs/bookingConflictGuard';
 import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
 import {
@@ -397,6 +397,9 @@ export async function PUT(
       },
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof CustomerPaymentLifecycleBlockedError) {
       return customerPaymentLifecycleBlockedResponse(error);
     }

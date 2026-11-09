@@ -39,6 +39,7 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { customerPaymentCompletionTip, isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
+import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
@@ -671,6 +672,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       ) {
         return { success: false as const, updatedAppointment: null };
       }
+
+      await assertCustomerPaymentReservationMutable(tx, lockedAppointment.salonId, appointmentId);
 
       // D6 lock order is appointment first, then every terminal-history
       // deposit row. Keeping the credit decision inside this transaction
@@ -1422,6 +1425,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       result.depositCredit,
     );
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof CompletionStagedWriteConflictError || error instanceof NextVisitOfferError || postgresErrorCode(error) === '55P03') {
       return Response.json({ error: { code: 'APPOINTMENT_CHANGED', message: 'This appointment or client is being updated. Refresh the appointment and review the totals before trying again.' } }, { status: 409 });
     }
@@ -1789,6 +1795,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           throw new StartAppointmentStateConflictError();
         }
 
+        await assertCustomerPaymentReservationMutable(tx, lockedAppointment.salonId, appointmentId);
+
         const competingAppointments
           = await getActiveAppointmentsForCanonicalClientWithHandle(
             tx as LifecycleSqlHandle,
@@ -1845,6 +1853,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       },
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof StartAppointmentStateConflictError) {
       return Response.json(
         {

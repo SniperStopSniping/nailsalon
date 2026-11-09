@@ -13,6 +13,7 @@ const {
   getActiveAppointmentsForCanonicalClientWithHandle,
   lockTechnicianAndAssertSlotFree,
   updateSalonClientStats,
+  reservationRows,
   lockedAppointment,
   appointmentUpdateResult,
   dependentUpdate,
@@ -60,6 +61,7 @@ const {
     callOrder.push('technician-lock');
   });
   const updateSalonClientStats = vi.fn(async () => undefined);
+  const reservationRows = { current: [] as Array<{ id: string }> };
   const lockedAppointment = { current: null as Record<string, unknown> | null };
   const appointmentUpdateResult = { current: [] as Record<string, unknown>[] };
   const dependentUpdate = vi.fn(async () => undefined);
@@ -68,8 +70,9 @@ const {
   const tx = {
     execute: vi.fn(),
     select: vi.fn(() => ({
-      from: vi.fn(() => ({
+      from: vi.fn((table: Record<string, unknown>) => ({
         where: vi.fn(() => ({
+          ...('executionKind' in table ? { limit: vi.fn(async () => reservationRows.current) } : {}),
           for: vi.fn(() => ({
             limit: vi.fn(async () => {
               callOrder.push('appointment-lock');
@@ -117,6 +120,7 @@ const {
     getActiveAppointmentsForCanonicalClientWithHandle,
     lockTechnicianAndAssertSlotFree,
     updateSalonClientStats,
+    reservationRows,
     lockedAppointment,
     appointmentUpdateResult,
     dependentUpdate,
@@ -183,6 +187,7 @@ function request(): Request {
 describe('POST /api/appointments/:id/reopen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    reservationRows.current = [];
     vi.mocked(hasCustomerPaymentTenderForAppointment).mockResolvedValue(false);
     callOrder.length = 0;
     lockedAppointment.current = { ...completedAppointment };
@@ -203,6 +208,17 @@ describe('POST /api/appointments/:id/reopen', () => {
         return [];
       },
     );
+  });
+
+  it('returns reservation conflict before reopening or dependent writes', async () => {
+    reservationRows.current = [{ id: 'closed_sdk_reservation' }];
+    const response = await POST(request(), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RESERVATION_RECONCILIATION_REQUIRED');
+    expect(dependentUpdate).not.toHaveBeenCalled();
+    expect(auditInsert).not.toHaveBeenCalled();
+    expect(callOrder).not.toContain('appointment-cas');
   });
 
   it('refuses captured tender even without a historical tax snapshot', async () => {

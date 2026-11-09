@@ -12,6 +12,7 @@ import {
   getSalonClientPhoneAliasesWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
 } from '@/libs/clientLifecycleStabilization';
+import { CustomerPaymentReservationBlockedError, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import {
   type AddOn,
@@ -598,34 +599,41 @@ export async function updateAppointmentStatus(
   status: Appointment['status'],
   cancelReason?: AppointmentCancellationReason,
 ): Promise<Appointment | null> {
-  const [updated] = await db
-    .update(appointmentSchema)
-    .set({
-      status,
-      cancelReason,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(appointmentSchema.id, appointmentId),
-        eq(appointmentSchema.salonId, salonId),
-        // D5 FENCE. This function takes no transaction, no lock and no expected
-        // current status, so it is a blind writer: whatever it is handed wins.
-        // A deposit hold is the one row where that is a money bug — flipping
-        // 'awaiting_payment' to 'confirmed' here would confirm a booking whose
-        // deposit was never paid, outside the single-writer boundary of
-        // `src/libs/deposits/**` (invariant I1).
-        //
-        // D4 already fences the route that calls this. This is the
-        // FUNCTION-level belt: a future caller inherits the guard without
-        // having to know the rule. Zero rows updated ⇒ `null` ⇒ the caller's
-        // existing not-found/conflict branch.
-        ne(appointmentSchema.status, 'awaiting_payment'),
-      ),
-    )
-    .returning();
+  try {
+    const [updated] = await db
+      .update(appointmentSchema)
+      .set({
+        status,
+        cancelReason,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, salonId),
+          // D5 FENCE. This function takes no transaction, no lock and no expected
+          // current status, so it is a blind writer: whatever it is handed wins.
+          // A deposit hold is the one row where that is a money bug — flipping
+          // 'awaiting_payment' to 'confirmed' here would confirm a booking whose
+          // deposit was never paid, outside the single-writer boundary of
+          // `src/libs/deposits/**` (invariant I1).
+          //
+          // D4 already fences the route that calls this. This is the
+          // FUNCTION-level belt: a future caller inherits the guard without
+          // having to know the rule. Zero rows updated ⇒ `null` ⇒ the caller's
+          // existing not-found/conflict branch.
+          ne(appointmentSchema.status, 'awaiting_payment'),
+        ),
+      )
+      .returning();
 
-  return updated ?? null;
+    return updated ?? null;
+  } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      throw new CustomerPaymentReservationBlockedError();
+    }
+    throw error;
+  }
 }
 
 /**

@@ -5,6 +5,7 @@ import { and, eq, isNotNull, lte } from 'drizzle-orm';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import { hasCustomerPaymentTenderForAppointment } from '@/libs/appointmentCheckoutServer';
 import { materializeAppointmentLifecycle } from '@/libs/communicationMaterialization';
+import { hasCustomerPaymentReservationForAppointment } from '@/libs/customerPayments/server/reservationGuard';
 import type { db } from '@/libs/DB';
 import { appointmentAuditLogSchema, appointmentSchema } from '@/models/Schema';
 
@@ -112,7 +113,8 @@ export async function expireApprovalRequest(
     return { outcome: 'not_expirable' };
   }
 
-  if (await hasCustomerPaymentTenderForAppointment(tx, locked.salonId, appointmentId)) {
+  if (await hasCustomerPaymentReservationForAppointment(tx, locked.salonId, appointmentId)
+    || await hasCustomerPaymentTenderForAppointment(tx, locked.salonId, appointmentId)) {
     return { outcome: 'customer_payment_reconciliation_required' };
   }
 

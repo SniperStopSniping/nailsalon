@@ -4,7 +4,6 @@
  * POST /api/rewards/redeem-points
  * Redeems points from catalog rewards and applies discount to an appointment
  */
-
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -17,6 +16,7 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
@@ -452,6 +452,9 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json(response, { status: 200 });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof CustomerPaymentLifecycleBlockedError) {
       return customerPaymentLifecycleBlockedResponse(error);
     }

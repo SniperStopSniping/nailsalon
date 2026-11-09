@@ -9,6 +9,7 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import {
   DepositForfeitureBlockedError,
@@ -692,6 +693,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     return Response.json(response);
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof CustomerPaymentLifecycleBlockedError) {
       return customerPaymentLifecycleBlockedResponse(error);
     }

@@ -51,7 +51,7 @@ export async function createDurableCheckoutFixture(database: Database) {
     cancelUrl: 'https://closed.invalid/cancel',
     quote: { currency: 'cad', collection: 'full', servicesCents: s.servicesCents, discountCents: s.discountCents, taxCents: s.taxCents, tipCents: s.tipCents, feePolicy: { payer: 'salon', feeCents: s.configuredFeeCents, taxTreatment: 'not_collected_in_test_mode' } },
   }, { platformAccountId: 'acct_closedPlatform', connectedAccountId: accountId, mode: 'test', returnOrigin: 'https://closed.invalid' });
-  return { salonId, appointmentId, tokenId, bindingId, itemId, quote, operation, repository, policyInput };
+  return { salonId, appointmentId, token, tokenId, bindingId, itemId, quote, operation, repository, policyInput };
 }
 
 export function closedCheckoutSession(operation: InactiveStripeCheckoutOperation, overrides: Record<string, unknown> = {}) {

@@ -20,6 +20,7 @@ import {
   type RequestedService,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
+import { assertCustomerPaymentReservationMutable, CustomerPaymentReservationBlockedError, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { resolveDepositCredit } from '@/libs/depositCredit';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
@@ -967,6 +968,7 @@ async function withLockedManagedAppointment(
       if (!lockedAppointment || lockedAppointment.deletedAt) {
         throw new AppointmentManageError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
       }
+      await assertCustomerPaymentReservationMutable(tx, lockedAppointment.salonId, lockedAppointment.id);
       ensureEditable(lockedAppointment);
       if (await hasCustomerPaymentTenderForAppointment(tx, lockedAppointment.salonId, lockedAppointment.id)) {
         throw new AppointmentManageError('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED', 'Captured customer money must be reconciled before changing this appointment.', 409);
@@ -1081,6 +1083,10 @@ async function withLockedManagedAppointment(
       return result;
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      const blocked = new CustomerPaymentReservationBlockedError();
+      throw new AppointmentManageError(blocked.code, blocked.message, 409);
+    }
     if (postgresErrorCode(error) === '55P03') {
       throw new AppointmentManageError(
         'FINANCIAL_CONFIGURATION_BUSY',

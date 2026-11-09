@@ -23,19 +23,21 @@ const {
   const updateResults: unknown[][] = [];
 
   const select = vi.fn(() => ({
-    from: vi.fn((table: Record<string, unknown>) => 'recordedByType' in table
-      ? { where: vi.fn(async () => paymentMarkers.rows) }
-      : ({
-          where: vi.fn(() => {
-            const result = (selectResults.shift() ?? []).map(row => typeof row === 'object' && row && 'status' in row ? { startTime: new Date('2026-03-14T10:00:00Z'), endTime: new Date('2026-03-14T11:00:00Z'), totalDurationMinutes: 60, bufferMinutes: 10, ...row } : row);
-            const limit = vi.fn(async () => result);
-            return {
-              for: vi.fn(() => ({ limit })),
-              limit,
-              then: (resolve: (value: unknown) => void) => resolve(result),
-            };
-          }),
-        })),
+    from: vi.fn((table: Record<string, unknown>) => 'executionKind' in table
+      ? { where: vi.fn(() => ({ limit: vi.fn(async () => []) })) }
+      : 'recordedByType' in table
+        ? { where: vi.fn(async () => paymentMarkers.rows) }
+        : ({
+            where: vi.fn(() => {
+              const result = (selectResults.shift() ?? []).map(row => typeof row === 'object' && row && 'status' in row ? { startTime: new Date('2026-03-14T10:00:00Z'), endTime: new Date('2026-03-14T11:00:00Z'), totalDurationMinutes: 60, bufferMinutes: 10, ...row } : row);
+              const limit = vi.fn(async () => result);
+              return {
+                for: vi.fn(() => ({ limit })),
+                limit,
+                then: (resolve: (value: unknown) => void) => resolve(result),
+              };
+            }),
+          })),
   }));
 
   const update = vi.fn(() => ({

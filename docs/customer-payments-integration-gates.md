@@ -8,7 +8,7 @@ immutable refund/fee/dispute cash ledger.
 A separate unregistered SDK checkout adapter is implemented and tested only with
 closed offline HTTP responses. No provider collection, real refunds, deployment
 or production activation.
-Migrations 0115–0125 exist in source and have run through the real journal in isolated/disposable tests only,
+Migrations 0115–0127 exist in source and have run through the real journal in isolated/disposable tests only,
 not an application DB. The remaining gates below are not implemented payment flows.
 
 ## Implemented: preparation and customer context
@@ -335,6 +335,57 @@ owned servers stopped, and the private PostgreSQL cluster and temporary secrets
 removed. No provider request, application database migration, application/provider
 credential change, push, merge, deployment or activation occurred. This checkpoint remains local to
 the payment branch; it has not been integrated with the newer homepage release.
+
+## Closed SDK reservation takeover checkpoint
+
+The closed SDK lane now reconstructs a saved quote after private-link
+authentication, persists source revisions and financial context, commits one-use
+dispatch authority before closed HTTP consumption, and retains unresolved
+appointment reservations across restarts and uncertain outcomes. Migration 0127
+and application guards protect financial/lifecycle mutations while permitting
+security revocation and administrative edits. No application checkout route,
+real provider transport, settlement or release of reservations is introduced.
+See `customer-payments-durable-sdk-reservation.md` for the exact boundary.
+
+Takeover corrected a declined-card retry regression: an uncaptured charge may
+evolve to a successful different charge on the same intent, while a captured
+charge cannot be replaced. Both identities remain owned. Two restart integration
+cases cover these outcomes. A pre-existing test typing error was corrected.
+
+The unfinished native concurrency tests contained invalid deposit fixture states,
+an incorrect audit-column query, a synchronous-throw assertion and incorrect
+assumptions about already-revoked account history and worker leases. The corrected
+suite exercises real active-binding mutations, deterministic lock interleavings
+and dispatch refusal. No assertion was disabled and no test is skipped there.
+
+Local verification on the takeover worktree:
+
+- The scoped sweep covered 117 changed test files: 2,235 passed, eight failed
+  in three legacy route/mock suites, and 97 opt-in PostgreSQL cases were skipped.
+  The failures were corrected with exact reservation-table mocks, retaining the
+  real guards. All 90 cases in those three suites then passed, including two new
+  checks that reservations prevent Google cancellation and reward repricing
+  before downstream side effects. This is scoped coverage, not the full repo.
+- All 19 SDK reservation integration cases passed, including both new restart
+  charge-history cases. This overlaps the scoped sweep rather than adding to it.
+- All 97 native PostgreSQL cases passed across 12 files, with zero skips, on a
+  fresh attested PostgreSQL 16 cluster. This includes all 31 new SDK reservation
+  concurrency cases. The private cluster and its ephemeral credentials were
+  stopped and removed afterward.
+- All 20 standalone Chromium/mobile WebKit cases passed with mock transports.
+- The full local production build passed with type validation enabled and the
+  repository's approved CI placeholders. No application/provider credentials
+  were loaded. Changed-source lint passed with seven pre-existing Fast Refresh
+  warnings. The source/generated-asset secret scan passed.
+- All 14 built-app production-off requests returned 404, covering the draft,
+  quote and review APIs plus both test pages, first with default flags and then
+  all eight payment flags forced true. Both owned local servers were stopped.
+
+The source provenance and outstanding protected-surface release gates are in
+`customer-payments-base-compatibility.md`. No hosted CI, provider payment,
+application migration, push, merge, deployment or activation is claimed here.
+Production remains disabled, and no application database or provider account
+was changed.
 
 ## Remaining gate 1: real provider operations and receipts
 
