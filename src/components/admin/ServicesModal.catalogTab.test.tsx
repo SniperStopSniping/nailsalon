@@ -92,37 +92,27 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     vi.stubGlobal('fetch', fetchMock);
   });
 
-  it('keeps Library and Advanced Catalog behind More while My Menu and Add-ons stay primary', async () => {
+  it('opens Library directly from the main tabs for an existing salon', async () => {
     mockLegacySalonRoutes();
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    await screen.findByText('Classic Manicure');
 
-    expect(await screen.findByTestId('services-tab-menu')).toBeInTheDocument();
-    expect(screen.getByTestId('services-tab-addons')).toBeInTheDocument();
-    expect(screen.queryByTestId('services-more-tabs')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('services-tab-library')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('services-tab-catalog')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: 'Advanced Settings' })).not.toHaveAttribute('aria-controls');
+    const menu = screen.getByRole('tab', { name: 'My Menu' });
+    const library = screen.getByRole('tab', { name: 'Library' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
+    expect(menu).toHaveAttribute('aria-selected', 'true');
+    expect(library).toBeVisible();
 
-    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByTestId('services-more-tabs')).toBeVisible();
-    expect(screen.getByTestId('services-tab-library')).toBeVisible();
-    expect(screen.getByRole('tab', { name: 'Rules & options' })).toBeVisible();
+    fireEvent.click(library);
 
-    fireEvent.click(screen.getByTestId('services-tab-library'));
+    expect(library).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('service-library-tab')).toBeVisible();
+    expect(screen.queryByTestId('catalog-config-tab')).not.toBeInTheDocument();
 
-    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toHaveAttribute('aria-controls', 'services-more-tabs');
-    expect(screen.getByTestId('services-tab-library')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
-    fireEvent.click(screen.getByTestId('services-tab-menu'));
-
-    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Advanced Settings' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: 'Advanced Settings' })).not.toHaveAttribute('aria-controls');
-    expect(screen.queryByTestId('services-more-tabs')).not.toBeInTheDocument();
+    expect(menu).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Classic Manicure')).toBeVisible();
   });
 
   it('legacy simplicity: the Catalog tab is fully opt-in — no catalog-config fetch happens until it is opened, and the everyday tabs are unaffected', async () => {
@@ -134,8 +124,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
 
     expect(catalogFetchesBeforeOpen).toBe(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
-    fireEvent.click(screen.getByTestId('services-tab-catalog'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced Settings' }));
 
     expect(screen.getByTestId('catalog-config-tab')).toBeInTheDocument();
     // The overview lands first — still no L1 fetch until a section opens.
@@ -147,8 +136,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
     await screen.findByTestId('services-tab-menu');
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
-    fireEvent.click(screen.getByTestId('services-tab-catalog'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced Settings' }));
     fireEvent.click(screen.getByTestId('catalog-section-groupServices'));
 
     expect(await screen.findByTestId('service-standalone-svc_legacy')).toBeInTheDocument();
@@ -160,8 +148,7 @@ describe('ServicesModal — Catalog tab (L1 owner configuration surface)', () =>
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
     await screen.findByText('Classic Manicure');
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced Settings' }));
-    fireEvent.click(screen.getByTestId('services-tab-catalog'));
+    fireEvent.click(screen.getByRole('tab', { name: 'Advanced Settings' }));
     await act(async () => {
       fireEvent.click(screen.getByTestId('services-tab-menu'));
     });
