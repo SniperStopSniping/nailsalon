@@ -38,11 +38,13 @@ type MockedClerkUser = {
 
 const mocks = vi.hoisted(() => ({
   auth: { isLoaded: true, isSignedIn: false },
+  authListeners: new Set<() => void>(),
+  resourceListeners: new Set<(resources: { session: unknown }) => void>(),
   claim: vi.fn(),
   claimMedia: vi.fn(),
   cleanupMedia: vi.fn(),
   clerk: {
-    addListener: vi.fn(() => () => undefined),
+    addListener: vi.fn<(listener: (resources: { session: unknown }) => void) => () => void>(),
     session: null as unknown,
     setActive: vi.fn(),
     signOut: vi.fn(),
@@ -56,6 +58,8 @@ const mocks = vi.hoisted(() => ({
   savePlan: vi.fn(),
   publish: vi.fn(),
   prepareArtwork: vi.fn(),
+  resolveOrganization: vi.fn(),
+  setActiveSignUp: vi.fn(),
   status: vi.fn(),
   signIn: { authenticateWithRedirect: vi.fn(), create: vi.fn() },
   signUp: { create: vi.fn(), prepareEmailAddressVerification: vi.fn() },
@@ -76,14 +80,23 @@ const verifiedClerkUser = (): NonNullable<MockedClerkUser> => ({
 vi.mock('@/libs/billing/foundingLifetime', () => ({ isFoundingLifetimeOfferOpen: () => true }));
 vi.mock('@/libs/publishWebsiteClient', () => ({ publishSalon: (...args: unknown[]) => mocks.publish(...args) }));
 
-vi.mock('@clerk/nextjs', () => ({
-  AuthenticateWithRedirectCallback: () => null,
-  useAuth: () => mocks.auth,
-  useClerk: () => mocks.clerk,
-  useSignIn: () => ({ isLoaded: true, setActive: vi.fn(), signIn: mocks.signIn }),
-  useSignUp: () => ({ isLoaded: true, setActive: vi.fn(), signUp: mocks.signUp }),
-  useUser: () => mocks.userState,
-}));
+vi.mock('@clerk/nextjs', async () => {
+  const { useSyncExternalStore } = await import('react');
+  const subscribe = (listener: () => void) => {
+    mocks.authListeners.add(listener);
+    return () => {
+      mocks.authListeners.delete(listener);
+    };
+  };
+  return {
+    AuthenticateWithRedirectCallback: () => null,
+    useAuth: () => useSyncExternalStore(subscribe, () => mocks.auth),
+    useClerk: () => mocks.clerk,
+    useSignIn: () => ({ isLoaded: true, setActive: vi.fn(), signIn: mocks.signIn }),
+    useSignUp: () => ({ isLoaded: true, setActive: mocks.setActiveSignUp, signUp: mocks.signUp }),
+    useUser: () => useSyncExternalStore(subscribe, () => mocks.userState),
+  };
+});
 
 vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider', () => ({
   CustomDesignAssetProvider: ({ children }: { children: ReactNode }) => children,
@@ -111,7 +124,7 @@ vi.mock('./client', async (importOriginal) => {
     claimOnboardingDraft: (...args: unknown[]) => mocks.claim(...args),
     prepareOnboardingCanva: (...args: unknown[]) => mocks.prepareArtwork(...args),
     getOnboardingDraftClaimStatus: (...args: unknown[]) => mocks.status(...args),
-    resolveOnboardingOrganization: vi.fn(),
+    resolveOnboardingOrganization: (...args: unknown[]) => mocks.resolveOrganization(...args),
     saveOnboardingPlanIntent: (...args: unknown[]) => mocks.savePlan(...args),
   };
 });
@@ -206,6 +219,18 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.userState.isLoaded = true;
     mocks.userState.user = null;
     mocks.clerk.session = null;
+    mocks.authListeners.clear();
+    mocks.resourceListeners.clear();
+    mocks.clerk.addListener.mockReset().mockImplementation((listener) => {
+      mocks.resourceListeners.add(listener);
+      listener({ session: mocks.clerk.session });
+      return () => {
+        mocks.resourceListeners.delete(listener);
+      };
+    });
+    mocks.clerk.setActive.mockReset();
+    mocks.resolveOrganization.mockReset();
+    mocks.setActiveSignUp.mockReset();
     mocks.clerk.signOut.mockReset().mockResolvedValue(undefined);
     mocks.lab.acceptOnboardingPresentation.mockReset().mockReturnValue(null);
     mocks.claim.mockReset();
@@ -261,6 +286,117 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(screen.queryByRole('button', { name: 'Continue with Google' })).not.toBeInTheDocument();
     expect(screen.queryByText('Continue with Apple')).not.toBeInTheDocument();
     expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { organizationRequired: false, verified: true },
+    { organizationRequired: true, verified: true },
+    { organizationRequired: true, verified: false },
+  ])('preserves the owner draft through one auth handoff (organization=$organizationRequired, verified=$verified)', async ({ organizationRequired, verified }) => {
+    const interaction = userEvent.setup();
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
+    const originalLocation = window.location;
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, assign } });
+    onTestFinished(() => {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    });
+
+    const user = verifiedClerkUser();
+    user.primaryEmailAddress.verification.status = verified ? 'verified' : 'unverified';
+    const activeSession = { currentTask: null, id: 'sess_fresh_owner', status: 'active', user };
+    const pendingSession = {
+      ...activeSession,
+      currentTask: { key: 'choose-organization' },
+      getToken: vi.fn().mockResolvedValue('synthetic-session-token'),
+      status: 'pending',
+    };
+    type Navigate = (params: {
+      decorateUrl: (url: string) => string;
+      session: typeof activeSession | typeof pendingSession;
+    }) => Promise<void> | void;
+    const decorateUrl = vi.fn((url: string) => `${url}&handoff=synthetic`);
+    const emitSession = (session: typeof activeSession | typeof pendingSession) => {
+      mocks.clerk.session = session;
+      for (const listener of mocks.resourceListeners) {
+        listener({ session });
+      }
+    };
+    let initialNavigate: Navigate | undefined;
+    mocks.signIn.create.mockRejectedValueOnce({ errors: [{ code: 'form_identifier_not_found' }] });
+    mocks.signUp.create.mockResolvedValue({ createdSessionId: activeSession.id, createdUserId: user.id, status: 'complete' });
+    mocks.resolveOrganization.mockResolvedValue({ created: true, organizations: [{ id: 'org_fresh', name: state.profile.businessName }] });
+    mocks.setActiveSignUp.mockImplementation(async ({ navigate }: { navigate?: Navigate }) => {
+      initialNavigate = navigate;
+      if (organizationRequired) {
+        await navigate?.({ decorateUrl, session: pendingSession });
+
+        expect(assign).not.toHaveBeenCalled();
+
+        emitSession(pendingSession);
+      } else {
+        // Clerk documents navigation before its public session accessors update.
+        await navigate?.({ decorateUrl, session: activeSession });
+        emitSession(activeSession);
+      }
+    });
+    mocks.clerk.setActive.mockImplementation(async ({ navigate }: { navigate?: Navigate }) => {
+      await navigate?.({ decorateUrl, session: activeSession });
+      emitSession(activeSession);
+      // Signup finalization may settle after organization activation; it must
+      // not cause a second navigation or an early claim using stale hooks.
+      await initialNavigate?.({ decorateUrl, session: activeSession });
+    });
+    mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await interaction.click(await screen.findByRole('button', { name: 'Continue with email' }));
+    await interaction.type(screen.getByLabelText('Email address'), 'owner@example.com');
+    await interaction.click(screen.getByRole('button', { name: 'Continue' }));
+    await interaction.type(await screen.findByLabelText('Password'), 'synthetic-password-for-test');
+    const draftBefore = loadOnboardingState().state;
+    const keyBefore = loadOnboardingIntegrationFlow().claimIdempotencyKey;
+    const documentBefore = window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY);
+    await interaction.click(screen.getByRole('button', { name: 'Create account and continue' }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith('/en/onboarding-v1?claim=1&handoff=synthetic'));
+
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(loadOnboardingState().state).toEqual(draftBefore);
+    expect(loadOnboardingIntegrationFlow().claimIdempotencyKey).toBe(keyBefore);
+    expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).toBe(documentBefore);
+    expect(mocks.resolveOrganization).toHaveBeenCalledTimes(organizationRequired ? 1 : 0);
+
+    // Model the fresh document reached by supported navigation, with the
+    // provider's settled identity. This is not live Clerk/browser evidence.
+    view.unmount();
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    window.history.replaceState({}, '', '/en/onboarding-v1?claim=1&handoff=synthetic');
+    mocks.auth = { isLoaded: true, isSignedIn: true };
+    mocks.userState = { isLoaded: false, user: null };
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(mocks.claim).not.toHaveBeenCalled();
+
+    await act(async () => {
+      mocks.userState = { isLoaded: true, user };
+      for (const listener of mocks.authListeners) {
+        listener();
+      }
+    });
+    if (verified) {
+      expect(await screen.findByRole('heading', { level: 1, name: 'Your progress is saved' })).toBeVisible();
+      expect(mocks.claim).toHaveBeenCalledTimes(1);
+      expect(mocks.claim.mock.calls[0]?.[0]).toMatchObject({ idempotencyKey: keyBefore });
+      expect(loadOnboardingIntegrationFlow().savedSiteOwnerId).toBe(user.id);
+    } else {
+      expect(await screen.findByRole('heading', { level: 1, name: 'Check your email' })).toBeVisible();
+      expect(mocks.claim).not.toHaveBeenCalled();
+      expect(user.primaryEmailAddress.prepareVerification).toHaveBeenCalledTimes(1);
+    }
   });
 
   it('keeps a signed-in owner with an unverified email inside verification without claiming', async () => {
