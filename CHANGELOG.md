@@ -1,3 +1,16 @@
+# [1.151.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.150.2...v1.151.0) (2026-11-09)
+
+
+### Bug Fixes
+
+* **admin:** extend Clients to the top of the viewport ([#500](https://github.com/SniperStopSniping/nailsalon/issues/500)) ([962ce55](https://github.com/SniperStopSniping/nailsalon/commit/962ce550bc058a5c76ffe3a3945b5e8b0d744373))
+
+
+### Features
+
+* **admin:** add Today and Tomorrow appointment agenda ([#502](https://github.com/SniperStopSniping/nailsalon/issues/502)) ([d7894c7](https://github.com/SniperStopSniping/nailsalon/commit/d7894c70781338e1517923b963354f9c10648f05))
+* **marketing:** redesign the Luster homepage for mobile ([#499](https://github.com/SniperStopSniping/nailsalon/issues/499)) ([7da552a](https://github.com/SniperStopSniping/nailsalon/commit/7da552ad5e5a1e52688300fda09777c83fa084f5))
+
 ## [1.150.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.150.1...v1.150.2) (2026-11-08)
 
 
