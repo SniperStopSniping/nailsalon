@@ -36,3 +36,7 @@ export function useSearchParams() {
 export function useParams() {
   return { locale: 'en' };
 }
+
+export function usePathname() {
+  return window.location.pathname;
+}

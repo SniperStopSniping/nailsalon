@@ -119,6 +119,28 @@ test('clients: search, clear, profile sections and back preserve the directory',
   await noOverflow(page);
 });
 
+test('clients: the directory and insights sheet reach the top of the viewport', async ({ page }) => {
+  await page.goto('/?screen=clients&surface=sheet');
+  const sheet = page.getByRole('dialog', { name: 'Clients', exact: true });
+  const topOffset = () => sheet.evaluate(
+    panel => Math.abs(panel.getBoundingClientRect().top - (window.visualViewport?.offsetTop ?? 0)),
+  );
+
+  await page.getByRole('button', { name: 'Open Clients' }).click();
+
+  await expect(sheet.getByRole('button', { name: /SM Sofia Martin/ })).toBeVisible();
+  await expect.poll(topOffset).toBeLessThan(1);
+
+  await sheet.getByRole('tab', { name: 'Insights & Follow-ups' }).click();
+
+  await expect(sheet.getByRole('heading', { name: 'Client health' })).toBeInViewport();
+  await expect.poll(topOffset).toBeLessThan(1);
+
+  await sheet.getByRole('button', { name: 'Back', exact: true }).click();
+
+  await expect(sheet).toBeHidden();
+});
+
 test('services: search recovery and detail navigation preserve the catalog', async ({ page }) => {
   await page.goto('/?screen=services');
   const search = page.getByPlaceholder('Search services…');
