@@ -3,7 +3,6 @@
 import {
   AlertCircle,
   CalendarCheck,
-  CalendarDays,
   ChevronDown,
   ChevronRight,
   Clock3,
@@ -16,18 +15,21 @@ import {
   TriangleAlert,
   UserRound,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { QuickActionsWidget } from '@/components/admin/QuickActionsWidget';
 import { SmsBalanceCard } from '@/components/admin/SmsBalanceCard';
-import { appointmentStatusChipClasses, formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import {
   APPOINTMENT_DATA_CHANGED_EVENT,
   RETENTION_DATA_CHANGED_EVENT,
 } from '@/libs/dashboardEvents';
 import type { ReportingProvenance } from '@/libs/financialReporting';
 import { formatMoney } from '@/libs/formatMoney';
-import { getDateKeyInTimeZone } from '@/libs/timeZone';
+import {
+  formatDateInTimeZone,
+  formatTimeInTimeZone,
+  getZonedDayBounds,
+} from '@/libs/timeZone';
 import type { OwnerFinancialSummary } from '@/types/ownerFinancialSummary';
 import type { RetentionStage } from '@/types/retention';
 
@@ -40,23 +42,24 @@ type AppointmentGlance = {
   upcoming: number;
 };
 
+type ScheduleAppointment = {
+  id: string;
+  clientName: string | null;
+  startTime: string;
+  endTime: string;
+  status: string;
+  totalDurationMinutes: number;
+  technicianId?: string | null;
+  services: string[];
+  clientSensitivities?: string | null;
+};
+
 type TodayData = {
   date: string;
   timeZone: string;
   technicians?: Array<{ id: string; name: string }>;
-  appointments: Array<{
-    id: string;
-    clientName: string | null;
-    startTime: string;
-    endTime: string;
-    status: string;
-    totalPrice: number;
-    totalDurationMinutes: number;
-    technicianName: string | null;
-    technicianId?: string | null;
-    services: string[];
-    clientSensitivities?: string | null;
-  }>;
+  appointments: ScheduleAppointment[];
+  tomorrow?: { date: string; appointments: ScheduleAppointment[] };
   dueClients: Array<{
     id: string;
     fullName: string | null;
@@ -79,6 +82,18 @@ type TodayData = {
   };
   links?: { publicUrl: string; bookingUrl: string; findBookingUrl: string };
 };
+
+const SCHEDULE_TABS = [
+  { id: 'today', label: 'Today' },
+  { id: 'tomorrow', label: 'Tomorrow' },
+] as const;
+const APPOINTMENT_PREVIEW_LIMIT = 5;
+
+function shortClientName(name: string | null): string {
+  const [first, ...rest] = name?.trim().split(/\s+/) ?? [];
+  const last = rest.at(-1);
+  return last ? `${first} ${Array.from(last)[0]}.` : first || 'Guest client';
+}
 
 type RetentionQueueData = {
   retention: Array<{
@@ -292,11 +307,15 @@ export function OwnerTodayWorkspace({
   // belongs to what needs a decision, not to a wall of $0.00 (OP-009).
   const [revenueBreakdownOpen, setRevenueBreakdownOpen] = useState(false);
   const [utilitiesOpen, setUtilitiesOpen] = useState(false);
-  const [completedOpen, setCompletedOpen] = useState(false);
+  const agendaId = useId();
+  const [scheduleDay, setScheduleDay] = useState<'today' | 'tomorrow'>('today');
+  const [expandedDate, setExpandedDate] = useState<string | null>(null);
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<string | null>(null);
   const financialSummaryCacheRef = useRef<
     Record<string, OwnerFinancialSummary>
   >({});
+  const latestTodayRequestRef = useRef(0);
   const latestFinancialRequestRef = useRef(0);
   const financialSummaryOwnerOnlyRef = useRef<string | null>(null);
 
@@ -308,6 +327,7 @@ export function OwnerTodayWorkspace({
     = Boolean(salonSlug) && financialSummaryOwnerOnlySlug === salonSlug;
 
   const loadToday = useCallback(async () => {
+    const requestId = ++latestTodayRequestRef.current;
     if (!salonSlug) {
       setToday(null);
       setTodayLoading(false);
@@ -317,22 +337,29 @@ export function OwnerTodayWorkspace({
     setTodayError(null);
     try {
       const response = await fetch(
-        `/api/admin/today?salonSlug=${encodeURIComponent(salonSlug)}`,
+        `/api/admin/today?salonSlug=${encodeURIComponent(salonSlug)}&includeTomorrow=1`,
         { cache: 'no-store' },
       );
       const payload = await response.json().catch(() => null);
-      if (!response.ok) {
+      if (!response.ok || !payload?.data) {
         throw new Error(
           payload?.error?.message || 'Today could not be loaded.',
         );
       }
-      setToday(payload.data);
+      if (latestTodayRequestRef.current === requestId) {
+        setToday(payload.data);
+        setClockNow(Date.now());
+      }
     } catch (error) {
-      setTodayError(
-        error instanceof Error ? error.message : 'Today could not be loaded.',
-      );
+      if (latestTodayRequestRef.current === requestId) {
+        setTodayError(
+          error instanceof Error ? error.message : 'Today could not be loaded.',
+        );
+      }
     } finally {
-      setTodayLoading(false);
+      if (latestTodayRequestRef.current === requestId) {
+        setTodayLoading(false);
+      }
     }
   }, [salonSlug]);
 
@@ -463,7 +490,10 @@ export function OwnerTodayWorkspace({
   useEffect(() => {
     void loadToday();
     const timer = window.setInterval(() => void loadToday(), 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      latestTodayRequestRef.current += 1;
+      window.clearInterval(timer);
+    };
   }, [loadToday]);
 
   useEffect(() => {
@@ -524,7 +554,6 @@ export function OwnerTodayWorkspace({
   const legacyDueClients
     = !retention && retentionError ? (today?.dueClients ?? []) : [];
 
-  const [clockNow, setClockNow] = useState(() => Date.now());
   useEffect(() => {
     const tick = () => setClockNow(Date.now());
     const timer = window.setInterval(tick, 30000);
@@ -536,34 +565,73 @@ export function OwnerTodayWorkspace({
   }, []);
   const todayDate = today?.date;
   const todayTimeZone = today?.timeZone;
+  const nextMidnight = useMemo(
+    () => todayDate && todayTimeZone
+      ? getZonedDayBounds(todayDate, todayTimeZone).endOfDay.getTime() + 1
+      : null,
+    [todayDate, todayTimeZone],
+  );
+  const scheduleHasRolled = nextMidnight !== null && clockNow >= nextMidnight;
   useEffect(() => {
-    if (todayDate && todayTimeZone && getDateKeyInTimeZone(new Date(clockNow), todayTimeZone) !== todayDate) {
+    if (nextMidnight === null || scheduleHasRolled) {
+      return;
+    }
+    const timer = window.setTimeout(() => setClockNow(Date.now()), Math.max(0, nextMidnight - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [nextMidnight, scheduleHasRolled]);
+
+  useEffect(() => {
+    if (scheduleHasRolled) {
       void loadToday();
       void loadFinancialSummary();
     }
-  }, [clockNow, todayDate, todayTimeZone, loadToday, loadFinancialSummary]);
+  }, [scheduleHasRolled, loadToday, loadFinancialSummary]);
+
+  const schedule = scheduleHasRolled ? null : today;
   const operationalState = useMemo(
-    () => getTodayOperationalState(today?.appointments ?? [], clockNow),
-    [today, clockNow],
+    () => getTodayOperationalState(schedule?.appointments ?? [], clockNow),
+    [schedule, clockNow],
   );
-  const technicians = useMemo(() => today?.technicians ?? [], [today?.technicians]);
+  const technicians = useMemo(() => schedule?.technicians ?? [], [schedule?.technicians]);
   useEffect(() => {
-    if (selectedTechnicianId && !technicians.some(tech => tech.id === selectedTechnicianId)) {
+    if (schedule && selectedTechnicianId && !technicians.some(tech => tech.id === selectedTechnicianId)) {
       setSelectedTechnicianId(null);
+      setExpandedDate(null);
     }
-  }, [selectedTechnicianId, technicians]);
-  const displayedAppointments = (today?.appointments ?? []).filter(appointment =>
-    !selectedTechnicianId || appointment.technicianId === selectedTechnicianId,
-  );
-  const displayedOperationalState = getTodayOperationalState(displayedAppointments, clockNow);
-  const currentOrNextAppointment = displayedOperationalState.currentAppointment
-    ?? displayedOperationalState.nextConfirmedAppointment;
-  const restOfToday = displayedAppointments.filter(
-    appointment => appointment.id !== currentOrNextAppointment?.id,
-  );
-  const urgentIds = new Set([...operationalState.unresolvedAppointments, ...operationalState.pendingRequests].map(appointment => appointment.id));
-  const visibleRestOfToday = restOfToday.filter(appointment => appointment.status !== 'completed' && !urgentIds.has(appointment.id));
-  const completedAppointments = restOfToday.filter(appointment => appointment.status === 'completed');
+  }, [schedule, selectedTechnicianId, technicians]);
+
+  const matchesTechnician = (appointment: ScheduleAppointment) =>
+    !selectedTechnicianId || appointment.technicianId === selectedTechnicianId;
+  const appointmentsByDay = {
+    today: schedule?.appointments.filter(matchesTechnician),
+    tomorrow: schedule?.tomorrow?.appointments.filter(matchesTechnician),
+  };
+  const selectedAppointments = appointmentsByDay[scheduleDay];
+  const selectedDate = scheduleDay === 'today' ? schedule?.date : schedule?.tomorrow?.date;
+  const selectedLabel = scheduleDay === 'today' ? 'Today' : 'Tomorrow';
+  const expanded = Boolean(selectedDate && expandedDate === selectedDate);
+  const visibleAppointments = expanded
+    ? selectedAppointments
+    : selectedAppointments?.slice(0, APPOINTMENT_PREVIEW_LIMIT);
+  const sensitivityAlerts = selectedAppointments?.filter(
+    appointment => appointment.status !== 'completed' && appointment.clientSensitivities?.trim(),
+  ) ?? [];
+  const showTechnicianFilter = technicians.length > 1
+    && Boolean(schedule?.appointments.length || schedule?.tomorrow?.appointments.length);
+
+  const selectScheduleDay = (day: typeof scheduleDay) => {
+    if (day !== scheduleDay) {
+      setScheduleDay(day);
+      setExpandedDate(null);
+    }
+  };
+
+  const selectTechnician = (technicianId: string | null) => {
+    if (technicianId !== selectedTechnicianId) {
+      setSelectedTechnicianId(technicianId);
+      setExpandedDate(null);
+    }
+  };
 
   const integrationNeedsAttention = Boolean(
     today?.integrationHealth.google.reconnectRequired
@@ -587,11 +655,7 @@ export function OwnerTodayWorkspace({
     : null;
 
   const formatTime = (value: string) =>
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone: today?.timeZone || 'America/Toronto',
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(new Date(value));
+    formatTimeInTimeZone(value, {}, todayTimeZone);
 
   const publicUrl
     = today?.links?.publicUrl || `/${encodeURIComponent(salonSlug)}`;
@@ -649,10 +713,6 @@ export function OwnerTodayWorkspace({
                     Scheduled
                     {' '}
                     {formatTime(appointment.startTime)}
-                    {' '}
-                    ·
-                    {' '}
-                    {formatAppointmentStatus(appointment.status)}
                   </span>
                 </span>
                 <ChevronRight size={15} className="shrink-0" />
@@ -676,7 +736,6 @@ export function OwnerTodayWorkspace({
                   </span>
                   <span className="mt-0.5 block text-xs opacity-80">{formatTime(appointment.startTime)}</span>
                 </span>
-                <span className="shrink-0 text-xs font-bold">Review</span>
                 <ChevronRight size={15} className="shrink-0" />
               </button>
             ))}
@@ -751,94 +810,44 @@ export function OwnerTodayWorkspace({
     >
       {onBuyTexts && <SmsBalanceCard compact salonSlug={salonSlug} onBuy={onBuyTexts} />}
       {urgentSection}
-      {technicians.length > 1 && Boolean(today?.appointments.length) && (
-        <div className="flex gap-2 overflow-x-auto border-b border-stone-100 px-4 py-3" aria-label="Filter schedule by technician">
-          <button
-            type="button"
-            onClick={() => setSelectedTechnicianId(null)}
-            aria-pressed={!selectedTechnicianId}
-            className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold ${!selectedTechnicianId ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-stone-100 text-stone-700'}`}
-          >
-            All technicians
-          </button>
-          {technicians.map(tech => (
-            <button
-              key={tech.id}
-              type="button"
-              onClick={() => setSelectedTechnicianId(tech.id)}
-              aria-pressed={selectedTechnicianId === tech.id}
-              className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold ${selectedTechnicianId === tech.id ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-stone-100 text-stone-700'}`}
-            >
-              {tech.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {currentOrNextAppointment
-        ? (
-            <section
-              className="overflow-hidden rounded-owner-card border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] shadow-owner-card"
-              data-testid="owner-current-next-appointment"
-            >
-              <div className="owner-today-highlight">
-                <p className="owner-today-highlight__eyebrow">
-                  {displayedOperationalState.currentAppointment ? 'Current appointment' : 'Next appointment'}
-                </p>
-                <p className="owner-today-highlight__name">
-                  {currentOrNextAppointment.clientName || 'Guest client'}
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-[var(--owner-muted)]">
-                  {formatTime(currentOrNextAppointment.startTime)}
-                  {' '}
-                  ·
-                  {currentOrNextAppointment.totalDurationMinutes}
-                  {' '}
-                  min
-                  {currentOrNextAppointment.technicianName ? ` · ${currentOrNextAppointment.technicianName}` : ''}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onOpenAppointment(currentOrNextAppointment.id)}
-                className="flex min-h-14 w-full items-center gap-3 px-5 py-3 text-left outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)]"
-              >
-                <CalendarDays size={19} className="shrink-0 text-[var(--owner-accent,#8f3155)]" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-stone-950">{currentOrNextAppointment.services.join(', ')}</span>
-                  <span className="mt-0.5 block text-xs text-stone-500">{formatAppointmentStatus(currentOrNextAppointment.status)}</span>
-                </span>
-                <span className="text-sm font-semibold text-[var(--owner-accent,#8f3155)]">Open</span>
-                <ChevronRight size={16} className="shrink-0 text-stone-300" />
-              </button>
-              {currentOrNextAppointment.clientSensitivities && (
-                <p className="flex items-start gap-2 border-t border-amber-100 bg-amber-50 px-5 py-3 text-xs font-medium text-amber-900">
-                  <TriangleAlert size={15} className="mt-0.5 shrink-0" />
-                  <span>{currentOrNextAppointment.clientSensitivities}</span>
-                </p>
-              )}
-            </section>
-          )
-        : todayLoading
-          ? (
-              <section className="rounded-owner-card border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] p-5 shadow-owner-card">
-                <div className="h-24 animate-pulse rounded-2xl bg-stone-100" />
-              </section>
-            )
-          : null}
-
       <section
+        aria-label="Appointments"
         className="overflow-hidden rounded-owner-card border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] shadow-owner-card"
         data-testid="owner-today-agenda"
       >
-        <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4">
-          <div>
-            <h2 className="owner-section-title">
-              {currentOrNextAppointment ? 'Rest of today' : 'Today'}
-            </h2>
-            <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
-              Appointments in your salon timezone
-            </p>
+        <div className="flex items-center gap-2 px-3 pt-3 sm:px-4">
+          <div role="tablist" aria-label="Appointment days" className="grid min-w-0 flex-1 grid-cols-2 gap-1 rounded-full bg-[var(--owner-blush)] p-1">
+            {SCHEDULE_TABS.map(({ id, label }) => {
+              const selected = id === scheduleDay;
+              const count = appointmentsByDay[id]?.length;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  id={`${agendaId}-${id}`}
+                  aria-controls={`${agendaId}-panel`}
+                  aria-selected={selected}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => selectScheduleDay(id)}
+                  onKeyDown={(event) => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                      return;
+                    }
+                    event.preventDefault();
+                    const nextDay = event.key === 'Home' || (event.key !== 'End' && id === 'tomorrow')
+                      ? 'today'
+                      : 'tomorrow';
+                    selectScheduleDay(nextDay);
+                    document.getElementById(`${agendaId}-${nextDay}`)?.focus();
+                  }}
+                  className={`min-h-11 rounded-full px-2 text-sm font-semibold tabular-nums focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--owner-focus)] ${selected ? 'bg-[var(--owner-accent)] text-white' : 'text-[var(--owner-ink)]'}`}
+                >
+                  {label}
+                  {count === undefined ? '' : ` (${count})`}
+                </button>
+              );
+            })}
           </div>
           <button
             type="button"
@@ -847,148 +856,167 @@ export function OwnerTodayWorkspace({
               loadRetention(),
               loadFinancialSummary(),
             ])}
-            disabled={
-              todayLoading || retentionLoading || financialSummaryLoading
-            }
+            disabled={todayLoading || retentionLoading || financialSummaryLoading}
             aria-label="Refresh dashboard"
-            className="flex size-11 items-center justify-center rounded-full text-[var(--owner-accent,#8f3155)] outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] disabled:opacity-40"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-accent)] outline-none hover:bg-[var(--owner-blush)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)] disabled:opacity-40"
           >
             <RefreshCw
               size={17}
-              className={
-                todayLoading || retentionLoading || financialSummaryLoading
-                  ? 'animate-spin'
-                  : ''
-              }
+              className={todayLoading || retentionLoading || financialSummaryLoading ? 'animate-spin motion-reduce:animate-none' : ''}
+              aria-hidden="true"
             />
           </button>
         </div>
-        {todayLoading && !today
-          ? (
-              <div className="space-y-3 p-5">
-                <div className="h-14 animate-pulse rounded-2xl bg-stone-100" />
-                <div className="h-14 animate-pulse rounded-2xl bg-stone-100" />
-              </div>
-            )
-          : todayError
-            ? (
-                <div className="m-5 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-                  {todayError}
-                </div>
-              )
-            : today?.appointments.length
+
+        <div
+          role="tabpanel"
+          id={`${agendaId}-panel`}
+          aria-labelledby={`${agendaId}-${scheduleDay}`}
+          tabIndex={0}
+          className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)]"
+        >
+          <h2 className="owner-section-title px-4 py-3">
+            {selectedLabel}
+            {selectedDate && (
+              <>
+                {' · '}
+                <time dateTime={selectedDate}>
+                  {formatDateInTimeZone(`${selectedDate}T12:00:00Z`, { weekday: 'short', month: 'short', day: 'numeric' }, 'UTC')}
+                </time>
+              </>
+            )}
+          </h2>
+
+          {showTechnicianFilter && (
+            <div className="flex gap-2 overflow-x-auto px-4 pb-3" role="group" aria-label="Filter schedule by technician">
+              {[{ id: null, name: 'All technicians' }, ...technicians].map(tech => (
+                <button
+                  key={tech.id ?? 'all'}
+                  type="button"
+                  onClick={() => selectTechnician(tech.id)}
+                  aria-pressed={selectedTechnicianId === tech.id}
+                  className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)] ${selectedTechnicianId === tech.id ? 'bg-[var(--owner-accent)] text-white' : 'bg-stone-100 text-stone-700'}`}
+                >
+                  {tech.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(todayError || (!todayLoading && !selectedAppointments)) && (
+            <div role="alert" className="mx-4 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <span>
+                {todayError || `${selectedLabel}’s appointments could not be loaded.`}
+                {selectedAppointments && ' Showing the last available schedule.'}
+              </span>
+              <button type="button" className="min-h-11 rounded-full px-2 font-semibold underline" onClick={() => void loadToday()}>
+                Try again
+              </button>
+            </div>
+          )}
+          {todayLoading && !selectedAppointments && (
+            <div role="status" className="space-y-2 px-4 pb-4">
+              <span className="sr-only">Loading appointments</span>
+              <div className="h-12 animate-pulse rounded-2xl bg-stone-100 motion-reduce:animate-none" />
+              <div className="h-12 animate-pulse rounded-2xl bg-stone-100 motion-reduce:animate-none" />
+            </div>
+          )}
+          {visibleAppointments && (
+            visibleAppointments.length > 0
               ? (
-                  <div className="divide-y divide-stone-100">
-                    {visibleRestOfToday.length === 0 && completedAppointments.length === 0 && (
-                      <div className="px-5 py-7 text-center">
-                        <p className="text-sm font-semibold text-stone-700">No more appointments scheduled today</p>
-                      </div>
-                    )}
-                    {visibleRestOfToday.slice(0, 3).map(appointment => (
-                      <button
-                        key={appointment.id}
-                        type="button"
-                        onClick={() => onOpenAppointment(appointment.id)}
-                        className="flex min-h-[64px] w-full items-center gap-3 bg-[var(--owner-surface,#fffdfb)] px-5 py-4 text-left outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)]"
-                      >
-                        <div className="w-[72px] shrink-0 self-start">
-                          <p className="text-[13px] font-semibold leading-relaxed text-[var(--owner-accent-strong,#70213f)]">
-                            {formatTime(appointment.startTime)}
-                          </p>
-                          <p className="text-[12px] text-[var(--owner-muted,#706267)]">
-                            {appointment.totalDurationMinutes}
-                            {' '}
-                            min
-                          </p>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="break-words text-[15px] font-semibold text-[var(--owner-ink)]">
-                            {appointment.clientName || 'Guest client'}
-                          </p>
-                          <p className="mt-1 break-words text-[13px] leading-relaxed text-[var(--owner-muted)]">
-                            {appointment.services.join(', ')}
-                            {appointment.technicianName
-                              ? ` · ${appointment.technicianName}`
-                              : ''}
-                          </p>
-                          {appointment.clientSensitivities && (
-                            <p className="mt-1 flex items-start gap-1 text-xs font-medium text-amber-800">
-                              <TriangleAlert size={13} className="mt-0.5 shrink-0" />
-                              <span className="line-clamp-2">
-                                {appointment.clientSensitivities}
-                              </span>
-                            </p>
-                          )}
-                          <span className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${appointmentStatusChipClasses(appointment.status)}`}>
-                            {formatAppointmentStatus(appointment.status)}
-                          </span>
-                        </div>
-                        <ChevronRight size={16} className="shrink-0 text-stone-300" />
-                      </button>
-                    ))}
-                    {visibleRestOfToday.length > 3 && (
-                      <button
-                        type="button"
-                        onClick={onOpenCalendar}
-                        className="flex min-h-11 w-full items-center justify-between px-5 text-left text-sm font-semibold text-[var(--owner-accent,#8f3155)]"
-                      >
-                        View
-                        {' '}
-                        {visibleRestOfToday.length - 3}
-                        {' '}
-                        more today
-                        <ChevronRight size={15} />
-                      </button>
-                    )}
-                    {completedAppointments.length > 0 && (
-                      <div className="border-t border-stone-100">
+                  <ul id={`${agendaId}-appointments`} className="divide-y divide-[var(--owner-line)] border-t border-[var(--owner-line)]">
+                    {visibleAppointments.map(appointment => (
+                      <li key={appointment.id}>
                         <button
                           type="button"
-                          onClick={() => setCompletedOpen(open => !open)}
-                          aria-expanded={completedOpen}
-                          className="flex min-h-11 w-full items-center justify-between px-5 text-left text-sm font-semibold text-stone-600"
+                          onClick={() => onOpenAppointment(appointment.id)}
+                          className="flex min-h-12 w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-[var(--owner-surface-soft)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)]"
                         >
-                          Completed today (
-                          {completedAppointments.length}
-                          )
-                          <ChevronDown size={16} className={completedOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
-                        </button>
-                        {completedOpen && completedAppointments.map(appointment => (
-                          <button
-                            key={appointment.id}
-                            type="button"
-                            onClick={() => onOpenAppointment(appointment.id)}
-                            className="flex min-h-11 w-full items-center gap-3 border-t border-stone-100 px-5 py-3 text-left text-sm text-stone-500"
+                          <time
+                            dateTime={appointment.startTime}
+                            className="w-20 shrink-0 rounded-xl bg-[var(--owner-blush)] p-1.5 text-center text-xs font-semibold tabular-nums text-[var(--owner-accent-strong)]"
                           >
-                            <span className="w-16 shrink-0">{formatTime(appointment.startTime)}</span>
-                            <span className="min-w-0 flex-1 truncate">{appointment.clientName || 'Guest client'}</span>
-                            <span className="rounded-full border px-2 py-1 text-[11px] font-semibold">Completed</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                            {formatTime(appointment.startTime)}
+                          </time>
+                          <span className="min-w-0 flex-1">
+                            <span className="block break-words text-sm font-bold leading-snug text-[var(--owner-ink)]">
+                              {shortClientName(appointment.clientName)}
+                            </span>
+                            <span className="block break-words text-xs leading-snug text-[var(--owner-muted)]">
+                              {appointment.services.join(', ') || 'Service'}
+                              {' · '}
+                              {appointment.totalDurationMinutes}
+                              {' min'}
+                            </span>
+                          </span>
+                          <ChevronRight size={16} className="shrink-0 text-[var(--owner-muted)]" aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 )
               : (
-                  <div className="flex flex-col items-center px-5 py-9 text-center">
-                    <CalendarDays size={28} className="text-stone-300" />
-                    <p className="mt-3 text-sm font-semibold text-stone-700">
-                      No appointments today
-                    </p>
-                    <p className="mt-1 text-xs text-stone-500">
-                      No appointments scheduled today.
-                    </p>
-                  </div>
-                )}
+                  <p className="px-4 py-6 text-center text-sm text-[var(--owner-muted)]">
+                    No appointments
+                    {' '}
+                    {selectedLabel.toLowerCase()}
+                  </p>
+                )
+          )}
+          {selectedAppointments && selectedAppointments.length > APPOINTMENT_PREVIEW_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setExpandedDate(expanded ? null : selectedDate ?? null)}
+              aria-expanded={expanded}
+              aria-controls={`${agendaId}-appointments`}
+              className="flex min-h-11 w-full items-center justify-center gap-2 border-t border-[var(--owner-line)] px-4 text-sm font-semibold text-[var(--owner-accent)] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)]"
+            >
+              {expanded ? 'Show fewer appointments' : 'View all appointments'}
+              <ChevronDown size={15} className={expanded ? 'rotate-180' : undefined} aria-hidden="true" />
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={onOpenBookings}
           className="flex min-h-11 w-full items-center justify-center gap-2 border-t border-[var(--owner-line,#dfd1d4)] px-4 py-3 text-sm font-semibold text-[var(--owner-accent,#8f3155)] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)]"
         >
           Open appointment calendar
-          <ChevronRight size={15} />
+          <ChevronRight size={15} aria-hidden="true" />
         </button>
       </section>
+
+      {sensitivityAlerts.length > 0 && (
+        <section className="rounded-owner-card border border-amber-200 bg-amber-50 p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-950">
+            <TriangleAlert size={16} aria-hidden="true" />
+            Client sensitivities
+            {' · '}
+            {selectedLabel}
+          </h2>
+          <ul className="mt-2 space-y-2">
+            {sensitivityAlerts.map(appointment => (
+              <li key={appointment.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenAppointment(appointment.id)}
+                  className="flex min-h-11 w-full items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 text-left text-sm text-amber-950 focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+                >
+                  <span className="min-w-0 break-words">
+                    <span className="block font-semibold">
+                      {appointment.clientName || 'Guest client'}
+                      {' · '}
+                      {formatTime(appointment.startTime)}
+                    </span>
+                    <span className="block whitespace-pre-wrap text-xs">{appointment.clientSensitivities}</span>
+                  </span>
+                  <ChevronRight size={15} className="shrink-0" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <QuickActionsWidget onAction={onQuickAction} />
 

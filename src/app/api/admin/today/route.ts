@@ -6,7 +6,7 @@ import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
-import { getDateKeyInTimeZone, getZonedDayBounds } from '@/libs/timeZone';
+import { addDaysToDateKey, getDateKeyInTimeZone, getZonedDayBounds } from '@/libs/timeZone';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -21,6 +21,7 @@ export const dynamic = 'force-dynamic';
 
 const querySchema = z.object({
   salonSlug: z.string().trim().min(1),
+  includeTomorrow: z.string().optional(),
 });
 
 export async function GET(request: Request) {
@@ -39,6 +40,10 @@ export async function GET(request: Request) {
   const dateKey = getDateKeyInTimeZone(now, bookingConfig.timezone);
   const bounds = getZonedDayBounds(dateKey, bookingConfig.timezone);
   const endExclusive = new Date(bounds.endOfDay.getTime() + 1);
+  const tomorrowDate = parsed.data.includeTomorrow === '1' ? addDaysToDateKey(dateKey, 1) : null;
+  const appointmentEndExclusive = tomorrowDate
+    ? new Date(getZonedDayBounds(tomorrowDate, bookingConfig.timezone).endOfDay.getTime() + 1)
+    : endExclusive;
 
   const [appointments, dueClients, failedDeliveries, [googleReviewCount], integrationHealth, technicians] = await Promise.all([
     db
@@ -64,12 +69,12 @@ export async function GET(request: Request) {
         eq(appointmentSchema.salonId, salon.id),
         isNull(appointmentSchema.deletedAt),
         gte(appointmentSchema.startTime, bounds.startOfDay),
-        lt(appointmentSchema.startTime, endExclusive),
+        lt(appointmentSchema.startTime, appointmentEndExclusive),
         // Holds are shown to the owner: the slot really is occupied, and hiding
         // it would make the day look free when it is not.
         inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress', 'awaiting_payment', 'completed']),
       ))
-      .orderBy(asc(appointmentSchema.startTime)),
+      .orderBy(asc(appointmentSchema.startTime), asc(appointmentSchema.id)),
     db
       .select({
         id: salonClientSchema.id,
@@ -144,17 +149,29 @@ export async function GET(request: Request) {
     services.set(row.appointmentId, names);
   }
 
+  const serializeAppointment = (appointment: (typeof appointments)[number]) => ({
+    ...appointment,
+    startTime: appointment.startTime.toISOString(),
+    endTime: appointment.endTime.toISOString(),
+    services: services.get(appointment.id) ?? ['Service'],
+  });
+
   return Response.json({
     data: {
       date: dateKey,
       timeZone: bookingConfig.timezone,
       technicians,
-      appointments: appointments.map(appointment => ({
-        ...appointment,
-        startTime: appointment.startTime.toISOString(),
-        endTime: appointment.endTime.toISOString(),
-        services: services.get(appointment.id) ?? ['Service'],
-      })),
+      appointments: appointments
+        .filter(appointment => appointment.startTime < endExclusive)
+        .map(serializeAppointment),
+      ...(tomorrowDate && {
+        tomorrow: {
+          date: tomorrowDate,
+          appointments: appointments
+            .filter(appointment => appointment.startTime >= endExclusive)
+            .map(serializeAppointment),
+        },
+      }),
       dueClients: dueClients.map(client => ({
         ...client,
         nextRebookDueAt: client.nextRebookDueAt?.toISOString() ?? null,

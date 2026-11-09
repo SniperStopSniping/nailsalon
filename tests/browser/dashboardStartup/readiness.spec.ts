@@ -1,7 +1,22 @@
 import { expect, test } from '@playwright/test';
 
+import { addDaysToDateKey, getDateKeyInTimeZone, zonedTimeToUtc } from '../../../src/libs/timeZone';
+
+const timeZone = 'America/Toronto';
+
 for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
   test(`Today loads while modules are pending and remains usable when ${outcome}`, async ({ page }, testInfo) => {
+    const date = getDateKeyInTimeZone(new Date(), timeZone);
+    const tomorrowDate = addDaysToDateKey(date, 1);
+    const tomorrowAppointment = {
+      id: 'appt-readiness-tomorrow',
+      clientName: 'Emma Robinson',
+      startTime: zonedTimeToUtc({ date: tomorrowDate, time: '10:00', timeZone }).toISOString(),
+      endTime: zonedTimeToUtc({ date: tomorrowDate, time: '11:00', timeZone }).toISOString(),
+      status: 'confirmed',
+      totalDurationMinutes: 60,
+      services: ['Russian Manicure'],
+    };
     let releaseAuth!: () => void;
     const authPending = new Promise<void>((resolve) => {
       releaseAuth = resolve;
@@ -40,13 +55,55 @@ for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
           body = { data: { moduleReasons: { analyticsDashboard: outcome === 'enabled' ? 'ENABLED' : 'MODULE_DISABLED' } } };
           break;
         case '/api/admin/appointments':
-          body = { data: { appointments: [], schedule: { technicians: [] } } };
+          body = { data: { appointments: [], schedule: { timeZone, businessHours: {}, technicians: [], timeOff: [], blockedSlots: [] } } };
           break;
         case '/api/admin/fraud-signals':
           body = { data: { signals: [], unresolvedCount: 0 } };
           break;
         case '/api/admin/today':
-          body = { data: { date: '2026-10-10', timeZone: 'America/Toronto', appointments: [], dueClients: [], failedConfirmations: [], googleEventsNeedingReview: 0, integrationHealth: { google: { readiness: 'ready', status: 'connected' }, calendarOutbox: { pending: 0, failed: 0 } } } };
+          body = {
+            data: {
+              date,
+              timeZone,
+              appointments: [],
+              tomorrow: { date: tomorrowDate, appointments: [tomorrowAppointment] },
+              dueClients: [],
+              failedConfirmations: [],
+              googleEventsNeedingReview: 0,
+              integrationHealth: { google: { readiness: 'ready', status: 'connected' }, calendarOutbox: { pending: 0, failed: 0 } },
+            },
+          };
+          break;
+        case '/api/appointments/appt-readiness-tomorrow/manage':
+          if (url.searchParams.get('salonSlug') !== 'readiness-studio') {
+            throw new Error('The appointment details request must keep the selected salon.');
+          }
+          body = {
+            data: {
+              appointment: { ...tomorrowAppointment, salonSlug: 'readiness-studio', timeZone, clientPhone: '4165550100', baseServiceName: 'Russian Manicure' },
+              services: [{ name: 'Russian Manicure' }],
+              serviceOptions: [],
+              technicianOptions: [],
+              addOns: [],
+              communications: [],
+              permissions: {},
+            },
+          };
+          break;
+        case '/api/admin/appointments/appt-readiness-tomorrow/deposit':
+          body = { data: { deposits: [], auditRows: [] } };
+          break;
+        case '/api/appointments/appt-readiness-tomorrow/communication':
+          if (route.request().method() !== 'GET') {
+            throw new Error('The readiness fixture only permits reading communication history.');
+          }
+          body = { data: { reminderDue: false, history: [] } };
+          break;
+        case '/api/appointments/appt-readiness-tomorrow/review-request':
+          if (route.request().method() !== 'GET') {
+            throw new Error('The readiness fixture only permits reading review request status.');
+          }
+          body = { data: { status: 'ineligible', reason: 'The appointment is upcoming.', canSendManually: false } };
           break;
         case '/api/admin/retention':
           body = { data: { retention: [], appointmentReminders: [], history: [] } };
@@ -138,6 +195,16 @@ for (const outcome of ['enabled', 'disabled', 'failed'] as const) {
       await page.getByRole('tab', { name: 'Today', exact: true }).click();
 
       await expect(page.getByRole('heading', { name: 'Quick actions' })).toBeVisible();
+
+      const agenda = page.getByTestId('owner-today-agenda');
+      await agenda.getByRole('tab', { name: 'Tomorrow (1)' }).click();
+      await agenda.getByRole('button', { name: /10:00 AM Emma R\. Russian Manicure · 60 min/ }).click();
+
+      const sheet = page.getByTestId('appointment-quick-edit-sheet');
+
+      await expect(sheet.getByText('Emma Robinson', { exact: true })).toBeVisible();
+      expect(requests).toContain('/api/appointments/appt-readiness-tomorrow/manage');
+
       expect(errors).toEqual([]);
     } finally {
       releaseAuth();
