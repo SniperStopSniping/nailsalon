@@ -160,6 +160,17 @@ export function customerPaymentTenderSummary(row: Tender) {
   return Object.freeze({ grossCents: evidence.amountCents, grossTipCents: evidence.tipCents, refundedPrincipalCents: evidence.refundedPrincipalCents, refundedTipCents: evidence.refundedTipCents, refundedCents: evidence.refundedCents, netCents: evidence.netCents, collectionHold: evidence.collectionHold });
 }
 
+/** Display/replay allowance only; a refund still requires a locked workspace command. */
+export function liveCustomerPaymentRefundablePrincipal(rows: readonly Tender[]): number {
+  return rows.reduce((sum, row) => {
+    if (!row.id?.startsWith('lpay_') || row.voidedAt !== null) {
+      return sum;
+    }
+    const proof = customerPaymentTenderSummary(row);
+    return proof.collectionHold ? sum : sum + proof.grossCents - proof.grossTipCents - proof.refundedPrincipalCents;
+  }, 0);
+}
+
 export function customerPaymentTipFloor(rows: readonly Tender[]): number {
   let tip = 0;
   for (const row of rows) {

@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { OwnerPhotoRulesLink } from '@/components/appointments/OwnerPhotoRulesLink';
+import { AppointmentPaymentWorkspace } from '@/components/customerPayments/AppointmentPaymentWorkspace';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { completeAppointmentSchema, type CompletionValidationIssue, completionValidationIssues } from '@/libs/appointmentCompletionContract';
@@ -116,6 +117,7 @@ type CheckoutContext = {
     voidedAt: string | null;
   }>;
   balance: CheckoutBalance;
+  paymentWorkspace?: { enabled: boolean; initialized?: boolean; refundableOnlinePrincipalCents: number };
   /** Absent on an older server response means a resolved zero-credit deposit. */
   depositCredit?: DepositCreditSummary;
   etransfer: {
@@ -377,6 +379,8 @@ export function CheckoutSheet({
 }: CheckoutSheetProps) {
   const [view, setView] = useState<'edit' | 'review' | 'success' | 'receipt'>(initialView);
   const [context, setContext] = useState<CheckoutContext | null>(null);
+  const [paymentWorkspaceBusy, setPaymentWorkspaceBusy] = useState(false);
+  const [paymentWorkspaceHeld, setPaymentWorkspaceHeld] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationIssues, setValidationIssues] = useState<CompletionValidationIssue[]>([]);
@@ -543,6 +547,18 @@ export function CheckoutSheet({
     }
   }, [apiPath, appointmentId, seedFromContext]);
 
+  const refreshContextAfterPayment = useCallback(async () => {
+    if (!appointmentId) {
+      return;
+    }
+    const response = await fetch(apiPath(`/api/appointments/${appointmentId}/checkout`), { cache: 'no-store' });
+    const result = await response.json();
+    if (!response.ok || !result.data) {
+      throw new Error('Refresh checkout before completing this appointment.');
+    }
+    setContext(result.data);
+  }, [apiPath, appointmentId]);
+
   useEffect(() => {
     if (isOpen && appointmentId) {
       setView(initialView);
@@ -611,7 +627,7 @@ export function CheckoutSheet({
     && currentDraftSignature !== initialDraftSignature;
 
   const requestClose = useCallback(() => {
-    if (submitting) {
+    if (submitting || paymentWorkspaceBusy) {
       return;
     }
     if ((view === 'edit' || view === 'review') && hasUnsavedChanges) {
@@ -619,7 +635,7 @@ export function CheckoutSheet({
       return;
     }
     onClose();
-  }, [hasUnsavedChanges, onClose, submitting, view]);
+  }, [hasUnsavedChanges, onClose, submitting, paymentWorkspaceBusy, view]);
 
   const hasAfterPhoto = context?.photos.some(photo => photo.photoType === 'after') ?? false;
   const photoPolicyMode = context?.photoPolicy.requireAfterPhotoToFinish ?? 'off';
@@ -635,16 +651,18 @@ export function CheckoutSheet({
       liveFinancials?.depositEligibleCents ?? 0,
     )
     : liveFinancials?.excessDepositCents ?? 0;
-  const financialBlockReason = context && !currency
-    ? 'This historical appointment has no frozen invoice currency. Reconcile it before taking payment or completing the appointment.'
-    : liveFinancials?.depositState === 'blocked'
-      ? blockedDepositCopy(liveFinancials.depositBlockedCode)
-      : excessDepositCents > 0
-        ? `The eligible deposit exceeds this invoice by ${money(excessDepositCents)}. Resolve the excess before completing the appointment.`
-        : (liveFinancials?.tenderExcessCents ?? 0) > 0
-            ? `Collected payments exceed this invoice by ${money(liveFinancials?.tenderExcessCents ?? 0)}. Reconcile the overpayment before completing the appointment.`
-            : null;
-  const financialBlocked = financialBlockReason !== null;
+  const financialBlockReason = paymentWorkspaceHeld
+    ? 'Check Payments above and close the open payment request or resolve its result before completing checkout.'
+    : context && !currency
+      ? 'This historical appointment has no frozen invoice currency. Reconcile it before taking payment or completing the appointment.'
+      : liveFinancials?.depositState === 'blocked'
+        ? blockedDepositCopy(liveFinancials.depositBlockedCode)
+        : excessDepositCents > 0
+          ? `The eligible deposit exceeds this invoice by ${money(excessDepositCents)}. Resolve the excess before completing the appointment.`
+          : (liveFinancials?.tenderExcessCents ?? 0) > (context?.paymentWorkspace?.refundableOnlinePrincipalCents ?? 0)
+              ? `Collected payments exceed this invoice by ${money(liveFinancials?.tenderExcessCents ?? 0)}. Reconcile the overpayment before completing the appointment.`
+              : null;
+  const financialBlocked = financialBlockReason !== null || paymentWorkspaceBusy;
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -813,7 +831,7 @@ export function CheckoutSheet({
   }, [completionPayload, hasAfterPhoto, photoPolicyMode, revealValidation]);
 
   const submitCompletion = useCallback(async (options: { skipPhoto?: boolean } = {}) => {
-    if (!appointmentId || !context || !totals) {
+    if (!appointmentId || !context || !totals || paymentWorkspaceBusy) {
       return;
     }
     if (financialBlockReason) {
@@ -873,7 +891,7 @@ export function CheckoutSheet({
       submitInFlightRef.current = false;
       setSubmitting(false);
     }
-  }, [apiPath, appointmentId, context, totals, financialBlockReason, skipPhotoConfirmed, fetchContext, onCompleted, completionPayload, validateForReview, revealValidation]);
+  }, [apiPath, appointmentId, context, totals, financialBlockReason, paymentWorkspaceBusy, skipPhotoConfirmed, fetchContext, onCompleted, completionPayload, validateForReview, revealValidation]);
 
   const recordPostPayment = useCallback(async (requestedAmount = postPaymentAmount) => {
     if (!appointmentId || !context) {
@@ -1353,8 +1371,8 @@ export function CheckoutSheet({
     <DialogShell
       isOpen={isOpen}
       onClose={requestClose}
-      closeOnBackdrop={!submitting}
-      closeOnEscape={!submitting}
+      closeOnBackdrop={!submitting && !paymentWorkspaceBusy}
+      closeOnEscape={!submitting && !paymentWorkspaceBusy}
       maxWidthClassName="w-full sm:h-full sm:max-w-lg"
       alignClassName="items-end justify-center bg-black/50 p-0 sm:items-stretch sm:justify-end"
       contentClassName="flex h-[92vh] max-h-[92vh] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:h-[92dvh] supports-[height:100dvh]:max-h-[92dvh] sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl sm:supports-[height:100dvh]:h-full sm:supports-[height:100dvh]:max-h-none"
@@ -1377,7 +1395,7 @@ export function CheckoutSheet({
               type="button"
               data-testid="checkout-close"
               aria-label="Close checkout"
-              disabled={submitting}
+              disabled={submitting || paymentWorkspaceBusy}
               onClick={requestClose}
               className="flex size-[44px] items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:opacity-50"
             >
@@ -1406,6 +1424,19 @@ export function CheckoutSheet({
 
           {!loading && !context && !error && (
             <div className="py-10 text-sm text-neutral-500">Checkout details are unavailable.</div>
+          )}
+
+          {context?.paymentWorkspace?.enabled && appointmentId && (
+            <AppointmentPaymentWorkspace
+              appointmentId={appointmentId}
+              salonSlug={salonSlug}
+              hasWorkspace={context.paymentWorkspace.initialized}
+              hasUnsavedInvoice={(view === 'edit' || view === 'review') && hasUnsavedChanges}
+              refreshKey={`${context.appointment.completedAt ?? ''}:${context.balance.appointmentPaymentsCents ?? 0}`}
+              onChanged={refreshContextAfterPayment}
+              onBusyChange={setPaymentWorkspaceBusy}
+              onHoldChange={setPaymentWorkspaceHeld}
+            />
           )}
 
           {!loading && context && view === 'edit' && (
@@ -1444,7 +1475,7 @@ export function CheckoutSheet({
                   <>
                     <div className="mb-2 text-sm text-neutral-600">Payment method (optional)</div>
                     <div className="mb-3 flex flex-wrap gap-2">
-                      {PAYMENT_METHOD_OPTIONS.map(([value, label]) => (
+                      {PAYMENT_METHOD_OPTIONS.filter(([value]) => !context.paymentWorkspace?.enabled || value !== 'online').map(([value, label]) => (
                         <button
                           key={value}
                           type="button"
@@ -2097,7 +2128,7 @@ export function CheckoutSheet({
                 <div className={sectionCard} data-testid="checkout-record-payment">
                   <div className={sectionTitle}>Record a payment</div>
                   <div className="flex flex-wrap gap-2 pb-3">
-                    {PAYMENT_METHOD_OPTIONS.map(([value, label]) => (
+                    {PAYMENT_METHOD_OPTIONS.filter(([value]) => !context.paymentWorkspace?.enabled || value !== 'online').map(([value, label]) => (
                       <button
                         key={value}
                         type="button"

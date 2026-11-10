@@ -38,8 +38,13 @@ import {
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
-import { customerPaymentCompletionTip, isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
+import { customerPaymentCompletionTip, isCustomerPaymentTender, liveCustomerPaymentRefundablePrincipal } from '@/libs/customerPayments/provenance';
 import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
+import { resolveWorkspaceActor } from '@/libs/customerPayments/server/workspaceAccess';
+import { PaymentWorkspaceError } from '@/libs/customerPayments/server/workspaceContract';
+import { workspaceError } from '@/libs/customerPayments/server/workspaceHttp';
+import { beginCanonicalWorkspaceChange } from '@/libs/customerPayments/server/workspaceRepository';
+import { isPaymentWorkspaceEnabled } from '@/libs/customerPayments/workspacePolicy';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
@@ -261,7 +266,7 @@ async function completedReplayResponse(
     );
   }
   const replayOverpayment = appointmentFinancialOverpayment(replayFinancials);
-  if (replayOverpayment) {
+  if (replayOverpayment && (!isPaymentWorkspaceEnabled() || replayFinancials.financials.tenderExcessCents > liveCustomerPaymentRefundablePrincipal(replayPayments))) {
     return Response.json(
       {
         error: {
@@ -674,6 +679,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       }
 
       await assertCustomerPaymentReservationMutable(tx, lockedAppointment.salonId, appointmentId);
+      const workspaceChange = isPaymentWorkspaceEnabled()
+        ? await beginCanonicalWorkspaceChange(tx, lockedAppointment, () => resolveWorkspaceActor(access, appointmentId), 'Services finalized at checkout')
+        : null;
 
       // D6 lock order is appointment first, then every terminal-history
       // deposit row. Keeping the credit decision inside this transaction
@@ -881,17 +889,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       if (existingPaymentRows.some(isCustomerPaymentTender)) {
         const frozen = existingTaxChain.active.snapshot;
         const proposedConfiguration = buildTaxConfigurationSnapshot(taxConfig);
-        // This limited capture slice cannot reprice or reissue an invoice.
-        // Even a later salon tax configuration change requires reconciliation,
-        // rather than silently adopting new tax or relying on the SQL backstop.
+        const canReviseLiveInvoice = workspaceChange !== null && existingPaymentRows.filter(isCustomerPaymentTender).every((row: { id: string }) => row.id.startsWith('lpay_'));
+        // Only the verified live workspace can retain an invoice revision.
+        // Historical synthetic captures keep their original stricter boundary.
         if (!frozen
-          || frozen.serviceSubtotalCents !== totals.finalPriceCents
-          || frozen.taxAmountCents !== totals.taxAmountCents
-          || frozen.taxableSubtotalCents !== totals.taxableSubtotalCents
-          || frozen.taxApplied !== totals.taxApplied
-          || frozen.configuration.configurationIdentity !== proposedConfiguration.configurationIdentity
-          || taxExempt
-          || (payload.taxExemptReason?.trim() || null) !== null) {
+          || (!canReviseLiveInvoice && (frozen.serviceSubtotalCents !== totals.finalPriceCents
+            || frozen.taxAmountCents !== totals.taxAmountCents
+            || frozen.taxableSubtotalCents !== totals.taxableSubtotalCents
+            || frozen.taxApplied !== totals.taxApplied))
+            || frozen.configuration.configurationIdentity !== proposedConfiguration.configurationIdentity
+            || taxExempt
+            || (payload.taxExemptReason?.trim() || null) !== null) {
           return {
             success: false as const,
             updatedAppointment: null,
@@ -1051,7 +1059,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           ),
         };
       }
-      if (completionFinancials.financials.tenderExcessCents > 0) {
+      if (completionFinancials.financials.tenderExcessCents > (workspaceChange?.onlineRefundablePrincipalCents ?? 0) || (completionFinancials.financials.tenderExcessCents > 0 && paidSum > 0)) {
         return {
           success: false as const,
           updatedAppointment: null,
@@ -1259,6 +1267,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       if (paymentEntries.length > 0 && !stagedCapturePayments) {
         await insertPaymentEntries();
       }
+      await workspaceChange?.finish();
 
       // Audit trail, atomic with the completion.
       const auditRows = [
@@ -1425,6 +1434,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       result.depositCredit,
     );
   } catch (error) {
+    if (error instanceof PaymentWorkspaceError) {
+      return workspaceError(error);
+    }
     if (isCustomerPaymentReservationBlocked(error)) {
       return customerPaymentReservationBlockedResponse();
     }

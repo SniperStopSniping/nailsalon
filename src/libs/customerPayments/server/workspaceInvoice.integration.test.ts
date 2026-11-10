@@ -13,7 +13,7 @@ import * as schema from '@/models/Schema';
 
 import { workspaceInvoiceSchema } from './workspaceContract';
 import { prepareWorkspaceInvoice, readWorkspaceInvoice } from './workspaceInvoice';
-import { createPaymentWorkspaceRepository } from './workspaceRepository';
+import { beginCanonicalWorkspaceChange, createPaymentWorkspaceRepository } from './workspaceRepository';
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db: {} }));
@@ -53,6 +53,92 @@ async function fixture(inclusive = false) {
 }
 
 describe('workspace reads the real checkout invoice and tender sources', () => {
+  async function finalize(f: Awaited<ReturnType<typeof fixture>>, amount: number, manual = 0, afterWrite?: () => void) {
+    return database.transaction(async (tx) => {
+      const [appointment] = await tx.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId)).for('update');
+      const bridge = await beginCanonicalWorkspaceChange(tx, appointment!, async () => f.actor, 'Added nail art');
+      const totals = computeCheckoutTotals({ items: [{ lineTotalCents: amount, taxable: true }], taxConfig: f.config, tipCents: 1000 });
+      const finalTaxSnapshot = buildFinalTaxSnapshot({ taxConfig: f.config, totals, currency: 'CAD', capturedAt: new Date(), taxExempt: false, taxExemptReason: null });
+      await tx.update(schema.appointmentSchema).set({ status: 'completed', completedAt: new Date(finalTaxSnapshot.capturedAt), finalPriceCents: totals.finalPriceCents, finalSubtotalCents: amount, finalDiscountCents: 0, finalTaxSnapshot, taxableSubtotalCents: totals.taxableSubtotalCents, taxAmountCents: totals.taxAmountCents, taxExempt: false, taxExemptReason: null, amountPaidCents: manual }).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+      await tx.insert(schema.appointmentFinalItemSchema).values({ id: randomUUID(), ...f.scope, kind: 'service', name: 'Updated manicure', quantity: 1, unitPriceCents: amount, lineTotalCents: amount });
+      if (manual) {
+        await tx.insert(schema.appointmentPaymentSchema).values({ id: randomUUID(), ...f.scope, amountCents: manual, method: 'cash', recordedByType: 'admin', recordedById: f.actor.id });
+      }
+      const result = await bridge?.finish();
+      afterWrite?.();
+      return result;
+    });
+  }
+
+  it('saves actual checkout items, deposit credit and manual tender as one retained invoice revision', async () => {
+    const f = await fixture();
+    await f.deposit();
+    const repository = createPaymentWorkspaceRepository(database);
+    const initial = await repository.initialize(f.actor, randomUUID(), prepareWorkspaceInvoice);
+    const result = await finalize(f, 12000, 3000);
+
+    expect(result?.state.bill).toMatchObject({ revision: 1, serviceCents: 12000, taxCents: 1560 });
+    expect(result?.state.payments).toMatchObject([{ kind: 'deposit', principalCents: 2000 }, { kind: 'manual', principalCents: 3000, tipCents: 0 }]);
+    expect(result?.state.billSourceHash).toBe((await f.read()).billSourceHash);
+
+    const events = await database.select().from(schema.customerPaymentWorkspaceAuditSchema).where(eq(schema.customerPaymentWorkspaceAuditSchema.appointmentId, f.scope.appointmentId));
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.state.invoice).toEqual(initial.state.invoice);
+    expect(events[1]?.state.invoice?.items[0]?.name).toBe('Updated manicure');
+    expect(events[1]?.state.billChanges[0]?.reason).toBe('Added nail art');
+  });
+
+  it('rolls back invoice, tender and payment revision together on a later checkout failure', async () => {
+    const f = await fixture();
+    const repository = createPaymentWorkspaceRepository(database);
+    await repository.initialize(f.actor, randomUUID(), prepareWorkspaceInvoice);
+
+    await expect(finalize(f, 12000, 3000, () => {
+      throw new Error('later checkout failure');
+    })).rejects.toThrow('later checkout failure');
+    expect((await repository.read(f.actor))?.revision).toBe(0);
+    expect((await f.read()).invoice.items[0]?.name).toBe('Gel manicure');
+    expect(await database.select().from(schema.appointmentPaymentSchema).where(eq(schema.appointmentPaymentSchema.appointmentId, f.scope.appointmentId))).toHaveLength(0);
+  });
+
+  it('retains manual payment corrections without claiming a provider refund or changing the invoice', async () => {
+    const f = await fixture();
+    const repository = createPaymentWorkspaceRepository(database);
+    await repository.initialize(f.actor, randomUUID(), prepareWorkspaceInvoice);
+    const completed = await finalize(f, 12000, 3000);
+    const manual = completed!.state.payments.find(payment => payment.kind === 'manual')!;
+    const corrected = await database.transaction(async (tx) => {
+      const [appointment] = await tx.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId)).for('update');
+      const change = await beginCanonicalWorkspaceChange(tx, appointment!, async () => f.actor, 'Corrected a duplicate cash entry', { allowManualVoids: true });
+      await tx.update(schema.appointmentPaymentSchema).set({ voidedAt: new Date(), voidedBy: f.actor.id }).where(eq(schema.appointmentPaymentSchema.id, manual.id));
+      await tx.update(schema.appointmentSchema).set({ amountPaidCents: 0, paymentStatus: 'pending' }).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+      return change?.finish();
+    });
+
+    expect(corrected?.state.payments).toEqual(completed?.state.payments);
+    expect(corrected?.state.refunds).toMatchObject([{ paymentId: manual.id, kind: 'manual_void', principalCents: 3000, tipCents: 0, state: 'succeeded' }]);
+    expect(corrected?.state.bill.revision).toBe(completed?.state.bill.revision);
+    expect(corrected?.state.billSourceHash).toBe((await f.read()).billSourceHash);
+    expect(corrected?.state.operations).toEqual([]);
+  });
+
+  it('blocks checkout while a payment reservation is active and after an unsynchronized tender change', async () => {
+    const f = await fixture();
+    const repository = createPaymentWorkspaceRepository(database);
+    const initial = await repository.initialize(f.actor, randomUUID(), prepareWorkspaceInvoice);
+    const requested = await repository.command(f.actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: 0 }, async () => ({ billSourceHash: initial.state.billSourceHash, binding: { platformAccountId: 'acct_platform', connectedAccountId: 'acct_salon', bindingId: 'binding', livemode: false, currency: 'cad', returnOrigin: 'https://example.invalid' } }));
+
+    await expect(finalize(f, 12000)).rejects.toThrow('BALANCE_HELD');
+
+    await repository.cancelUndispatched(f.actor, { requestId: randomUUID(), expectedRevision: requested.state.revision, operationId: requested.state.operations[0]!.id });
+    await database.insert(schema.appointmentPaymentSchema).values({ id: randomUUID(), ...f.scope, amountCents: 1000, method: 'cash', recordedByType: 'admin', recordedById: f.actor.id });
+    await database.update(schema.appointmentSchema).set({ amountPaidCents: 1000 }).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+
+    await expect(finalize(f, 12000)).rejects.toThrow('BILL_CHANGED');
+    expect((await f.read()).invoice.items[0]?.name).toBe('Gel manicure');
+  });
+
   it.each([false, true])('preserves frozen tax in inclusive=%s mode and excludes private appointment data', async (inclusive) => {
     const f = await fixture(inclusive);
     const material = await f.read();

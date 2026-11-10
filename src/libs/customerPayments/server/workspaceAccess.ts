@@ -26,11 +26,27 @@ export async function authorizeWorkspaceActor(tx: CustomerPaymentTransaction, ac
   }
 }
 
+type ManagerAccess = Extract<Awaited<ReturnType<typeof import('@/libs/routeAccessGuards').requireAppointmentManagerAccess>>, { ok: true }>;
+
+/** Reuse an already authenticated checkout guard; do not open a second DB read inside its transaction. */
+export async function resolveWorkspaceActor(access: ManagerAccess, appointmentId: string): Promise<PaymentWorkspaceActor> {
+  const { getAdminImpersonationSession } = await import('@/libs/adminImpersonation');
+  if (await getAdminImpersonationSession() || access.actorRole === 'client') {
+    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+  }
+  const scope = { salonId: access.appointment.salonId, appointmentId };
+  if (access.actorRole === 'staff') {
+    return { ...scope, id: access.session.technicianId, role: 'staff', impersonating: false, canEditItems: true, canRecordPayment: true };
+  }
+  const membership = access.admin.salons.find(item => item.salonId === scope.salonId);
+  if (!membership || !['owner', 'admin'].includes(membership.role)) {
+    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+  }
+  return { ...scope, id: access.admin.id, role: membership.role === 'owner' ? 'owner' : 'admin', impersonating: false, canEditItems: true, canRecordPayment: true };
+}
+
 export async function requireWorkspaceActor(request: Request, appointmentId: string) {
-  const [{ requireAppointmentManagerAccess }, { getAdminImpersonationSession }] = await Promise.all([
-    import('@/libs/routeAccessGuards'),
-    import('@/libs/adminImpersonation'),
-  ]);
+  const { requireAppointmentManagerAccess } = await import('@/libs/routeAccessGuards');
   const access = await requireAppointmentManagerAccess(appointmentId, {
     assignedOnly: true,
     salonSlugHint: new URL(request.url).searchParams.get('salonSlug'),
@@ -38,17 +54,5 @@ export async function requireWorkspaceActor(request: Request, appointmentId: str
   if (!access.ok) {
     return { ok: false as const, response: access.response };
   }
-  // Super-admin impersonation never authorizes a charge or refund.
-  if (await getAdminImpersonationSession() || access.actorRole === 'client') {
-    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
-  }
-  const scope = { salonId: access.appointment.salonId, appointmentId };
-  if (access.actorRole === 'staff') {
-    return { ok: true as const, actor: { ...scope, id: access.session.technicianId, role: 'staff', impersonating: false, canEditItems: true, canRecordPayment: true } satisfies PaymentWorkspaceActor };
-  }
-  const membership = access.admin.salons.find(item => item.salonId === scope.salonId);
-  if (!membership || !['owner', 'admin'].includes(membership.role)) {
-    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
-  }
-  return { ok: true as const, actor: { ...scope, id: access.admin.id, role: membership.role === 'owner' ? 'owner' : 'admin', impersonating: false, canEditItems: true, canRecordPayment: true } satisfies PaymentWorkspaceActor };
+  return { ok: true as const, actor: await resolveWorkspaceActor(access, appointmentId) };
 }

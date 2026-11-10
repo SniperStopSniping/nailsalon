@@ -538,6 +538,9 @@ jobs:
               8665477d989116fe477f59e47914565b4c547bec) ;;
               # Voice call history: tenant-scoped child before appointment.
               06b93e306c1f007d86fa29aaaf9cf511d8493a7b) ;;
+              # Customer payments: retain owner activation history before salon deletion.
+              # Additive only; real migration/purge tests cover the disabled-policy case.
+              59135ac41be17f2cf70545370d9c7958c61cd1e7) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"

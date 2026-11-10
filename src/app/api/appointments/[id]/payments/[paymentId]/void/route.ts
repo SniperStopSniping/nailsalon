@@ -14,6 +14,11 @@ import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapsh
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
 import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
 import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
+import { resolveWorkspaceActor } from '@/libs/customerPayments/server/workspaceAccess';
+import { PaymentWorkspaceError } from '@/libs/customerPayments/server/workspaceContract';
+import { workspaceError } from '@/libs/customerPayments/server/workspaceHttp';
+import { beginCanonicalWorkspaceChange } from '@/libs/customerPayments/server/workspaceRepository';
+import { isPaymentWorkspaceEnabled } from '@/libs/customerPayments/workspacePolicy';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { updateSalonClientStats } from '@/libs/queries';
@@ -79,6 +84,9 @@ export async function POST(
       }
 
       await assertCustomerPaymentReservationMutable(tx, appointment.salonId, appointmentId);
+      const workspaceChange = isPaymentWorkspaceEnabled()
+        ? await beginCanonicalWorkspaceChange(tx, appointment, () => resolveWorkspaceActor(access, appointmentId), 'Corrected a manual payment record', { allowManualVoids: true })
+        : null;
 
       const depositRows = await loadAppointmentDepositCreditRows({
         salonId: appointment.salonId,
@@ -218,6 +226,8 @@ export async function POST(
         .set({ amountPaidCents, paymentStatus: nextStatus, updatedAt: now })
         .where(eq(appointmentSchema.id, appointmentId));
 
+      await workspaceChange?.finish();
+
       const auditRows = [
         buildAppointmentAuditRow({
           appointmentId,
@@ -284,6 +294,9 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (error instanceof PaymentWorkspaceError) {
+      return workspaceError(error);
+    }
     if (isCustomerPaymentReservationBlocked(error)) {
       return customerPaymentReservationBlockedResponse();
     }

@@ -1,6 +1,51 @@
 # Customer payments release work — 2026-11-09
 
-## Current checkpoint: owner activation and authenticated actions
+## Current checkpoint: technician checkout and canonical invoice revisions
+
+Payments remain **not live**. Production, application databases, Stripe accounts and
+customer money have not been changed. PR #504 remains a draft.
+
+- The real CheckoutSheet now mounts Payments before completion and on the completed
+  receipt, behind the server workspace flag and salon opt-in (or retained history). Staff can create/copy a secure link,
+  check its result and close an old request. Refund details identify the original
+  online payment and split service principal from tips; staff request owner approval.
+  Lost responses retain the same command UUID. Unsaved edits block new financial
+  commands, and an unresolved payment request blocks completion in UI and SQL.
+- Completion, manual payment recording and manual voids join the existing appointment
+  transaction and append a workspace audit revision. An added service leaves only
+  the additional balance due. A removed service can create an overpayment backed by
+  verified live online principal; it does not automatically refund or reuse tips.
+  Deposit excess and historical synthetic capture restrictions still fail closed.
+- Original invoice snapshots and payment allocations remain in immutable history.
+  Manual voids are labeled corrections, not Stripe refunds. Failed later checkout
+  work rolls back invoice, tender and workspace history together.
+- The invoice reader refuses the older closed SDK reservation family. Cross-family
+  settlement ownership and completed-invoice editing still need further work.
+- CI failures at a806672 were the new migration count and missing owner-policy salon
+  retention coverage. The inventory now pins all 129 migrations, and full salon
+  deletion explicitly retains owner authorization history before any deletion.
+
+Validated locally: 167 focused UI, actual checkout/API, invoice and provider cases;
+35 migration/retention cases; 47 native PostgreSQL concurrency cases with zero
+skips (the owned cluster was stopped and removed); four desktop/mobile browser cases including 320px
+WebKit and Chromium. The browser checks use isolated HTTP fixtures, and provider
+money responses are simulated. They do not establish a successful Stripe payment.
+
+The a806672 Preview is READY at
+`https://isla-nail-studio-5gl67724r-sniperstopsnipings-projects.vercel.app`.
+Homepage 200 and health 503 with expected SHA a806672 were verified; health still
+reports `stripeConnectEnv=false` and `schemaDrift=not_ready`. A new checkpoint
+Preview must be verified after this commit. No feature switch has been enabled.
+
+Still required before activation/merge: customer booking/manage/return integration,
+editing an already completed invoice, explicit deposit-refund reconciliation,
+recovery scheduling, post-settlement client/loyalty refresh and cross-family ownership
+checks, sandbox account/webhook setup,
+target migration verification, actual provider-backed payment/refund journeys,
+current-head CI and preview/review gates. Browser access was disabled at the last
+provider-console check; the earlier request to enable it remains pending.
+
+## Previous checkpoint: owner activation and authenticated actions
 
 Payments remain **not live**. The following is implemented on the release branch,
 with no production merge, application migration, account activation or real charge.

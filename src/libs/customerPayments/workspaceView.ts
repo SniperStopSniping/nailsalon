@@ -14,6 +14,6 @@ export type PaymentWorkspaceView = {
     taxCents: number;
     tipCents: number;
   };
-  payments: { id: string; kind: 'online' | 'deposit' | 'manual'; amountCents: number; state: 'confirmed' | 'under_review' }[];
+  payments: { id: string; kind: 'online' | 'deposit' | 'manual'; amountCents: number; state: 'confirmed' | 'under_review'; voided?: boolean }[];
   operations: { id: string; kind: 'payment' | 'refund'; state: string; principalCents: number; tipCents: number; reason: string | null; createdAt: number }[];
 };

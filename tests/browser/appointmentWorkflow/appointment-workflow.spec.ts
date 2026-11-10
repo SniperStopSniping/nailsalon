@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
 
+import { adjustmentPermissions, resolveAdjustmentBalance } from '../../../src/libs/customerPayments/adjustments';
+import type { PaymentWorkspaceView } from '../../../src/libs/customerPayments/workspaceView';
+
 const longCatalogServiceId = `svc_${'x'.repeat(68)}`;
 
 function checkoutContext() {
@@ -88,6 +91,73 @@ async function mockFixtureApi(page: import('@playwright/test').Page) {
   });
   return { completions, unexpected };
 }
+
+test('checkout payment controls use the saved balance, retain open-link status and close the request before another collection', async ({ page }, testInfo) => {
+  const { unexpected } = await mockFixtureApi(page);
+  const context = checkoutContext();
+  await page.route('**/checkout', route => route.fulfill({ json: { data: { ...context, paymentWorkspace: { enabled: true, refundableOnlinePrincipalCents: 0 } } } }));
+  const scope = { salonId: 'fixture', appointmentId: 'appt_browser_1' };
+  const bill = { ...scope, revision: 0, serviceCents: 3500, taxCents: 0, tipCents: 0 };
+  let view: PaymentWorkspaceView = {
+    initialized: true,
+    sourceChanged: false,
+    onlinePaymentsAvailable: true,
+    permissions: adjustmentPermissions({ role: 'staff', hasAppointmentAccess: true, impersonating: false, canEditItems: true, canRecordPayment: true }),
+    invoice: { items: [], subtotalCents: 3500, discountCents: 0, taxCents: 0, tipCents: 0 },
+    balance: resolveAdjustmentBalance({ revision: 0, bill, payments: [], refunds: [], requests: [] }),
+    payments: [],
+    operations: [],
+  };
+  const commands: { kind: string; expectedRevision: number; amountCents?: number }[] = [];
+  await page.route('**/payment-workspace', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { data: view } });
+      return;
+    }
+    const command = route.request().postDataJSON();
+    commands.push(command);
+    if (command.kind === 'request_payment') {
+      view = { ...view, balance: resolveAdjustmentBalance({ revision: 1, bill, payments: [], refunds: [], requests: [{ ...scope, id: 'operation', billRevision: 0, principalCents: 3500, tipCents: 0, state: 'open' }] }), operations: [{ id: 'operation', kind: 'payment', principalCents: 3500, tipCents: 0, state: 'open', reason: null, createdAt: 1 }] };
+      await route.fulfill({ json: { data: view, checkoutUrl: 'https://checkout.stripe.com/c/pay/browser-fixture' } });
+      return;
+    }
+    view = { ...view, balance: resolveAdjustmentBalance({ revision: 2, bill, payments: [], refunds: [], requests: [] }), operations: [{ ...view.operations[0]!, state: 'canceled' }] };
+    await route.fulfill({ json: { data: view, checkoutUrl: null } });
+  });
+  await page.goto('/');
+  await page.getByTestId('open-checkout').click();
+  const panel = page.getByTestId('appointment-payment-workspace');
+  await panel.locator('summary').click();
+
+  await expect(page.getByRole('button', { name: 'Online', exact: true })).toHaveCount(0);
+
+  const create = panel.getByRole('button', { name: /Create .* payment link/ });
+
+  await expect(create).toBeEnabled();
+
+  await create.click();
+
+  await expect(panel.getByRole('link', { name: 'Open secure payment page' })).toBeVisible();
+  await expect(panel.getByText(/Payment link open/)).toBeVisible();
+  await expect(create).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeDisabled();
+  expect(commands).toHaveLength(1);
+  expect(commands[0]).toMatchObject({ kind: 'request_payment', expectedRevision: 0 });
+  expect(commands[0]).not.toHaveProperty('amountCents');
+
+  await page.screenshot({ path: testInfo.outputPath(`payment-link-${testInfo.project.name}.png`) });
+  await panel.getByRole('button', { name: 'Close payment request' }).click();
+
+  await expect(panel.getByRole('link', { name: 'Open secure payment page' })).toHaveCount(0);
+  await expect(create).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeEnabled();
+  expect(commands[1]).toMatchObject({ kind: 'cancel_request', expectedRevision: 1 });
+
+  const overflow = await panel.evaluate(element => element.scrollWidth > element.clientWidth + 1);
+
+  expect(overflow).toBe(false);
+  expect(unexpected).toEqual([]);
+});
 
 test('appointment view prioritizes state action, protects dirty edits, and remains readable at narrow and enlarged text', async ({ page }, testInfo) => {
   const { unexpected } = await mockFixtureApi(page);

@@ -14,7 +14,8 @@ import {
 } from '@/libs/appointmentTaxSnapshot';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { buildPaymentReference, derivePaymentStatus } from '@/libs/checkoutTotals';
-import { customerPaymentTipFloor } from '@/libs/customerPayments/provenance';
+import { customerPaymentTipFloor, liveCustomerPaymentRefundablePrincipal } from '@/libs/customerPayments/provenance';
+import { isPaymentWorkspaceEnabled } from '@/libs/customerPayments/workspacePolicy';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { getSalonById } from '@/libs/queries';
@@ -23,6 +24,7 @@ import {
   resolveEtransferSettings,
   resolveTaxConfig,
 } from '@/libs/taxConfig';
+import { customerPaymentWorkspacePolicySchema, customerPaymentWorkspaceSchema } from '@/models/customerPaymentWorkspaceSchema';
 import {
   addOnSchema,
   appointmentAddOnSchema,
@@ -246,8 +248,21 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       })),
     ];
 
+    const workspaceFlag = isPaymentWorkspaceEnabled();
+    const [workspace, policy] = workspaceFlag
+      ? await Promise.all([
+        db.select({ revision: customerPaymentWorkspaceSchema.revision }).from(customerPaymentWorkspaceSchema).where(and(eq(customerPaymentWorkspaceSchema.appointmentId, appointmentId), eq(customerPaymentWorkspaceSchema.salonId, appointment.salonId))).limit(1),
+        db.select({ enabled: customerPaymentWorkspacePolicySchema.enabled }).from(customerPaymentWorkspacePolicySchema).where(eq(customerPaymentWorkspacePolicySchema.salonId, appointment.salonId)).limit(1),
+      ])
+      : [[], []];
+
     return Response.json({
       data: {
+        paymentWorkspace: {
+          enabled: workspaceFlag && (!!workspace[0] || policy[0]?.enabled === true),
+          initialized: !!workspace[0],
+          refundableOnlinePrincipalCents: workspaceFlag && workspace[0] ? liveCustomerPaymentRefundablePrincipal(payments) : 0,
+        },
         appointment: {
           id: appointment.id,
           status: appointment.status,

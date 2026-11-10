@@ -34,6 +34,8 @@ export const adjustmentRefundSchema = z.object({
   principalCents: cents,
   tipCents: cents,
   state: z.enum(['requested', 'pending', 'succeeded', 'failed', 'canceled', 'under_review']),
+  /** A void corrects recorded tender; it does not claim money was refunded. */
+  kind: z.enum(['refund', 'manual_void']).optional(),
 }).strict();
 
 export const adjustmentRequestSchema = z.object({

@@ -8,19 +8,38 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import Stripe from 'stripe';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET as readCheckout } from '@/app/api/appointments/[id]/checkout/route';
+import { PATCH as completeAppointment } from '@/app/api/appointments/[id]/complete/route';
+import { POST as voidPayment } from '@/app/api/appointments/[id]/payments/[paymentId]/void/route';
+import { POST as recordPayment } from '@/app/api/appointments/[id]/payments/route';
 import { listPayments } from '@/libs/appointmentCheckoutServer';
+import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { purgeSalonGroups, SalonPurgeBlockedError } from '@/libs/salonPurge';
+import { buildBookingTaxSnapshot, buildFinalTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 import { customerPaymentTenderSummary, hasVerifiedCustomerPaymentTender } from '../provenance';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from '../server/workspaceContract';
 import { cancelWorkspacePayment, dispatchWorkspacePayment, reconcileWorkspacePayment } from '../server/workspaceDispatcher';
-import { createPaymentWorkspaceRepository } from '../server/workspaceRepository';
+import { prepareWorkspaceInvoice, readWorkspaceInvoice } from '../server/workspaceInvoice';
+import { beginCanonicalWorkspaceChange, createPaymentWorkspaceRepository } from '../server/workspaceRepository';
 import { verifyStripeCustomerPaymentReceipt } from './stripeReceipt';
 import { createWorkspaceStripeProvider } from './workspaceStripe';
 
 const sdk = vi.hoisted(() => ({ accounts: vi.fn(), balance: vi.fn(), createSession: vi.fn(), retrieveSession: vi.fn(), expireSession: vi.fn(), retrieveIntent: vi.fn(), retrieveCharge: vi.fn(), refund: vi.fn(), retrieveRefund: vi.fn(), listRefunds: vi.fn() }));
+const holder = vi.hoisted(() => ({ database: null as unknown }));
 vi.mock('server-only', () => ({}));
+vi.mock('@/libs/DB', () => ({ get db() {
+  return holder.database;
+} }));
+vi.mock('@/libs/adminImpersonation', () => ({ getAdminImpersonationSession: async () => null }));
+vi.mock('@/libs/routeAccessGuards', () => ({
+  requireAppointmentManagerAccess: async (appointmentId: string) => {
+    const db = holder.database as typeof database;
+    const [appointment] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointmentId));
+    return { ok: true, appointment, actorRole: 'admin', admin: { id: 'owner', name: 'Owner', salons: [{ salonId: appointment!.salonId, role: 'owner' }] } };
+  },
+}));
 vi.mock('stripe', async (importOriginal) => {
   const actual = await importOriginal<typeof import('stripe')>();
   return {
@@ -48,14 +67,17 @@ const dispatchBinding = async (_tx: unknown, _appointment: unknown, state: Payme
 beforeAll(async () => {
   client = new PGlite();
   database = drizzle(client, { schema });
+  holder.database = database;
   await migrate(database, { migrationsFolder: path.join(process.cwd(), 'migrations') });
   repository = createPaymentWorkspaceRepository(database);
 }, 60000);
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.spyOn(console, 'info').mockImplementation(() => {});
   vi.stubEnv('CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'true');
-  vi.stubEnv('APP_ENV', 'test');
+  vi.stubEnv('CUSTOMER_PAYMENTS_WORKSPACE_ENABLED', 'true');
+  vi.stubEnv('APP_ENV', 'preview');
   vi.stubEnv('VERCEL_ENV', '');
   vi.stubEnv('VERCEL', '');
   sdk.accounts.mockImplementation(async (id: unknown) => ({
@@ -98,22 +120,31 @@ afterAll(async () => {
   await client?.close();
 });
 
-async function fixture() {
+const settings = { payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } } };
+const taxConfig = resolveTaxConfig(settings, new Date());
+
+async function fixture(canonicalInvoice = false) {
   const id = randomUUID();
   const scope = { salonId: `driver_salon_${id}`, appointmentId: `driver_appt_${id}` };
-  await database.insert(schema.salonSchema).values({ id: scope.salonId, slug: scope.salonId, name: 'Provider fixture' });
+  await database.insert(schema.salonSchema).values({ id: scope.salonId, slug: scope.salonId, name: 'Provider fixture', settings });
   await database.insert(schema.technicianSchema).values({ id, salonId: scope.salonId, name: 'Fixture tech' });
   await database.insert(schema.appointmentSchema).values({ id: scope.appointmentId, salonId: scope.salonId, technicianId: id, clientPhone: '4165550111', clientName: 'Synthetic customer', startTime: new Date('2030-01-01T12:00:00Z'), endTime: new Date('2030-01-01T13:00:00Z'), totalPrice: 10000, totalDurationMinutes: 60, status: 'confirmed' });
   const actor: PaymentWorkspaceActor = { ...scope, id: 'owner', role: 'owner', impersonating: false, canEditItems: true, canRecordPayment: true };
   await database.insert(schema.adminUserSchema).values({ id: actor.id }).onConflictDoNothing();
   await database.insert(schema.adminSalonMembershipSchema).values({ salonId: scope.salonId, adminId: actor.id, role: 'owner' });
-  await repository.initialize(actor, randomUUID(), async () => ({ bill: { ...scope, revision: 0, serviceCents: 10000, taxCents: 1300, tipCents: 2000 }, billSourceHash: 'a'.repeat(64), payments: [] }));
-  const saved = await repository.command(actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: 0 }, async () => ({ binding, billSourceHash: 'a'.repeat(64) }));
+  if (canonicalInvoice) {
+    const totals = computeCheckoutTotals({ items: [{ lineTotalCents: 10000, taxable: true }], taxConfig, tipCents: 2000 });
+    await database.update(schema.appointmentSchema).set({ invoiceCurrency: 'CAD', bookingTaxSnapshot: buildBookingTaxSnapshot({ taxConfig, totals, currency: 'CAD', capturedAt: new Date() }), subtotalBeforeDiscountCents: 10000, tipCents: 2000 }).where(eq(schema.appointmentSchema.id, scope.appointmentId));
+    await database.insert(schema.serviceSchema).values({ id, salonId: scope.salonId, name: 'Manicure', price: 10000, durationMinutes: 60, category: 'manicure' });
+    await database.insert(schema.appointmentServicesSchema).values({ id, appointmentId: scope.appointmentId, serviceId: id, priceAtBooking: 10000, nameSnapshot: 'Original manicure', durationAtBooking: 60 });
+  }
+  const initial = await repository.initialize(actor, randomUUID(), canonicalInvoice ? prepareWorkspaceInvoice : async () => ({ bill: { ...scope, revision: 0, serviceCents: 10000, taxCents: 1300, tipCents: 2000 }, billSourceHash: 'a'.repeat(64), payments: [] }));
+  const saved = await repository.command(actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: 0 }, async () => ({ binding, billSourceHash: initial.state.billSourceHash }));
   return { scope, actor, technicianId: id, operationId: saved.state.operations[0]!.id };
 }
 
-async function capturedFixture() {
-  const f = await fixture();
+async function capturedFixture(canonicalInvoice = false) {
+  const f = await fixture(canonicalInvoice);
   const dispatched = await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding);
   const params = sdk.createSession.mock.calls.at(-1)![0];
   const session = await sdk.createSession.getMockImplementation()!(params);
@@ -128,6 +159,102 @@ async function capturedFixture() {
 }
 
 describe('independently retrieved payment and refund accounting', () => {
+  it('preserves payment history after owner opt-out while keeping unrelated salon checkout unchanged', async () => {
+    const f = await fixture(true);
+    const history = await readCheckout(new Request('http://localhost/api/appointments/fixture/checkout'), { params: Promise.resolve({ id: f.scope.appointmentId }) });
+
+    expect(history.status).toBe(200);
+    expect((await history.json()).data.paymentWorkspace).toMatchObject({ enabled: true, initialized: true });
+
+    const [original] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+    const id = randomUUID();
+    await database.insert(schema.appointmentSchema).values({ ...original!, id, startTime: new Date('2030-01-02T12:00:00Z'), endTime: new Date('2030-01-02T13:00:00Z') });
+    const plain = await readCheckout(new Request('http://localhost/api/appointments/fixture/checkout'), { params: Promise.resolve({ id }) });
+
+    expect(plain.status).toBe(200);
+    expect((await plain.json()).data.paymentWorkspace).toEqual({ enabled: false, initialized: false, refundableOnlinePrincipalCents: 0 });
+  });
+
+  it.each([8000, 12000])('completes the real checkout route at %i cents after an online payment and preserves retries', async (amount) => {
+    const f = await capturedFixture(true);
+    await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+    const payload = { finalItems: [{ kind: 'custom', name: 'Changed service', quantity: 1, unitPriceCents: amount, taxable: true }], payments: [], skipPhotoValidation: true };
+    const request = () => new Request('http://localhost/api/appointments/fixture/complete', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const response = await completeAppointment(request(), { params: Promise.resolve({ id: f.scope.appointmentId }) });
+    const data = await response.json();
+
+    expect(response.status, JSON.stringify(data)).toBe(200);
+
+    const saved = (await repository.read(f.actor))!;
+
+    expect(saved.bill).toMatchObject({ revision: 1, serviceCents: amount, taxCents: amount * 0.13, tipCents: 2000 });
+    expect(saved.payments).toHaveLength(1);
+    expect(saved.invoice?.items[0]?.name).toBe('Changed service');
+
+    const retry = await completeAppointment(request(), { params: Promise.resolve({ id: f.scope.appointmentId }) });
+
+    expect(retry.status).toBe(200);
+    expect((await repository.read(f.actor))?.revision).toBe(saved.revision);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+    expect(sdk.refund).not.toHaveBeenCalled();
+
+    if (amount > 10000) {
+      const input = { amountCents: 1000, method: 'cash', idempotencyKey: randomUUID() };
+      const manualRequest = () => new Request('http://localhost/api/appointments/fixture/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+      const manual = await recordPayment(manualRequest(), { params: Promise.resolve({ id: f.scope.appointmentId }) });
+
+      expect(manual.status, JSON.stringify(await manual.json())).toBe(200);
+
+      const recorded = (await repository.read(f.actor))!;
+      const payment = recorded.payments.find(payment => payment.kind === 'manual')!;
+
+      expect(payment.principalCents).toBe(1000);
+      expect(recorded.bill.revision).toBe(1);
+      expect((await recordPayment(manualRequest(), { params: Promise.resolve({ id: f.scope.appointmentId }) })).status).toBe(200);
+      expect((await repository.read(f.actor))?.revision).toBe(recorded.revision);
+
+      const voided = await voidPayment(new Request('http://localhost/api/appointments/fixture/payments/void', { method: 'POST' }), { params: Promise.resolve({ id: f.scope.appointmentId, paymentId: payment.id }) });
+
+      expect(voided.status, JSON.stringify(await voided.json())).toBe(200);
+      expect((await repository.read(f.actor))?.refunds).toMatchObject([{ paymentId: payment.id, kind: 'manual_void', principalCents: 1000 }]);
+      expect(sdk.refund).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([8000, 12000])('retains the original payment and tip when actual checkout services change to %i cents', async (amount) => {
+    const f = await capturedFixture(true);
+    await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+    const original = await repository.read(f.actor);
+    const result = await database.transaction(async (tx) => {
+      const [appointment] = await tx.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId)).for('update');
+      const change = await beginCanonicalWorkspaceChange(tx, appointment!, async () => f.actor, 'Customer changed services');
+
+      expect(change?.onlineRefundablePrincipalCents).toBe(11300);
+
+      const totals = computeCheckoutTotals({ items: [{ lineTotalCents: amount, taxable: true }], taxConfig, tipCents: 2000 });
+      const finalTaxSnapshot = buildFinalTaxSnapshot({ taxConfig, totals, currency: 'CAD', capturedAt: new Date(), taxExempt: false, taxExemptReason: null });
+      await tx.update(schema.appointmentSchema).set({ status: 'completed', completedAt: new Date(finalTaxSnapshot.capturedAt), finalPriceCents: totals.finalPriceCents, finalSubtotalCents: amount, finalDiscountCents: 0, finalTaxSnapshot, taxableSubtotalCents: totals.taxableSubtotalCents, taxAmountCents: totals.taxAmountCents, taxExempt: false, taxExemptReason: null }).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+      await tx.insert(schema.appointmentFinalItemSchema).values({ id: randomUUID(), ...f.scope, kind: 'service', name: 'Changed service', quantity: 1, unitPriceCents: amount, lineTotalCents: amount });
+      await change?.finish();
+      const [updated] = await tx.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+      return readWorkspaceInvoice(tx, updated!);
+    });
+    const current = (await repository.read(f.actor))!;
+
+    expect(current.billSourceHash).toBe(result.billSourceHash);
+    expect(current.payments).toEqual(original!.payments);
+    expect(current.invoice?.tipCents).toBe(2000);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+    expect(sdk.refund).not.toHaveBeenCalled();
+
+    const next = amount > 10000
+      ? { kind: 'request_payment' as const, requestId: randomUUID(), expectedRevision: current.revision }
+      : { kind: 'request_refund' as const, requestId: randomUUID(), expectedRevision: current.revision, paymentId: current.payments[0]!.id, principalCents: 2260, tipCents: 0, reason: 'Removed service' };
+    const reserved = await repository.command(f.actor, next, async () => ({ binding, billSourceHash: result.billSourceHash }));
+
+    expect(reserved.state.operations.at(-1)).toMatchObject({ principalCents: 2260, tipCents: 0, kind: amount > 10000 ? 'payment' : 'refund' });
+  });
+
   it('expires the old payment link and independently verifies it before releasing the bill', async () => {
     const f = await capturedFixture();
     const session = await sdk.retrieveSession();

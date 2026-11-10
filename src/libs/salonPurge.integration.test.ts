@@ -10,6 +10,7 @@
  * future migration adds a restrict-style child of `salon` that nobody added
  * to SALON_PURGE_PLAN.
  */
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -27,6 +28,7 @@ import {
   purgeSalonData,
   purgeSalonGroups,
   type PurgeTx,
+  RETAINED_SALON_HISTORY,
   SALON_PURGE_PLAN,
   SalonPurgeBlockedError,
 } from './salonPurge';
@@ -453,6 +455,17 @@ beforeEach(async () => {
 });
 
 describe('purgeSalonData', () => {
+  it('retains disabled owner payment authorization and blocks deletion before any salon rows change', async () => {
+    await db.insert(schema.adminUserSchema).values({ id: 'payment_policy_owner' });
+    await db.insert(schema.adminSalonMembershipSchema).values({ salonId: SALON, adminId: 'payment_policy_owner', role: 'owner' });
+    await db.insert(schema.customerPaymentWorkspacePolicySchema).values({ salonId: SALON, revision: 1, enabled: false, cancellationPolicy: 'Refund policy', livemode: false, actorId: 'payment_policy_owner', requestId: randomUUID(), requestHash: 'a'.repeat(64) });
+    const before = await snapshot(SALON);
+
+    await expect(db.transaction(tx => purgeSalonData(tx as unknown as PurgeTx, SALON))).rejects.toMatchObject({ name: 'SalonPurgeBlockedError', blockers: [{ table: 'customer_payment_workspace_policy', column: 'salon_id', count: 1 }] });
+    expect(await snapshot(SALON)).toEqual(before);
+    expect(await db.select().from(schema.customerPaymentWorkspacePolicyAuditSchema)).toHaveLength(1);
+  });
+
   it.each(['full', 'appointments', 'staff'] as const)('retains reserved capture history before a %s purge mutates anything', async (kind) => {
     await db.insert(schema.appointmentPaymentSchema).values({
       id: 'cpay_orphan_fixture',
@@ -724,15 +737,15 @@ describe('SALON_PURGE_PLAN coverage guard', () => {
       col: string;
     }[];
 
-    const planned = new Set(SALON_PURGE_PLAN.map(s => s.table));
+    const planned = new Set([...SALON_PURGE_PLAN.map(s => s.table), ...RETAINED_SALON_HISTORY.map(s => s.table)]);
     const uncovered = rows.map(r => r.child).filter(child => !planned.has(child));
 
     // If this fails, a migration added a restrict-style child of `salon` and
-    // nobody added it to SALON_PURGE_PLAN. Add a step — do not weaken the test.
+    // nobody added a deletion step or an explicitly tested retention guard.
     expect([...new Set(uncovered)]).toEqual([]);
   }, 30_000);
 
-  it('leaves no restrict-style foreign key pointing at salon (migration 0059)', async () => {
+  it('keeps only explicitly retained financial history as restrict-style salon children', async () => {
     const result = await db.execute(sql`
       select tc.table_name as child, kcu.column_name as col, tc.constraint_name as name, rc.delete_rule as rule
       from information_schema.table_constraints tc
@@ -750,10 +763,7 @@ describe('SALON_PURGE_PLAN coverage guard', () => {
       name: string;
     }[];
 
-    // Migration 0059 converted all 21 restrict-style children of `salon`. A new
-    // one here means a migration added a foreign key without an ON DELETE rule,
-    // which is how the database drifted into the original bug.
-    expect(rows.map(r => `${r.child}.${r.col} (${r.name})`)).toEqual([]);
+    expect(rows.map(r => `${r.child}.${r.col} (${r.name})`).sort()).toEqual(RETAINED_SALON_HISTORY.map(r => `${r.table}.${r.column} (${r.constraint})`).sort());
   }, 30_000);
 
   it('lists each table exactly once', () => {

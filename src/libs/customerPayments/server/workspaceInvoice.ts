@@ -15,6 +15,7 @@ import { isCustomerPaymentTender } from '../provenance';
 import type { CustomerPaymentTransaction } from './preparationRepository';
 import { customerPaymentFingerprint } from './preparationRepository';
 import { enrichCustomerPaymentProvenance } from './provenanceReader';
+import { assertCustomerPaymentReservationMutable } from './reservationGuard';
 import { workspaceFailure } from './workspaceContract';
 
 export type WorkspaceInvoiceItem = {
@@ -61,6 +62,7 @@ function evidence(value: unknown): unknown {
  * checkout. Neither browser totals nor mutable catalog prices become money.
  */
 export async function readWorkspaceInvoice(tx: CustomerPaymentTransaction, appointment: Appointment) {
+  await assertCustomerPaymentReservationMutable(tx, appointment.salonId, appointment.id);
   if (appointment.deletedAt !== null || !['confirmed', 'in_progress', 'completed'].includes(appointment.status ?? '')
     || appointment.paymentStatus === 'comp' || appointment.depositHoldExpiresAt !== null) {
     return workspaceFailure('PAYMENT_WORKSPACE_APPOINTMENT_INELIGIBLE');
@@ -136,7 +138,11 @@ export async function readWorkspaceInvoice(tx: CustomerPaymentTransaction, appoi
       initialPayments.push({ ...scope, id: row.id, movementId: row.id, kind: 'manual', principalCents, tipCents: row.amountCents - principalCents, state: 'confirmed' });
     }
   }
-  return { bill, billSourceHash, invoice, initialPayments, collectionHold: ledger.collectionHold };
+  // Internal reconciliation facts. The browser projection must never spread
+  // this object: these identify canonical money, not customer-facing labels.
+  const tenderFacts = legacyPayments.map(row => ({ id: row.id, amountCents: row.amountCents, method: row.method, voided: row.voidedAt !== null, actorType: row.recordedByType, actorId: row.recordedById }));
+  const depositFingerprint = customerPaymentFingerprint(evidence(deposits));
+  return { bill, billSourceHash, invoice, initialPayments, collectionHold: ledger.collectionHold, tenderFacts, depositFingerprint, ledgerCents: ledger.appointmentPaymentsCents };
 }
 
 export async function prepareWorkspaceInvoice(tx: CustomerPaymentTransaction, appointment: Appointment) {

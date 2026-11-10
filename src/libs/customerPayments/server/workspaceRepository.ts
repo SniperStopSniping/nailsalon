@@ -16,6 +16,7 @@ import { customerPaymentFingerprint } from './preparationRepository';
 import { authorizeWorkspaceActor } from './workspaceAccess';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceCommand, PaymentWorkspaceScope, PaymentWorkspaceState, WorkspaceOperation } from './workspaceContract';
 import { paymentProviderBindingSchema, paymentWorkspaceCommandSchema, paymentWorkspaceScopeSchema, paymentWorkspaceStateSchema, workspaceBillChangeSchema, workspaceFailure, workspaceManualPaymentSchema } from './workspaceContract';
+import { readWorkspaceInvoice } from './workspaceInvoice';
 
 type Database = Pick<typeof db, 'transaction'>;
 type WorkspaceRow = typeof customerPaymentWorkspaceSchema.$inferSelect;
@@ -162,6 +163,91 @@ async function updateCanonicalBalance(tx: CustomerPaymentTransaction, scope: Pay
   const balance = projection(state);
   await tx.update(appointmentSchema).set({ amountPaidCents, tipCents: state.bill.tipCents, paymentStatus: balance.balanceDueCents === 0 ? 'paid' : balance.netPaidCents > 0 ? 'partially_paid' : 'pending' })
     .where(and(eq(appointmentSchema.id, scope.appointmentId), eq(appointmentSchema.salonId, scope.salonId)));
+}
+
+/**
+ * Join an existing canonical checkout transaction. The caller keeps this
+ * transaction open through finish(); any validation error rolls back the
+ * invoice, tender and immutable workspace revision together.
+ */
+export async function beginCanonicalWorkspaceChange(tx: CustomerPaymentTransaction, appointment: Appointment, getActor: () => Promise<PaymentWorkspaceActor>, reason: string, options: { allowManualVoids?: boolean } = {}) {
+  const scope = { salonId: appointment.salonId, appointmentId: appointment.id };
+  const { row, appointment: currentAppointment } = await lock(tx, scope);
+  if (!row) {
+    return null;
+  }
+  const actor = await getActor();
+  if (actor.salonId !== scope.salonId || actor.appointmentId !== scope.appointmentId || !permissions(actor).canAdjustBill) {
+    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+  }
+  await authorizeWorkspaceActor(tx, actor);
+  if (actor.role === 'staff' && currentAppointment.technicianId !== actor.id) {
+    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+  }
+  const state = validate(row.state, scope);
+  if (state.operations.some(op => activeStates.has(op.state)) || projection(state).blockedReasons.length) {
+    return workspaceFailure('PAYMENT_WORKSPACE_BALANCE_HELD');
+  }
+  const before = await readWorkspaceInvoice(tx, currentAppointment);
+  if (before.collectionHold || before.billSourceHash !== state.billSourceHash) {
+    return workspaceFailure('PAYMENT_WORKSPACE_BILL_CHANGED');
+  }
+  const onlineIds = new Set(state.payments.filter(payment => payment.kind === 'online' && payment.state === 'confirmed').map(payment => payment.id));
+  const onlineRefundablePrincipalCents = state.payments.filter(payment => onlineIds.has(payment.id)).reduce((sum, payment) => sum + payment.principalCents, 0)
+    - state.refunds.filter(refund => onlineIds.has(refund.paymentId) && refund.state === 'succeeded').reduce((sum, refund) => sum + refund.principalCents, 0);
+  let finished = false;
+  return {
+    onlineRefundablePrincipalCents,
+    async finish() {
+      if (finished) {
+        return workspaceFailure('PAYMENT_WORKSPACE_SCOPE_MISMATCH');
+      }
+      finished = true;
+      const { appointment: updatedAppointment } = await lock(tx, scope);
+      const after = await readWorkspaceInvoice(tx, updatedAppointment);
+      // A service revision never rewrites old tender, refunds a deposit, or
+      // reclassifies a prepaid tip. Those need their own financial command.
+      if (after.collectionHold || before.depositFingerprint !== after.depositFingerprint) {
+        return workspaceFailure('PAYMENT_WORKSPACE_LEDGER_RECONCILIATION_REQUIRED');
+      }
+      for (const old of before.tenderFacts) {
+        const current = after.tenderFacts.find(tender => tender.id === old.id);
+        if (current && customerPaymentFingerprint(current) === customerPaymentFingerprint(old)) {
+          continue;
+        }
+        const payment = state.payments.find(payment => payment.id === old.id && payment.kind === 'manual');
+        if (!options.allowManualVoids || actor.role === 'staff' || !current || !payment || old.voided || !current.voided
+          || customerPaymentFingerprint({ ...current, voided: false }) !== customerPaymentFingerprint(old)
+          || state.refunds.some(refund => refund.paymentId === old.id)) {
+          return workspaceFailure('PAYMENT_WORKSPACE_LEDGER_RECONCILIATION_REQUIRED');
+        }
+        state.refunds.push({ ...scope, id: `manual_void_${old.id}`, paymentId: old.id, principalCents: payment.principalCents, tipCents: payment.tipCents, state: 'succeeded', kind: 'manual_void' });
+      }
+      const invoiceChanged = customerPaymentFingerprint(state.invoice) !== customerPaymentFingerprint(after.invoice);
+      state.bill = { ...after.bill, revision: state.bill.revision + (invoiceChanged ? 1 : 0) };
+      state.invoice = after.invoice;
+      for (const tender of after.tenderFacts.filter(current => !before.tenderFacts.some(old => old.id === current.id))) {
+        const balance = projection(state);
+        if (tender.voided || tender.actorType === 'system' || tender.actorId !== actor.id
+          || !workspaceManualPaymentSchema.shape.method.safeParse(tender.method).success
+          || !permissions(actor).canRecordPayment || !balance.canReservePayment || tender.amountCents > balance.balanceDueCents) {
+          return workspaceFailure('PAYMENT_WORKSPACE_MANUAL_TENDER_MISMATCH');
+        }
+        const principalCents = Math.min(balance.principalDueCents, tender.amountCents);
+        state.payments.push({ ...scope, id: tender.id, movementId: tender.id, kind: 'manual', principalCents, tipCents: tender.amountCents - principalCents, state: 'confirmed' });
+      }
+      const expectedTenderCents = state.payments.filter(payment => payment.kind !== 'deposit' && payment.state === 'confirmed').reduce((sum, payment) => sum + payment.principalCents + payment.tipCents, 0)
+        - state.refunds.filter(refund => refund.state === 'succeeded').reduce((sum, refund) => sum + refund.principalCents + refund.tipCents, 0);
+      if (after.ledgerCents !== expectedTenderCents) {
+        return workspaceFailure('PAYMENT_WORKSPACE_LEDGER_RECONCILIATION_REQUIRED');
+      }
+      state.billSourceHash = after.billSourceHash;
+      if (invoiceChanged) {
+        state.billChanges.push({ revision: state.bill.revision, reason, actorId: actor.id, changedAt: await clock(tx), sourceHash: after.billSourceHash });
+      }
+      return save(tx, row, state, { requestId: randomUUID(), requestHash: customerPaymentFingerprint({ before: before.billSourceHash, after: after.billSourceHash, reason, actorId: actor.id }), actorId: actor.id, action: invoiceChanged ? 'checkout_invoice_saved' : options.allowManualVoids ? 'manual_payment_voided' : 'manual_payment_recorded' });
+    },
+  };
 }
 
 /** Every financial command commits its reservation before a separate provider call. */

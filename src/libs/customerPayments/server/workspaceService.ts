@@ -50,7 +50,7 @@ export async function readPaymentWorkspaceView(repository: ReturnType<typeof cre
     balance,
     permissions,
     invoice: { items: invoice.items.map(({ id, name, quantity, lineTotalCents }) => ({ id, name, quantity, lineTotalCents })), subtotalCents: invoice.subtotalCents, discountCents: invoice.discountCents, taxCents: invoice.taxSnapshot.taxAmountCents, tipCents: invoice.tipCents },
-    payments: payments.map(payment => ({ id: payment.id, kind: payment.kind, amountCents: payment.principalCents + payment.tipCents, state: payment.state })),
+    payments: payments.map(payment => ({ id: payment.id, kind: payment.kind, amountCents: payment.principalCents + payment.tipCents, state: payment.state, voided: state?.refunds.some(refund => refund.paymentId === payment.id && refund.kind === 'manual_void' && refund.state === 'succeeded') ?? false })),
     operations: (state?.operations ?? []).map(({ id, kind, state: status, principalCents, tipCents, reason, createdAt }) => ({ id, kind, state: status, principalCents, tipCents, reason, createdAt })),
   };
 }

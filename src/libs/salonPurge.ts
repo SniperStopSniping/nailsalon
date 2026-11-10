@@ -209,6 +209,27 @@ export type PurgeStep = {
   apply: (tx: PurgeTx, salonId: string) => Promise<void>;
 };
 
+/** These financial authorization records are retained, never cascade-deleted. */
+export const RETAINED_SALON_HISTORY = [
+  { table: 'customer_payment_workspace_policy', column: 'salon_id', constraint: 'customer_payment_workspace_policy_salon_id_fkey' },
+] as const;
+
+async function assertNoRetainedSalonHistory(tx: PurgeTx, salonId: string) {
+  for (const entry of RETAINED_SALON_HISTORY) {
+    // Dark deployments can precede the separately gated payment migration.
+    const exists = await tx.execute(sql`SELECT to_regclass(${`public.${entry.table}`}) AS name`);
+    const existenceRows = (Array.isArray(exists) ? exists : (exists as { rows: unknown[] }).rows) as { name: string | null }[];
+    if (!existenceRows[0]?.name) {
+      continue;
+    }
+    const result = await tx.execute(sql`SELECT count(*)::integer AS count FROM ${sql.identifier(entry.table)} WHERE ${sql.identifier(entry.column)}=${salonId}`);
+    const rows = (Array.isArray(result) ? result : (result as { rows: unknown[] }).rows) as { count: number }[];
+    if (Number(rows[0]?.count) > 0) {
+      throw new CustomerPaymentPurgeBlockedError([{ table: entry.table, column: entry.column, count: Number(rows[0]!.count) }], 'Customer payment authorization history must be retained. No salon data was deleted.');
+    }
+  }
+}
+
 type StepSpec = {
   table: string;
   group: PurgeGroup;
@@ -946,6 +967,7 @@ export async function purgeSalonData(tx: PurgeTx, salonId: string): Promise<Purg
 
 async function purgeSalonDataInTx(tx: PurgeTx, salonId: string): Promise<PurgeResult> {
   await lockPaymentSafePurge(tx, salonId);
+  await assertNoRetainedSalonHistory(tx, salonId);
   await assertNoCrossTenantReferences(tx, salonId);
 
   const counts: Record<string, number> = {};
@@ -982,6 +1004,9 @@ async function purgeSalonGroupsInTx(
 ): Promise<PurgeResult> {
   if (groups.some(group => ['appointments', 'staff', 'catalog', 'client_records', 'salon'].includes(group))) {
     await lockPaymentSafePurge(tx, salonId);
+  }
+  if (groups.includes('salon')) {
+    await assertNoRetainedSalonHistory(tx, salonId);
   }
   await assertNoCrossTenantReferences(tx, salonId);
   await unlinkGroupReferences(tx, salonId, groups);
