@@ -162,6 +162,58 @@ test('Clients and Calendar sheets match the Services top inset', async ({ page }
   await expect(calendar).toHaveCSS('border-top-left-radius', servicesStyle.radius);
 });
 
+test('Clients and Insights follow the visible viewport without reserving a bottom strip', async ({ page }) => {
+  await page.goto('/?screen=clients&surface=sheet');
+  await page.evaluate(() => {
+    // Playwright's mobile projects do not have native browser bars or a keyboard.
+    const viewport = Object.assign(new EventTarget(), {
+      height: window.innerHeight - 80,
+      offsetTop: 0,
+      scale: 1,
+    });
+    Object.defineProperty(window, 'visualViewport', { value: viewport });
+  });
+  await page.addStyleTag({ content: ':root { --owner-sheet-safe-bottom: 34px; }' });
+  await page.getByRole('button', { name: 'Open Clients' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Clients', exact: true });
+  const scroller = sheet.getByTestId('app-modal-scroll-region');
+  const bottomGaps = () => scroller.evaluate((region) => {
+    const viewport = window.visualViewport!;
+    const panelBottom = region.parentElement!.getBoundingClientRect().bottom;
+    return {
+      belowSheet: Math.round(viewport.offsetTop + viewport.height - panelBottom),
+      belowScroller: Math.round(panelBottom - region.getBoundingClientRect().bottom),
+    };
+  });
+
+  await expect(sheet.getByRole('button', { name: /SM Sofia Martin/ })).toBeVisible();
+  await expect.poll(bottomGaps).toEqual({ belowSheet: 0, belowScroller: 0 });
+  await expect(scroller).toHaveCSS('padding-bottom', '34px');
+
+  await sheet.getByRole('tab', { name: 'Insights & Follow-ups' }).click();
+
+  await expect(sheet.getByRole('heading', { name: 'Client health' })).toBeInViewport();
+
+  await page.evaluate(() => {
+    const viewport = window.visualViewport!;
+    Object.assign(viewport, { height: window.innerHeight });
+    viewport.dispatchEvent(new Event('resize'));
+  });
+
+  await expect.poll(bottomGaps).toEqual({ belowSheet: 0, belowScroller: 0 });
+
+  await page.evaluate(() => {
+    const viewport = window.visualViewport!;
+    Object.assign(viewport, { height: window.innerHeight - 200 });
+    viewport.dispatchEvent(new Event('resize'));
+    Object.assign(viewport, { offsetTop: 24 });
+    viewport.dispatchEvent(new Event('scroll'));
+  });
+
+  await expect.poll(bottomGaps).toEqual({ belowSheet: 0, belowScroller: 0 });
+  await expect(sheet.getByRole('button', { name: 'Back', exact: true })).toBeInViewport();
+});
+
 test('services: search recovery and detail navigation preserve the catalog', async ({ page }) => {
   await page.goto('/?screen=services');
   const search = page.getByPlaceholder('Search services…');

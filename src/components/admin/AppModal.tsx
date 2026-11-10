@@ -19,7 +19,7 @@
 
 import type { PanInfo } from 'framer-motion';
 import { AnimatePresence, motion, useAnimation, useDragControls } from 'framer-motion';
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
@@ -63,6 +63,8 @@ const SHEET_TOP_INSET: Record<NonNullable<AppModalProps['topInset']>, string> = 
   tall: 'max(calc(env(safe-area-inset-top, 0px) + 8px), 10px)',
 };
 
+const SHEET_SAFE_BOTTOM = 'var(--owner-sheet-safe-bottom, env(safe-area-inset-bottom, 0px))';
+
 export function AppModal({
   isOpen,
   onClose,
@@ -82,6 +84,37 @@ export function AppModal({
   useEffect(() => {
     setPortalReady(true);
   }, []);
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const viewport = window.visualViewport;
+    if (!isOpen || !portalReady || !panel || !viewport) {
+      return undefined;
+    }
+
+    const syncViewport = () => {
+      // Browser bars and the keyboard can move the visible edges without
+      // changing the layout viewport used by fixed positioning. Keep native
+      // panning while pinch-zoomed by falling back to the fixed insets.
+      if (viewport.height <= 0 || Math.abs(viewport.scale - 1) >= 0.01) {
+        panel.style.removeProperty('--owner-sheet-viewport-height');
+        panel.style.removeProperty('--owner-sheet-viewport-top');
+        return;
+      }
+      panel.style.setProperty('--owner-sheet-viewport-height', `${viewport.height}px`);
+      panel.style.setProperty('--owner-sheet-viewport-top', `${Math.max(0, viewport.offsetTop)}px`);
+    };
+
+    syncViewport();
+    viewport.addEventListener('resize', syncViewport);
+    viewport.addEventListener('scroll', syncViewport);
+    window.addEventListener('resize', syncViewport);
+    return () => {
+      viewport.removeEventListener('resize', syncViewport);
+      viewport.removeEventListener('scroll', syncViewport);
+      window.removeEventListener('resize', syncViewport);
+    };
+  }, [isOpen, portalReady]);
 
   // Lock body scroll when modal is open
   useBodyScrollLock(isOpen);
@@ -165,8 +198,9 @@ export function AppModal({
             }
             onDragEnd={allowDragToDismiss ? handleDragEnd : undefined}
             style={{
-              top: SHEET_TOP_INSET[topInset],
-              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+              top: `calc(${SHEET_TOP_INSET[topInset]} + var(--owner-sheet-viewport-top, 0px))`,
+              // With no measured height, fixed top and bottom size the panel.
+              height: `calc(var(--owner-sheet-viewport-height) - ${SHEET_TOP_INSET[topInset]})`,
             }}
           >
             {/* Drag Handle — the only surface that starts the dismiss gesture.
@@ -190,7 +224,8 @@ export function AppModal({
               </div>
             )}
 
-            {/* Content */}
+            {/* Keep home-indicator clearance at the end of the scroll, so
+                content can move through that area instead of being clipped. */}
             <div
               ref={contentRef}
               tabIndex={-1}
@@ -198,6 +233,7 @@ export function AppModal({
               data-modal-focus-content="true"
               data-testid="app-modal-scroll-region"
               className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain"
+              style={{ paddingBottom: SHEET_SAFE_BOTTOM, scrollPaddingBottom: SHEET_SAFE_BOTTOM }}
             >
               {children}
             </div>
