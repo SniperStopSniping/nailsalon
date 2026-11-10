@@ -5,8 +5,9 @@ import { and, eq } from 'drizzle-orm';
 import type { AppointmentPayment } from '@/models/Schema';
 
 import { isCustomerPaymentLedgerTestEnabled } from '../ledgerTestGate';
-import { isCustomerPaymentTender, verifyCustomerPaymentTender, verifyOfflineFixtureCaptureTender } from '../provenance';
+import { isCustomerPaymentTender, verifyCustomerPaymentTender, verifyLiveWorkspaceTender, verifyOfflineFixtureCaptureTender } from '../provenance';
 import { readOfflineFixtureCaptureEvidence } from './fixtureApplicationReader';
+import { paymentWorkspaceStateSchema } from './workspaceContract';
 
 type Reader = { select: (fields?: Record<string, unknown>) => any };
 
@@ -14,6 +15,39 @@ type Reader = { select: (fields?: Record<string, unknown>) => any };
 export async function enrichCustomerPaymentProvenance<T extends AppointmentPayment>(database: Reader, rows: T[]): Promise<T[]> {
   // A previously enriched object is not evidence for this fresh database read.
   rows = rows.map(row => isCustomerPaymentTender(row) ? Object.fromEntries(Object.entries(row)) as T : row);
+  // Existing real money remains readable when new collection is disabled.
+  const liveRows = rows.filter(row => row.id.startsWith('lpay_') || row.reference?.startsWith('customer_payment_live:'));
+  if (liveRows.length > 0 && ['production', 'preview', 'development', 'test'].includes(process.env.APP_ENV ?? '')) {
+    try {
+      const firstLive = liveRows[0]!;
+      if (liveRows.some(row => row.salonId !== firstLive.salonId || row.appointmentId !== firstLive.appointmentId)) {
+        return rows;
+      }
+      const { customerPaymentWorkspaceSchema, customerPaymentLiveSettlementSchema } = await import('@/models/customerPaymentWorkspaceSchema');
+      // One SQL statement is one MVCC snapshot, including on nontransactional readers.
+      const evidence = await database.select({ state: customerPaymentWorkspaceSchema.state, settlement: customerPaymentLiveSettlementSchema })
+        .from(customerPaymentWorkspaceSchema).innerJoin(customerPaymentLiveSettlementSchema, and(
+          eq(customerPaymentLiveSettlementSchema.appointmentId, customerPaymentWorkspaceSchema.appointmentId),
+          eq(customerPaymentLiveSettlementSchema.salonId, customerPaymentWorkspaceSchema.salonId),
+        )).where(and(eq(customerPaymentWorkspaceSchema.appointmentId, firstLive.appointmentId), eq(customerPaymentWorkspaceSchema.salonId, firstLive.salonId)));
+      if (evidence.length) {
+        const state = paymentWorkspaceStateSchema.parse(evidence[0].state);
+        const settlements = evidence.map((item: { settlement: typeof customerPaymentLiveSettlementSchema.$inferSelect }) => item.settlement);
+        rows = rows.map((row) => {
+          if (!liveRows.includes(row)) {
+            return row;
+          }
+          try {
+            return verifyLiveWorkspaceTender(row, state, settlements, process.env.APP_ENV === 'production');
+          } catch {
+            return row;
+          }
+        });
+      }
+    } catch {
+      // A missing or inconsistent source remains visibly unverified.
+    }
+  }
   const tagged = rows.filter(isCustomerPaymentTender);
   if (tagged.length === 0 || !isCustomerPaymentLedgerTestEnabled()) {
     return rows;
@@ -44,7 +78,7 @@ export async function enrichCustomerPaymentProvenance<T extends AppointmentPayme
     }
     const fixtureEvidence = await readOfflineFixtureCaptureEvidence(database, captures);
     return rows.map((row) => {
-      if (!isCustomerPaymentTender(row)) {
+      if (!isCustomerPaymentTender(row) || row.id.startsWith('lpay_')) {
         return row;
       }
       const matches = captures.filter((capture: typeof customerPaymentCaptureSchema.$inferSelect) => capture.tenderId === row.id);

@@ -889,6 +889,8 @@ async function lockPaymentSafePurge(tx: PurgeTx, salonId: string): Promise<void>
   const count = await countWhere(tx, appointmentPaymentSchema, and(
     or(eq(appointmentPaymentSchema.salonId, salonId), inArray(appointmentPaymentSchema.appointmentId, appointmentIdsOf(tx, salonId))),
     sql`(left(${appointmentPaymentSchema.id}, 5) = 'cpay_'
+      OR left(${appointmentPaymentSchema.id}, 5) = 'lpay_'
+      OR left(COALESCE(${appointmentPaymentSchema.reference}, ''), 22) = 'customer_payment_live:'
       OR left(COALESCE(${appointmentPaymentSchema.reference}, ''), 25) = 'customer_payment_capture:')`,
   ));
   if (count > 0) {
@@ -914,7 +916,13 @@ async function withPurgeContentionHandling(operation: () => Promise<PurgeResult>
   try {
     return await operation();
   } catch (error) {
-    const failure = error as { code?: string; cause?: { code?: string } };
+    const failure = error as { code?: string; message?: string; cause?: { code?: string; message?: string } };
+    if ((failure.cause?.message ?? failure.message) === 'PAYMENT_WORKSPACE_HISTORY_IMMUTABLE') {
+      throw new CustomerPaymentPurgeBlockedError(
+        [{ table: 'appointment', column: 'payment_workspace_history', count: 1 }],
+        'Customer payment history must be reconciled and retained before this salon data can be reset or deleted.',
+      );
+    }
     if (['55P03', '40P01'].includes(failure.cause?.code ?? failure.code ?? '')) {
       throw new CustomerPaymentPurgeBlockedError(
         [{ table: 'appointment', column: 'active_transaction', count: 1 }],

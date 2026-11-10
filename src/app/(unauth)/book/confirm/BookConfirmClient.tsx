@@ -1875,13 +1875,12 @@ const SuccessContent = ({
         </div>
 
         {paymentPreviewUrl && (
-          <section aria-label="Test payment preview" className="space-y-2 rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm">
-            <h2 className="font-semibold">Test payment quote preview</h2>
+          <SectionCard title="Test payment quote preview" className="border-[var(--n5-border)] bg-[var(--n5-bg-card)] text-sm" contentClassName="space-y-2">
             <p>Review a test total and optional tip from your saved appointment. Availability and current amounts are checked on the next page. No payment can be made here; existing deposit requirements and in-person arrangements are unchanged.</p>
             <a href={paymentPreviewUrl} referrerPolicy="no-referrer" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
               Review test payment quote
             </a>
-          </section>
+          </SectionCard>
         )}
 
         {/* Action Buttons */}

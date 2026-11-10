@@ -1,12 +1,15 @@
 import { MAX_SUPPORTED_MINOR_UNIT_AMOUNT } from '@/libs/checkoutTotals';
 import type { CustomerPaymentFixtureApplication, CustomerPaymentFixtureHold } from '@/models/customerPaymentFixtureApplicationSchema';
 import type { CustomerPaymentCapture, customerPaymentPreparedQuoteSchema } from '@/models/customerPaymentSchema';
+import type { customerPaymentLiveSettlementSchema } from '@/models/customerPaymentWorkspaceSchema';
 
 import { calculatePaymentSnapshot } from './money';
+import type { PaymentWorkspaceState } from './server/workspaceContract';
 
 /** Reserved canonical tender identity; never accepted from manual payment forms. */
 export function isCustomerPaymentTender(row: { id?: string; reference?: string | null }): boolean {
-  return row.id?.startsWith('cpay_') === true || row.reference?.startsWith('customer_payment_capture:') === true;
+  return row.id?.startsWith('cpay_') === true || row.reference?.startsWith('customer_payment_capture:') === true
+    || row.id?.startsWith('lpay_') === true || row.reference?.startsWith('customer_payment_live:') === true;
 }
 
 export type CustomerPaymentProvenanceCapture = {
@@ -45,7 +48,7 @@ type Tender = {
 };
 
 const proof = Symbol('verified-customer-payment-tender');
-type Proof = { source: 'synthetic_test' | 'offline_fixture_test'; recordedAt?: number; applicationId?: string; id: string; salonId: string; appointmentId: string; amountCents: number; tipCents: number; refundedPrincipalCents: number; refundedTipCents: number; refundedCents: number; netCents: number; collectionHold: boolean };
+type Proof = { source: 'synthetic_test' | 'offline_fixture_test' | 'stripe_verified'; recordedAt?: number; applicationId?: string; id: string; salonId: string; appointmentId: string; amountCents: number; tipCents: number; refundedPrincipalCents: number; refundedTipCents: number; refundedCents: number; netCents: number; collectionHold: boolean };
 
 type ProvenTender = Tender & { [proof]?: Proof };
 
@@ -99,9 +102,53 @@ export function hasVerifiedCustomerPaymentTender(row: Tender): boolean {
   const evidence = (row as ProvenTender)[proof];
   return evidence !== undefined && row.id === evidence.id && row.salonId === evidence.salonId
     && row.appointmentId === evidence.appointmentId && row.amountCents === evidence.amountCents
-    && row.reference === `customer_payment_capture:${evidence.id.slice(5)}` && row.voidedAt === null
+    && row.reference === `${evidence.source === 'stripe_verified' ? 'customer_payment_live' : 'customer_payment_capture'}:${evidence.id.slice(5)}` && row.voidedAt === null
     && row.method === 'online' && row.recordedByType === 'system'
-    && (evidence.source !== 'offline_fixture_test' || (row.recordedAt instanceof Date && row.recordedAt.getTime() === evidence.recordedAt));
+    && (evidence.source === 'synthetic_test' || (row.recordedAt instanceof Date && row.recordedAt.getTime() === evidence.recordedAt));
+}
+
+/** The server loads these immutable settlements and workspace in one DB snapshot. */
+export function verifyLiveWorkspaceTender<T extends Tender>(row: T, state: PaymentWorkspaceState, settlements: readonly (typeof customerPaymentLiveSettlementSchema.$inferSelect)[], livemode: boolean): T {
+  const capture = settlements.find(item => item.kind === 'payment' && row.id === `lpay_${item.operationId}`);
+  const payment = state.payments.find(item => item.id === row.id && item.kind === 'online' && item.state === 'confirmed');
+  const op = capture && state.operations.find(item => item.id === capture.operationId && item.kind === 'payment');
+  if (!capture || !payment || !op || !['succeeded', 'review'].includes(op.state) || capture.livemode !== livemode
+    || row.salonId !== state.bill.salonId || row.appointmentId !== state.bill.appointmentId
+    || capture.salonId !== row.salonId || capture.appointmentId !== row.appointmentId
+    || capture.principalCents !== payment.principalCents || capture.tipCents !== payment.tipCents
+    || capture.chargeId !== payment.movementId || capture.operationId !== payment.requestId
+    || capture.objectId !== op.providerObjectId || capture.accountId !== op.binding.connectedAccountId
+    || capture.platformAccountId !== op.binding.platformAccountId || capture.livemode !== op.binding.livemode
+    || row.amountCents !== capture.principalCents + capture.tipCents || row.reference !== `customer_payment_live:${capture.operationId}`
+    || row.method !== 'online' || row.recordedByType !== 'system' || row.voidedAt !== null || !(row.recordedAt instanceof Date)) {
+    throw new Error('CUSTOMER_PAYMENT_PROVENANCE_RECONCILIATION_REQUIRED');
+  }
+  let refundedPrincipalCents = 0;
+  let refundedTipCents = 0;
+  const receipts = settlements.filter(item => item.kind === 'refund' && item.parentOperationId === capture.operationId);
+  const refunds = state.refunds.filter(item => item.paymentId === payment.id && item.state === 'succeeded');
+  if (receipts.length !== refunds.length || new Set(receipts.map(item => item.operationId)).size !== receipts.length) {
+    throw new Error('CUSTOMER_PAYMENT_REFUND_RECONCILIATION_REQUIRED');
+  }
+  for (const refund of refunds) {
+    const receipt = receipts.find(item => item.operationId === refund.id);
+    const refundOp = state.operations.find(item => item.id === refund.id && item.kind === 'refund');
+    if (!receipt || !refundOp || !['succeeded', 'review'].includes(refundOp.state) || !refundOp.approvedBy
+      || receipt.salonId !== row.salonId || receipt.appointmentId !== row.appointmentId || receipt.livemode !== livemode
+      || receipt.accountId !== capture.accountId || receipt.platformAccountId !== capture.platformAccountId
+      || receipt.chargeId !== capture.chargeId || receipt.paymentIntentId !== capture.paymentIntentId
+      || receipt.principalCents !== refund.principalCents || receipt.tipCents !== refund.tipCents
+      || receipt.objectId !== refundOp.providerObjectId) {
+      throw new Error('CUSTOMER_PAYMENT_REFUND_RECONCILIATION_REQUIRED');
+    }
+    refundedPrincipalCents += receipt.principalCents;
+    refundedTipCents += receipt.tipCents;
+  }
+  if (refundedPrincipalCents > capture.principalCents || refundedTipCents > capture.tipCents) {
+    throw new Error('CUSTOMER_PAYMENT_REFUND_RECONCILIATION_REQUIRED');
+  }
+  const refundedCents = refundedPrincipalCents + refundedTipCents;
+  return { ...row, [proof]: Object.freeze({ source: 'stripe_verified' as const, id: row.id!, salonId: capture.salonId, appointmentId: capture.appointmentId, recordedAt: row.recordedAt.getTime(), amountCents: row.amountCents, tipCents: capture.tipCents, refundedPrincipalCents, refundedTipCents, refundedCents, netCents: row.amountCents - refundedCents, collectionHold: state.operations.some(item => !['succeeded', 'failed', 'canceled'].includes(item.state)) }) };
 }
 
 /** Read-only gross/net evidence. A net balance never grants permission to collect. */
@@ -126,7 +173,7 @@ export function customerPaymentTipFloor(rows: readonly Tender[]): number {
     if (summary.collectionHold) {
       throw new Error('CUSTOMER_PAYMENT_REFUND_RECONCILIATION_REQUIRED');
     }
-    tip += summary.grossTipCents;
+    tip += (row as ProvenTender)[proof]?.source === 'stripe_verified' ? summary.grossTipCents - summary.refundedTipCents : summary.grossTipCents;
     if (!Number.isSafeInteger(tip)) {
       throw new TypeError('CUSTOMER_PAYMENT_PROVENANCE_RECONCILIATION_REQUIRED');
     }

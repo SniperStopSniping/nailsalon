@@ -14,7 +14,7 @@ const envelope = z.object({
   api_version: z.string().max(80),
   livemode: z.boolean(),
   type: z.string().max(100),
-  created: z.number().int().nonnegative(),
+  created: z.number().int().nonnegative().max(Math.floor(Number.MAX_SAFE_INTEGER / 1000)),
   data: z.object({ object: z.object({ id: identifier, object: z.string().max(100) }).passthrough() }),
 });
 
@@ -120,6 +120,9 @@ export function verifyStripeCustomerPaymentReceipt(
     'payment_intent.payment_failed': 'payment_intent',
     'charge.succeeded': 'charge',
     'charge.refunded': 'charge',
+    'charge.dispute.created': 'dispute',
+    'charge.dispute.updated': 'dispute',
+    'charge.dispute.closed': 'dispute',
     'refund.created': 'refund',
     'refund.updated': 'refund',
     'refund.failed': 'refund',
@@ -130,6 +133,12 @@ export function verifyStripeCustomerPaymentReceipt(
   // Retain only money/correlation facts. Never retain customer/card/address data,
   // arbitrary metadata, checkout URLs, signatures or signing secrets.
   const facts: Record<string, string | number | boolean | null> = {};
+  const operation = typeof object.metadata === 'object' && object.metadata !== null && 'luster_payment_operation' in object.metadata
+    ? object.metadata.luster_payment_operation
+    : null;
+  if (typeof operation === 'string' && z.string().uuid().safeParse(operation).success) {
+    facts.luster_payment_operation = operation;
+  }
   for (const key of ['amount', 'amount_total', 'amount_subtotal', 'amount_received', 'amount_captured', 'amount_refunded', 'application_fee_amount', 'created', 'expires_at']) {
     const field = object[key];
     if (field === null || (typeof field === 'number' && Number.isSafeInteger(field) && field >= 0)) {
@@ -147,10 +156,11 @@ export function verifyStripeCustomerPaymentReceipt(
       facts[key] = object[key];
     }
   }
-  for (const key of ['payment_intent', 'latest_charge', 'charge', 'application_fee']) {
+  const correlationPrefixes = { payment_intent: 'pi', latest_charge: 'ch', charge: 'ch', application_fee: 'fee' };
+  for (const [key, prefix] of Object.entries(correlationPrefixes)) {
     const field = object[key];
     const id = typeof field === 'object' && field !== null && 'id' in field ? field.id : field;
-    if (id === null || (typeof id === 'string' && /^(?:pi|ch|fee)_[A-Za-z0-9]+$/.test(id))) {
+    if (id === null || (typeof id === 'string' && new RegExp(`^${prefix}_[A-Za-z0-9]+$`).test(id))) {
       facts[key] = id;
     }
   }

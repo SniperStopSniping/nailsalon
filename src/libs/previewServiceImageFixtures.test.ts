@@ -59,6 +59,9 @@ vi.mock('pg', () => ({
   },
 }));
 
+// Each case migrates a fresh database through the full immutable migration history.
+vi.setConfig({ testTimeout: 30_000 });
+
 const SYNTHETIC_HOST = 'ep-fixture-direct.us-east-2.aws.neon.tech';
 const SYNTHETIC_ROLE = 'preview_fixture_runtime';
 const SYNTHETIC_PASSWORD = ['synthetic', 'placeholder', 'not', 'secret'].join('-');
@@ -502,7 +505,7 @@ describe('Preview service-image fixture behavior', () => {
         has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'TRIGGER') AS can_trigger`);
 
       expect(privileges.rows[0]).toEqual({ can_select: true, can_insert: false, can_update: false, can_delete: false, can_truncate: false, can_reference: false, can_trigger: false });
-      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(114);
+      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(128);
 
       for (const statement of [
         'INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (\'denied\', 0)',

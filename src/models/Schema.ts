@@ -5995,3 +5995,6 @@ export * from './customerPaymentFixtureApplicationSchema';
 export * from './customerPaymentFixtureMovementSchema';
 export * from './customerPaymentProviderSchema';
 export * from './customerPaymentRefundCorrelationSchema';
+
+// Durable real-provider operation reservations and signed-event retention.
+export * from './customerPaymentWorkspaceSchema';

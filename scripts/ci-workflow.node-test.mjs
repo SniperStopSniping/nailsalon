@@ -276,13 +276,56 @@ test('npm CLI owner chain stays on the patched compatible 10.x bundle', () => {
 
 test('AI migration pins accept the new packet and reject changed or already-shipped SQL', () => {
   const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
-  const packet = run.match(/while read -r file expected_blob; do[\s\S]*?\nAI_SETUP_MIGRATIONS/)[0];
+  const end = run.indexOf('\nAI_SETUP_MIGRATIONS') + '\nAI_SETUP_MIGRATIONS'.length;
+  const start = run.lastIndexOf('while read -r file expected_blob; do', end);
+  assert.ok(start >= 0 && end > start);
+  const packet = run.slice(start, end);
   const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
   assert.equal(files.length, 15);
   assert.ok(files.includes('migrations/0110_setup_add_on_publication.sql'));
   assert.ok(files.includes('migrations/0111_other_service_categories.sql'));
   assert.ok(files.includes('migrations/0112_ai_operator_expense_budget.sql'));
   const directory = mkdtempSync(path.join(tmpdir(), 'ai-migration-gate-'));
+  const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
+  const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;
+  try {
+    git('init', '-q');
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-qm', 'test base');
+    mkdirSync(path.join(directory, 'migrations'));
+    for (const file of files) {
+      writeFileSync(path.join(directory, file), readFileSync(new URL(`../${file}`, import.meta.url)));
+    }
+    git('add', 'migrations');
+    assert.equal(check(), 0);
+    for (const file of files) {
+      const current = path.join(directory, file);
+      const source = readFileSync(current);
+      writeFileSync(current, `${source}\n-- unapproved change\n`);
+      assert.notEqual(check(), 0);
+      writeFileSync(current, source);
+    }
+    git('-c', 'user.name=Synthetic Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'synthetic shipped packet');
+    const first = path.join(directory, files[0]);
+    const source = readFileSync(first);
+    writeFileSync(first, `${source}\n-- rewrite shipped SQL\n`);
+    assert.notEqual(check(), 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Customer payment migration pins accept the new packet and reject changed or already-shipped SQL', () => {
+  const run = jobs['test-core'].steps.find(step => step.name === 'Deposits ladder protected surfaces').run;
+  const end = run.indexOf('\nCUSTOMER_PAYMENT_MIGRATIONS') + '\nCUSTOMER_PAYMENT_MIGRATIONS'.length;
+  const start = run.lastIndexOf('while read -r file expected_blob; do', end);
+  assert.ok(start >= 0 && end > start);
+  const packet = run.slice(start, end);
+  const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
+  assert.equal(files.length, 14);
+  assert.ok(files.includes('migrations/0115_customer_payment_preparation.sql'));
+  assert.ok(files.includes('migrations/0127_customer_payment_sdk_reservation.sql'));
+  assert.ok(files.includes('migrations/0128_customer_payment_workspace.sql'));
+  const directory = mkdtempSync(path.join(tmpdir(), 'customer-payment-migration-gate-'));
   const git = (...args) => execFileSync('git', args, { cwd: directory, stdio: 'pipe' }).toString().trim();
   const check = () => spawnSync('bash', ['-eu', '-c', `base="$(git rev-parse HEAD)"\n${packet}`], { cwd: directory }).status;
   try {
@@ -474,7 +517,21 @@ test('uncovered concurrency suites run in isolated PostgreSQL jobs with exact ze
   assert.ok(nextVisit.run.includes('numTotalTests !== 4'));
   assert.ok(nextVisit.run.includes('NEXT_VISIT_POSTGRES_TESTS_EXECUTED=4 NEXT_VISIT_POSTGRES_TESTS_SKIPPED=0'));
   assert.equal(deposits.steps.indexOf(portfolio) + 1, deposits.steps.indexOf(outboxScope));
-  assert.equal(deposits.steps.indexOf(outboxScope) + 1, deposits.steps.indexOf(nextVisit));
+  const payments = deposits.steps.find(step => step.name === 'Verify customer payment reservations and workspace races on PostgreSQL');
+  assert.ok(payments);
+  assert.equal(payments.env.CUSTOMER_PAYMENT_PROVIDER_PG_REQUIRED, 'true');
+  assert.equal(payments.env.CUSTOMER_PAYMENT_LEDGER_PG_REQUIRED, 'true');
+  assert.equal(payments.env.CUSTOMER_PAYMENT_WORKSPACE_PG_REQUIRED, 'true');
+  assert.ok(payments.env.LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID);
+  assert.ok(payments.env.LUSTER_DISPOSABLE_POSTGRES_NETWORK);
+  for (const suite of ['settlement', 'sdkReservation', 'workspace']) {
+    assert.ok(payments.run.includes(`src/libs/customerPayments/server/${suite}.concurrency.integration.test.ts`));
+  }
+  assert.ok(payments.run.includes('numTotalTests !== 45'));
+  assert.ok(payments.run.includes('numPassedTests !== 45'));
+  assert.ok(payments.run.includes('numPendingTests !== 0'));
+  assert.equal(deposits.steps.indexOf(outboxScope) + 1, deposits.steps.indexOf(payments));
+  assert.equal(deposits.steps.indexOf(payments) + 1, deposits.steps.indexOf(nextVisit));
   assert.equal(deposits.steps.at(-1), nextVisit);
 });
 

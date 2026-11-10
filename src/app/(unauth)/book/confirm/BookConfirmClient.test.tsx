@@ -1092,7 +1092,7 @@ describe('BookConfirmClient', () => {
       await screen.findByRole('heading', { name: 'Appointment confirmed' });
 
       expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
-      expect(screen.queryByRole('region', { name: 'Test payment preview' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Test payment quote preview')).not.toBeInTheDocument();
       expect(fetchMock).toHaveBeenCalledOnce();
     });
 

@@ -179,6 +179,14 @@ describe('test 31 — module boundaries', () => {
       path.join(ROOT, 'src/libs/deposits/depositForfeiture.ts'),
       path.join(ROOT, 'src/libs/financialReportingServer.ts'),
       path.join(ROOT, 'src/libs/queries.ts'),
+      // Payment preparation and fixture settlement read deposit history to
+      // reject conflicting credit; none owns a deposit mutation.
+      path.join(ROOT, 'src/libs/customerPayments/inactiveStripe/durableCheckoutQuoteBinding.ts'),
+      path.join(ROOT, 'src/libs/customerPayments/inactiveStripe/durableCheckoutSdkReservation.ts'),
+      path.join(ROOT, 'src/libs/customerPayments/server/prepareQuoteForToken.ts'),
+      path.join(ROOT, 'src/libs/customerPayments/server/applyProviderFixtureCapture.ts'),
+      path.join(ROOT, 'src/libs/customerPayments/server/recordSyntheticCreditDecision.ts'),
+      path.join(ROOT, 'src/libs/customerPayments/server/settleSyntheticCapture.ts'),
     ].sort());
   });
 

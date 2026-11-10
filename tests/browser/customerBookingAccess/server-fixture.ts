@@ -65,3 +65,6 @@ export const getPrimaryLocation = getLocationById;
 export const getRetentionSettingsForSalon = async () => ({ parkingInstructions: 'Inside TB Nails' });
 export const Inter = () => ({ variable: '' });
 export const Newsreader = () => ({ variable: '' });
+// The browser harness renders this server view without a Node environment.
+// These booking-access scenarios exercise the default-off payment state.
+export const isCustomerPaymentPreparationEnabled = () => false;
