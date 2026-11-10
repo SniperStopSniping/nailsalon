@@ -1,6 +1,38 @@
 # Customer payments release work — 2026-11-09
 
-## Current checkpoint: completed-bill adjustments
+## Current checkpoint: deposit reconciliation and durable client refresh
+
+Payments remain **not live**. Resolved full deposit refunds and forfeitures can
+now update the workspace from canonical deposit facts without rewriting gross
+payments or subtracting the same refund from other tender. The invoice and manual
+tender baseline must still match. Pending, partial or ambiguous refunds stay held.
+An authorized technician can refresh deposit credit; this action never calls a
+Stripe write. History distinguishes refunded and forfeited deposits.
+
+Payment settlement, manual tender and bill revision enqueue client-stat refresh
+in the same transaction. The existing scheduled outbox retries failures and
+evaluates the existing loyalty/fraud policy only for a completed, paid visit.
+Deposit reconciliation and verified net-tender accounting remain active when new
+payment creation is switched off. Existing deposit reward exclusions remain.
+
+Validation: 170 focused accounting, provider-adapter, repository, outbox, UI and
+existing deposit cases, including combined online and deposit refunds; 51 native
+PostgreSQL cases with zero skips; full TypeScript, scoped lint and the protected
+surface gate. Provider outcomes are simulated. The disposable database was removed.
+
+Completed-bill commit `ccf5c208a9dbe5ffca426ba4cd9a2add281473b0` has a READY Preview
+`dpl_FM5wkQfi7AQR79UT4DhScRxgWB6F`. Its return page responds 200 with private/no-store,
+no-referrer and noindex headers. Health reports expected `gitSha=ccf5c20`, but remains
+503 for Connect/schema readiness. Its full Vitest aggregate, all three builds and
+native payment concurrency job passed; application and browser gates were still
+running at this check. This uncommitted checkpoint needs its own hosted checks.
+
+Remaining: scheduled payment recovery, reciprocal ownership safeguards, sandbox
+provider and signing-secret setup, verified target migrations, actual provider-backed
+journeys, current-head CI/review, protected-main merge and production verification.
+No production, provider configuration, application database or customer money was changed.
+
+## Previous checkpoint: completed-bill adjustments
 
 Payments remain **not live**. Checkout and completed receipts now offer an explicit
 Adjust bill action for enabled salons or retained payment history. An authorized

@@ -225,7 +225,7 @@ function WorkspaceBody({ appointmentId, salonSlug, hasWorkspace, hasUnsavedInvoi
               {view.payments.length === 0 && view.operations.length === 0 && <p className="text-sm text-stone-600">No payments recorded.</p>}
               {view.payments.filter(payment => payment.kind !== 'online').map(payment => (
                 <p key={payment.id} className="text-sm">
-                  {payment.voided ? 'Payment record voided' : payment.kind === 'deposit' ? 'Deposit credited' : 'Payment recorded at salon'}
+                  {payment.voided ? 'Payment record voided' : payment.kind === 'deposit' ? payment.depositDisposition === 'refunded' ? 'Deposit refunded' : payment.depositDisposition === 'forfeited' ? 'Deposit forfeited' : 'Deposit credited' : 'Payment recorded at salon'}
                   {' '}
                   ·
                   {' '}
@@ -271,6 +271,9 @@ function WorkspaceBody({ appointmentId, salonSlug, hasWorkspace, hasUnsavedInvoi
               ))}
             </div>
           </>
+        )}
+        {view?.sourceChanged && view.permissions.canAdjustBill && (
+          <button type="button" className={`${button} mt-3`} disabled={busy || !!pending.current || hasUnsavedInvoice} onClick={() => void run(() => command('reconcile_deposits'))}>Refresh deposit credit</button>
         )}
         {error && (
           <p role="alert" className="text-sm text-red-800">

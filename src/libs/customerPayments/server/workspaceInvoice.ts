@@ -123,7 +123,9 @@ export async function readWorkspaceInvoice(tx: CustomerPaymentTransaction, appoi
   // A live capture/refund updates the ledger but does not change the invoice.
   // Legacy tender/deposit changes do invalidate the initial allocations.
   const legacyPayments = rawPayments.filter(row => !isCustomerPaymentTender(row));
-  const billSourceHash = customerPaymentFingerprint(evidence({ invoice, legacyPayments: legacyPayments.map(row => ({ id: row.id, salonId: row.salonId, amountCents: row.amountCents, method: row.method, voidedAt: row.voidedAt })), deposits }));
+  const legacyTender = legacyPayments.map(row => ({ id: row.id, salonId: row.salonId, amountCents: row.amountCents, method: row.method, voidedAt: row.voidedAt }));
+  const legacyTenderHash = customerPaymentFingerprint(evidence(legacyTender));
+  const billSourceHash = customerPaymentFingerprint(evidence({ invoice, legacyPayments: legacyTender, deposits }));
   let initialPayments: AdjustmentPayment[] | null = null;
   if (!rawPayments.some(isCustomerPaymentTender)) {
     const principal = cents(bill.serviceCents + bill.taxCents);
@@ -142,7 +144,7 @@ export async function readWorkspaceInvoice(tx: CustomerPaymentTransaction, appoi
   // this object: these identify canonical money, not customer-facing labels.
   const tenderFacts = legacyPayments.map(row => ({ id: row.id, amountCents: row.amountCents, method: row.method, voided: row.voidedAt !== null, actorType: row.recordedByType, actorId: row.recordedById }));
   const depositFingerprint = customerPaymentFingerprint(evidence(deposits));
-  return { bill, billSourceHash, invoice, initialPayments, collectionHold: ledger.collectionHold, tenderFacts, depositFingerprint, ledgerCents: ledger.appointmentPaymentsCents };
+  return { bill, billSourceHash, legacyTenderHash, invoice, initialPayments, depositRows: deposits, depositCredit: credit, collectionHold: ledger.collectionHold, tenderFacts, depositFingerprint, ledgerCents: ledger.appointmentPaymentsCents };
 }
 
 export async function prepareWorkspaceInvoice(tx: CustomerPaymentTransaction, appointment: Appointment) {
@@ -150,5 +152,5 @@ export async function prepareWorkspaceInvoice(tx: CustomerPaymentTransaction, ap
   if (!material.initialPayments || material.collectionHold) {
     return workspaceFailure('PAYMENT_WORKSPACE_VERIFIED_IMPORT_REQUIRED');
   }
-  return { bill: material.bill, billSourceHash: material.billSourceHash, invoice: material.invoice, payments: material.initialPayments };
+  return { bill: material.bill, billSourceHash: material.billSourceHash, legacyTenderHash: material.legacyTenderHash, invoice: material.invoice, payments: material.initialPayments };
 }

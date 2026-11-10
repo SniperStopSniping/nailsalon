@@ -15,8 +15,10 @@ import type Stripe from 'stripe';
 import type { AdminWithSalons } from '@/libs/adminAuth';
 import type { AdminImpersonationSession } from '@/libs/adminImpersonation';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
-import { resolveCheckoutActor } from '@/libs/appointmentCheckoutServer';
+import { listPayments, resolveCheckoutActor } from '@/libs/appointmentCheckoutServer';
+import { resolveAppointmentPaymentLedgerForReconciliation } from '@/libs/appointmentPaymentLedger';
 import { isSlotConstraintViolation } from '@/libs/bookingConflictGuard';
+import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
 import { db } from '@/libs/DB';
 import {
   classifyStripeFailure,
@@ -614,13 +616,23 @@ async function synchronizeAppointmentPaymentStatusAfterRefundState(
   tx: DepositsTransactionHandle,
   deposit: Pick<DepositRow, 'appointmentId' | 'salonId'>,
 ): Promise<void> {
-  const ledgerPaidCents = sql<number>`COALESCE((
+  let ledgerPaidCents = sql<number>`COALESCE((
     SELECT SUM(payment.amount_cents)
     FROM ${appointmentPaymentSchema} payment
     WHERE payment.appointment_id = ${deposit.appointmentId}
       AND payment.salon_id = ${deposit.salonId}
       AND payment.voided_at IS NULL
   ), 0)`;
+  // Retained online money remains authoritative even after its creation flag
+  // is disabled. Legacy-only appointments keep their original derivation.
+  const [appointment] = await tx.select().from(appointmentSchema).where(and(eq(appointmentSchema.id, deposit.appointmentId), eq(appointmentSchema.salonId, deposit.salonId))).limit(1);
+  if (appointment) {
+    const paymentRows = await listPayments(tx, appointment.id);
+    if (paymentRows.some(isCustomerPaymentTender)) {
+      const ledger = resolveAppointmentPaymentLedgerForReconciliation({ cachedAmountPaidCents: appointment.amountPaidCents, paymentRows, expectedSalonId: appointment.salonId, appointmentStatus: appointment.status, paymentStatus: appointment.paymentStatus });
+      ledgerPaidCents = sql<number>`${ledger.ok && !ledger.collectionHold ? ledger.appointmentPaymentsCents ?? 0 : 0}`;
+    }
+  }
   const completedInvoiceCents = sql<number>`GREATEST(
     0,
     COALESCE(${appointmentSchema.finalPriceCents}, ${appointmentSchema.totalPrice}, 0)

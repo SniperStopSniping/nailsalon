@@ -27,6 +27,20 @@ beforeEach(() => {
 });
 
 describe('technician payment workspace', () => {
+  it('refreshes resolved deposit credit without creating a payment or issuing a refund', async () => {
+    const view = { ...fixture(), sourceChanged: true };
+    fetchMock.mockResolvedValueOnce(response(view));
+    render(<AppointmentPaymentWorkspace {...props} />);
+    await open();
+    fetchMock.mockResolvedValueOnce(response({ ...view, sourceChanged: false, payments: [{ id: 'deposit', kind: 'deposit', amountCents: 2000, state: 'confirmed', depositDisposition: 'refunded', voided: false }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh deposit credit' }));
+
+    expect(await screen.findByText(/Deposit refunded/)).toBeInTheDocument();
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toMatchObject({ kind: 'reconcile_deposits' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: 'Refresh deposit credit' })).not.toBeInTheDocument();
+  });
+
   it.each([false, true])('does not block an unrelated legacy checkout on a history read failure (existing workspace=%s)', async (hasWorkspace) => {
     const onHoldChange = vi.fn();
     fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ error: { code: 'PAYMENT_WORKSPACE_FROZEN_INVOICE_REQUIRED' } }) });

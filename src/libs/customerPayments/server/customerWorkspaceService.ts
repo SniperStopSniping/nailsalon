@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { customerPaymentWorkspacePolicyAuditSchema, customerPaymentWorkspacePolicySchema } from '@/models/customerPaymentWorkspaceSchema';
 
-import { resolveAdjustmentBalance } from '../adjustments';
+import { netWorkspaceDepositCredit, resolveAdjustmentBalance } from '../adjustments';
 import { customerWorkspaceViewSchema } from '../customerWorkspaceView';
 import type { PaymentWorkspaceActor } from './workspaceContract';
 import { PaymentWorkspaceError, workspaceFailure } from './workspaceContract';
@@ -60,7 +60,7 @@ export async function readCustomerWorkspaceView(repository: ReturnType<typeof cr
       paidCents: balance.netPaidCents,
       balanceCents: balance.balanceDueCents,
       overpaidCents: balance.overpaidCents,
-      depositCreditCents: payments.filter(item => item.kind === 'deposit' && item.state === 'confirmed').reduce((sum, item) => sum + item.principalCents, 0),
+      depositCreditCents: netWorkspaceDepositCredit(payments, state?.refunds ?? []),
       activePayment: active?.kind === 'payment' ? { id: active.id, state: active.state, canResume: active.requestedBy === actor.id && active.customerAcceptance?.accessTokenId === actor.accessToken?.id && active.binding.policyRevision === binding?.policyRevision && !needsReview } : null,
     });
   });

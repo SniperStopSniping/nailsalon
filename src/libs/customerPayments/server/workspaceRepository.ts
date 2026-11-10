@@ -17,15 +17,17 @@ import type { CustomerPaymentTransaction } from './preparationRepository';
 import { customerPaymentFingerprint } from './preparationRepository';
 import { authorizeWorkspaceActor } from './workspaceAccess';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceCommand, PaymentWorkspaceScope, PaymentWorkspaceState, WorkspaceOperation } from './workspaceContract';
-import { paymentProviderBindingSchema, paymentWorkspaceCommandSchema, paymentWorkspaceScopeSchema, paymentWorkspaceStateSchema, workspaceBillChangeSchema, workspaceFailure, workspaceManualPaymentSchema } from './workspaceContract';
+import { paymentProviderBindingSchema, paymentWorkspaceCommandSchema, PaymentWorkspaceError, paymentWorkspaceScopeSchema, paymentWorkspaceStateSchema, workspaceBillChangeSchema, workspaceFailure, workspaceManualPaymentSchema } from './workspaceContract';
+import { reconcileWorkspaceDepositFacts } from './workspaceDepositReconciliation';
 import { readWorkspaceInvoice } from './workspaceInvoice';
+import { enqueueWorkspaceStats } from './workspaceStats';
 
 type Database = Pick<typeof db, 'transaction'>;
 type WorkspaceRow = typeof customerPaymentWorkspaceSchema.$inferSelect;
 type Appointment = typeof appointmentSchema.$inferSelect;
 /** Recompute from locked invoice/tender/deposit sources, never client-supplied totals. */
 export type WorkspaceBindingReader = (tx: CustomerPaymentTransaction, appointment: Appointment, state: PaymentWorkspaceState) => Promise<{ binding: PaymentProviderBinding | null; billSourceHash: string }>;
-type InitialState = Pick<PaymentWorkspaceState, 'bill' | 'billSourceHash' | 'payments' | 'invoice'>;
+type InitialState = Pick<PaymentWorkspaceState, 'bill' | 'billSourceHash' | 'payments' | 'invoice' | 'legacyTenderHash'>;
 const activeStates = new Set(['awaiting_approval', 'prepared', 'dispatching', 'open', 'pending', 'uncertain', 'review']);
 
 export type WorkspaceDispatchClaim = {
@@ -158,13 +160,14 @@ async function updateCanonicalBalance(tx: CustomerPaymentTransaction, scope: Pay
     .from(appointmentPaymentSchema).where(and(eq(appointmentPaymentSchema.appointmentId, scope.appointmentId), eq(appointmentPaymentSchema.salonId, scope.salonId)));
   const amountPaidCents = Number(paid!.amount);
   const expected = state.payments.filter(item => item.kind !== 'deposit' && item.state === 'confirmed').reduce((sum, item) => sum + item.principalCents + item.tipCents, 0)
-    - state.refunds.filter(item => item.state === 'succeeded').reduce((sum, item) => sum + item.principalCents + item.tipCents, 0);
+    - state.refunds.filter(item => item.state === 'succeeded' && state.payments.some(payment => payment.id === item.paymentId && payment.kind !== 'deposit')).reduce((sum, item) => sum + item.principalCents + item.tipCents, 0);
   if (!Number.isSafeInteger(amountPaidCents) || amountPaidCents < 0 || amountPaidCents > 50_000_000 || amountPaidCents !== expected) {
     return workspaceFailure('PAYMENT_WORKSPACE_CANONICAL_BALANCE_INVALID');
   }
   const balance = projection(state);
   await tx.update(appointmentSchema).set({ amountPaidCents, tipCents: state.bill.tipCents, paymentStatus: balance.balanceDueCents === 0 ? 'paid' : balance.netPaidCents > 0 ? 'partially_paid' : 'pending' })
     .where(and(eq(appointmentSchema.id, scope.appointmentId), eq(appointmentSchema.salonId, scope.salonId)));
+  await enqueueWorkspaceStats(tx, scope, state.revision);
 }
 
 /**
@@ -239,14 +242,16 @@ export async function beginCanonicalWorkspaceChange(tx: CustomerPaymentTransacti
         state.payments.push({ ...scope, id: tender.id, movementId: tender.id, kind: 'manual', principalCents, tipCents: tender.amountCents - principalCents, state: 'confirmed' });
       }
       const expectedTenderCents = state.payments.filter(payment => payment.kind !== 'deposit' && payment.state === 'confirmed').reduce((sum, payment) => sum + payment.principalCents + payment.tipCents, 0)
-        - state.refunds.filter(refund => refund.state === 'succeeded').reduce((sum, refund) => sum + refund.principalCents + refund.tipCents, 0);
+        - state.refunds.filter(refund => refund.state === 'succeeded' && state.payments.some(payment => payment.id === refund.paymentId && payment.kind !== 'deposit')).reduce((sum, refund) => sum + refund.principalCents + refund.tipCents, 0);
       if (after.ledgerCents !== expectedTenderCents) {
         return workspaceFailure('PAYMENT_WORKSPACE_LEDGER_RECONCILIATION_REQUIRED');
       }
       state.billSourceHash = after.billSourceHash;
+      state.legacyTenderHash = after.legacyTenderHash;
       if (invoiceChanged) {
         state.billChanges.push({ revision: state.bill.revision, reason, actorId: actor.id, changedAt: await clock(tx), sourceHash: after.billSourceHash });
       }
+      await enqueueWorkspaceStats(tx, scope, row.revision + 1);
       return save(tx, row, state, { requestId: randomUUID(), requestHash: customerPaymentFingerprint({ before: before.billSourceHash, after: after.billSourceHash, reason, actorId: actor.id }), actorId: actor.id, action: invoiceChanged ? 'checkout_invoice_saved' : options.allowManualVoids ? 'manual_payment_voided' : 'manual_payment_recorded' });
     },
   };
@@ -320,6 +325,47 @@ export function createPaymentWorkspaceRepository(database: Database) {
         const state = validate({ ...initial, revision: 0, refunds: [], requests: [], operations: [] }, actor);
         await tx.insert(customerPaymentWorkspaceSchema).values({ salonId: actor.salonId, appointmentId: actor.appointmentId, revision: 0, state, requestId, requestHash, actorId: actor.id, action: 'initialize' });
         return { state, replayed: false };
+      });
+    },
+
+    /** Import only canonical resolved deposit facts; no Stripe request or invoice edit. */
+    async reconcileDeposits(scope: PaymentWorkspaceScope, actor?: PaymentWorkspaceActor) {
+      paymentWorkspaceScopeSchema.parse(scope);
+      if (actor && (actor.salonId !== scope.salonId || actor.appointmentId !== scope.appointmentId || !permissions(actor).canAdjustBill)) {
+        return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+      }
+      return database.transaction(async (tx) => {
+        const { row, appointment } = actor ? await lockActor(tx, actor) : await lock(tx, scope);
+        if (!row) {
+          return { changed: false, held: false };
+        }
+        const state = validate(row.state, scope);
+        if (state.operations.some(op => activeStates.has(op.state))) {
+          return { changed: false, held: true };
+        }
+        let material: Awaited<ReturnType<typeof readWorkspaceInvoice>>;
+        try {
+          material = await readWorkspaceInvoice(tx, appointment);
+        } catch (error) {
+          if (error instanceof PaymentWorkspaceError) {
+            return { changed: false, held: true };
+          }
+          throw error;
+        }
+        if (state.billSourceHash === material.billSourceHash) {
+          return { changed: false, held: false };
+        }
+        try {
+          reconcileWorkspaceDepositFacts(state, material, await clock(tx));
+        } catch (error) {
+          if (!actor && error instanceof PaymentWorkspaceError) {
+            return { changed: false, held: true };
+          }
+          throw error;
+        }
+        const result = await save(tx, row, state, { requestId: randomUUID(), requestHash: customerPaymentFingerprint({ action: 'deposit_credit_reconciled', source: material.billSourceHash }), actorId: actor?.id ?? 'system:deposit-reconciliation', action: 'deposit_credit_reconciled' });
+        await updateCanonicalBalance(tx, scope, result.state);
+        return { changed: true, held: false };
       });
     },
 
@@ -426,7 +472,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
     },
 
     /** The pricing writer runs under the same appointment lock and rolls back on failure. */
-    async reviseBill(actor: PaymentWorkspaceActor, value: unknown, writeInvoice: (tx: CustomerPaymentTransaction, appointment: Appointment, state: PaymentWorkspaceState) => Promise<Pick<InitialState, 'bill' | 'billSourceHash' | 'invoice'>>) {
+    async reviseBill(actor: PaymentWorkspaceActor, value: unknown, writeInvoice: (tx: CustomerPaymentTransaction, appointment: Appointment, state: PaymentWorkspaceState) => Promise<Pick<InitialState, 'bill' | 'billSourceHash' | 'invoice' | 'legacyTenderHash'>>) {
       if (!permissions(actor).canAdjustBill) {
         return workspaceFailure('PAYMENT_WORKSPACE_ACTION_FORBIDDEN');
       }
@@ -454,7 +500,9 @@ export function createPaymentWorkspaceRepository(database: Database) {
         }
         state.bill = { ...invoice.bill, revision: state.bill.revision + 1 };
         state.billSourceHash = invoice.billSourceHash;
+        state.legacyTenderHash = invoice.legacyTenderHash ?? state.legacyTenderHash;
         state.billChanges.push({ revision: state.bill.revision, reason: input.reason, actorId: actor.id, changedAt: await clock(tx), sourceHash: invoice.billSourceHash });
+        await enqueueWorkspaceStats(tx, actor, row.revision + 1);
         return save(tx, row, state, { requestId: input.requestId, requestHash, actorId: actor.id, action: 'revise_bill' });
       });
     },

@@ -99,6 +99,9 @@ const deliverLowBalanceWarning = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/lowBalanceWarnings', () => ({ deliverLowBalanceWarning }));
 const deliverOwnerSignupNotification = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/ownerSignupNotification', () => ({ deliverOwnerSignupNotification }));
+const workspace = vi.hoisted(() => ({ reconcile: vi.fn(), evaluate: vi.fn() }));
+vi.mock('@/libs/customerPayments/server/workspaceRepository', () => ({ createPaymentWorkspaceRepository: () => ({ reconcileDeposits: workspace.reconcile }) }));
+vi.mock('@/libs/fraudDetection', () => ({ evaluateAndFlagIfNeeded: workspace.evaluate }));
 
 vi.mock('@/libs/DB', () => ({
   db,
@@ -272,6 +275,8 @@ describe('enqueueClientStatsRefreshInTx', () => {
 describe('processIntegrationOutbox', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    workspace.reconcile.mockResolvedValue({ changed: false, held: false });
+    workspace.evaluate.mockResolvedValue(undefined);
     insertedValues.length = 0;
     insertResults.length = 0;
     selectResults.length = 0;
@@ -334,6 +339,36 @@ describe('processIntegrationOutbox', () => {
 
     expect(await processIntegrationOutbox()).toMatchObject({ scanned: 1, retried: 1 });
     expect(updates).toContainEqual(expect.objectContaining({ status: 'retry', lastError: 'RESEND_TIMEOUT' }));
+  });
+
+  it('retries a workspace stats job after reconciliation fails, then evaluates the refreshed paid invoice', async () => {
+    workspace.reconcile.mockRejectedValueOnce(new Error('DEPOSIT_RECONCILIATION_TRANSIENT'));
+    const job = staffJob({ provider: 'internal', operation: 'refresh_client_stats', payload: { source: 'customer_payment_workspace', revision: 5 } });
+    selectResults.push([job]);
+    finishReadResults();
+
+    expect(await processIntegrationOutbox()).toMatchObject({ retried: 1, succeeded: 0 });
+    expect(updateSalonClientStats).not.toHaveBeenCalled();
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'retry', lastError: 'DEPOSIT_RECONCILIATION_TRANSIENT' }));
+
+    selectResults.push([staffJob({ ...job, status: 'retry', attempts: 1 })], [{ clientPhone: '+14165550123', salonClientId: 'client', status: 'completed', paymentStatus: 'paid', finalPriceCents: 7500, totalPrice: 10000 }]);
+    finishReadResults();
+
+    expect(await processIntegrationOutbox()).toMatchObject({ succeeded: 1, retried: 0 });
+    expect(workspace.reconcile).toHaveBeenLastCalledWith({ salonId: 'salon_1', appointmentId: 'appt_1' });
+    expect(updateSalonClientStats).toHaveBeenCalledOnce();
+    expect(workspace.evaluate).toHaveBeenCalledWith('salon_1', 'client', 'appt_1', 1500);
+    expect(workspace.evaluate.mock.invocationCallOrder[0]).toBeGreaterThan(updateSalonClientStats.mock.invocationCallOrder[0]!);
+  });
+
+  it('refreshes spending without evaluating loyalty for an unpaid completed workspace', async () => {
+    workspace.reconcile.mockResolvedValueOnce({ changed: false, held: true });
+    selectResults.push([staffJob({ provider: 'internal', operation: 'refresh_client_stats', payload: { source: 'customer_payment_workspace', revision: 5 } })], [{ clientPhone: '+14165550123', salonClientId: 'client', status: 'completed', paymentStatus: 'partially_paid', finalPriceCents: 7500 }]);
+    finishReadResults();
+
+    expect(await processIntegrationOutbox()).toMatchObject({ succeeded: 1 });
+    expect(updateSalonClientStats).toHaveBeenCalledOnce();
+    expect(workspace.evaluate).not.toHaveBeenCalled();
   });
 
   it('runs a durable internal client-stats refresh and completes the job', async () => {

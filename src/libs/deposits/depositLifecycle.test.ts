@@ -351,7 +351,7 @@ describe('refund transition alerts', () => {
       refundLastErrorCode: 'charge_disputed',
       refundTerminalFailureCount: 1,
     });
-    selectPlans.push([{ id: requested.appointmentId }], [requested], [failed]);
+    selectPlans.push([{ id: requested.appointmentId }], [requested], [], [failed]);
     updatePlans.push([failed]);
 
     const result = await applyRefundObservation({

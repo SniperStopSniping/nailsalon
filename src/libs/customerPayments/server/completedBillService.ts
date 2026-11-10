@@ -10,7 +10,7 @@ import { CheckoutMoneyRangeError, computeCheckoutTotals, type ResolvedTaxConfig 
 import { buildFinalTaxSnapshot } from '@/libs/taxConfig';
 import { appointmentAuditLogSchema, appointmentFinalItemSchema, appointmentSchema } from '@/models/Schema';
 
-import { adjustmentPermissions, resolveAdjustmentBalance } from '../adjustments';
+import { adjustmentPermissions, netWorkspaceDepositCredit, resolveAdjustmentBalance } from '../adjustments';
 import { completedBillChangeSchema, type CompletedBillView } from '../completedBillContract';
 import { customerPaymentFingerprint } from './preparationRepository';
 import type { PaymentWorkspaceActor, PaymentWorkspaceState } from './workspaceContract';
@@ -80,7 +80,7 @@ export async function readCompletedBill(repository: Repository, actor: PaymentWo
       taxExempt: appointment.taxExempt ?? false,
       taxConfig,
       paidCents: balance.netPaidCents,
-      depositCreditCents: payments.filter(payment => payment.kind === 'deposit').reduce((sum, payment) => sum + payment.principalCents, 0),
+      depositCreditCents: netWorkspaceDepositCredit(payments, state?.refunds ?? []),
       refundableOnlinePrincipalCents: refundablePrincipal({ payments, refunds: state?.refunds ?? [] }),
       canEdit: !material.collectionHold && (!state || state.billSourceHash === material.billSourceHash) && balance.blockedReasons.length === 0
         && !state?.operations.some(op => ['awaiting_approval', 'prepared', 'dispatching', 'open', 'pending', 'uncertain', 'review'].includes(op.state)),
@@ -135,7 +135,7 @@ export async function reviseCompletedBill(repository: Repository, actor: Payment
     }
     const principal = totals.finalPriceCents + totals.taxAmountCents;
     const paid = balanceOf(state);
-    const depositCredit = state.payments.filter(payment => payment.kind === 'deposit').reduce((sum, payment) => sum + payment.principalCents, 0);
+    const depositCredit = netWorkspaceDepositCredit(state.payments, state.refunds);
     if (input.discountCents > totals.finalSubtotalCents || input.expectedTotalDueCents !== totals.totalDueCents
       || depositCredit > principal || Math.max(0, paid.netPaidCents - totals.totalDueCents) > refundablePrincipal(state)) {
       return workspaceFailure('PAYMENT_WORKSPACE_REVISION_REVIEW_REQUIRED');
@@ -169,6 +169,6 @@ export async function reviseCompletedBill(repository: Repository, actor: Payment
       previousValue: { items: originalItems, invoice: before.invoice, discountReason: appointment.finalDiscountReason, paymentStatus: appointment.paymentStatus },
       newValue: { items, invoice: after.invoice, discountReason: input.discountReason, paymentStatus: updated!.paymentStatus, requestId: input.requestId },
     }));
-    return { bill: after.bill, billSourceHash: after.billSourceHash, invoice: after.invoice };
+    return { bill: after.bill, billSourceHash: after.billSourceHash, legacyTenderHash: after.legacyTenderHash, invoice: after.invoice };
   });
 }

@@ -3826,8 +3826,11 @@ export async function processIntegrationOutbox(
         if (!job.appointmentId) {
           throw new Error('INVALID_CLIENT_STATS_REFRESH');
         }
+        // Creation switches cannot suspend reconciliation of retained money.
+        const { createPaymentWorkspaceRepository } = await import('@/libs/customerPayments/server/workspaceRepository');
+        await createPaymentWorkspaceRepository(db).reconcileDeposits({ salonId: job.salonId, appointmentId: job.appointmentId });
         const [appointment] = await db
-          .select({ clientPhone: appointmentSchema.clientPhone })
+          .select({ clientPhone: appointmentSchema.clientPhone, salonClientId: appointmentSchema.salonClientId, status: appointmentSchema.status, paymentStatus: appointmentSchema.paymentStatus, finalPriceCents: appointmentSchema.finalPriceCents, totalPrice: appointmentSchema.totalPrice })
           .from(appointmentSchema)
           .where(and(
             eq(appointmentSchema.id, job.appointmentId),
@@ -3837,6 +3840,11 @@ export async function processIntegrationOutbox(
         if (appointment) {
           const { updateSalonClientStats } = await import('@/libs/queries');
           await updateSalonClientStats(job.salonId, appointment.clientPhone);
+          if ((job.payload as { source?: string }).source === 'customer_payment_workspace'
+            && appointment.status === 'completed' && appointment.paymentStatus === 'paid' && appointment.salonClientId) {
+            const [{ evaluateAndFlagIfNeeded }, { computeEarnedPointsFromCents }] = await Promise.all([import('@/libs/fraudDetection'), import('@/libs/pointsCalculation')]);
+            await evaluateAndFlagIfNeeded(job.salonId, appointment.salonClientId, job.appointmentId, computeEarnedPointsFromCents(appointment.finalPriceCents ?? appointment.totalPrice));
+          }
         }
         result = { status: 'synced' as const };
       } else if (

@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 const actionSchema = z.object({
-  kind: z.enum(['initialize', 'refresh', 'cancel_request', 'dispatch']),
+  kind: z.enum(['initialize', 'refresh', 'cancel_request', 'dispatch', 'reconcile_deposits']),
   requestId: z.string().uuid(),
   expectedRevision: z.number().int().min(0).max(2147483646),
   operationId: z.string().uuid().optional(),
@@ -52,6 +52,10 @@ async function handle(request: Request, appointmentId: string, mutate: boolean) 
         workspaceFailure('PAYMENT_WORKSPACE_INVALID_REQUEST');
       }
       await repository.initialize(actor, input.requestId, prepareWorkspaceInvoice);
+    } else if (input.kind === 'reconcile_deposits') {
+      if ((await repository.reconcileDeposits(scope, actor)).held) {
+        workspaceFailure('PAYMENT_WORKSPACE_DEPOSIT_REVIEW_REQUIRED');
+      }
     } else if (['request_payment', 'request_refund', 'approve_refund', 'reject_refund'].includes(input.kind)) {
       const command = paymentWorkspaceCommandSchema.parse(input);
       const result = await repository.command(actor, command, readCurrentWorkspaceBinding);

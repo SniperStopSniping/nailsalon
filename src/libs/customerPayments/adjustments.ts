@@ -35,7 +35,7 @@ export const adjustmentRefundSchema = z.object({
   tipCents: cents,
   state: z.enum(['requested', 'pending', 'succeeded', 'failed', 'canceled', 'under_review']),
   /** A void corrects recorded tender; it does not claim money was refunded. */
-  kind: z.enum(['refund', 'manual_void']).optional(),
+  kind: z.enum(['refund', 'manual_void', 'deposit_refund', 'deposit_forfeit']).optional(),
 }).strict();
 
 export const adjustmentRequestSchema = z.object({
@@ -113,6 +113,7 @@ export function resolveAdjustmentBalance(input: AdjustmentBalanceInput) {
   let grossTip = 0;
   let refundedPrincipal = 0;
   let refundedTip = 0;
+  let creditRemovedCents = 0;
   let refundReserved = 0;
   let underReviewPaymentCents = 0;
   let underReviewRefundCents = 0;
@@ -139,6 +140,9 @@ export function resolveAdjustmentBalance(input: AdjustmentBalanceInput) {
     if (!payment || amount === 0) {
       fail('ADJUSTMENT_INVALID_REFUND_PARENT');
     }
+    if ((refund.kind === 'deposit_refund' || refund.kind === 'deposit_forfeit') && (payment.kind !== 'deposit' || refund.tipCents !== 0)) {
+      fail('ADJUSTMENT_INVALID_REFUND_PARENT');
+    }
     if (refund.state === 'failed' || refund.state === 'canceled') {
       continue;
     }
@@ -157,6 +161,9 @@ export function resolveAdjustmentBalance(input: AdjustmentBalanceInput) {
     if (refund.state === 'succeeded') {
       refundedPrincipal = sum(refundedPrincipal, refund.principalCents);
       refundedTip = sum(refundedTip, refund.tipCents);
+      if (refund.kind === 'manual_void' || refund.kind === 'deposit_forfeit') {
+        creditRemovedCents = sum(creditRemovedCents, amount);
+      }
     } else {
       refundReserved = sum(refundReserved, amount);
       blockedReasons.add('REFUND_PENDING');
@@ -205,7 +212,8 @@ export function resolveAdjustmentBalance(input: AdjustmentBalanceInput) {
     revision: parsed.data.revision,
     totalCents: total,
     grossPaidCents: sum(grossPrincipal, grossTip),
-    refundedCents: sum(refundedPrincipal, refundedTip),
+    refundedCents: sum(refundedPrincipal, refundedTip) - creditRemovedCents,
+    creditRemovedCents,
     netPaidCents: netPaid,
     pendingRefundCents: refundReserved,
     underReviewPaymentCents,
@@ -243,4 +251,11 @@ export function adjustmentPermissions(actor: {
     canRequestRefund: permitted && staff && actor.canRecordPayment,
     canIssueRefund: permitted && actor.role === 'owner',
   });
+}
+
+/** Deposit credit excludes refunded or forfeited money; gross history stays intact. */
+export function netWorkspaceDepositCredit(payments: readonly AdjustmentPayment[], refunds: readonly AdjustmentRefund[]) {
+  const deposits = payments.filter(payment => payment.kind === 'deposit' && payment.state === 'confirmed');
+  return deposits.reduce((sum, payment) => sum + payment.principalCents, 0)
+    - refunds.filter(refund => refund.state === 'succeeded' && deposits.some(payment => payment.id === refund.paymentId)).reduce((sum, refund) => sum + refund.principalCents, 0);
 }

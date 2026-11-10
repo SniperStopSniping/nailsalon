@@ -16,10 +16,12 @@ import { POST as recordPayment } from '@/app/api/appointments/[id]/payments/rout
 import { GET as customerRead, POST as customerPay } from '@/app/api/public/appointments/manage/[token]/payments/route';
 import { listPayments } from '@/libs/appointmentCheckoutServer';
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
+import { applyRefundObservation } from '@/libs/deposits/depositLifecycle';
 import { purgeSalonGroups, SalonPurgeBlockedError } from '@/libs/salonPurge';
 import { buildBookingTaxSnapshot, buildFinalTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
+import { netWorkspaceDepositCredit, resolveAdjustmentBalance } from '../adjustments';
 import { customerPaymentTenderSummary, hasVerifiedCustomerPaymentTender } from '../provenance';
 import { createPaymentReturnUrl } from '../server/paymentReturnToken';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from '../server/workspaceContract';
@@ -155,22 +157,87 @@ async function fixture(canonicalInvoice = false, depositCents = 0, initialize = 
   return { scope, actor, technicianId: id, operationId: saved.state.operations[0]!.id };
 }
 
-async function capturedFixture(canonicalInvoice = false) {
-  const f = await fixture(canonicalInvoice);
+async function capturedFixture(canonicalInvoice = false, depositCents = 0) {
+  const f = await fixture(canonicalInvoice, depositCents);
   const dispatched = await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding);
   const params = sdk.createSession.mock.calls.at(-1)![0];
   const session = await sdk.createSession.getMockImplementation()!(params);
+  const capturedAmount = params.line_items[0].price_data.unit_amount;
   const suffix = f.operationId.replaceAll('-', '');
   const paymentIntentId = `pi_${suffix}`;
   const chargeId = `ch_${suffix}`;
   sdk.retrieveSession.mockResolvedValue({ ...session, status: 'complete', payment_status: 'paid', payment_intent: paymentIntentId, url: null });
-  sdk.retrieveIntent.mockResolvedValue({ ...response, id: paymentIntentId, object: 'payment_intent', livemode: false, currency: 'cad', amount: 13300, amount_received: 13300, status: 'succeeded', capture_method: 'automatic', latest_charge: chargeId, metadata: { luster_payment_operation: f.operationId }, application_fee_amount: null, transfer_data: null, on_behalf_of: null });
-  const charge = { ...response, id: chargeId, object: 'charge', payment_intent: paymentIntentId, livemode: false, currency: 'cad', amount: 13300, amount_captured: 13300, amount_refunded: 0, paid: true, captured: true, status: 'succeeded', disputed: false, review: null, application_fee: null, application_fee_amount: null, transfer_data: null, on_behalf_of: null, metadata: { luster_payment_operation: f.operationId } };
+  sdk.retrieveIntent.mockResolvedValue({ ...response, id: paymentIntentId, object: 'payment_intent', livemode: false, currency: 'cad', amount: capturedAmount, amount_received: capturedAmount, status: 'succeeded', capture_method: 'automatic', latest_charge: chargeId, metadata: { luster_payment_operation: f.operationId }, application_fee_amount: null, transfer_data: null, on_behalf_of: null });
+  const charge = { ...response, id: chargeId, object: 'charge', payment_intent: paymentIntentId, livemode: false, currency: 'cad', amount: capturedAmount, amount_captured: capturedAmount, amount_refunded: 0, paid: true, captured: true, status: 'succeeded', disputed: false, review: null, application_fee: null, application_fee_amount: null, transfer_data: null, on_behalf_of: null, metadata: { luster_payment_operation: f.operationId } };
   sdk.retrieveCharge.mockResolvedValue(charge);
   return { ...f, dispatched, charge, paymentIntentId, chargeId };
 }
 
 describe('independently retrieved payment and refund accounting', () => {
+  it.each([false, true])('reconciles a full deposit refund without subtracting other tender; earlier online refund=%s', async (refundOnline) => {
+    const f = await capturedFixture(true, 2000);
+    await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+    const serviceAmount = refundOnline ? 8000 : 10000;
+    const completed = await completeAppointment(new Request('http://localhost/api/appointments/fixture/complete', { method: 'PATCH', body: JSON.stringify({ finalItems: [{ kind: 'custom', name: 'Final service', quantity: 1, unitPriceCents: serviceAmount, taxable: true }], payments: [], skipPhotoValidation: true }) }), { params: Promise.resolve({ id: f.scope.appointmentId }) });
+
+    expect(completed.status).toBe(200);
+
+    if (refundOnline) {
+      const state = (await repository.read(f.actor))!;
+      const requested = await repository.command(f.actor, { kind: 'request_refund', requestId: randomUUID(), expectedRevision: state.revision, paymentId: `lpay_${f.operationId}`, principalCents: 2260, tipCents: 0, reason: 'Removed service' }, dispatchBinding);
+      const operation = requested.state.operations.at(-1)!;
+      const refund = { ...response, id: `re_${operation.id.replaceAll('-', '')}`, object: 'refund', currency: 'cad', amount: 2260, charge: f.chargeId, payment_intent: f.paymentIntentId, status: 'succeeded', metadata: { luster_payment_operation: operation.id } };
+      sdk.refund.mockResolvedValue(refund);
+      await dispatchWorkspacePayment(repository, f.actor, operation.id, secret, dispatchBinding);
+      sdk.retrieveRefund.mockResolvedValue(refund);
+      sdk.listRefunds.mockResolvedValue({ ...response, data: [refund], has_more: false });
+      sdk.retrieveCharge.mockResolvedValue({ ...f.charge, amount_refunded: 2260 });
+      await reconcileWorkspacePayment(repository, f.scope, operation.id, secret);
+    }
+    const [deposit] = await database.select().from(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.appointmentId, f.scope.appointmentId));
+    const before = (await repository.read(f.actor))!;
+    // Disabling new payment creation must never restore gross refunded money.
+    vi.stubEnv('CUSTOMER_PAYMENTS_WORKSPACE_ENABLED', 'false');
+    const refund = { id: `re_${randomUUID().replaceAll('-', '')}`, status: 'pending' as const, amount: 2000, currency: 'cad', payment_intent: deposit!.stripePaymentIntentId, metadata: { luster_deposit_id: deposit!.id } };
+    const pending = await applyRefundObservation({ deposit: deposit!, refund, origin: 'webhook', eventMetadataDepositId: deposit!.id });
+
+    expect(pending.applied).toBe(true);
+    expect(await repository.reconcileDeposits(f.scope, f.actor)).toEqual({ changed: false, held: true });
+    expect((await repository.read(f.actor))!.revision).toBe(before.revision);
+
+    const pendingAppointment = (await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId)))[0]!;
+
+    expect(pendingAppointment).toMatchObject({ amountPaidCents: refundOnline ? 9040 : 11300, paymentStatus: 'partially_paid' });
+
+    const succeeded = await applyRefundObservation({ deposit: pending.deposit!, refund: { ...refund, status: 'succeeded' }, origin: 'webhook', eventMetadataDepositId: deposit!.id });
+
+    expect(succeeded.applied).toBe(true);
+    expect(await repository.reconcileDeposits(f.scope, f.actor)).toEqual({ changed: true, held: false });
+
+    const state = (await repository.read(f.actor))!;
+    const balance = resolveAdjustmentBalance({ revision: state.revision, bill: state.bill, payments: state.payments, refunds: state.refunds, requests: state.requests });
+    const appointment = (await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId)))[0]!;
+
+    expect(state.payments).toEqual(before.payments);
+    expect(state.refunds).toContainEqual(expect.objectContaining({ paymentId: deposit!.id, kind: 'deposit_refund', principalCents: 2000, tipCents: 0, state: 'succeeded' }));
+    expect(state.depositCreditHistory).toContainEqual(expect.objectContaining({ depositId: deposit!.id, disposition: 'refunded', amountCents: 2000 }));
+    expect(balance).toMatchObject({ balanceDueCents: 2000, principalDueCents: 2000, tipDueCents: 0, canReservePayment: true });
+    expect(netWorkspaceDepositCredit(state.payments, state.refunds)).toBe(0);
+    expect(appointment).toMatchObject({ amountPaidCents: refundOnline ? 9040 : 11300, paymentStatus: 'partially_paid' });
+    expect(await repository.reconcileDeposits(f.scope, f.actor)).toEqual({ changed: false, held: false });
+    expect((await repository.read(f.actor))!.revision).toBe(state.revision);
+
+    const jobs = await database.select().from(schema.integrationOutboxSchema).where(eq(schema.integrationOutboxSchema.appointmentId, f.scope.appointmentId));
+
+    expect(jobs.filter(job => job.dedupeKey === `payment-workspace:${f.scope.appointmentId}:client-stats:${state.revision}`)).toHaveLength(1);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+    expect(sdk.refund).toHaveBeenCalledTimes(refundOnline ? 1 : 0);
+
+    const request = await repository.command(f.actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: state.revision }, dispatchBinding);
+
+    expect(request.state.operations.at(-1)).toMatchObject({ principalCents: 2000, tipCents: 0 });
+  });
+
   it('uses the actual customer API to pay only the deposit-adjusted balance with pinned policy and invoice consent', async () => {
     const f = await fixture(true, 2000, false);
     const tokenId = randomUUID();

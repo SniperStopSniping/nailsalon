@@ -84,6 +84,9 @@ export const paymentWorkspaceStateSchema = z.object({
   bill: adjustedBillSchema,
   /** Hash of the authoritative invoice, including its items and tax snapshot. */
   billSourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  /** Separate baseline prevents deposit reconciliation from importing changed manual tender. */
+  legacyTenderHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  depositCreditHistory: z.array(z.object({ depositId: identity, disposition: z.enum(['credited', 'refunded', 'forfeited']), amountCents: cents, evidenceHash: z.string().regex(/^[a-f0-9]{64}$/), observedAt: timestamp }).strict()).max(1000).default([]),
   /** Readable line items and frozen tax are retained in every audit revision. */
   invoice: workspaceInvoiceSchema.optional(),
   billChanges: z.array(z.object({ revision: z.number().int().positive(), reason: z.string().trim().min(1).max(500), actorId: identity, changedAt: timestamp, sourceHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).max(1000).default([]),
