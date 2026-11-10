@@ -2490,13 +2490,13 @@ jobs:
           const { readFileSync } = require('node:fs');
           const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
           const assertions = report.testResults?.flatMap(file => file.assertionResults ?? []) ?? [];
-          if (report.success !== true || report.numTotalTests !== 47 || report.numPassedTests !== 47
+          if (report.success !== true || report.numTotalTests !== 51 || report.numPassedTests !== 51
             || report.numFailedTests !== 0 || report.numPendingTests !== 0 || report.numTodoTests !== 0
-            || report.testResults?.length !== 3 || assertions.length !== 47 || assertions.some(test => test.status !== 'passed')) {
-            process.stderr.write('Customer payment PostgreSQL checks must execute all 47 cases with zero skips.\n');
+            || report.testResults?.length !== 3 || assertions.length !== 51 || assertions.some(test => test.status !== 'passed')) {
+            process.stderr.write('Customer payment PostgreSQL checks must execute all 51 cases with zero skips.\n');
             process.exit(1);
           }
-          console.log('CUSTOMER_PAYMENT_POSTGRES_TESTS_EXECUTED=47 CUSTOMER_PAYMENT_POSTGRES_TESTS_SKIPPED=0');
+          console.log('CUSTOMER_PAYMENT_POSTGRES_TESTS_EXECUTED=51 CUSTOMER_PAYMENT_POSTGRES_TESTS_SKIPPED=0');
           NODE
 
       # Next Visit deliberately drops and recreates both schemas, so it is the

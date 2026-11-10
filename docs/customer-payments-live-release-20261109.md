@@ -1,6 +1,44 @@
 # Customer payments release work — 2026-11-09
 
-## Current checkpoint: customer booking and private payment initiation
+## Current checkpoint: completed-bill adjustments
+
+Payments remain **not live**. Checkout and completed receipts now offer an explicit
+Adjust bill action for enabled salons or retained payment history. An authorized
+technician can add/remove catalog or custom items, revise prices/quantities and
+record a reason. The editor retains the original completion instant, tax
+configuration, exemption and tip. Saving never charges or refunds; the refreshed
+Payments panel offers the additional balance or a separate original-payment refund.
+
+The same appointment lock serializes revisions and new collections. Each change
+requires a reviewed revision, invoice fingerprint and server-recomputed total,
+with a stable retry identity. Active or uncertain money requests block revision.
+The transaction retains original invoice/item evidence, writes the revised invoice,
+updates payment status and appends immutable workspace history atomically. Deposit
+excess and unsupported manual overpayment still require review. Existing checkout
+item resolution is shared without changing its completion behavior.
+
+Local checks: 122 editor/checkout/completion cases, 36 actual-route/provider and
+repository cases, including completed additions/removals and unchanged tax settings;
+51 native PostgreSQL cases with zero skips, including both revision-versus-collection
+orderings; 28 CI workflow contract checks; and four desktop/mobile browser cases at
+widths down to 320px. Full
+TypeScript, scoped lint and the protected-file gate pass. Provider responses are
+simulated; no application migration or real money movement has occurred.
+
+Customer checkpoint `06847dd733b48a5994addd8165666c2e5e5fb78f` is pushed and its
+Preview `dpl_8VFKoKbFyJ5yyQ4hkxSaKMmL7usz` is READY. The return page responded 200
+with the expected private/no-store, no-referrer and noindex headers. Health remained
+503 at `gitSha=06847dd` for missing Connect/schema readiness. All three hosted
+builds passed. Its native payment job executed the expanded suite but failed the
+old exact-count check of 47; this checkpoint pins all 51 cases, retaining zero skips.
+The current completed-bill checkpoint still needs its own Preview and hosted CI.
+
+Remaining: deposit-refund reconciliation, scheduled recovery, post-settlement and
+bill-revision client/loyalty refresh, cross-family ownership, sandbox provider and
+signing-secret setup, verified target migrations, actual provider-backed journeys,
+current-head CI/review, protected-main merge and production verification.
+
+## Previous checkpoint: customer booking and private payment initiation
 
 Payments remain **not live**. Confirmed, deposit-free bookings can offer a
 same-origin link to online payment options when the salon has enabled the feature

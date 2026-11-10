@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { adjustmentPermissions, resolveAdjustmentBalance } from '../../../src/libs/customerPayments/adjustments';
 import type { PaymentWorkspaceView } from '../../../src/libs/customerPayments/workspaceView';
+import { resolveTaxConfig } from '../../../src/libs/taxConfig';
 
 const longCatalogServiceId = `svc_${'x'.repeat(68)}`;
 
@@ -91,6 +92,66 @@ async function mockFixtureApi(page: import('@playwright/test').Page) {
   });
   return { completions, unexpected };
 }
+
+test('completed receipt saves an additional service without automatically collecting money', async ({ page }, testInfo) => {
+  const { unexpected } = await mockFixtureApi(page);
+  const context = checkoutContext();
+  const scope = { salonId: 'fixture', appointmentId: 'appt_browser_1' };
+  let total = 3500;
+  let revision = 5;
+  const changes: Record<string, unknown>[] = [];
+  const payments = [{ ...scope, id: 'online-original', movementId: 'original-charge', kind: 'online' as const, principalCents: 3500, tipCents: 0, state: 'confirmed' as const }];
+  await page.route('**/checkout', route => route.fulfill({ json: { data: { ...context, appointment: { ...context.appointment, status: 'completed', completedAt: '2026-09-19T16:00:00.000Z', finalPriceCents: total, finalSubtotalCents: total, taxAmountCents: 0, finalDiscountCents: 0, paymentStatus: total > 3500 ? 'partially_paid' : 'paid' }, balance: { totalDueCents: total, amountAlreadyPaidCents: 3500, amountPaidCents: 3500, appointmentPaymentsCents: 3500, balanceCents: total - 3500 }, paymentWorkspace: { enabled: true, initialized: true, refundableOnlinePrincipalCents: 3500 } } } }));
+  await page.route('**/payment-workspace', route => route.fulfill({ json: { data: {
+    initialized: true,
+    sourceChanged: false,
+    onlinePaymentsAvailable: true,
+    permissions: adjustmentPermissions({ role: 'staff', hasAppointmentAccess: true, impersonating: false, canEditItems: true, canRecordPayment: true }),
+    invoice: { items: [], subtotalCents: total, discountCents: 0, taxCents: 0, tipCents: 0 },
+    balance: resolveAdjustmentBalance({ revision, bill: { ...scope, revision: 0, serviceCents: total, taxCents: 0, tipCents: 0 }, payments, refunds: [], requests: [] }),
+    payments: [{ id: 'online-original', kind: 'online', amountCents: 3500, state: 'confirmed' }],
+    operations: [],
+  } } }));
+  await page.route('**/payment-workspace/bill', async (route) => {
+    if (route.request().method() === 'POST') {
+      const change = route.request().postDataJSON();
+      changes.push(change);
+      total = change.expectedTotalDueCents;
+      revision += 1;
+      return route.fulfill({ json: { data: { saved: true } } });
+    }
+    return route.fulfill({ json: { data: { revision, invoiceHash: 'a'.repeat(64), canEdit: true, items: context.bookedItems.map(item => ({ ...item, taxable: false })), discountCents: 0, discountReason: '', tipCents: 0, taxExempt: false, taxConfig: resolveTaxConfig({}, new Date()), paidCents: 3500, depositCreditCents: 0, refundableOnlinePrincipalCents: 3500 } } });
+  });
+  await page.goto('/');
+  await page.getByTestId('open-checkout').click();
+  await page.getByRole('button', { name: 'Adjust bill' }).click();
+
+  await expect(page.getByRole('button', { name: 'Save bill changes' })).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Add custom item' }).click();
+  await page.getByRole('textbox', { name: 'Item name', exact: true }).nth(1).fill('Extra nail art');
+  await page.getByRole('textbox', { name: 'Price', exact: true }).nth(1).fill('10');
+  await page.getByRole('textbox', { name: 'Reason for this change' }).fill('Client added nail art');
+  const editor = page.getByRole('region', { name: 'Adjust completed bill' });
+
+  await expect(editor.getByText('$10.00', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Close checkout' })).toBeDisabled();
+  expect(await editor.evaluate(element => element.scrollWidth > element.clientWidth + 1)).toBe(false);
+
+  await page.screenshot({ path: testInfo.outputPath(`completed-bill-${testInfo.project.name}.png`) });
+  await page.getByRole('button', { name: 'Save bill changes' }).click();
+
+  await expect(page.getByRole('button', { name: 'Adjust bill' })).toBeVisible();
+
+  const panel = page.getByTestId('appointment-payment-workspace');
+  await panel.locator('summary').click();
+
+  await expect(panel.getByRole('button', { name: 'Create $10.00 payment link' })).toBeEnabled();
+  expect(changes).toHaveLength(1);
+  expect(changes[0]).toMatchObject({ expectedRevision: 5, expectedTotalDueCents: 4500, reason: 'Client added nail art' });
+  expect(changes[0]).not.toHaveProperty('payments');
+  expect(unexpected).toEqual([]);
+});
 
 test('checkout payment controls use the saved balance, retain open-link status and close the request before another collection', async ({ page }, testInfo) => {
   const { unexpected } = await mockFixtureApi(page);

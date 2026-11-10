@@ -426,7 +426,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
     },
 
     /** The pricing writer runs under the same appointment lock and rolls back on failure. */
-    async reviseBill(actor: PaymentWorkspaceActor, value: unknown, writeInvoice: (tx: CustomerPaymentTransaction, appointment: Appointment) => Promise<Pick<InitialState, 'bill' | 'billSourceHash' | 'invoice'>>) {
+    async reviseBill(actor: PaymentWorkspaceActor, value: unknown, writeInvoice: (tx: CustomerPaymentTransaction, appointment: Appointment, state: PaymentWorkspaceState) => Promise<Pick<InitialState, 'bill' | 'billSourceHash' | 'invoice'>>) {
       if (!permissions(actor).canAdjustBill) {
         return workspaceFailure('PAYMENT_WORKSPACE_ACTION_FORBIDDEN');
       }
@@ -445,7 +445,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
         if (state.operations.some(op => activeStates.has(op.state))) {
           return workspaceFailure('PAYMENT_WORKSPACE_BALANCE_HELD');
         }
-        const invoice = await writeInvoice(tx, appointment);
+        const invoice = await writeInvoice(tx, appointment, state);
         if (state.invoice && !invoice.invoice) {
           return workspaceFailure('PAYMENT_WORKSPACE_READABLE_INVOICE_REQUIRED');
         }

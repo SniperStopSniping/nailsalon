@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { OwnerPhotoRulesLink } from '@/components/appointments/OwnerPhotoRulesLink';
 import { AppointmentPaymentWorkspace } from '@/components/customerPayments/AppointmentPaymentWorkspace';
+import { CompletedBillEditor } from '@/components/customerPayments/CompletedBillEditor';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { completeAppointmentSchema, type CompletionValidationIssue, completionValidationIssues } from '@/libs/appointmentCompletionContract';
@@ -379,6 +380,8 @@ export function CheckoutSheet({
 }: CheckoutSheetProps) {
   const [view, setView] = useState<'edit' | 'review' | 'success' | 'receipt'>(initialView);
   const [context, setContext] = useState<CheckoutContext | null>(null);
+  const [billEditing, setBillEditing] = useState(false);
+  const [billRefresh, setBillRefresh] = useState(0);
   const [paymentWorkspaceBusy, setPaymentWorkspaceBusy] = useState(false);
   const [paymentWorkspaceHeld, setPaymentWorkspaceHeld] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -627,7 +630,7 @@ export function CheckoutSheet({
     && currentDraftSignature !== initialDraftSignature;
 
   const requestClose = useCallback(() => {
-    if (submitting || paymentWorkspaceBusy) {
+    if (submitting || paymentWorkspaceBusy || billEditing) {
       return;
     }
     if ((view === 'edit' || view === 'review') && hasUnsavedChanges) {
@@ -635,7 +638,7 @@ export function CheckoutSheet({
       return;
     }
     onClose();
-  }, [hasUnsavedChanges, onClose, submitting, paymentWorkspaceBusy, view]);
+  }, [hasUnsavedChanges, onClose, submitting, paymentWorkspaceBusy, billEditing, view]);
 
   const hasAfterPhoto = context?.photos.some(photo => photo.photoType === 'after') ?? false;
   const photoPolicyMode = context?.photoPolicy.requireAfterPhotoToFinish ?? 'off';
@@ -1371,8 +1374,8 @@ export function CheckoutSheet({
     <DialogShell
       isOpen={isOpen}
       onClose={requestClose}
-      closeOnBackdrop={!submitting && !paymentWorkspaceBusy}
-      closeOnEscape={!submitting && !paymentWorkspaceBusy}
+      closeOnBackdrop={!submitting && !paymentWorkspaceBusy && !billEditing}
+      closeOnEscape={!submitting && !paymentWorkspaceBusy && !billEditing}
       maxWidthClassName="w-full sm:h-full sm:max-w-lg"
       alignClassName="items-end justify-center bg-black/50 p-0 sm:items-stretch sm:justify-end"
       contentClassName="flex h-[92vh] max-h-[92vh] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:h-[92dvh] supports-[height:100dvh]:max-h-[92dvh] sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl sm:supports-[height:100dvh]:h-full sm:supports-[height:100dvh]:max-h-none"
@@ -1382,7 +1385,7 @@ export function CheckoutSheet({
         <div className="flex shrink-0 items-center justify-between gap-[12px] border-b border-neutral-100 px-[16px] pb-[12px] pt-[16px] sm:px-5">
           <div className="min-w-0 break-words">
             <div className="text-lg font-semibold text-neutral-900">
-              {view === 'success' ? 'Appointment completed' : view === 'receipt' ? 'Receipt' : view === 'review' ? 'Review' : 'Complete appointment'}
+              {billEditing ? 'Adjust bill' : view === 'success' ? 'Appointment completed' : view === 'receipt' ? 'Receipt' : view === 'review' ? 'Review' : 'Complete appointment'}
             </div>
             <div className="text-sm text-neutral-500">
               {context?.appointment.clientName || 'Checkout'}
@@ -1395,7 +1398,7 @@ export function CheckoutSheet({
               type="button"
               data-testid="checkout-close"
               aria-label="Close checkout"
-              disabled={submitting || paymentWorkspaceBusy}
+              disabled={submitting || paymentWorkspaceBusy || billEditing}
               onClick={requestClose}
               className="flex size-[44px] items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:opacity-50"
             >
@@ -1431,15 +1434,30 @@ export function CheckoutSheet({
               appointmentId={appointmentId}
               salonSlug={salonSlug}
               hasWorkspace={context.paymentWorkspace.initialized}
-              hasUnsavedInvoice={(view === 'edit' || view === 'review') && hasUnsavedChanges}
-              refreshKey={`${context.appointment.completedAt ?? ''}:${context.balance.appointmentPaymentsCents ?? 0}`}
+              hasUnsavedInvoice={billEditing || ((view === 'edit' || view === 'review') && hasUnsavedChanges)}
+              refreshKey={`${context.appointment.completedAt ?? ''}:${context.balance.appointmentPaymentsCents ?? 0}:${billRefresh}`}
               onChanged={refreshContextAfterPayment}
               onBusyChange={setPaymentWorkspaceBusy}
               onHoldChange={setPaymentWorkspaceHeld}
             />
           )}
 
-          {!loading && context && view === 'edit' && (
+          {!loading && context?.paymentWorkspace?.enabled && appointmentId && isCompleted && context.permissions.canEditItems && (
+            <CompletedBillEditor
+              appointmentId={appointmentId}
+              salonSlug={salonSlug}
+              catalog={context.catalog}
+              disabled={paymentWorkspaceBusy || paymentWorkspaceHeld}
+              onEditingChange={setBillEditing}
+              onSaved={async () => {
+                await refreshContextAfterPayment();
+                setBillRefresh(value => value + 1);
+                setView('receipt');
+              }}
+            />
+          )}
+
+          {!loading && context && !billEditing && view === 'edit' && (
             <div className="space-y-4">
               <div className={sectionCard} data-testid="checkout-visit-summary">
                 <div className="mb-3 space-y-2 text-sm">
@@ -2043,7 +2061,7 @@ export function CheckoutSheet({
             </div>
           )}
 
-          {!loading && context && view === 'success' && (
+          {!loading && context && !billEditing && view === 'success' && (
             <div className="space-y-4" data-testid="checkout-success">
               <div className="flex flex-col items-center py-6 text-center">
                 <CheckCircle2 className="size-12 text-emerald-600" />
@@ -2213,11 +2231,11 @@ export function CheckoutSheet({
             </div>
           )}
 
-          {!loading && context && view === 'receipt' && renderReceipt()}
+          {!loading && context && !billEditing && view === 'receipt' && renderReceipt()}
         </div>
 
         {/* Action bar stays outside the dedicated scroll region. */}
-        {context && (view === 'edit' || view === 'review') && totals && (
+        {context && !billEditing && (view === 'edit' || view === 'review') && totals && (
           <div
             data-testid="checkout-action-bar"
             className="shrink-0 border-t border-neutral-200 bg-white px-[16px] pt-[12px] sm:px-5"

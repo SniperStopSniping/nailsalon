@@ -10,6 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 import { GET as readCheckout } from '@/app/api/appointments/[id]/checkout/route';
 import { PATCH as completeAppointment } from '@/app/api/appointments/[id]/complete/route';
+import { GET as readCompletedBill, POST as reviseCompletedBill } from '@/app/api/appointments/[id]/payment-workspace/bill/route';
 import { POST as voidPayment } from '@/app/api/appointments/[id]/payments/[paymentId]/void/route';
 import { POST as recordPayment } from '@/app/api/appointments/[id]/payments/route';
 import { GET as customerRead, POST as customerPay } from '@/app/api/public/appointments/manage/[token]/payments/route';
@@ -323,6 +324,65 @@ describe('independently retrieved payment and refund accounting', () => {
       expect(voided.status, JSON.stringify(await voided.json())).toBe(200);
       expect((await repository.read(f.actor))?.refunds).toMatchObject([{ paymentId: payment.id, kind: 'manual_void', principalCents: 1000 }]);
       expect(sdk.refund).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([8000, 12000])('revises an already completed invoice to %i cents without moving money or completion time', async (amount) => {
+    const f = await capturedFixture(true);
+    await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+    const params = { params: Promise.resolve({ id: f.scope.appointmentId }) };
+    const completed = await completeAppointment(new Request('http://localhost/api/appointments/fixture/complete', { method: 'PATCH', body: JSON.stringify({ finalItems: [{ kind: 'custom', name: 'Original completed service', quantity: 1, unitPriceCents: 10000, taxable: true }], payments: [], skipPhotoValidation: true }) }), params);
+
+    expect(completed.status).toBe(200);
+
+    const [original] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+    // A later owner tax change must not alter an existing invoice revision.
+    await database.update(schema.salonSchema).set({ settings: { payments: { tax: { enabled: true, rateBps: 500 } } } }).where(eq(schema.salonSchema.id, f.scope.salonId));
+    const read = await readCompletedBill(new Request('http://localhost/api/appointments/fixture/payment-workspace/bill'), params);
+    const view = (await read.json()).data;
+
+    expect(read.status).toBe(200);
+    expect(view).toMatchObject({ canEdit: true, taxConfig: { rateBps: 1300 }, paidCents: 13300, tipCents: 2000 });
+
+    const payload = { requestId: randomUUID(), initializationId: randomUUID(), expectedRevision: view.revision, expectedInvoiceHash: view.invoiceHash, expectedTotalDueCents: amount + amount * 0.13 + 2000, finalItems: [{ kind: 'custom', name: 'Revised completed service', quantity: 1, unitPriceCents: amount, taxable: true }], discountCents: 0, discountReason: '', reason: 'Customer changed the service' };
+    const request = (body = payload, origin = 'http://localhost') => new Request('http://localhost/api/appointments/fixture/payment-workspace/bill', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+    expect((await reviseCompletedBill(request(payload, 'https://other.invalid'), params)).status).toBe(403);
+    expect((await reviseCompletedBill(request({ ...payload, expectedInvoiceHash: '0'.repeat(64) }), params)).status).toBe(409);
+    expect((await reviseCompletedBill(request({ ...payload, expectedTotalDueCents: 1 }), params)).status).toBe(409);
+
+    const saved = await reviseCompletedBill(request(), params);
+
+    expect(saved.status, JSON.stringify(await saved.json())).toBe(200);
+    expect((await reviseCompletedBill(request(), params)).status).toBe(200);
+    expect((await reviseCompletedBill(request({ ...payload, reason: 'Changed retry body' }), params)).status).toBe(409);
+    expect((await reviseCompletedBill(request({ ...payload, requestId: randomUUID() }), params)).status).toBe(409);
+
+    const [after] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+    const state = (await repository.read(f.actor))!;
+    const audit = await database.select().from(schema.appointmentAuditLogSchema).where(eq(schema.appointmentAuditLogSchema.appointmentId, f.scope.appointmentId));
+    const revision = audit.find(row => row.reason === payload.reason)!;
+
+    expect(after).toMatchObject({ status: 'completed', completedAt: original!.completedAt, totalPrice: 10000, amountPaidCents: 13300, finalPriceCents: amount, taxAmountCents: amount * 0.13, tipCents: 2000, paymentStatus: amount > 10000 ? 'partially_paid' : 'paid' });
+    expect(after!.finalTaxSnapshot?.configuration).toEqual(original!.finalTaxSnapshot?.configuration);
+    expect(after!.finalTaxSnapshot?.capturedAt).toBe(original!.finalTaxSnapshot?.capturedAt);
+    expect(state.bill).toMatchObject({ revision: 2, serviceCents: amount, taxCents: amount * 0.13, tipCents: 2000 });
+    expect(state.payments).toHaveLength(1);
+    expect(state.refunds).toHaveLength(0);
+    expect(revision.previousValue).toMatchObject({ invoice: { items: [{ name: 'Original completed service' }] } });
+    expect(revision.newValue).toMatchObject({ invoice: { items: [{ name: 'Revised completed service' }] } });
+    expect(audit.filter(row => row.reason === payload.reason)).toHaveLength(1);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+    expect(sdk.refund).not.toHaveBeenCalled();
+
+    if (amount > 10000) {
+      const requested = await repository.command(f.actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: state.revision }, dispatchBinding);
+      const held = await readCompletedBill(new Request('http://localhost/api/appointments/fixture/payment-workspace/bill'), params);
+      const heldView = (await held.json()).data;
+
+      expect(heldView.canEdit).toBe(false);
+      expect(requested.state.operations.at(-1)).toMatchObject({ principalCents: 2260, tipCents: 0 });
+      expect((await reviseCompletedBill(request({ ...payload, requestId: randomUUID(), expectedRevision: heldView.revision, expectedInvoiceHash: heldView.invoiceHash }), params)).status).toBe(409);
     }
   });
 

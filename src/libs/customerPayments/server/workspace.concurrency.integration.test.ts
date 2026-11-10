@@ -124,6 +124,53 @@ suite('workspace commands on separate PostgreSQL connections', () => {
     expect((await repositories[2]!.read(f.actor))!.operations).toHaveLength(1);
   }, 20000);
 
+  it.each([false, true])('serializes invoice revisions against new collections; revision commits first=%s', async (revisionFirst) => {
+    const f = await fixture();
+    const entered = barrier();
+    const release = barrier();
+    const revised = { bill: { ...f.scope, revision: 0, serviceCents: 12000, taxCents: 0, tipCents: 0 }, billSourceHash: 'b'.repeat(64) };
+    const change = { requestId: randomUUID(), expectedRevision: 0, changeFingerprint: 'c'.repeat(64), reason: 'Added service' };
+    const write = vi.fn(async () => revised);
+    const first = revisionFirst
+      ? repositories[0]!.reviseBill(f.actor, change, async () => {
+        entered.release();
+        await release.promise;
+        return write();
+      })
+      : repositories[0]!.command(f.actor, f.command, async () => {
+        entered.release();
+        await release.promise;
+        return { binding, billSourceHash: sourceHash };
+      });
+    await entered.promise;
+    const second = revisionFirst
+      ? repositories[1]!.command(f.actor, f.command, dispatchBinding)
+      : repositories[1]!.reviseBill(f.actor, change, write);
+    const outcomes = Promise.allSettled([first, second]);
+    try {
+      await blockedBy(pids[1]!, pids[0]!);
+    } finally {
+      release.release();
+    }
+
+    expect(await outcomes).toMatchObject([{ status: 'fulfilled' }, { status: 'rejected', reason: expect.objectContaining({ code: 'PAYMENT_WORKSPACE_STALE' }) }]);
+
+    const state = (await repositories[2]!.read(f.actor))!;
+
+    expect(state.revision).toBe(1);
+    expect(write).toHaveBeenCalledTimes(revisionFirst ? 1 : 0);
+
+    if (revisionFirst) {
+      const requested = await repositories[1]!.command(f.actor, { ...f.command, expectedRevision: state.revision }, dispatchBinding);
+
+      expect(requested.state.operations[0]).toMatchObject({ principalCents: 12000 });
+    } else {
+      await expect(repositories[1]!.reviseBill(f.actor, { ...change, expectedRevision: state.revision }, write)).rejects.toThrow('BALANCE_HELD');
+      expect(write).not.toHaveBeenCalled();
+      expect(state.operations[0]).toMatchObject({ principalCents: 10000 });
+    }
+  }, 20000);
+
   it('lets only one process own dispatch and retains its provider identity across restart', async () => {
     const f = await fixture();
     const saved = await repositories[0]!.command(f.actor, f.command, async () => ({ binding, billSourceHash: sourceHash }));
