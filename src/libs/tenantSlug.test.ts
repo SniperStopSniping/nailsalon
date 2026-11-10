@@ -55,6 +55,7 @@ describe('tenantSlug helpers', () => {
     'onboarding-v1',
     'owner',
     'pay',
+    'payments',
     'payments-rehearsal',
     'privacy',
     'terms',

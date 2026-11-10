@@ -11,6 +11,8 @@ import { appointmentPaymentSchema, appointmentSchema } from '@/models/Schema';
 import { adjustmentPermissions, resolveAdjustmentBalance } from '../adjustments';
 import { assertVerifiedStripeCustomerPaymentReceipt } from '../liveProvider/stripeReceipt';
 import { assertWorkspaceProviderObservation, assertWorkspaceVerifiedOutcome } from '../liveProvider/workspaceStripe';
+import type { PaymentReturnView } from '../paymentReturnView';
+import { paymentReturnSigningKeyHash, verifyPaymentReturnToken } from './paymentReturnToken';
 import type { CustomerPaymentTransaction } from './preparationRepository';
 import { customerPaymentFingerprint } from './preparationRepository';
 import { authorizeWorkspaceActor } from './workspaceAccess';
@@ -253,6 +255,32 @@ export async function beginCanonicalWorkspaceChange(tx: CustomerPaymentTransacti
 /** Every financial command commits its reservation before a separate provider call. */
 export function createPaymentWorkspaceRepository(database: Database) {
   return {
+    /** Public capability grants only this projection; it cannot mutate or list history. */
+    async readReturnStatus(token: string, origin: string): Promise<PaymentReturnView | null> {
+      const claims = verifyPaymentReturnToken(token, origin);
+      if (!claims) {
+        return null;
+      }
+      return database.transaction(async (tx) => {
+        const [row] = await tx.select().from(customerPaymentWorkspaceSchema).where(and(eq(customerPaymentWorkspaceSchema.appointmentId, claims.appointmentId), eq(customerPaymentWorkspaceSchema.salonId, claims.salonId))).limit(1);
+        if (!row) {
+          return null;
+        }
+        const state = validate(row.state, claims);
+        const operation = state.operations.find(item => item.id === claims.operationId && item.kind === 'payment');
+        if (!operation || operation.createdAt !== claims.createdAt || operation.binding.returnOrigin !== origin || operation.returnStatusKeyHash !== paymentReturnSigningKeyHash()) {
+          return null;
+        }
+        const payment = state.payments.find(item => item.requestId === operation.id && item.kind === 'online' && item.state === 'confirmed');
+        const refundedCents = payment ? state.refunds.filter(item => item.paymentId === payment.id && item.state === 'succeeded').reduce((sum, item) => sum + item.principalCents + item.tipCents, 0) : 0;
+        return {
+          status: operation.state === 'review' ? 'review' : payment && operation.state === 'succeeded' ? 'received' : ['failed', 'canceled'].includes(operation.state) ? 'closed' : 'pending',
+          currency: 'CAD',
+          amountCents: operation.principalCents + operation.tipCents,
+          refundedCents,
+        };
+      });
+    },
     async inspect<T>(actor: PaymentWorkspaceActor, inspect: (tx: CustomerPaymentTransaction, appointment: Appointment, state: PaymentWorkspaceState | null) => Promise<T>) {
       permissions(actor);
       return database.transaction(async (tx) => {
@@ -351,6 +379,10 @@ export function createPaymentWorkspaceRepository(database: Database) {
             providerObjectId: null,
           };
           if (input.kind === 'request_payment') {
+            const statusKeyHash = paymentReturnSigningKeyHash();
+            if (statusKeyHash) {
+              operation.returnStatusKeyHash = statusKeyHash;
+            }
             state.requests.push({ ...scope, id, billRevision: state.bill.revision, principalCents: operation.principalCents, tipCents: operation.tipCents, state: 'reserved' });
           } else {
             const payment = state.payments.find(item => item.id === input.paymentId);

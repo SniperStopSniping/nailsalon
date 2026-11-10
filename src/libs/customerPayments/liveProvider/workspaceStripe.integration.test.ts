@@ -19,6 +19,7 @@ import { buildBookingTaxSnapshot, buildFinalTaxSnapshot, resolveTaxConfig } from
 import * as schema from '@/models/Schema';
 
 import { customerPaymentTenderSummary, hasVerifiedCustomerPaymentTender } from '../provenance';
+import { createPaymentReturnUrl } from '../server/paymentReturnToken';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from '../server/workspaceContract';
 import { cancelWorkspacePayment, dispatchWorkspacePayment, reconcileWorkspacePayment } from '../server/workspaceDispatcher';
 import { prepareWorkspaceInvoice, readWorkspaceInvoice } from '../server/workspaceInvoice';
@@ -76,6 +77,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.spyOn(console, 'info').mockImplementation(() => {});
   vi.stubEnv('CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'true');
+  vi.stubEnv('CUSTOMER_PAYMENTS_STATUS_SIGNING_SECRET', 'synthetic-return-status-fixture-'.repeat(2));
   vi.stubEnv('CUSTOMER_PAYMENTS_WORKSPACE_ENABLED', 'true');
   vi.stubEnv('APP_ENV', 'preview');
   vi.stubEnv('VERCEL_ENV', '');
@@ -159,6 +161,39 @@ async function capturedFixture(canonicalInvoice = false) {
 }
 
 describe('independently retrieved payment and refund accounting', () => {
+  it('shows pending after dispatch and received only after independent settlement; status reads never write', async () => {
+    const f = await capturedFixture();
+    const parameters = sdk.createSession.mock.calls[0]![0];
+    const returnUrl = new URL(parameters.success_url);
+    const token = new URLSearchParams(returnUrl.hash.slice(1)).get('status')!;
+    const before = await repository.read(f.actor);
+
+    expect(parameters.cancel_url).toBe(parameters.success_url);
+    expect(returnUrl.search).toBe('');
+    expect(await repository.readReturnStatus(token, binding.returnOrigin)).toEqual({ status: 'pending', currency: 'CAD', amountCents: 13300, refundedCents: 0 });
+    expect(await repository.read(f.actor)).toEqual(before);
+    expect(await repository.readReturnStatus(token, 'https://another.example.invalid')).toBeNull();
+    expect(sdk.retrieveCharge).not.toHaveBeenCalled();
+
+    await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+
+    expect(await repository.readReturnStatus(token, binding.returnOrigin)).toEqual({ status: 'received', currency: 'CAD', amountCents: 13300, refundedCents: 0 });
+
+    const state = (await repository.read(f.actor))!;
+    const wrongScope = new URL(createPaymentReturnUrl({ ...f.scope, appointmentId: randomUUID() }, state.operations[0]!));
+
+    expect(await repository.readReturnStatus(new URLSearchParams(wrongScope.hash.slice(1)).get('status')!, binding.returnOrigin)).toBeNull();
+  });
+
+  it('refuses a changed status signing key before creating a provider Session', async () => {
+    const f = await fixture();
+    vi.stubEnv('CUSTOMER_PAYMENTS_STATUS_SIGNING_SECRET', 'different-synthetic-return-status-key-'.repeat(2));
+
+    await expect(dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding)).rejects.toThrow('RETURN_CONFIGURATION_CHANGED');
+    expect(sdk.createSession).not.toHaveBeenCalled();
+    expect((await repository.read(f.actor))!.operations[0]!.state).toBe('uncertain');
+  });
+
   it('preserves payment history after owner opt-out while keeping unrelated salon checkout unchanged', async () => {
     const f = await fixture(true);
     const history = await readCheckout(new Request('http://localhost/api/appointments/fixture/checkout'), { params: Promise.resolve({ id: f.scope.appointmentId }) });
@@ -394,6 +429,10 @@ describe('independently retrieved payment and refund accounting', () => {
     const refunded = await reconcileWorkspacePayment(repository, f.scope, refundOp.id, secret);
 
     expect(refunded.state.refunds[0]!.state).toBe('succeeded');
+
+    const returnUrl = new URL(sdk.createSession.mock.calls[0]![0].success_url);
+
+    expect(await repository.readReturnStatus(new URLSearchParams(returnUrl.hash.slice(1)).get('status')!, binding.returnOrigin)).toEqual({ status: 'received', currency: 'CAD', amountCents: 13300, refundedCents: 3000 });
     expect(refunded.state.billChanges[0]).toMatchObject({ reason: 'Removed nail art and corrected tip', actorId: 'owner' });
     expect(customerPaymentTenderSummary((await listPayments(database, f.scope.appointmentId))[0]!)).toMatchObject({ grossCents: 13300, refundedPrincipalCents: 2000, refundedTipCents: 1000, netCents: 10300, collectionHold: false });
     expect((await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, f.scope.appointmentId)))[0]).toMatchObject({ amountPaidCents: 10300, paymentStatus: 'paid', tipCents: 1000 });

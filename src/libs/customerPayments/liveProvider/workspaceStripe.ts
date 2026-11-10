@@ -2,6 +2,7 @@ import 'server-only';
 
 import Stripe from 'stripe';
 
+import { createPaymentReturnUrl } from '../server/paymentReturnToken';
 import type { PaymentProviderBinding, PaymentWorkspaceScope, WorkspaceOperation } from '../server/workspaceContract';
 import { workspaceFailure } from '../server/workspaceContract';
 import type { WorkspaceDispatchClaim, WorkspaceReconciliationClaim } from '../server/workspaceRepository';
@@ -293,13 +294,14 @@ export function createWorkspaceStripeProvider(secretKey: string) {
           workspaceFailure('PAYMENT_WORKSPACE_SESSION_WINDOW_EXPIRED');
         }
         runtime(op.binding, secretKey);
+        const returnUrl = createPaymentReturnUrl(claim.scope, op);
         assertWorkspaceDispatchClaim(claim, true);
         const session = await client.checkout.sessions.create({
           mode: 'payment',
           payment_method_types: ['card'],
           client_reference_id: op.id,
-          success_url: `${op.binding.returnOrigin}/payments/result?operation=${op.id}&result=success`,
-          cancel_url: `${op.binding.returnOrigin}/payments/result?operation=${op.id}&result=canceled`,
+          success_url: returnUrl,
+          cancel_url: returnUrl,
           expires_at: op.sessionExpiresAt / 1000,
           automatic_tax: { enabled: false },
           allow_promotion_codes: false,

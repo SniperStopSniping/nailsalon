@@ -7,6 +7,7 @@ import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
 import { WalkInModal } from '@/components/admin/WalkInModal';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
+import CustomerPaymentResult from '@/components/customerPayments/CustomerPaymentResult';
 
 const longServiceName = 'Russian Manicure with Structured Builder Gel, Detailed Cuticle Care and Long-Wear Chrome Finish';
 const appointmentDate = new Date(2099, 6, 20);
@@ -111,4 +112,4 @@ export function AppointmentWorkflowFixture() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<AppointmentWorkflowFixture />);
+createRoot(document.getElementById('root')!).render(new URLSearchParams(window.location.search).has('paymentReturn') ? <CustomerPaymentResult /> : <AppointmentWorkflowFixture />);

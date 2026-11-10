@@ -1,6 +1,40 @@
 # Customer payments release work — 2026-11-09
 
-## Current checkpoint: technician checkout and canonical invoice revisions
+## Current checkpoint: verified customer return status
+
+Payments remain **not live**. The customer return page now displays a minimal
+server-verified payment result and confirmed refunds. Neither a success redirect
+nor a Session-create response marks an appointment paid. Delayed confirmation
+uses bounded polling, with an explicit refresh and clear instructions to contact
+the salon before paying again. Status requests cannot create, cancel or refund.
+
+An expiring signed capability is bound to one appointment, operation and return
+origin. It stays in the URL fragment and is sent only in a same-origin POST body;
+page/API responses are private, no-store and no-referrer. The signing-key hash is
+frozen with the operation, so key rotation refuses a dispatch retry instead of
+changing its Stripe idempotency parameters. Runtime activation now also requires
+`CUSTOMER_PAYMENTS_STATUS_SIGNING_SECRET`: at least 32 random bytes encoded as
+base64url, separately provisioned per environment. No secret has been provisioned.
+
+Local checks: 87 token, runtime, API, provider, middleware, tenant and UI cases;
+four desktop/mobile browser cases, including both engines at 320px. The SDK and
+browser responses remain simulated; actual hosted Stripe return verification is
+still required. Full TypeScript and scoped ESLint pass. The 320px WebKit
+screenshot was also inspected; no horizontal overflow was observed.
+
+Previous checkout commit `2bbb86ba91dd334451151aa0b7212d13a3561fe4` is pushed. Its
+Preview `dpl_ta16ZuHZh59T4GEK23DBHkTcD795` reached READY. Home returned 200; health
+returned 503 with expected `gitSha=2bbb86b`, `stripeConnectEnv=false` and
+`schemaDrift=not_ready`. Hosted CI is running. This verifies the previous
+checkpoint, not the currently uncommitted return-page changes.
+
+Remaining work: customer booking/manage payment initiation, completed-invoice
+editing, deposit-refund reconciliation, scheduled recovery, post-settlement
+client/loyalty refresh, cross-family ownership, provider configuration and target
+migration verification, real provider-backed payment/refund/return tests and the
+current-head CI, review, merge and production checks.
+
+## Previous checkpoint: technician checkout and canonical invoice revisions
 
 Payments remain **not live**. Production, application databases, Stripe accounts and
 customer money have not been changed. PR #504 remains a draft.

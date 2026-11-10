@@ -35,6 +35,7 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'owner-sign-up',
   'pay',
   'payment-methods',
+  'payments',
   // Disabled, nonproduction customer-payment UI rehearsal.
   'payments-rehearsal',
   'preferences',

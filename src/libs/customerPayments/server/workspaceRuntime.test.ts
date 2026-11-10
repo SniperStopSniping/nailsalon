@@ -7,6 +7,7 @@ vi.mock('server-only', () => ({}));
 
 beforeEach(() => {
   vi.stubEnv('CUSTOMER_PAYMENTS_WORKSPACE_ENABLED', 'true');
+  vi.stubEnv('CUSTOMER_PAYMENTS_STATUS_SIGNING_SECRET', 'synthetic-return-status-fixture-'.repeat(2));
   vi.stubEnv('CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'true');
   vi.stubEnv('APP_ENV', 'preview');
   vi.stubEnv('NODE_ENV', 'production');
@@ -27,7 +28,7 @@ describe('workspace environment boundaries', () => {
     expect(workspaceRuntime()).toMatchObject({ executionEnabled: true, livemode: false, returnOrigin: 'https://preview.example.invalid' });
   });
 
-  it.each(['CUSTOMER_PAYMENTS_WORKSPACE_ENABLED', 'CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'STRIPE_SECRET_KEY', 'STRIPE_CUSTOMER_PAYMENTS_WEBHOOK_SECRET', 'CUSTOMER_PAYMENTS_STRIPE_WEBHOOK_ENDPOINT_ID', 'CUSTOMER_PAYMENTS_STRIPE_PLATFORM_ACCOUNT_ID'])('refuses execution with missing %s', (key) => {
+  it.each(['CUSTOMER_PAYMENTS_STATUS_SIGNING_SECRET', 'CUSTOMER_PAYMENTS_WORKSPACE_ENABLED', 'CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'STRIPE_SECRET_KEY', 'STRIPE_CUSTOMER_PAYMENTS_WEBHOOK_SECRET', 'CUSTOMER_PAYMENTS_STRIPE_WEBHOOK_ENDPOINT_ID', 'CUSTOMER_PAYMENTS_STRIPE_PLATFORM_ACCOUNT_ID'])('refuses execution with missing %s', (key) => {
     vi.stubEnv(key, '');
 
     expect(workspaceRuntime().executionEnabled).toBe(false);

@@ -40,6 +40,8 @@ export const workspaceOperationSchema = z.object({
   approvedBy: identity.nullable(),
   reason: z.string().trim().min(1).max(500).nullable(),
   createdAt: timestamp,
+  /** Hash of the return-status signing key; keeps retry URLs stable on rotation. */
+  returnStatusKeyHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   sessionExpiresAt: timestamp.nullable(),
   firstDispatchAt: timestamp.nullable(),
   dispatchToken: z.string().uuid().nullable(),

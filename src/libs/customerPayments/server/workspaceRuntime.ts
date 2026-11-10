@@ -3,6 +3,7 @@ import 'server-only';
 import { getCanonicalAppOrigin } from '@/libs/publicUrl';
 
 import { isPaymentWorkspaceEnabled } from '../workspacePolicy';
+import { paymentReturnSigningKeyHash } from './paymentReturnToken';
 import type { WorkspaceRuntime } from './workspacePolicyRepository';
 
 export function workspaceRuntime(): WorkspaceRuntime {
@@ -17,6 +18,7 @@ export function workspaceRuntime(): WorkspaceRuntime {
   return {
     executionEnabled: isPaymentWorkspaceEnabled()
       && process.env.CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED === 'true'
+      && paymentReturnSigningKeyHash() !== null
       && (!livemode || process.env.NODE_ENV === 'production')
       && /^acct_[A-Za-z0-9]+$/.test(platformAccountId)
       && key.startsWith(livemode ? 'sk_live_' : 'sk_test_')
