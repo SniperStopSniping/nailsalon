@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+import type { BookingTaxSnapshot, FinalTaxSnapshot } from '@/libs/taxConfig';
+import { validateInvoiceTaxSnapshot } from '@/libs/taxConfig';
+
 import { adjustedBillSchema, adjustmentPaymentSchema, adjustmentRefundSchema, adjustmentRequestSchema } from '../adjustments';
 
 const identity = z.string().min(1).max(200);
@@ -44,11 +47,41 @@ export const workspaceOperationSchema = z.object({
 }).strict();
 export type WorkspaceOperation = z.infer<typeof workspaceOperationSchema>;
 
+export const workspaceInvoiceSchema = z.object({
+  currency: z.literal('CAD'),
+  items: z.array(z.object({
+    id: identity,
+    kind: z.enum(['service', 'addon', 'custom']),
+    name: z.string().trim().min(1).max(500),
+    quantity: z.number().int().positive().max(10000),
+    unitPriceCents: cents,
+    lineTotalCents: cents,
+  }).strict()).min(1).max(1000),
+  subtotalCents: cents,
+  discountCents: cents,
+  taxSnapshot: z.custom<BookingTaxSnapshot | FinalTaxSnapshot>(value => validateInvoiceTaxSnapshot(value, { expectedCurrency: 'CAD' }).ok),
+  tipCents: cents,
+}).strict().superRefine((invoice, context) => {
+  if (!validateInvoiceTaxSnapshot(invoice.taxSnapshot, { expectedCurrency: 'CAD' }).ok) {
+    return;
+  }
+  const snapshot = invoice.taxSnapshot;
+  const displayedTotal = snapshot.configuration.mode === 'included' ? snapshot.invoiceTotalCents : snapshot.serviceSubtotalCents;
+  if (invoice.items.some(item => item.unitPriceCents * item.quantity !== item.lineTotalCents)
+    || new Set(invoice.items.map(item => item.id)).size !== invoice.items.length
+    || invoice.items.reduce((sum, item) => sum + item.lineTotalCents, 0) !== invoice.subtotalCents
+    || invoice.discountCents > invoice.subtotalCents || invoice.subtotalCents - invoice.discountCents !== displayedTotal) {
+    context.addIssue({ code: 'custom', message: 'Invoice items do not match its frozen tax totals.' });
+  }
+});
+
 export const paymentWorkspaceStateSchema = z.object({
   revision: z.number().int().nonnegative().max(2147483646),
   bill: adjustedBillSchema,
   /** Hash of the authoritative invoice, including its items and tax snapshot. */
   billSourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+  /** Readable line items and frozen tax are retained in every audit revision. */
+  invoice: workspaceInvoiceSchema.optional(),
   billChanges: z.array(z.object({ revision: z.number().int().positive(), reason: z.string().trim().min(1).max(500), actorId: identity, changedAt: timestamp, sourceHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).max(1000).default([]),
   payments: z.array(adjustmentPaymentSchema).max(1000),
   refunds: z.array(adjustmentRefundSchema).max(1000),

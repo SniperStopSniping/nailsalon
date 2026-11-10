@@ -105,7 +105,7 @@ async function fixture() {
   const actor: PaymentWorkspaceActor = { ...scope, id: 'owner', role: 'owner', impersonating: false, canEditItems: true, canRecordPayment: true };
   await repository.initialize(actor, randomUUID(), async () => ({ bill: { ...scope, revision: 0, serviceCents: 10000, taxCents: 1300, tipCents: 2000 }, billSourceHash: 'a'.repeat(64), payments: [] }));
   const saved = await repository.command(actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: 0 }, async () => ({ binding, billSourceHash: 'a'.repeat(64) }));
-  return { scope, actor, operationId: saved.state.operations[0]!.id };
+  return { scope, actor, technicianId: id, operationId: saved.state.operations[0]!.id };
 }
 
 async function capturedFixture() {
@@ -241,7 +241,7 @@ describe('independently retrieved payment and refund accounting', () => {
       await tx.update(schema.appointmentSchema).set({ totalPrice: 8000 }).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
       return { bill: { ...settled.state.bill, serviceCents: 8000, tipCents: 1000 }, billSourceHash: 'b'.repeat(64) };
     });
-    const staff = { ...f.actor, role: 'staff' as const, id: 'assigned-tech' };
+    const staff = { ...f.actor, role: 'staff' as const, id: f.technicianId };
     const requested = await repository.command(staff, { kind: 'request_refund', requestId: randomUUID(), expectedRevision: changed.state.revision, paymentId: `lpay_${f.operationId}`, principalCents: 2000, tipCents: 1000, reason: 'Customer approved service removal' }, async () => ({ binding: null, billSourceHash: 'b'.repeat(64) }));
     const refundOp = requested.state.operations[1]!;
 

@@ -125,9 +125,10 @@ require `CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED=true`; it remains unset.
 This is **not a live customer flow**. The authenticated appointment/customer
 routes, authoritative invoice/item adapter, owner opt-in settings, complete
 receipt and payment-link/QR flow, and recovery scheduling still need wiring.
-The bill workspace currently retains totals, source hashes and reasons; readable
-item/tax revisions must be integrated with the actual checkout engine before
-staff can change a paid invoice. Manual-payment callbacks must use that existing
+The invoice adapter now reads booked/final line items, frozen tax, deposits and
+canonical tender under the appointment lock. Initialization retains that readable
+invoice in the immutable audit; later bill changes must supply a matching invoice.
+The actual item-edit writer and checkout completion integration remain open. Manual-payment callbacks must use that existing
 canonical writer and its loyalty/audit behavior. No synthetic SDK test is a
 substitute for the actual Stripe sandbox journey.
 
@@ -214,3 +215,32 @@ merge, production deployment or customer messaging occurred in this checkpoint.
 - Scoped ESLint passes with three existing Fast Refresh warnings in BookConfirm.
   The full TypeScript check also passed. The hosted build remains pending; these
   backend checks do not establish live-flow acceptance.
+
+## Hosted checkpoint and invoice integration
+
+Committed backend `106497dd` was merged with current main `3effca59` on the feature
+branch, producing pushed checkpoint `bbcb7dd79a53954cd5886a1dd96cfbc68d7992f1`.
+Draft PR #504 remains unmerged. Vercel Preview deployment
+`dpl_3369vWHMFdxRm6yUSSYr3mB3qh9y` reached READY at that SHA. The read-only build
+probe authenticated the existing test key on platform `acct_1SdpJKPOewmPdOib`:
+zero connected accounts, no additional account page and zero ready Canadian
+Standard accounts. No provider or database mutation was performed by this probe.
+
+Protected HTTP checks: homepage 200; `/api/health` 503 with expected `gitSha`
+`bbcb7dd`, `db=true`, `redis=true`, `stripeEnv=true`, `stripeConnectEnv=false` and
+`schemaDrift=not_ready`. Several other Preview provider settings are also absent.
+READY is build evidence, not a successful financial journey or release clearance.
+
+GitHub run 42727138878 has passed builds on Node 20, 22 and 24, secret hygiene,
+the protected-surface gate and the native payment race job. The broader application
+and browser checks were still running at this observation.
+
+The next invoice-source change adds seven actual-table integration checks: tax
+mode preservation, private-data exclusion, deposit plus cash allocation, pending
+deposit refunds, stale totals/cache rejection, frozen actual invoices and changed
+source hashes. The repository additionally rechecks staff assignment under its
+appointment lock, before reads and commands; a reassigned tech loses access.
+The invoice and workspace/provider suites total 32 passing cases. Full TypeScript,
+scoped lint and the tracked-tree secret scan pass for this follow-up. The final
+assignment-guard change is additionally covered by the 25-case provider/repository
+rerun. These remain backend checks, not an authenticated customer journey.

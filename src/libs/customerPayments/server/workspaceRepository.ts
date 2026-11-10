@@ -21,7 +21,7 @@ type WorkspaceRow = typeof customerPaymentWorkspaceSchema.$inferSelect;
 type Appointment = typeof appointmentSchema.$inferSelect;
 /** Recompute from locked invoice/tender/deposit sources, never client-supplied totals. */
 type BindingReader = (tx: CustomerPaymentTransaction, appointment: Appointment) => Promise<{ binding: PaymentProviderBinding | null; billSourceHash: string }>;
-type InitialState = Pick<PaymentWorkspaceState, 'bill' | 'billSourceHash' | 'payments'>;
+type InitialState = Pick<PaymentWorkspaceState, 'bill' | 'billSourceHash' | 'payments' | 'invoice'>;
 const activeStates = new Set(['awaiting_approval', 'prepared', 'dispatching', 'open', 'pending', 'uncertain', 'review']);
 
 export type WorkspaceDispatchClaim = {
@@ -87,6 +87,10 @@ function validate(state: unknown, scope: PaymentWorkspaceScope): PaymentWorkspac
     workspaceFailure('PAYMENT_WORKSPACE_SCOPE_MISMATCH');
   }
   projection(parsed);
+  if (parsed.invoice && (parsed.invoice.taxSnapshot.serviceSubtotalCents !== parsed.bill.serviceCents
+    || parsed.invoice.taxSnapshot.taxAmountCents !== parsed.bill.taxCents || parsed.invoice.tipCents !== parsed.bill.tipCents)) {
+    workspaceFailure('PAYMENT_WORKSPACE_INVOICE_BILL_MISMATCH');
+  }
   for (const op of parsed.operations) {
     const fact = op.kind === 'payment' ? parsed.requests.find(row => row.id === op.id) : parsed.refunds.find(row => row.id === op.id);
     if (!fact || fact.principalCents !== op.principalCents || fact.tipCents !== op.tipCents
@@ -111,6 +115,14 @@ async function lock(tx: CustomerPaymentTransaction, scope: PaymentWorkspaceScope
 async function clock(tx: CustomerPaymentTransaction) {
   const [row] = await tx.select({ now: sql<string>`floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint` }).from(sql`(SELECT 1) AS payment_workspace_clock`);
   return Number(row!.now);
+}
+
+async function lockActor(tx: CustomerPaymentTransaction, actor: PaymentWorkspaceActor) {
+  const result = await lock(tx, actor);
+  if (actor.role === 'staff' && result.appointment.technicianId !== actor.id) {
+    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+  }
+  return result;
 }
 
 async function replay(tx: CustomerPaymentTransaction, actor: PaymentWorkspaceActor, requestId: string, requestHash: string) {
@@ -156,7 +168,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
     async read(actor: PaymentWorkspaceActor) {
       permissions(actor);
       return database.transaction(async (tx) => {
-        const { row } = await lock(tx, actor);
+        const { row } = await lockActor(tx, actor);
         return row ? validate(row.state, actor) : null;
       });
     },
@@ -167,7 +179,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
       }
       const requestHash = customerPaymentFingerprint({ kind: 'initialize', requestId, actorId: actor.id });
       return database.transaction(async (tx) => {
-        const { appointment, row } = await lock(tx, actor);
+        const { appointment, row } = await lockActor(tx, actor);
         const existing = await replay(tx, actor, requestId, requestHash);
         if (existing) {
           return existing;
@@ -197,7 +209,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
       }
       const requestHash = customerPaymentFingerprint({ ...input, actorId: actor.id });
       return database.transaction(async (tx) => {
-        const { row, appointment } = await lock(tx, actor);
+        const { row, appointment } = await lockActor(tx, actor);
         const existing = await replay(tx, actor, input.requestId, requestHash);
         if (existing) {
           return existing;
@@ -280,14 +292,14 @@ export function createPaymentWorkspaceRepository(database: Database) {
     },
 
     /** The pricing writer runs under the same appointment lock and rolls back on failure. */
-    async reviseBill(actor: PaymentWorkspaceActor, value: unknown, writeInvoice: (tx: CustomerPaymentTransaction, appointment: Appointment) => Promise<Pick<InitialState, 'bill' | 'billSourceHash'>>) {
+    async reviseBill(actor: PaymentWorkspaceActor, value: unknown, writeInvoice: (tx: CustomerPaymentTransaction, appointment: Appointment) => Promise<Pick<InitialState, 'bill' | 'billSourceHash' | 'invoice'>>) {
       if (!permissions(actor).canAdjustBill) {
         return workspaceFailure('PAYMENT_WORKSPACE_ACTION_FORBIDDEN');
       }
       const input = workspaceBillChangeSchema.parse(value);
       const requestHash = customerPaymentFingerprint({ ...input, kind: 'revise_bill', actorId: actor.id });
       return database.transaction(async (tx) => {
-        const { row, appointment } = await lock(tx, actor);
+        const { row, appointment } = await lockActor(tx, actor);
         const existing = await replay(tx, actor, input.requestId, requestHash);
         if (existing) {
           return existing;
@@ -300,6 +312,12 @@ export function createPaymentWorkspaceRepository(database: Database) {
           return workspaceFailure('PAYMENT_WORKSPACE_BALANCE_HELD');
         }
         const invoice = await writeInvoice(tx, appointment);
+        if (state.invoice && !invoice.invoice) {
+          return workspaceFailure('PAYMENT_WORKSPACE_READABLE_INVOICE_REQUIRED');
+        }
+        if (invoice.invoice) {
+          state.invoice = invoice.invoice;
+        }
         state.bill = { ...invoice.bill, revision: state.bill.revision + 1 };
         state.billSourceHash = invoice.billSourceHash;
         state.billChanges.push({ revision: state.bill.revision, reason: input.reason, actorId: actor.id, changedAt: await clock(tx), sourceHash: invoice.billSourceHash });
@@ -315,7 +333,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
       const input = workspaceManualPaymentSchema.parse(value);
       const requestHash = customerPaymentFingerprint({ ...input, kind: 'manual_payment', actorId: actor.id });
       return database.transaction(async (tx) => {
-        const { row, appointment } = await lock(tx, actor);
+        const { row, appointment } = await lockActor(tx, actor);
         const existing = await replay(tx, actor, input.requestId, requestHash);
         if (existing) {
           return existing;
@@ -507,7 +525,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
         return workspaceFailure('PAYMENT_WORKSPACE_ACTION_FORBIDDEN');
       }
       const claim = await database.transaction(async (tx) => {
-        const { row } = await lock(tx, actor);
+        const { row } = await lockActor(tx, actor);
         if (!row || row.revision !== expectedRevision) {
           return workspaceFailure('PAYMENT_WORKSPACE_STALE');
         }

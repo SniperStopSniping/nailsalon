@@ -42,10 +42,26 @@ async function fixture() {
   const initial = { bill: { ...scope, revision: 0, serviceCents: 12000, taxCents: 0, tipCents: 0 }, billSourceHash: sourceHash, payments: [] };
   const initialize = (requestId = randomUUID()) => repository.initialize(actor, requestId, async () => initial);
   const request = (expectedRevision = 0) => ({ kind: 'request_payment' as const, requestId: randomUUID(), expectedRevision });
-  return { scope, actor, initial, initialize, request };
+  return { scope, actor, initial, initialize, request, technicianId: `tech_${id}` };
 }
 
 describe('durable appointment payment workspace', () => {
+  it('rechecks staff assignment under the appointment lock before reads and commands', async () => {
+    const f = await fixture();
+    await f.initialize();
+    const staff = { ...f.actor, role: 'staff' as const, id: f.technicianId };
+
+    expect((await repository.read(staff))?.revision).toBe(0);
+
+    const replacement = randomUUID();
+    await database.insert(schema.technicianSchema).values({ id: replacement, salonId: f.scope.salonId, name: 'Replacement tech' });
+    await database.update(schema.appointmentSchema).set({ technicianId: replacement }).where(eq(schema.appointmentSchema.id, f.scope.appointmentId));
+
+    await expect(repository.read(staff)).rejects.toThrow('ACCESS_REQUIRED');
+    await expect(repository.command(staff, f.request(), async () => ({ binding, billSourceHash: sourceHash }))).rejects.toThrow('ACCESS_REQUIRED');
+    expect((await repository.read(f.actor))?.revision).toBe(0);
+  });
+
   it('persists reservations and immutable original retries across repository instances', async () => {
     const f = await fixture();
     await f.initialize();
