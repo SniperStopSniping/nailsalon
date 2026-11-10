@@ -186,7 +186,9 @@ describe('inert provider boundary', () => {
         expect(resolved ?? '', `${file}: ${reference}`).not.toMatch(/customerPayments\/provider(?:\/|TestGate)/);
       }
     }
-  });
+  // This parses the entire application tree. Coverage instrumentation on the
+  // shared CI runner exceeded five seconds; retain every assertion and scope.
+  }, 20000);
 });
 
 describe('offline verified evidence does not become financial authority', () => {

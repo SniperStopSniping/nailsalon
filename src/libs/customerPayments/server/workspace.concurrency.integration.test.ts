@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
 import * as schema from '@/models/Schema';
 
+import { resolveCustomerWorkspaceActor } from './workspaceAccess';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from './workspaceContract';
 import { createWorkspacePolicyRepository, readWorkspaceBinding } from './workspacePolicyRepository';
 import { createPaymentWorkspaceRepository } from './workspaceRepository';
@@ -142,6 +143,54 @@ suite('workspace commands on separate PostgreSQL connections', () => {
     await expect(clients[0]!.query('UPDATE appointment SET total_price=1 WHERE id=$1', [f.scope.appointmentId])).rejects.toThrow('BALANCE_HELD');
     await expect(clients[0]!.query('UPDATE customer_payment_workspace SET revision=revision+1,state=jsonb_set(jsonb_set(state,\'{revision}\',to_jsonb(revision+1)),\'{operations,0,principalCents}\',\'1\'::jsonb),request_id=$2 WHERE appointment_id=$1', [f.scope.appointmentId, randomUUID()])).rejects.toThrow('OPERATION_IMMUTABLE');
   });
+
+  it.each([false, true])('serializes customer capability revocation against dispatch; revocation commits first=%s', async (revokeFirst) => {
+    const f = await fixture();
+    const database = drizzle(clients[0]!, { schema });
+    const credential = `${randomUUID()}${randomUUID()}`;
+    const tokenId = randomUUID();
+    await database.insert(schema.appointmentAccessTokenSchema).values({ id: tokenId, ...f.scope, tokenHash: createHash('sha256').update(credential).digest('hex'), expiresAt: new Date(Date.now() + 86400000) });
+    const actor = await resolveCustomerWorkspaceActor(database, credential);
+    const reader = async () => ({ binding: { ...binding, policyRevision: 1 }, billSourceHash: sourceHash });
+    const saved = await repositories[0]!.command(actor, { ...f.command, acceptedPolicyRevision: 1, expectedInvoiceHash: sourceHash }, reader);
+    const operationId = saved.state.operations[0]!.id;
+
+    if (revokeFirst) {
+      await clients[0]!.query('BEGIN');
+      await clients[0]!.query('UPDATE appointment_access_token SET revoked_at=clock_timestamp() WHERE id=$1', [tokenId]);
+      const claim = repositories[1]!.claimDispatch(actor, operationId, reader);
+      const outcome = Promise.allSettled([claim]);
+      try {
+        await blockedBy(pids[1]!, pids[0]!);
+      } finally {
+        await clients[0]!.query('COMMIT');
+      }
+
+      expect(await outcome).toMatchObject([{ status: 'rejected', reason: expect.objectContaining({ code: 'PAYMENT_WORKSPACE_ACCESS_REQUIRED' }) }]);
+      expect((await repositories[2]!.read(f.actor))?.operations[0]?.firstDispatchAt).toBeNull();
+    } else {
+      const entered = barrier();
+      const release = barrier();
+      const claim = repositories[0]!.claimDispatch(actor, operationId, async () => {
+        entered.release();
+        await release.promise;
+        return reader();
+      });
+      await entered.promise;
+      const revoke = clients[1]!.query('UPDATE appointment_access_token SET revoked_at=clock_timestamp() WHERE id=$1', [tokenId]);
+      const outcomes = Promise.allSettled([claim, revoke]);
+      try {
+        await blockedBy(pids[1]!, pids[0]!);
+      } finally {
+        release.release();
+      }
+
+      expect((await outcomes).every(result => result.status === 'fulfilled')).toBe(true);
+      expect((await repositories[2]!.read(f.actor))?.operations[0]?.firstDispatchAt).not.toBeNull();
+    }
+
+    await expect(repositories[2]!.read(actor)).rejects.toThrow('ACCESS_REQUIRED');
+  }, 20000);
 
   it.each([false, true])('serializes owner disable against dispatch; disable commits first=%s', async (disableFirst) => {
     const f = await fixture();

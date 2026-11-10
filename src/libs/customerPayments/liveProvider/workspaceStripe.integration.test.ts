@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -12,6 +12,7 @@ import { GET as readCheckout } from '@/app/api/appointments/[id]/checkout/route'
 import { PATCH as completeAppointment } from '@/app/api/appointments/[id]/complete/route';
 import { POST as voidPayment } from '@/app/api/appointments/[id]/payments/[paymentId]/void/route';
 import { POST as recordPayment } from '@/app/api/appointments/[id]/payments/route';
+import { GET as customerRead, POST as customerPay } from '@/app/api/public/appointments/manage/[token]/payments/route';
 import { listPayments } from '@/libs/appointmentCheckoutServer';
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { purgeSalonGroups, SalonPurgeBlockedError } from '@/libs/salonPurge';
@@ -23,7 +24,9 @@ import { createPaymentReturnUrl } from '../server/paymentReturnToken';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from '../server/workspaceContract';
 import { cancelWorkspacePayment, dispatchWorkspacePayment, reconcileWorkspacePayment } from '../server/workspaceDispatcher';
 import { prepareWorkspaceInvoice, readWorkspaceInvoice } from '../server/workspaceInvoice';
+import { createWorkspacePolicyRepository } from '../server/workspacePolicyRepository';
 import { beginCanonicalWorkspaceChange, createPaymentWorkspaceRepository } from '../server/workspaceRepository';
+import { workspaceRuntime } from '../server/workspaceRuntime';
 import { verifyStripeCustomerPaymentReceipt } from './stripeReceipt';
 import { createWorkspaceStripeProvider } from './workspaceStripe';
 
@@ -125,7 +128,7 @@ afterAll(async () => {
 const settings = { payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } } };
 const taxConfig = resolveTaxConfig(settings, new Date());
 
-async function fixture(canonicalInvoice = false) {
+async function fixture(canonicalInvoice = false, depositCents = 0, initialize = true) {
   const id = randomUUID();
   const scope = { salonId: `driver_salon_${id}`, appointmentId: `driver_appt_${id}` };
   await database.insert(schema.salonSchema).values({ id: scope.salonId, slug: scope.salonId, name: 'Provider fixture', settings });
@@ -139,6 +142,12 @@ async function fixture(canonicalInvoice = false) {
     await database.update(schema.appointmentSchema).set({ invoiceCurrency: 'CAD', bookingTaxSnapshot: buildBookingTaxSnapshot({ taxConfig, totals, currency: 'CAD', capturedAt: new Date() }), subtotalBeforeDiscountCents: 10000, tipCents: 2000 }).where(eq(schema.appointmentSchema.id, scope.appointmentId));
     await database.insert(schema.serviceSchema).values({ id, salonId: scope.salonId, name: 'Manicure', price: 10000, durationMinutes: 60, category: 'manicure' });
     await database.insert(schema.appointmentServicesSchema).values({ id, appointmentId: scope.appointmentId, serviceId: id, priceAtBooking: 10000, nameSnapshot: 'Original manicure', durationAtBooking: 60 });
+  }
+  if (depositCents) {
+    await database.insert(schema.appointmentDepositSchema).values({ id: randomUUID(), ...scope, stripeAccountId: 'acct_deposit', stripePaymentIntentId: `pi_${id.replaceAll('-', '')}`, status: 'paid', amountCents: depositCents, currency: 'cad', collectedAt: new Date() });
+  }
+  if (!initialize) {
+    return { scope, actor, technicianId: id, operationId: '' };
   }
   const initial = await repository.initialize(actor, randomUUID(), canonicalInvoice ? prepareWorkspaceInvoice : async () => ({ bill: { ...scope, revision: 0, serviceCents: 10000, taxCents: 1300, tipCents: 2000 }, billSourceHash: 'a'.repeat(64), payments: [] }));
   const saved = await repository.command(actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: 0 }, async () => ({ binding, billSourceHash: initial.state.billSourceHash }));
@@ -161,6 +170,67 @@ async function capturedFixture(canonicalInvoice = false) {
 }
 
 describe('independently retrieved payment and refund accounting', () => {
+  it('uses the actual customer API to pay only the deposit-adjusted balance with pinned policy and invoice consent', async () => {
+    const f = await fixture(true, 2000, false);
+    const tokenId = randomUUID();
+    const capability = `${randomUUID()}${randomUUID()}`;
+    await database.insert(schema.appointmentAccessTokenSchema).values({ id: tokenId, ...f.scope, tokenHash: createHash('sha256').update(capability).digest('hex'), expiresAt: new Date(Date.now() + 86400000) });
+    await database.insert(schema.salonStripeAccountSchema).values({ id: randomUUID(), salonId: f.scope.salonId, stripeAccountId: binding.connectedAccountId, livemode: false, chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true });
+    vi.stubEnv('STRIPE_SECRET_KEY', secret);
+    vi.stubEnv('STRIPE_CUSTOMER_PAYMENTS_WEBHOOK_SECRET', 'synthetic-webhook-placeholder');
+    vi.stubEnv('CUSTOMER_PAYMENTS_STRIPE_WEBHOOK_ENDPOINT_ID', 'we_fixture');
+    vi.stubEnv('CUSTOMER_PAYMENTS_STRIPE_PLATFORM_ACCOUNT_ID', binding.platformAccountId);
+    vi.stubEnv('PUBLIC_APP_URL', binding.returnOrigin);
+    const policies = createWorkspacePolicyRepository(database);
+    await policies.write(f.scope.salonId, f.actor.id, { requestId: randomUUID(), expectedRevision: 0, enabled: true, cancellationPolicy: 'Contact the salon before changing your appointment.' }, workspaceRuntime());
+    const params = { params: Promise.resolve({ token: capability }) };
+    const url = `${binding.returnOrigin}/api/public/appointments/manage/${capability}/payments`;
+    const read = await customerRead(new Request(url), params);
+    const view = (await read.json()).data;
+
+    expect(read.status).toBe(200);
+    expect(view).toMatchObject({ initialized: false, canPay: true, totalCents: 13300, paidCents: 2000, depositCreditCents: 2000, balanceCents: 11300, policy: { revision: 1 } });
+    expect(JSON.stringify(view)).not.toMatch(/Synthetic customer|4165550111|acct_connected|tokenHash/);
+
+    const command = { kind: 'request_payment', requestId: randomUUID(), initializationId: randomUUID(), expectedRevision: view.revision, expectedInvoiceHash: view.invoiceHash, acceptedPolicyRevision: view.policy.revision };
+    const post = (body: unknown) => customerPay(new Request(url, { method: 'POST', headers: { 'origin': binding.returnOrigin, 'content-type': 'application/json' }, body: JSON.stringify(body) }), params);
+
+    expect((await post({ ...command, amountCents: 1 })).status).toBe(400);
+    expect((await post({ ...command, kind: 'request_refund' })).status).toBe(400);
+    expect((await post({ ...command, expectedInvoiceHash: 'f'.repeat(64) })).status).toBe(409);
+    expect((await post({ ...command, acceptedPolicyRevision: 2 })).status).toBe(409);
+    expect(await repository.read(f.actor)).toBeNull();
+    expect(sdk.createSession).not.toHaveBeenCalled();
+
+    const opened = await post(command);
+
+    expect(opened.status).toBe(200);
+    expect((await opened.json()).checkoutUrl).toContain('https://checkout.stripe.com/');
+    expect(sdk.createSession.mock.calls[0]![0].line_items[0].price_data.unit_amount).toBe(11300);
+
+    const state = (await repository.read(f.actor))!;
+
+    expect(state.operations[0]).toMatchObject({ principalCents: 9300, tipCents: 2000, customerAcceptance: { policyRevision: 1, accessTokenId: tokenId } });
+    expect(JSON.stringify(state)).not.toContain(capability);
+
+    sdk.retrieveSession.mockResolvedValue({ ...await sdk.createSession.getMockImplementation()!(sdk.createSession.mock.calls[0]![0]), payment_intent: null });
+
+    expect((await post(command)).status).toBe(200);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+    expect((await repository.read(f.actor))!.operations).toHaveLength(1);
+
+    await policies.write(f.scope.salonId, f.actor.id, { requestId: randomUUID(), expectedRevision: 1, enabled: false, cancellationPolicy: 'Changed policy after request' }, workspaceRuntime());
+    const retained = (await (await customerRead(new Request(url), params)).json()).data;
+
+    expect(retained.canPay).toBe(false);
+    expect(retained.policy).toEqual({ revision: 1, cancellationPolicy: 'Contact the salon before changing your appointment.' });
+
+    await database.update(schema.appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(eq(schema.appointmentAccessTokenSchema.id, tokenId));
+
+    expect((await post(command)).status).toBe(403);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+  });
+
   it('shows pending after dispatch and received only after independent settlement; status reads never write', async () => {
     const f = await capturedFixture();
     const parameters = sdk.createSession.mock.calls[0]![0];

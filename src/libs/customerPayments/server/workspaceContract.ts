@@ -42,6 +42,7 @@ export const workspaceOperationSchema = z.object({
   createdAt: timestamp,
   /** Hash of the return-status signing key; keeps retry URLs stable on rotation. */
   returnStatusKeyHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  customerAcceptance: z.object({ policyRevision: z.number().int().positive(), accessTokenId: identity, acceptedAt: timestamp }).strict().optional(),
   sessionExpiresAt: timestamp.nullable(),
   firstDispatchAt: timestamp.nullable(),
   dispatchToken: z.string().uuid().nullable(),
@@ -96,15 +97,17 @@ export type PaymentWorkspaceState = z.infer<typeof paymentWorkspaceStateSchema>;
 /** These fields come from the authenticated server guard, never the JSON body. */
 export type PaymentWorkspaceActor = PaymentWorkspaceScope & {
   id: string;
-  role: 'owner' | 'staff' | 'admin';
+  role: 'owner' | 'staff' | 'admin' | 'customer';
   impersonating: boolean;
   canEditItems: boolean;
   canRecordPayment: boolean;
+  /** Server-resolved private appointment capability, rechecked under lock. */
+  accessToken?: { id: string; hash: string };
 };
 
 const command = z.object({ requestId: z.string().uuid(), expectedRevision: z.number().int().nonnegative().max(2147483646) });
 export const paymentWorkspaceCommandSchema = z.discriminatedUnion('kind', [
-  command.extend({ kind: z.literal('request_payment') }).strict(),
+  command.extend({ kind: z.literal('request_payment'), acceptedPolicyRevision: z.number().int().positive().max(2147483646).optional(), expectedInvoiceHash: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict(),
   command.extend({ kind: z.literal('request_refund'), paymentId: identity, principalCents: cents, tipCents: cents, reason: z.string().trim().min(1).max(500) }).strict(),
   command.extend({ kind: z.literal('approve_refund'), operationId: z.string().uuid() }).strict(),
   command.extend({ kind: z.literal('reject_refund'), operationId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict(),

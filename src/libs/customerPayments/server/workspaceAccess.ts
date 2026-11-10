@@ -1,8 +1,11 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 
-import { adminSalonMembershipSchema, technicianSchema } from '@/models/Schema';
+import { and, eq, gt, isNull } from 'drizzle-orm';
+
+import type { db } from '@/libs/DB';
+import { adminSalonMembershipSchema, appointmentAccessTokenSchema, technicianSchema } from '@/models/Schema';
 
 import type { CustomerPaymentTransaction } from './preparationRepository';
 import type { PaymentWorkspaceActor } from './workspaceContract';
@@ -13,7 +16,22 @@ export async function authorizeWorkspaceActor(tx: CustomerPaymentTransaction, ac
   if (actor.impersonating) {
     return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
   }
-  if (actor.role === 'staff') {
+  if (actor.role === 'customer') {
+    if (!actor.accessToken || actor.id !== `customer:${actor.accessToken.id}` || !/^[a-f0-9]{64}$/.test(actor.accessToken.hash)) {
+      return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+    }
+    const [capability] = await tx.select({ id: appointmentAccessTokenSchema.id }).from(appointmentAccessTokenSchema).where(and(
+      eq(appointmentAccessTokenSchema.id, actor.accessToken.id),
+      eq(appointmentAccessTokenSchema.tokenHash, actor.accessToken.hash),
+      eq(appointmentAccessTokenSchema.salonId, actor.salonId),
+      eq(appointmentAccessTokenSchema.appointmentId, actor.appointmentId),
+      isNull(appointmentAccessTokenSchema.revokedAt),
+      gt(appointmentAccessTokenSchema.expiresAt, new Date()),
+    )).for('share').limit(1);
+    if (!capability) {
+      return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+    }
+  } else if (actor.role === 'staff') {
     const [staff] = await tx.select().from(technicianSchema).where(and(eq(technicianSchema.id, actor.id), eq(technicianSchema.salonId, actor.salonId))).for('share').limit(1);
     if (!staff?.isActive) {
       return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
@@ -24,6 +42,18 @@ export async function authorizeWorkspaceActor(tx: CustomerPaymentTransaction, ac
       return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
     }
   }
+}
+
+export async function resolveCustomerWorkspaceActor(database: Pick<typeof db, 'select'>, token: string): Promise<PaymentWorkspaceActor> {
+  if (!/^[\w-]{32,128}$/.test(token)) {
+    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+  }
+  const hash = createHash('sha256').update(token).digest('hex');
+  const [capability] = await database.select().from(appointmentAccessTokenSchema).where(and(eq(appointmentAccessTokenSchema.tokenHash, hash), isNull(appointmentAccessTokenSchema.revokedAt), gt(appointmentAccessTokenSchema.expiresAt, new Date()))).limit(1);
+  if (!capability) {
+    return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
+  }
+  return { salonId: capability.salonId, appointmentId: capability.appointmentId, id: `customer:${capability.id}`, role: 'customer', impersonating: false, canEditItems: false, canRecordPayment: false, accessToken: { id: capability.id, hash } };
 }
 
 type ManagerAccess = Extract<Awaited<ReturnType<typeof import('@/libs/routeAccessGuards').requireAppointmentManagerAccess>>, { ok: true }>;

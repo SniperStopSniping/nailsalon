@@ -129,6 +129,8 @@ const SMS_CONSENT_WORDING_VERSION = BOOKING_SMS_SEPARATED_WORDING_VERSION;
 type BookConfirmClientProps = {
   /** Server-gated nonproduction navigation only. Does not enable collection. */
   customerPaymentPreviewEnabled?: boolean;
+  /** Optional post-booking navigation; the private payment API rechecks eligibility. */
+  customerPaymentsEnabled?: boolean;
   rebookingSettings?: RebookingPromptSettings;
   catalogAcknowledgment?: { serviceId: string; resolutionFingerprint: string };
   services: ServiceSummary[];
@@ -1709,6 +1711,7 @@ const SuccessContent = ({
   onBookNext,
   recoveryError,
   paymentPreviewUrl,
+  customerPaymentUrl,
 }: {
   bookingStatus: BookingResultStatus;
   services: ServiceSummary[];
@@ -1735,6 +1738,7 @@ const SuccessContent = ({
   onBookNext?: () => Promise<void>;
   recoveryError?: string | null;
   paymentPreviewUrl?: string | null;
+  customerPaymentUrl?: string | null;
 }) => {
   const t = useTranslations('BookingConfirmation');
   const isPending = bookingStatus === 'pending';
@@ -1873,6 +1877,13 @@ const SuccessContent = ({
                 )}
           </motion.div>
         </div>
+
+        {customerPaymentUrl && !isPending && (
+          <SectionCard title="Pay online" className="border-[var(--n5-border)] bg-[var(--n5-bg-card)] text-sm" contentClassName="space-y-2">
+            <p>Your booking is confirmed. Review your remaining balance and the salon’s payment policy, then choose whether to pay online.</p>
+            <a href={customerPaymentUrl} referrerPolicy="no-referrer" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">View online payment options</a>
+          </SectionCard>
+        )}
 
         {paymentPreviewUrl && (
           <SectionCard title="Test payment quote preview" className="border-[var(--n5-border)] bg-[var(--n5-bg-card)] text-sm" contentClassName="space-y-2">
@@ -2048,6 +2059,7 @@ const SuccessContent = ({
 
 export function BookConfirmClient({
   customerPaymentPreviewEnabled = false,
+  customerPaymentsEnabled = false,
   rebookingSettings = DEFAULT_REBOOKING_PROMPT_SETTINGS,
   catalogAcknowledgment,
   services,
@@ -2222,7 +2234,7 @@ export function BookConfirmClient({
   }, [salonSlug]);
   const [manageUrl, setManageUrl] = useState<string | null>(null);
   // Keep the disabled path's callback/recovery dependencies unchanged.
-  const paymentPreviewContext = customerPaymentPreviewEnabled
+  const paymentPreviewContext = customerPaymentPreviewEnabled || customerPaymentsEnabled
     ? JSON.stringify([salonId, salonSlug, locale, routeSalonSlug, dateStr, timeStr, canonicalStartTime, searchParams.toString()])
     : '';
   const [receiptPaymentPreview, setReceiptPaymentPreview] = useState<{ url: string | null; context: string } | null>(null);
@@ -3457,7 +3469,12 @@ export function BookConfirmClient({
         smsConsentGranted={smsConsent}
         smsReminderStatus={smsReminderStatus}
         manageUrl={manageUrl}
-        paymentPreviewUrl={customerPaymentPreviewEnabled && !displayedDeposit
+        customerPaymentUrl={customerPaymentsEnabled && !displayedDeposit
+        && submittedDepositFingerprint === DEPOSIT_FINGERPRINT_NONE
+        && receiptPaymentPreview?.context === paymentPreviewContext
+          ? receiptPaymentPreview.url?.replace(/#customer-payment-preview$/, '#appointment-payment')
+          : null}
+        paymentPreviewUrl={!customerPaymentsEnabled && customerPaymentPreviewEnabled && !displayedDeposit
         && submittedDepositFingerprint === DEPOSIT_FINGERPRINT_NONE
         && receiptPaymentPreview?.context === paymentPreviewContext
           ? receiptPaymentPreview.url

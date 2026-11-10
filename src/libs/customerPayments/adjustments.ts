@@ -227,19 +227,20 @@ export type AdjustmentBalance = ReturnType<typeof resolveAdjustmentBalance>;
 
 /** Owner-only refunds initially; role and appointment access come from auth. */
 export function adjustmentPermissions(actor: {
-  role: 'owner' | 'staff' | 'admin';
+  role: 'owner' | 'staff' | 'admin' | 'customer';
   hasAppointmentAccess: boolean;
   impersonating: boolean;
   canEditItems: boolean;
   canRecordPayment: boolean;
 }) {
   const permitted = actor.hasAppointmentAccess && !actor.impersonating;
+  const staff = actor.role !== 'customer';
   return Object.freeze({
     canView: permitted,
-    canAdjustBill: permitted && actor.canEditItems,
-    canRequestPayment: permitted && actor.canRecordPayment,
-    canRecordPayment: permitted && actor.canRecordPayment,
-    canRequestRefund: permitted && actor.canRecordPayment,
+    canAdjustBill: permitted && staff && actor.canEditItems,
+    canRequestPayment: permitted && (!staff || actor.canRecordPayment),
+    canRecordPayment: permitted && staff && actor.canRecordPayment,
+    canRequestRefund: permitted && staff && actor.canRecordPayment,
     canIssueRefund: permitted && actor.role === 'owner',
   });
 }

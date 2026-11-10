@@ -1056,6 +1056,21 @@ describe('BookConfirmClient', () => {
       ...extra,
     } });
 
+    it('offers optional online payment only after a confirmed booking and never sends a payment request from confirmation', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(receipt()), { status: 201 }));
+      renderBasicConfirm({ customerPaymentsEnabled: true });
+
+      expect(screen.queryByRole('link', { name: 'View online payment options' })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+      const link = await screen.findByRole('link', { name: 'View online payment options' });
+
+      expect(link).toHaveAttribute('href', `${managePath}#appointment-payment`);
+      expect(link).toHaveAttribute('referrerpolicy', 'no-referrer');
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('link', { name: previewLabel })).not.toBeInTheDocument();
+    });
+
     it('offers an explicit same-origin handoff only after one confirmed booking, without preparing a quote', async () => {
       let finish!: (response: Response) => void;
       fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => {

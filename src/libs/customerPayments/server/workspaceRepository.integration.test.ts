@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/models/Schema';
 
 import { verifyStripeCustomerPaymentReceipt } from '../liveProvider/stripeReceipt';
+import { resolveCustomerWorkspaceActor } from './workspaceAccess';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from './workspaceContract';
 import { createPaymentWorkspaceRepository } from './workspaceRepository';
 
@@ -50,6 +51,37 @@ async function fixture() {
 }
 
 describe('durable appointment payment workspace', () => {
+  it('rechecks customer capability revocation and scope under lock and refuses all staff money powers', async () => {
+    const f = await fixture();
+    await f.initialize();
+    const tokenId = randomUUID();
+    const credential = `${randomUUID()}${randomUUID()}`;
+    await database.insert(schema.appointmentAccessTokenSchema).values({ id: tokenId, ...f.scope, tokenHash: createHash('sha256').update(credential).digest('hex'), expiresAt: new Date(Date.now() + 86400000) });
+    const actor = await resolveCustomerWorkspaceActor(database, credential);
+    const command = { ...f.request(), acceptedPolicyRevision: 1, expectedInvoiceHash: sourceHash };
+    const reader = async () => ({ binding: { ...binding, policyRevision: 1 }, billSourceHash: sourceHash });
+
+    await expect(repository.command(actor, { ...command, expectedInvoiceHash: 'b'.repeat(64) }, reader)).rejects.toThrow('POLICY_ACCEPTANCE_REQUIRED');
+    await expect(repository.command(actor, { kind: 'request_refund', requestId: randomUUID(), expectedRevision: 0, paymentId: 'any', principalCents: 1, tipCents: 0, reason: 'Forbidden' }, reader)).rejects.toThrow('ACTION_FORBIDDEN');
+
+    const forgedPowers = { ...actor, canEditItems: true, canRecordPayment: true };
+
+    await expect(repository.recordManualPayment(forgedPowers, {}, async () => sourceHash, async () => ({ paymentId: 'fake', billSourceHash: sourceHash }))).rejects.toThrow('ACTION_FORBIDDEN');
+    await expect(repository.reviseBill(forgedPowers, {}, async () => f.initial)).rejects.toThrow('ACTION_FORBIDDEN');
+
+    const other = await fixture();
+
+    await expect(repository.read({ ...actor, ...other.scope })).rejects.toThrow('ACCESS_REQUIRED');
+
+    const requested = await repository.command(actor, command, reader);
+    await database.update(schema.appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(eq(schema.appointmentAccessTokenSchema.id, tokenId));
+
+    await expect(repository.read(actor)).rejects.toThrow('ACCESS_REQUIRED');
+    await expect(repository.command(actor, command, reader)).rejects.toThrow('ACCESS_REQUIRED');
+    await expect(repository.claimDispatch(actor, requested.state.operations[0]!.id, reader)).rejects.toThrow('ACCESS_REQUIRED');
+    expect((await repository.read(f.actor))!.operations[0]!.firstDispatchAt).toBeNull();
+  });
+
   it('rechecks staff assignment under the appointment lock before reads and commands', async () => {
     const f = await fixture();
     await f.initialize();

@@ -1,6 +1,46 @@
 # Customer payments release work — 2026-11-09
 
-## Current checkpoint: verified customer return status
+## Current checkpoint: customer booking and private payment initiation
+
+Payments remain **not live**. Confirmed, deposit-free bookings can offer a
+same-origin link to online payment options when the salon has enabled the feature
+and its saved connection is ready. Existing deposit collection still runs first.
+The private appointment page now displays the saved invoice, deposit credit,
+remaining balance and cancellation/refund policy, with optional online payment.
+Salons without opt-in keep their existing flow.
+
+The public API derives a customer actor from the private booking capability and
+rechecks its scope, expiry and revocation under the appointment lock. Customers
+cannot edit invoices, record manual payments, request refunds or assume staff
+powers. A payment requires the exact invoice fingerprint and policy revision the
+customer accepted; those references are retained with the operation. Retrying a
+lost response reuses its command identity. Browser amounts never set the charge.
+
+Local validation: 212 booking/UI cases; 34 actual-route, repository and mocked-SDK
+cases; 91 existing manage/accounting/authenticated-API regression cases; 24 inert
+provider-boundary checks; 49 native PostgreSQL cases with zero skips, including
+both orderings of capability revocation versus dispatch; and four desktop/mobile
+browser cases. Full TypeScript passes. The 320px WebKit screen was inspected.
+The owned disposable PostgreSQL cluster was stopped and removed. No real Stripe
+charge, refund, account change, customer message or application migration occurred.
+
+Return-status commit `3bfda8a78885a613c0966c07cbc00dfe039adfc1` is pushed. Preview
+`dpl_B4EXyJ8oNdtjmzQSKTkQAtbSQtA2` is READY. `/payments/result?result=success`
+returned 200 with “Checking your payment”, private/no-store, no-referrer and
+noindex headers. Health is 503 at expected SHA `3bfda8a`, still missing Connect and
+schema readiness. Its full Vitest aggregate, native payment job and all three
+builds passed. Application coverage hit the full-tree boundary scan's five-second
+timeout; this checkpoint gives that same unchanged assertion set a bounded
+20 seconds. A browser job failed while installing OS dependencies in two bounded
+attempts. New-head CI and Preview are still required.
+
+Remaining: completed-invoice editing, deposit-refund reconciliation, scheduled
+recovery, post-settlement client/loyalty refresh, cross-family ownership, provider
+and signing-secret setup, target migration verification, actual provider-backed
+customer/technician payment/refund/return journeys, then current-head CI, review,
+protected-main merge and production verification. Browser access remains disabled.
+
+## Previous checkpoint: verified customer return status
 
 Payments remain **not live**. The customer return page now displays a minimal
 server-verified payment result and confirmed refunds. Neither a success redirect

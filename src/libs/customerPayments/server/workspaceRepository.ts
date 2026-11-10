@@ -70,7 +70,7 @@ export function assertWorkspaceDispatchClaim(claim: WorkspaceDispatchClaim, cons
 
 function permissions(actor: PaymentWorkspaceActor) {
   paymentWorkspaceScopeSchema.parse({ salonId: actor.salonId, appointmentId: actor.appointmentId });
-  if (!actor.id || actor.id.length > 200 || !['owner', 'staff', 'admin'].includes(actor.role)) {
+  if (!actor.id || actor.id.length > 200 || !['owner', 'staff', 'admin', 'customer'].includes(actor.role)) {
     workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
   }
   const result = adjustmentPermissions({ ...actor, hasAppointmentAccess: true });
@@ -298,7 +298,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
     },
 
     async initialize(actor: PaymentWorkspaceActor, requestId: string, prepare: (tx: CustomerPaymentTransaction, appointment: Appointment) => Promise<InitialState>) {
-      if (!permissions(actor).canRecordPayment || !/^[0-9a-f-]{36}$/i.test(requestId)) {
+      if (!permissions(actor).canRequestPayment || !/^[0-9a-f-]{36}$/i.test(requestId)) {
         return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
       }
       const requestHash = customerPaymentFingerprint({ kind: 'initialize', requestId, actorId: actor.id });
@@ -379,6 +379,12 @@ export function createPaymentWorkspaceRepository(database: Database) {
             providerObjectId: null,
           };
           if (input.kind === 'request_payment') {
+            if (actor.role === 'customer') {
+              if (!actor.accessToken || !current.binding?.policyRevision || input.acceptedPolicyRevision !== current.binding.policyRevision || input.expectedInvoiceHash !== state.billSourceHash) {
+                return workspaceFailure('PAYMENT_WORKSPACE_POLICY_ACCEPTANCE_REQUIRED');
+              }
+              operation.customerAcceptance = { policyRevision: current.binding.policyRevision, accessTokenId: actor.accessToken.id, acceptedAt: now };
+            }
             const statusKeyHash = paymentReturnSigningKeyHash();
             if (statusKeyHash) {
               operation.returnStatusKeyHash = statusKeyHash;
@@ -629,6 +635,9 @@ export function createPaymentWorkspaceRepository(database: Database) {
         }
         if (op.kind === 'payment' ? !access.canRequestPayment : !access.canIssueRefund) {
           return workspaceFailure('PAYMENT_WORKSPACE_ACTION_FORBIDDEN');
+        }
+        if (actor.role === 'customer' && (op.requestedBy !== actor.id || op.customerAcceptance?.accessTokenId !== actor.accessToken?.id || op.customerAcceptance?.policyRevision !== op.binding.policyRevision)) {
+          return workspaceFailure('PAYMENT_WORKSPACE_POLICY_ACCEPTANCE_REQUIRED');
         }
         const current = await readBinding(tx, appointment, state);
         if (current.billSourceHash !== state.billSourceHash) {
