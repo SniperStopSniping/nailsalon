@@ -16,6 +16,8 @@ import { createDurableSdkCheckoutRepository } from '../inactiveStripe/durableChe
 import { createDurableCheckoutSdkBridge } from '../inactiveStripe/durableCheckoutSdkBridge';
 import { closedCheckoutSession, createDurableCheckoutFixture } from '../inactiveStripe/durableCheckoutTestSupport';
 import { isCustomerPaymentReservationBlocked } from './reservationGuard';
+import type { PaymentWorkspaceActor } from './workspaceContract';
+import { createPaymentWorkspaceRepository } from './workspaceRepository';
 
 vi.mock('server-only', () => ({}));
 const rawUrl = process.env.CUSTOMER_PAYMENT_PROVIDER_TEST_DATABASE_URL ?? '';
@@ -27,6 +29,7 @@ if (rawUrl) {
 }
 const suite = target ? describe.sequential : describe.skip;
 type Database = NodePgDatabase<typeof schema>;
+type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 type Transport = ReturnType<typeof createClosedCheckoutSdkTransport>;
 const clients: pg.PoolClient[] = [];
@@ -238,6 +241,44 @@ suite('SDK financial reservation — attested PostgreSQL concurrency', () => {
   afterAll(async () => {
     clients.forEach(client => client.release());
     await pool?.end();
+  });
+
+  it.each([false, true])('serializes SDK reservation against workspace ownership; workspace first=%s', async (workspaceFirst) => {
+    const f = await fixture();
+    const actor: PaymentWorkspaceActor = { salonId: f.salonId, appointmentId: f.appointmentId, id: randomUUID(), role: 'owner', impersonating: false, canEditItems: true, canRecordPayment: true };
+    await databases[0]!.insert(schema.adminUserSchema).values({ id: actor.id });
+    await databases[0]!.insert(schema.adminSalonMembershipSchema).values({ salonId: f.salonId, adminId: actor.id, role: 'owner' });
+    const initial = async () => ({ bill: { salonId: f.salonId, appointmentId: f.appointmentId, revision: 0, serviceCents: 10000, taxCents: 0, tipCents: 2000 }, billSourceHash: 'a'.repeat(64), payments: [] });
+    const held = heldRepository(0);
+    const entered = barrier();
+    const release = barrier();
+    const heldWorkspace = createPaymentWorkspaceRepository({ transaction: <T>(callback: (tx: Transaction) => Promise<T>) => databases[0]!.transaction(async (tx) => {
+      const result = await callback(tx);
+      entered.release();
+      await release.promise;
+      return result;
+    }) });
+    const first: Promise<PromiseSettledResult<unknown>> = workspaceFirst
+      ? settled(heldWorkspace.initialize(actor, randomUUID(), initial))
+      : settled(held.repository.reserveAuthenticated(f.input));
+    await reached(workspaceFirst ? entered : held.entered, first);
+    const second: Promise<PromiseSettledResult<unknown>> = workspaceFirst
+      ? settled(repo(1).reserveAuthenticated(f.input))
+      : settled(createPaymentWorkspaceRepository(databases[1]!).initialize(actor, randomUUID(), initial));
+    try {
+      await waitForBlocker(1, 0);
+    } finally {
+      release.release();
+      held.release.release();
+    }
+
+    expect((await first).status).toBe('fulfilled');
+
+    const failure = await rejected(await second, 'P0001') as { cause?: Error };
+
+    expect(failure.cause?.message).toContain('PAYMENT_WORKSPACE_OWNERSHIP_CONFLICT');
+    expect((await clients[3]!.query('SELECT 1 FROM customer_payment_workspace WHERE appointment_id=$1', [f.appointmentId])).rowCount).toBe(workspaceFirst ? 1 : 0);
+    expect((await clients[3]!.query('SELECT 1 FROM customer_payment_closed_checkout_operation WHERE appointment_id=$1', [f.appointmentId])).rowCount).toBe(workspaceFirst ? 0 : 1);
   });
 
   it.each(writes)('reservation commits first: refuses $name while locked and after commit', async (spec) => {

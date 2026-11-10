@@ -1,6 +1,46 @@
 # Customer payments release work — 2026-11-09
 
-## Current checkpoint: deposit reconciliation and durable client refresh
+## Current checkpoint: scheduled recovery and provider ownership
+
+Payments remain **not live**. Dispatch now commits a recovery job before any
+Stripe write. The existing scheduled worker retrieves known objects and can
+discover a lost response using bounded, account-scoped Session/refund lists and
+the saved operation identity. Discovery never posts money: a separate invocation
+performs the full independent verification chain. Neither recovery path creates,
+cancels or refunds. Missing, partial or ambiguous discoveries retain the hold.
+
+Pending recovery survives the ordinary integration attempt limit. Rescheduled
+polls yield to earlier due jobs, and the worker's platform duration covers its
+existing work/cleanup budget. Creation switches do not disable recovery. Conflicting
+signed/provider identities retain an irreversible review marker; duplicate ingress
+does not poll that conflict away or append repeated revisions.
+
+The unreleased 0128 migration now enforces reciprocal appointment ownership between
+the workspace and closed SDK reservation. Transaction locks also prevent live
+settlements, closed objects and deposits from adopting the same provider IDs.
+The migration is absent from current origin/main and has never been applied to an
+application database by this work. CI pins its new exact hash and requires all
+53 native payment cases, with zero skips; previously shipped migrations stay frozen.
+
+Validation: 84 provider/repository/outbox cases, 78 boundary/SDK/authenticated-route
+cases, 41 worker/outbox cases (overlaps the first group), 53 native PostgreSQL
+cases with zero skips, 28 CI contract checks, full TypeScript and the protected
+surface gate. These are simulated provider tests against disposable databases.
+
+Deposit checkpoint `28e37c9fe4e37bf21a360486afab1c1ad739488b` is pushed. Its Preview
+`dpl_J5CX4oChN2uMx8uBoHrEqMcBMb3B` is READY and health reports expected
+`gitSha=28e37c9`, still 503 for Connect/schema readiness. Its full Vitest aggregate,
+three builds and native payment job passed; application/browser gates were still
+running. The recovery checkpoint needs its own hosted build and checks.
+
+Remaining release work: ready Canadian Standard sandbox connection, webhook and
+status-signing configuration, verified target migrations, actual provider-backed
+customer/technician payment/refund/return journeys, current-head CI/review,
+protected-main merge and production verification. The configured test platform
+has no connected accounts. Browser access remains disabled in Work settings.
+Production and customer money remain unchanged.
+
+## Previous checkpoint: deposit reconciliation and durable client refresh
 
 Payments remain **not live**. Resolved full deposit refunds and forfeitures can
 now update the workspace from canonical deposit facts without rewriting gross

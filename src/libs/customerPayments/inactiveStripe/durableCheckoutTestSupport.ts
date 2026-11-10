@@ -12,7 +12,7 @@ import type { InactiveStripeCheckoutOperation } from './checkoutContract';
 import { buildInactiveStripeCheckoutOperation } from './checkoutContract';
 
 type Database = Pick<typeof db, 'select' | 'insert' | 'transaction'>;
-export async function createDurableCheckoutFixture(database: Database) {
+export async function createDurableCheckoutFixture(database: Database, provider?: { platformAccountId: string; connectedAccountId: string }) {
   const suffix = randomUUID().replaceAll('-', '');
   const salonId = `binding_salon_${suffix}`;
   const appointmentId = `binding_appt_${suffix}`;
@@ -21,7 +21,7 @@ export async function createDurableCheckoutFixture(database: Database) {
   const itemId = `binding_item_${suffix}`;
   const technicianId = `binding_tech_${suffix}`;
   const serviceId = `binding_service_${suffix}`;
-  const accountId = `acct_${suffix}`;
+  const accountId = provider?.connectedAccountId ?? `acct_${suffix}`;
   const token = randomBytes(32).toString('base64url');
   const now = new Date();
   const future = (offset: number) => new Date(now.getTime() + offset);
@@ -50,7 +50,7 @@ export async function createDurableCheckoutFixture(database: Database) {
     successUrl: 'https://closed.invalid/success',
     cancelUrl: 'https://closed.invalid/cancel',
     quote: { currency: 'cad', collection: 'full', servicesCents: s.servicesCents, discountCents: s.discountCents, taxCents: s.taxCents, tipCents: s.tipCents, feePolicy: { payer: 'salon', feeCents: s.configuredFeeCents, taxTreatment: 'not_collected_in_test_mode' } },
-  }, { platformAccountId: 'acct_closedPlatform', connectedAccountId: accountId, mode: 'test', returnOrigin: 'https://closed.invalid' });
+  }, { platformAccountId: provider?.platformAccountId ?? 'acct_closedPlatform', connectedAccountId: accountId, mode: 'test', returnOrigin: 'https://closed.invalid' });
   return { salonId, appointmentId, token, tokenId, bindingId, itemId, quote, operation, repository, policyInput };
 }
 

@@ -48,6 +48,8 @@ export const workspaceOperationSchema = z.object({
   dispatchToken: z.string().uuid().nullable(),
   dispatchUntil: timestamp.nullable(),
   providerObjectId: identity.nullable(),
+  /** Conflicting object evidence requires explicit operator reconciliation. */
+  providerConflict: z.literal(true).optional(),
 }).strict();
 export type WorkspaceOperation = z.infer<typeof workspaceOperationSchema>;
 

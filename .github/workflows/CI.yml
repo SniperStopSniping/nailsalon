@@ -1141,7 +1141,7 @@ jobs:
           migrations/0125_customer_payment_fixture_movements.sql 0ab886357500e4811c25b18c05777e89c7b65af4
           migrations/0126_customer_payment_closed_checkout.sql d9b6e4384575fc43328f079ca9c8a1687c15cfb7
           migrations/0127_customer_payment_sdk_reservation.sql 7939454f54a2a491b39c9086867e64da2496f19c
-          migrations/0128_customer_payment_workspace.sql 1c35587a0d686c76b70093c35a234a4c84eec05f
+          migrations/0128_customer_payment_workspace.sql 4e53d461de72780856d82227eef32b8964709190
           migrations/0129_customer_payment_owner_activation.sql 4f8930c958520409d6025d936d2d13ead3495830
           CUSTOMER_PAYMENT_MIGRATIONS
           expected_payment_journal='[{"breakpoints":true,"idx":114,"tag":"0115_customer_payment_preparation","version":"7","when":1794178800000},{"breakpoints":true,"idx":115,"tag":"0116_customer_payment_synthetic_capture","version":"7","when":1794182400000},{"breakpoints":true,"idx":116,"tag":"0117_customer_payment_mutation_guards","version":"7","when":1794186000000},{"breakpoints":true,"idx":117,"tag":"0118_customer_payment_synthetic_refunds","version":"7","when":1794189600000},{"breakpoints":true,"idx":118,"tag":"0119_customer_payment_credit_review","version":"7","when":1794193200000},{"breakpoints":true,"idx":119,"tag":"0120_customer_payment_provider_journal","version":"7","when":1794196800000},{"breakpoints":true,"idx":120,"tag":"0121_customer_payment_provider_correlation","version":"7","when":1794200400000},{"breakpoints":true,"idx":121,"tag":"0122_customer_payment_refund_correlation","version":"7","when":1794204000000},{"breakpoints":true,"idx":122,"tag":"0123_customer_payment_dispute_correlation","version":"7","when":1794207600000},{"breakpoints":true,"idx":123,"tag":"0124_customer_payment_fixture_application","version":"7","when":1794211200000},{"breakpoints":true,"idx":124,"tag":"0125_customer_payment_fixture_movements","version":"7","when":1794214800000},{"breakpoints":true,"idx":125,"tag":"0126_customer_payment_closed_checkout","version":"7","when":1794218400000},{"breakpoints":true,"idx":126,"tag":"0127_customer_payment_sdk_reservation","version":"7","when":1794222000000},{"breakpoints":true,"idx":127,"tag":"0128_customer_payment_workspace","version":"7","when":1794232800000},{"breakpoints":true,"idx":128,"tag":"0129_customer_payment_owner_activation","version":"7","when":1794272400000}]'
@@ -2490,13 +2490,13 @@ jobs:
           const { readFileSync } = require('node:fs');
           const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
           const assertions = report.testResults?.flatMap(file => file.assertionResults ?? []) ?? [];
-          if (report.success !== true || report.numTotalTests !== 51 || report.numPassedTests !== 51
+          if (report.success !== true || report.numTotalTests !== 53 || report.numPassedTests !== 53
             || report.numFailedTests !== 0 || report.numPendingTests !== 0 || report.numTodoTests !== 0
-            || report.testResults?.length !== 3 || assertions.length !== 51 || assertions.some(test => test.status !== 'passed')) {
-            process.stderr.write('Customer payment PostgreSQL checks must execute all 51 cases with zero skips.\n');
+            || report.testResults?.length !== 3 || assertions.length !== 53 || assertions.some(test => test.status !== 'passed')) {
+            process.stderr.write('Customer payment PostgreSQL checks must execute all 53 cases with zero skips.\n');
             process.exit(1);
           }
-          console.log('CUSTOMER_PAYMENT_POSTGRES_TESTS_EXECUTED=51 CUSTOMER_PAYMENT_POSTGRES_TESTS_SKIPPED=0');
+          console.log('CUSTOMER_PAYMENT_POSTGRES_TESTS_EXECUTED=53 CUSTOMER_PAYMENT_POSTGRES_TESTS_SKIPPED=0');
           NODE
 
       # Next Visit deliberately drops and recreates both schemas, so it is the

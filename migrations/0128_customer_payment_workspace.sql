@@ -33,6 +33,8 @@ BEGIN
  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'PAYMENT_WORKSPACE_HISTORY_IMMUTABLE'; END IF;
  SELECT salon_id INTO parent_salon FROM appointment WHERE id=NEW.appointment_id FOR UPDATE;
  IF parent_salon IS DISTINCT FROM NEW.salon_id THEN RAISE EXCEPTION 'PAYMENT_WORKSPACE_SCOPE_MISMATCH'; END IF;
+ IF EXISTS(SELECT 1 FROM customer_payment_closed_checkout_operation WHERE appointment_id=NEW.appointment_id AND execution_kind='sdk_closed_http_v1')
+ THEN RAISE EXCEPTION 'PAYMENT_WORKSPACE_OWNERSHIP_CONFLICT'; END IF;
  IF (TG_OP='INSERT' AND NEW.revision<>0) OR (TG_OP='UPDATE' AND
   (NEW.appointment_id<>OLD.appointment_id OR NEW.salon_id<>OLD.salon_id OR NEW.revision<>OLD.revision+1))
  THEN RAISE EXCEPTION 'PAYMENT_WORKSPACE_REVISION_MISMATCH'; END IF;
@@ -233,8 +235,9 @@ DECLARE old_op jsonb; new_op jsonb;
 BEGIN
  FOR old_op IN SELECT value FROM jsonb_array_elements(OLD.state->'operations') LOOP
   SELECT value INTO new_op FROM jsonb_array_elements(NEW.state->'operations') WHERE value->>'id'=old_op->>'id';
-  IF new_op IS NULL OR (old_op-ARRAY['state','approvedBy','reason','firstDispatchAt','dispatchToken','dispatchUntil','providerObjectId'])
-    IS DISTINCT FROM (new_op-ARRAY['state','approvedBy','reason','firstDispatchAt','dispatchToken','dispatchUntil','providerObjectId'])
+  IF new_op IS NULL OR (old_op-ARRAY['state','approvedBy','reason','firstDispatchAt','dispatchToken','dispatchUntil','providerObjectId','providerConflict'])
+    IS DISTINCT FROM (new_op-ARRAY['state','approvedBy','reason','firstDispatchAt','dispatchToken','dispatchUntil','providerObjectId','providerConflict'])
+   OR (old_op->>'providerConflict'='true' AND new_op->>'providerConflict' IS DISTINCT FROM 'true')
    OR (old_op->>'firstDispatchAt' IS NOT NULL AND old_op->'firstDispatchAt' IS DISTINCT FROM new_op->'firstDispatchAt')
    OR (old_op->>'providerObjectId' IS NOT NULL AND old_op->'providerObjectId' IS DISTINCT FROM new_op->'providerObjectId')
    OR (old_op->>'approvedBy' IS NOT NULL AND old_op->'approvedBy' IS DISTINCT FROM new_op->'approvedBy')
@@ -250,3 +253,55 @@ BEGIN
 END $$;
 --> statement-breakpoint
 CREATE TRIGGER payment_workspace_operation_guard BEFORE UPDATE ON customer_payment_workspace FOR EACH ROW EXECUTE FUNCTION customer_payment_workspace_operation_guard();
+--> statement-breakpoint
+-- Reciprocal admission uses the same appointment lock as both repositories.
+CREATE FUNCTION customer_payment_workspace_sdk_owner_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF NEW.execution_kind='sdk_closed_http_v1' THEN
+  PERFORM id FROM appointment WHERE id=NEW.appointment_id FOR UPDATE;
+  IF EXISTS(SELECT 1 FROM customer_payment_workspace WHERE appointment_id=NEW.appointment_id)
+  THEN RAISE EXCEPTION 'PAYMENT_WORKSPACE_OWNERSHIP_CONFLICT'; END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER aaa_payment_workspace_sdk_owner_guard BEFORE INSERT ON customer_payment_closed_checkout_operation FOR EACH ROW EXECUTE FUNCTION customer_payment_workspace_sdk_owner_guard();
+--> statement-breakpoint
+-- Object identity is shared across payment families. Sorted transaction locks
+-- serialize both insertion orders, including different appointments/tenants.
+CREATE FUNCTION customer_payment_live_object_owner_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE object_key text;
+BEGIN
+ FOR object_key IN SELECT DISTINCT x FROM unnest(ARRAY[NEW.object_id,NEW.payment_intent_id,NEW.charge_id]) x WHERE x IS NOT NULL ORDER BY x LOOP
+  PERFORM pg_advisory_xact_lock(hashtextextended(NEW.account_id||':'||object_key,0));
+ END LOOP;
+ IF (NOT NEW.livemode AND EXISTS(SELECT 1 FROM customer_payment_closed_checkout_object WHERE platform_account_id=NEW.platform_account_id AND connected_account_id=NEW.account_id AND mode='test' AND object_id=ANY(ARRAY[NEW.object_id,NEW.payment_intent_id,NEW.charge_id])))
+  OR EXISTS(SELECT 1 FROM appointment_deposit WHERE stripe_account_id=NEW.account_id AND (stripe_checkout_session_id=ANY(ARRAY[NEW.object_id,NEW.payment_intent_id,NEW.charge_id]) OR stripe_payment_intent_id=ANY(ARRAY[NEW.object_id,NEW.payment_intent_id,NEW.charge_id]) OR stripe_refund_id=ANY(ARRAY[NEW.object_id,NEW.payment_intent_id,NEW.charge_id])))
+ THEN RAISE EXCEPTION 'PAYMENT_WORKSPACE_PROVIDER_OWNERSHIP_CONFLICT'; END IF;
+ RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER aaa_payment_live_object_owner_guard BEFORE INSERT ON customer_payment_live_settlement FOR EACH ROW EXECUTE FUNCTION customer_payment_live_object_owner_guard();
+--> statement-breakpoint
+CREATE FUNCTION customer_payment_closed_object_owner_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ PERFORM pg_advisory_xact_lock(hashtextextended(NEW.connected_account_id||':'||NEW.object_id,0));
+ IF EXISTS(SELECT 1 FROM customer_payment_live_settlement WHERE platform_account_id=NEW.platform_account_id AND account_id=NEW.connected_account_id AND NOT livemode AND NEW.object_id=ANY(ARRAY[object_id,payment_intent_id,charge_id]))
+ THEN RAISE EXCEPTION 'PAYMENT_WORKSPACE_PROVIDER_OWNERSHIP_CONFLICT'; END IF;
+ RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER aaa_payment_closed_object_owner_guard BEFORE INSERT ON customer_payment_closed_checkout_object FOR EACH ROW EXECUTE FUNCTION customer_payment_closed_object_owner_guard();
+--> statement-breakpoint
+CREATE FUNCTION customer_payment_deposit_object_owner_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE object_key text;
+BEGIN
+ FOR object_key IN SELECT DISTINCT x FROM unnest(ARRAY[NEW.stripe_checkout_session_id,NEW.stripe_payment_intent_id,NEW.stripe_refund_id]) x WHERE x IS NOT NULL ORDER BY x LOOP
+  PERFORM pg_advisory_xact_lock(hashtextextended(NEW.stripe_account_id||':'||object_key,0));
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM customer_payment_live_settlement WHERE account_id=NEW.stripe_account_id AND (object_id=ANY(ARRAY[NEW.stripe_checkout_session_id,NEW.stripe_payment_intent_id,NEW.stripe_refund_id]) OR payment_intent_id=ANY(ARRAY[NEW.stripe_checkout_session_id,NEW.stripe_payment_intent_id,NEW.stripe_refund_id]) OR charge_id=ANY(ARRAY[NEW.stripe_checkout_session_id,NEW.stripe_payment_intent_id,NEW.stripe_refund_id])))
+ THEN RAISE EXCEPTION 'PAYMENT_WORKSPACE_PROVIDER_OWNERSHIP_CONFLICT'; END IF;
+ RETURN NEW;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER aaa_payment_deposit_object_owner_guard BEFORE INSERT OR UPDATE ON appointment_deposit FOR EACH ROW EXECUTE FUNCTION customer_payment_deposit_object_owner_guard();

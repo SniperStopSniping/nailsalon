@@ -160,6 +160,65 @@ export function createWorkspaceStripeProvider(secretKey: string) {
       // Session/Intent/Charge independently before recognizing cancellation.
     },
 
+    /** Locate an unknown response with GETs; a candidate is not a settlement. */
+    async discover(claim: WorkspaceReconciliationClaim): Promise<WorkspaceProviderObservation | null> {
+      const { assertWorkspaceReconciliationClaim } = await import('../server/workspaceRepository');
+      assertWorkspaceReconciliationClaim(claim);
+      const op = claim.operation;
+      if (op.providerObjectId || op.firstDispatchAt === null || !op.dispatchToken || (op.kind === 'refund' && !op.parentChargeId)) {
+        return workspaceFailure('PAYMENT_WORKSPACE_DISCOVERY_HELD');
+      }
+      await preflight(op.binding, false, false);
+      const created = { gte: Math.max(0, Math.floor(op.firstDispatchAt / 1000) - 300), lte: Math.floor(Date.now() / 1000) };
+      const matches = new Set<string>();
+      let cursor: string | undefined;
+      let exhausted = false;
+      // Bound account-wide discovery. A partial scan can never establish a
+      // unique match or absence, and never authorizes a replacement request.
+      for (let page = 0; page < 3; page++) {
+        assertWorkspaceReconciliationClaim(claim);
+        const params = { limit: 100, created, ...(cursor ? { starting_after: cursor } : {}) };
+        const response = op.kind === 'payment'
+          ? await client.checkout.sessions.list(params, options(op.binding))
+          : await client.refunds.list({ ...params, charge: op.parentChargeId! }, options(op.binding));
+        responseScope(response, op.binding, true);
+        if (!Array.isArray(response.data) || typeof response.has_more !== 'boolean') {
+          return workspaceFailure('PAYMENT_WORKSPACE_DISCOVERY_INVALID');
+        }
+        for (const candidate of response.data) {
+          if (candidate.metadata?.luster_payment_operation !== op.id) {
+            continue;
+          }
+          const valid = candidate.object === 'checkout.session'
+            ? op.kind === 'payment' && candidate.client_reference_id === op.id && candidate.livemode === op.binding.livemode && candidate.amount_total === amount(op) && candidate.currency === 'cad' && /^cs_(?:test_|live_)?[A-Za-z0-9]+$/.test(candidate.id)
+            : op.kind === 'refund' && candidate.object === 'refund' && candidate.charge === op.parentChargeId && candidate.amount === amount(op) && candidate.currency === 'cad' && /^re_[A-Za-z0-9]+$/.test(candidate.id);
+          if (!valid) {
+            return workspaceFailure('PAYMENT_WORKSPACE_DISCOVERY_MISMATCH');
+          }
+          matches.add(candidate.id);
+        }
+        if (matches.size > 1) {
+          return workspaceFailure('PAYMENT_WORKSPACE_DISCOVERY_AMBIGUOUS');
+        }
+        if (!response.has_more) {
+          exhausted = true;
+          break;
+        }
+        const next = response.data.at(-1)?.id;
+        if (!next || next === cursor) {
+          return workspaceFailure('PAYMENT_WORKSPACE_DISCOVERY_INVALID');
+        }
+        cursor = next;
+      }
+      assertWorkspaceReconciliationClaim(claim);
+      if (!exhausted || matches.size !== 1) {
+        return null;
+      }
+      const result: WorkspaceProviderObservation = Object.freeze({ scope: Object.freeze({ ...claim.scope }), binding: Object.freeze({ ...op.binding }), operationId: op.id, dispatchToken: op.dispatchToken, kind: op.kind, objectId: [...matches][0]!, amountCents: amount(op), status: 'pending', observedAt: Date.now(), checkoutUrl: null, financialPostingAllowed: false });
+      observations.add(result);
+      return result;
+    },
+
     async reconcile(claim: WorkspaceReconciliationClaim): Promise<WorkspaceVerifiedOutcome> {
       const { assertWorkspaceReconciliationClaim } = await import('../server/workspaceRepository');
       assertWorkspaceReconciliationClaim(claim);

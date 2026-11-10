@@ -527,8 +527,8 @@ test('uncovered concurrency suites run in isolated PostgreSQL jobs with exact ze
   for (const suite of ['settlement', 'sdkReservation', 'workspace']) {
     assert.ok(payments.run.includes(`src/libs/customerPayments/server/${suite}.concurrency.integration.test.ts`));
   }
-  assert.ok(payments.run.includes('numTotalTests !== 51'));
-  assert.ok(payments.run.includes('numPassedTests !== 51'));
+  assert.ok(payments.run.includes('numTotalTests !== 53'));
+  assert.ok(payments.run.includes('numPassedTests !== 53'));
   assert.ok(payments.run.includes('numPendingTests !== 0'));
   assert.equal(deposits.steps.indexOf(outboxScope) + 1, deposits.steps.indexOf(payments));
   assert.equal(deposits.steps.indexOf(payments) + 1, deposits.steps.indexOf(nextVisit));

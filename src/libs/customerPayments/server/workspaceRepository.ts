@@ -20,6 +20,7 @@ import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceCom
 import { paymentProviderBindingSchema, paymentWorkspaceCommandSchema, PaymentWorkspaceError, paymentWorkspaceScopeSchema, paymentWorkspaceStateSchema, workspaceBillChangeSchema, workspaceFailure, workspaceManualPaymentSchema } from './workspaceContract';
 import { reconcileWorkspaceDepositFacts } from './workspaceDepositReconciliation';
 import { readWorkspaceInvoice } from './workspaceInvoice';
+import { enqueueWorkspaceRecovery } from './workspaceRecoveryQueue';
 import { enqueueWorkspaceStats } from './workspaceStats';
 
 type Database = Pick<typeof db, 'transaction'>;
@@ -556,7 +557,10 @@ export function createPaymentWorkspaceRepository(database: Database) {
         }
         const state = validate(row.state, scope);
         const op = state.operations.find(item => item.id === operationId);
-        if (!op?.providerObjectId || op.firstDispatchAt === null) {
+        if (op?.providerConflict) {
+          return workspaceFailure('PAYMENT_WORKSPACE_PROVIDER_CONFLICT_REVIEW_REQUIRED');
+        }
+        if (!op || op.firstDispatchAt === null) {
           return workspaceFailure('PAYMENT_WORKSPACE_PROVIDER_OBJECT_REQUIRED');
         }
         const parent = op.kind === 'payment' ? state.payments.find(item => item.requestId === op.id) : state.payments.find(item => item.id === op.parentPaymentId);
@@ -709,6 +713,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
         }
         const eventId = randomUUID();
         await save(tx, row, state, { requestId: eventId, requestHash: customerPaymentFingerprint({ operationId, token: op.dispatchToken }), actorId: 'system:payment-dispatch', action: 'dispatch_claimed' });
+        await enqueueWorkspaceRecovery(tx, scope, op.id);
         return { action: 'create' as const, scope: { ...scope }, operation: op, dispatchToken: op.dispatchToken, idempotencyKey: `luster_cp_v1_${op.id}` };
       });
       dispatchClaims.set(claim, { hash: customerPaymentFingerprint(claim), consumed: false });
@@ -859,6 +864,9 @@ export function createPaymentWorkspaceRepository(database: Database) {
         if (op.binding.platformAccountId !== delivery.platformAccountId || op.binding.connectedAccountId !== delivery.accountId || op.binding.livemode !== delivery.livemode) {
           return null;
         }
+        if (op.providerConflict) {
+          return { scope, operationId: op.id, held: true };
+        }
         const deliveries = await tx.select({ id: customerPaymentLiveReceiptSchema.id }).from(customerPaymentLiveReceiptSchema).where(and(
           eq(customerPaymentLiveReceiptSchema.platformAccountId, delivery.platformAccountId),
           eq(customerPaymentLiveReceiptSchema.accountId, delivery.accountId),
@@ -872,6 +880,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
           || (matchingObject && (op.providerObjectId !== null && op.providerObjectId !== objectId))
           || op.firstDispatchAt === null;
         if (conflict) {
+          op.providerConflict = true;
           op.state = 'review';
         } else if (matchingObject && expectedId.test(objectId) && op.providerObjectId === null) {
           op.providerObjectId = objectId;
@@ -921,6 +930,9 @@ export function createPaymentWorkspaceRepository(database: Database) {
           return { state, replayed: true };
         }
         const conflict = op.providerObjectId !== null && op.providerObjectId !== value.objectId;
+        if (conflict) {
+          op.providerConflict = true;
+        }
         const late = op.dispatchToken !== value.dispatchToken || op.state !== 'dispatching';
         op.providerObjectId ??= value.objectId;
         if (conflict || (late && op.state !== 'succeeded')) {

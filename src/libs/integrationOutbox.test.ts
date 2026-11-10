@@ -99,8 +99,9 @@ const deliverLowBalanceWarning = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/lowBalanceWarnings', () => ({ deliverLowBalanceWarning }));
 const deliverOwnerSignupNotification = vi.hoisted(() => vi.fn());
 vi.mock('@/libs/ownerSignupNotification', () => ({ deliverOwnerSignupNotification }));
-const workspace = vi.hoisted(() => ({ reconcile: vi.fn(), evaluate: vi.fn() }));
+const workspace = vi.hoisted(() => ({ reconcile: vi.fn(), evaluate: vi.fn(), recover: vi.fn() }));
 vi.mock('@/libs/customerPayments/server/workspaceRepository', () => ({ createPaymentWorkspaceRepository: () => ({ reconcileDeposits: workspace.reconcile }) }));
+vi.mock('@/libs/customerPayments/server/workspaceRecovery', () => ({ recoverWorkspacePayment: workspace.recover }));
 vi.mock('@/libs/fraudDetection', () => ({ evaluateAndFlagIfNeeded: workspace.evaluate }));
 
 vi.mock('@/libs/DB', () => ({
@@ -277,6 +278,7 @@ describe('processIntegrationOutbox', () => {
     vi.clearAllMocks();
     workspace.reconcile.mockResolvedValue({ changed: false, held: false });
     workspace.evaluate.mockResolvedValue(undefined);
+    workspace.recover.mockResolvedValue({ complete: true });
     insertedValues.length = 0;
     insertResults.length = 0;
     selectResults.length = 0;
@@ -359,6 +361,23 @@ describe('processIntegrationOutbox', () => {
     expect(updateSalonClientStats).toHaveBeenCalledOnce();
     expect(workspace.evaluate).toHaveBeenCalledWith('salon_1', 'client', 'appt_1', 1500);
     expect(workspace.evaluate.mock.invocationCallOrder[0]).toBeGreaterThan(updateSalonClientStats.mock.invocationCallOrder[0]!);
+  });
+
+  it.each(['pending', 'transient error', 'complete'] as const)('keeps recovery durable beyond the ordinary attempt budget: %s', async (outcome) => {
+    const operationId = 'a1234567-1234-4234-8234-123456789abc';
+    const job = staffJob({ provider: 'internal', operation: 'recover_customer_payment', payload: { operationId }, attempts: 25 });
+    if (outcome === 'transient error') {
+      workspace.recover.mockRejectedValueOnce(new Error('STRIPE_TEMPORARILY_UNAVAILABLE'));
+    } else {
+      workspace.recover.mockResolvedValueOnce({ complete: outcome === 'complete' });
+    }
+    selectResults.push([job]);
+    finishReadResults();
+    const result = await processIntegrationOutbox();
+
+    expect(workspace.recover).toHaveBeenCalledWith({ salonId: 'salon_1', appointmentId: 'appt_1' }, operationId);
+    expect(result).toMatchObject({ failed: 0, succeeded: outcome === 'complete' ? 1 : 0, retried: outcome === 'complete' ? 0 : 1 });
+    expect(updates).toContainEqual(expect.objectContaining({ status: outcome === 'complete' ? 'completed' : 'retry' }));
   });
 
   it('refreshes spending without evaluating loyalty for an unpaid completed workspace', async () => {

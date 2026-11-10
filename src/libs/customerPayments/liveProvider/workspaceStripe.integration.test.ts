@@ -22,18 +22,21 @@ import { buildBookingTaxSnapshot, buildFinalTaxSnapshot, resolveTaxConfig } from
 import * as schema from '@/models/Schema';
 
 import { netWorkspaceDepositCredit, resolveAdjustmentBalance } from '../adjustments';
+import { createDurableCheckoutRepository } from '../inactiveStripe/durableCheckoutRepository';
+import { createDurableCheckoutFixture } from '../inactiveStripe/durableCheckoutTestSupport';
 import { customerPaymentTenderSummary, hasVerifiedCustomerPaymentTender } from '../provenance';
 import { createPaymentReturnUrl } from '../server/paymentReturnToken';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from '../server/workspaceContract';
 import { cancelWorkspacePayment, dispatchWorkspacePayment, reconcileWorkspacePayment } from '../server/workspaceDispatcher';
 import { prepareWorkspaceInvoice, readWorkspaceInvoice } from '../server/workspaceInvoice';
 import { createWorkspacePolicyRepository } from '../server/workspacePolicyRepository';
+import { recoverWorkspacePayment } from '../server/workspaceRecovery';
 import { beginCanonicalWorkspaceChange, createPaymentWorkspaceRepository } from '../server/workspaceRepository';
 import { workspaceRuntime } from '../server/workspaceRuntime';
 import { verifyStripeCustomerPaymentReceipt } from './stripeReceipt';
 import { createWorkspaceStripeProvider } from './workspaceStripe';
 
-const sdk = vi.hoisted(() => ({ accounts: vi.fn(), balance: vi.fn(), createSession: vi.fn(), retrieveSession: vi.fn(), expireSession: vi.fn(), retrieveIntent: vi.fn(), retrieveCharge: vi.fn(), refund: vi.fn(), retrieveRefund: vi.fn(), listRefunds: vi.fn() }));
+const sdk = vi.hoisted(() => ({ accounts: vi.fn(), balance: vi.fn(), createSession: vi.fn(), listSessions: vi.fn(), retrieveSession: vi.fn(), expireSession: vi.fn(), retrieveIntent: vi.fn(), retrieveCharge: vi.fn(), refund: vi.fn(), retrieveRefund: vi.fn(), listRefunds: vi.fn() }));
 const holder = vi.hoisted(() => ({ database: null as unknown }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ get db() {
@@ -54,7 +57,7 @@ vi.mock('stripe', async (importOriginal) => {
       static webhooks = actual.default.webhooks;
       accounts = { retrieve: sdk.accounts };
       balance = { retrieve: sdk.balance };
-      checkout = { sessions: { create: sdk.createSession, retrieve: sdk.retrieveSession, expire: sdk.expireSession } };
+      checkout = { sessions: { create: sdk.createSession, list: sdk.listSessions, retrieve: sdk.retrieveSession, expire: sdk.expireSession } };
       paymentIntents = { retrieve: sdk.retrieveIntent };
       charges = { retrieve: sdk.retrieveCharge };
       refunds = { create: sdk.refund, retrieve: sdk.retrieveRefund, list: sdk.listRefunds };
@@ -103,6 +106,7 @@ beforeEach(() => {
   }));
   sdk.balance.mockResolvedValue({ ...response, object: 'balance', livemode: false });
   sdk.listRefunds.mockResolvedValue({ ...response, data: [], has_more: false });
+  sdk.listSessions.mockResolvedValue({ ...response, data: [], has_more: false });
   sdk.createSession.mockImplementation(async (params: Record<string, any>) => ({
     ...response,
     id: `cs_test_${params.client_reference_id.replaceAll('-', '')}`,
@@ -157,16 +161,26 @@ async function fixture(canonicalInvoice = false, depositCents = 0, initialize = 
   return { scope, actor, technicianId: id, operationId: saved.state.operations[0]!.id };
 }
 
-async function capturedFixture(canonicalInvoice = false, depositCents = 0) {
+async function capturedFixture(canonicalInvoice = false, depositCents = 0, lostResponse = false) {
   const f = await fixture(canonicalInvoice, depositCents);
-  const dispatched = await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding);
+  const original = sdk.createSession.getMockImplementation()!;
+  if (lostResponse) {
+    sdk.createSession.mockRejectedValueOnce(new Error('Response lost'));
+  }
+  const dispatched = await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding).catch((error) => {
+    if (!lostResponse) {
+      throw error;
+    }
+    return null;
+  });
   const params = sdk.createSession.mock.calls.at(-1)![0];
-  const session = await sdk.createSession.getMockImplementation()!(params);
+  const session = await original(params);
   const capturedAmount = params.line_items[0].price_data.unit_amount;
   const suffix = f.operationId.replaceAll('-', '');
   const paymentIntentId = `pi_${suffix}`;
   const chargeId = `ch_${suffix}`;
   sdk.retrieveSession.mockResolvedValue({ ...session, status: 'complete', payment_status: 'paid', payment_intent: paymentIntentId, url: null });
+  sdk.listSessions.mockResolvedValue({ ...response, data: [session], has_more: false });
   sdk.retrieveIntent.mockResolvedValue({ ...response, id: paymentIntentId, object: 'payment_intent', livemode: false, currency: 'cad', amount: capturedAmount, amount_received: capturedAmount, status: 'succeeded', capture_method: 'automatic', latest_charge: chargeId, metadata: { luster_payment_operation: f.operationId }, application_fee_amount: null, transfer_data: null, on_behalf_of: null });
   const charge = { ...response, id: chargeId, object: 'charge', payment_intent: paymentIntentId, livemode: false, currency: 'cad', amount: capturedAmount, amount_captured: capturedAmount, amount_refunded: 0, paid: true, captured: true, status: 'succeeded', disputed: false, review: null, application_fee: null, application_fee_amount: null, transfer_data: null, on_behalf_of: null, metadata: { luster_payment_operation: f.operationId } };
   sdk.retrieveCharge.mockResolvedValue(charge);
@@ -174,6 +188,144 @@ async function capturedFixture(canonicalInvoice = false, depositCents = 0) {
 }
 
 describe('independently retrieved payment and refund accounting', () => {
+  it.each([false, true])('refuses deposit ownership of the same provider intent; workspace first=%s', async (workspaceFirst) => {
+    const f = await capturedFixture(true);
+    const other = await fixture(true, 0, false);
+    const insertDeposit = () => database.insert(schema.appointmentDepositSchema).values({ id: randomUUID(), ...other.scope, stripeAccountId: binding.connectedAccountId, stripePaymentIntentId: f.paymentIntentId, status: 'paid', amountCents: 13300, currency: 'cad', collectedAt: new Date() });
+    if (workspaceFirst) {
+      await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+
+      await expect(insertDeposit()).rejects.toThrow();
+      expect((await database.select().from(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.appointmentId, other.scope.appointmentId)))).toHaveLength(0);
+    } else {
+      await insertDeposit();
+
+      await expect(reconcileWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow();
+    }
+
+    expect(await listPayments(database, f.scope.appointmentId)).toHaveLength(workspaceFirst ? 1 : 0);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('refuses closed-fixture ownership of the same provider charge; workspace first=%s', async (workspaceFirst) => {
+    vi.stubEnv('CUSTOMER_PAYMENTS_PREPARATION_ENABLED', 'true');
+    const f = await capturedFixture(true);
+    const other = await createDurableCheckoutFixture(database, binding);
+    const closed = createDurableCheckoutRepository(database);
+    await closed.reserve(other.operation);
+    const claim = await closed.claimCreate(other.operation, { workerId: randomUUID(), leaseMs: 60000 });
+    await closed.recordDispatchIntent(other.operation, claim.lease!);
+    const insertObject = () => client.query('INSERT INTO customer_payment_closed_checkout_object(platform_account_id,connected_account_id,object_id,operation_id) VALUES($1,$2,$3,$4)', [binding.platformAccountId, binding.connectedAccountId, f.chargeId, other.operation.material.operationId]);
+    if (workspaceFirst) {
+      await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+
+      await expect(insertObject()).rejects.toThrow('PROVIDER_OWNERSHIP_CONFLICT');
+    } else {
+      await insertObject();
+
+      await expect(reconcileWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow();
+    }
+
+    expect(await listPayments(database, f.scope.appointmentId)).toHaveLength(workspaceFirst ? 1 : 0);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+
+    await database.update(schema.salonStripeAccountSchema).set({ revokedAt: new Date(), revocationCause: 'revoked_local' }).where(eq(schema.salonStripeAccountSchema.id, other.bindingId));
+  });
+
+  it('retains a conflicting signed Session identity for operator review instead of polling it away', async () => {
+    const f = await capturedFixture();
+    const session = await sdk.createSession.getMockImplementation()!(sdk.createSession.mock.calls.at(-1)![0]);
+    const signingSecret = `whsec_${'conflictfixture'.repeat(3)}`;
+    const payload = JSON.stringify({ id: `evt_${f.operationId.replaceAll('-', '')}`, object: 'event', account: binding.connectedAccountId, api_version: '2024-06-20', livemode: false, type: 'checkout.session.completed', created: Math.floor(Date.now() / 1000), data: { object: { ...session, id: 'cs_test_conflicting', payment_status: 'paid' } } });
+    const receipt = verifyStripeCustomerPaymentReceipt(Buffer.from(payload), Stripe.webhooks.generateTestHeaderString({ payload, secret: signingSecret }), { endpointId: 'we_conflict', platformAccountId: binding.platformAccountId, livemode: false, apiVersion: '2024-06-20', signingSecret });
+    const saved = await repository.retainReceipt(receipt);
+
+    expect(await repository.associateReceipt(saved.receiptId)).toMatchObject({ held: true });
+
+    const heldRevision = (await repository.read(f.actor))!.revision;
+
+    expect(await repository.associateReceipt(saved.receiptId)).toMatchObject({ held: true });
+    expect((await repository.read(f.actor))!.revision).toBe(heldRevision);
+    await expect(reconcileWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow('PROVIDER_CONFLICT_REVIEW_REQUIRED');
+    expect((await repository.read(f.actor))!.operations[0]).toMatchObject({ state: 'review', providerConflict: true });
+    expect(await listPayments(database, f.scope.appointmentId)).toHaveLength(0);
+    expect(sdk.retrieveSession).not.toHaveBeenCalled();
+  });
+
+  it('discovers a lost refund response and verifies the original refund without issuing another', async () => {
+    const f = await capturedFixture();
+    const settled = await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+    const changed = await repository.reviseBill(f.actor, { requestId: randomUUID(), expectedRevision: settled.state.revision, changeFingerprint: 'b'.repeat(64), reason: 'Removed service' }, async () => ({ bill: { ...settled.state.bill, serviceCents: 8000 }, billSourceHash: 'b'.repeat(64) }));
+    const requested = await repository.command(f.actor, { kind: 'request_refund', requestId: randomUUID(), expectedRevision: changed.state.revision, paymentId: `lpay_${f.operationId}`, principalCents: 2000, tipCents: 0, reason: 'Removed service' }, dispatchBinding);
+    const operation = requested.state.operations.at(-1)!;
+    sdk.refund.mockRejectedValueOnce(new Error('Refund response lost'));
+
+    await expect(dispatchWorkspacePayment(repository, f.actor, operation.id, secret, dispatchBinding)).rejects.toThrow('response lost');
+
+    const refund = { ...response, id: `re_${operation.id.replaceAll('-', '')}`, object: 'refund', currency: 'cad', amount: 2000, charge: f.chargeId, payment_intent: f.paymentIntentId, status: 'succeeded', metadata: { luster_payment_operation: operation.id } };
+    sdk.listRefunds.mockResolvedValue({ ...response, data: [refund], has_more: false });
+    sdk.retrieveRefund.mockResolvedValue(refund);
+    sdk.retrieveCharge.mockResolvedValue({ ...f.charge, amount_refunded: 2000 });
+    vi.stubEnv('STRIPE_SECRET_KEY', secret);
+    vi.stubEnv('CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'false');
+
+    expect(await recoverWorkspacePayment(f.scope, operation.id)).toEqual({ complete: false });
+    expect((await repository.read(f.actor))!.refunds[0]!.state).not.toBe('succeeded');
+    expect(await recoverWorkspacePayment(f.scope, operation.id)).toEqual({ complete: true });
+    expect(customerPaymentTenderSummary((await listPayments(database, f.scope.appointmentId))[0]!).netCents).toBe(11300);
+    expect(sdk.refund).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('recovers a dispatched payment without new provider writes; lost response=%s', async (lostResponse) => {
+    const f = await capturedFixture(true, 0, lostResponse);
+    vi.stubEnv('STRIPE_SECRET_KEY', secret);
+    vi.stubEnv('CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'false');
+    vi.stubEnv('CUSTOMER_PAYMENTS_WORKSPACE_ENABLED', 'false');
+    const jobs = await database.select().from(schema.integrationOutboxSchema).where(eq(schema.integrationOutboxSchema.appointmentId, f.scope.appointmentId));
+
+    expect(jobs.filter(job => job.operation === 'recover_customer_payment')).toMatchObject([{ payload: { operationId: f.operationId } }]);
+
+    if (lostResponse) {
+      expect(await recoverWorkspacePayment(f.scope, f.operationId)).toEqual({ complete: false });
+      expect((await repository.read(f.actor))!.payments).toHaveLength(0);
+    }
+
+    expect(await recoverWorkspacePayment(f.scope, f.operationId)).toEqual({ complete: true });
+    expect(await recoverWorkspacePayment(f.scope, f.operationId)).toEqual({ complete: true });
+    expect((await repository.read(f.actor))!.payments).toMatchObject([{ principalCents: 11300, tipCents: 2000 }]);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+    expect(sdk.refund).not.toHaveBeenCalled();
+    expect(sdk.listSessions).toHaveBeenCalledTimes(lostResponse ? 1 : 0);
+    expect(sdk.retrieveSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['absent', 'ambiguous', 'partial scan'] as const)('keeps an unknown payment held after %s discovery', async (scenario) => {
+    const f = await capturedFixture(true, 0, true);
+    vi.stubEnv('STRIPE_SECRET_KEY', secret);
+    const page = await sdk.listSessions.getMockImplementation()!();
+    if (scenario === 'absent') {
+      sdk.listSessions.mockResolvedValue({ ...page, data: [] });
+    }
+    if (scenario === 'ambiguous') {
+      sdk.listSessions.mockResolvedValue({ ...page, data: [...page.data, { ...page.data[0], id: 'cs_test_other' }] });
+    }
+    if (scenario === 'partial scan') {
+      sdk.listSessions.mockImplementation(async (params: { starting_after?: string }) => ({ ...page, has_more: true, data: [{ ...page.data[0], id: `cs_test_${params.starting_after ?? 'first'}next`, metadata: {} }] }));
+    }
+    if (scenario === 'ambiguous') {
+      await expect(recoverWorkspacePayment(f.scope, f.operationId)).rejects.toThrow('DISCOVERY_AMBIGUOUS');
+    } else {
+      expect(await recoverWorkspacePayment(f.scope, f.operationId)).toEqual({ complete: false });
+    }
+    const state = (await repository.read(f.actor))!;
+
+    expect(state.payments).toHaveLength(0);
+    expect(state.operations[0]).toMatchObject({ state: 'uncertain', providerObjectId: null });
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+    expect(sdk.retrieveSession).not.toHaveBeenCalled();
+    expect(sdk.listSessions.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
   it.each([false, true])('reconciles a full deposit refund without subtracting other tender; earlier online refund=%s', async (refundOnline) => {
     const f = await capturedFixture(true, 2000);
     await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
@@ -494,7 +646,7 @@ describe('independently retrieved payment and refund accounting', () => {
     sdk.expireSession.mockResolvedValue(expired);
     sdk.retrieveSession.mockResolvedValue(expired);
     vi.stubEnv('CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'false');
-    const result = await cancelWorkspacePayment(repository, f.actor, f.dispatched.state.revision, f.operationId, secret);
+    const result = await cancelWorkspacePayment(repository, f.actor, f.dispatched!.state.revision, f.operationId, secret);
 
     expect(result.state.operations[0]!.state).toBe('canceled');
     expect(result.state.requests[0]!.state).toBe('expired');
@@ -506,7 +658,7 @@ describe('independently retrieved payment and refund accounting', () => {
   it('records a payment that wins the expiration race instead of releasing its balance', async () => {
     const f = await capturedFixture();
     sdk.expireSession.mockRejectedValue(new Error('Session was already completed'));
-    const result = await cancelWorkspacePayment(repository, f.actor, f.dispatched.state.revision, f.operationId, secret);
+    const result = await cancelWorkspacePayment(repository, f.actor, f.dispatched!.state.revision, f.operationId, secret);
 
     expect(result.state.operations[0]!.state).toBe('succeeded');
     expect(result.state.payments[0]).toMatchObject({ principalCents: 11300, tipCents: 2000 });
@@ -515,7 +667,7 @@ describe('independently retrieved payment and refund accounting', () => {
 
   it('retains the reservation when both expiration and verification are uncertain', async () => {
     const f = await capturedFixture();
-    const claim = await repository.claimCancellation(f.actor, f.dispatched.state.revision, f.operationId);
+    const claim = await repository.claimCancellation(f.actor, f.dispatched!.state.revision, f.operationId);
 
     await expect(createWorkspaceStripeProvider(secret).dispatch(claim)).rejects.toThrow('CREATE_PERMIT_REQUIRED');
 

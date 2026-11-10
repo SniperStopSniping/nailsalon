@@ -559,7 +559,7 @@ function createRepository(database: Database, executionKind: DurableCheckoutExec
         if (!observed) {
           return checkoutAdapterError('DURABLE_OBSERVATION_WRITE_FAILED');
         }
-        const ids = [session.sessionId, session.paymentIntentId, session.chargeId].filter((value): value is string => value !== null);
+        const ids = [session.sessionId, session.paymentIntentId, session.chargeId].filter((value): value is string => value !== null).sort();
         const scope = (objectId: string) => and(eq(objects.platformAccountId, operation.binding.platformAccountId), eq(objects.connectedAccountId, operation.binding.connectedAccountId), eq(objects.mode, 'test'), eq(objects.objectId, objectId));
         let conflict = false;
         for (const id of ids) {
