@@ -21,6 +21,7 @@ export default defineConfig({
     '@/libs/retentionSettings.server': fixture,
     '@/libs/bookingEmailFinancialSummary.server': fixture,
     '@/libs/customerPayments/preparationGate': fixture,
+    '@/libs/customerPayments/workspacePolicy': fixture,
     'next/font/google': fixture,
     'server-only': path.join(root, 'server-only.ts'),
     'next/navigation': path.join(repository, 'tests/browser/appointmentWorkflow/navigation.ts'),

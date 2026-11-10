@@ -68,3 +68,4 @@ export const Newsreader = () => ({ variable: '' });
 // The browser harness renders this server view without a Node environment.
 // These booking-access scenarios exercise the default-off payment state.
 export const isCustomerPaymentPreparationEnabled = () => false;
+export const isPaymentWorkspaceEnabled = () => false;
