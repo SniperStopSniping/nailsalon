@@ -13,7 +13,7 @@ import { purgeSalonGroups, SalonPurgeBlockedError } from '@/libs/salonPurge';
 import * as schema from '@/models/Schema';
 
 import { customerPaymentTenderSummary, hasVerifiedCustomerPaymentTender } from '../provenance';
-import type { PaymentProviderBinding, PaymentWorkspaceActor } from '../server/workspaceContract';
+import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from '../server/workspaceContract';
 import { cancelWorkspacePayment, dispatchWorkspacePayment, reconcileWorkspacePayment } from '../server/workspaceDispatcher';
 import { createPaymentWorkspaceRepository } from '../server/workspaceRepository';
 import { verifyStripeCustomerPaymentReceipt } from './stripeReceipt';
@@ -42,6 +42,8 @@ let repository: ReturnType<typeof createPaymentWorkspaceRepository>;
 const binding: PaymentProviderBinding = { platformAccountId: 'acct_platform', connectedAccountId: 'acct_connected', bindingId: 'binding', livemode: false, currency: 'cad', returnOrigin: 'https://example.invalid' };
 const secret = ['sk', 'test', 'not-a-provider-credential'].join('_');
 const response = { lastResponse: { statusCode: 200, apiVersion: '2024-06-20' } };
+
+const dispatchBinding = async (_tx: unknown, _appointment: unknown, state: PaymentWorkspaceState) => ({ binding, billSourceHash: state.billSourceHash });
 
 beforeAll(async () => {
   client = new PGlite();
@@ -103,6 +105,8 @@ async function fixture() {
   await database.insert(schema.technicianSchema).values({ id, salonId: scope.salonId, name: 'Fixture tech' });
   await database.insert(schema.appointmentSchema).values({ id: scope.appointmentId, salonId: scope.salonId, technicianId: id, clientPhone: '4165550111', clientName: 'Synthetic customer', startTime: new Date('2030-01-01T12:00:00Z'), endTime: new Date('2030-01-01T13:00:00Z'), totalPrice: 10000, totalDurationMinutes: 60, status: 'confirmed' });
   const actor: PaymentWorkspaceActor = { ...scope, id: 'owner', role: 'owner', impersonating: false, canEditItems: true, canRecordPayment: true };
+  await database.insert(schema.adminUserSchema).values({ id: actor.id }).onConflictDoNothing();
+  await database.insert(schema.adminSalonMembershipSchema).values({ salonId: scope.salonId, adminId: actor.id, role: 'owner' });
   await repository.initialize(actor, randomUUID(), async () => ({ bill: { ...scope, revision: 0, serviceCents: 10000, taxCents: 1300, tipCents: 2000 }, billSourceHash: 'a'.repeat(64), payments: [] }));
   const saved = await repository.command(actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: 0 }, async () => ({ binding, billSourceHash: 'a'.repeat(64) }));
   return { scope, actor, technicianId: id, operationId: saved.state.operations[0]!.id };
@@ -110,7 +114,7 @@ async function fixture() {
 
 async function capturedFixture() {
   const f = await fixture();
-  const dispatched = await dispatchWorkspacePayment(repository, f.scope, f.operationId, secret);
+  const dispatched = await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding);
   const params = sdk.createSession.mock.calls.at(-1)![0];
   const session = await sdk.createSession.getMockImplementation()!(params);
   const suffix = f.operationId.replaceAll('-', '');
@@ -172,7 +176,7 @@ describe('independently retrieved payment and refund accounting', () => {
     const f = await fixture();
     sdk.createSession.mockRejectedValueOnce(new Error('response lost after request'));
 
-    await expect(dispatchWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow('response lost');
+    await expect(dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding)).rejects.toThrow('response lost');
 
     const session = await sdk.createSession.getMockImplementation()!(sdk.createSession.mock.calls.at(-1)![0]);
     const signingSecret = `whsec_${'recoveryfixture'.repeat(3)}`;
@@ -246,13 +250,13 @@ describe('independently retrieved payment and refund accounting', () => {
     const refundOp = requested.state.operations[1]!;
 
     expect(refundOp.state).toBe('awaiting_approval');
-    await expect(repository.claimDispatch(f.scope, refundOp.id)).rejects.toThrow('DISPATCH_HELD');
+    await expect(repository.claimDispatch(f.actor, refundOp.id, dispatchBinding)).rejects.toThrow('DISPATCH_HELD');
     await expect(repository.command(staff, { kind: 'approve_refund', requestId: randomUUID(), expectedRevision: requested.state.revision, operationId: refundOp.id }, async () => ({ binding: null, billSourceHash: 'b'.repeat(64) }))).rejects.toThrow('ACTION_FORBIDDEN');
 
     await repository.command(f.actor, { kind: 'approve_refund', requestId: randomUUID(), expectedRevision: requested.state.revision, operationId: refundOp.id }, async () => ({ binding: null, billSourceHash: 'b'.repeat(64) }));
     const refund = { ...response, id: `re_${refundOp.id.replaceAll('-', '')}`, object: 'refund', currency: 'cad', amount: 3000, charge: f.chargeId, payment_intent: f.paymentIntentId, status: 'succeeded', metadata: { luster_payment_operation: refundOp.id } };
     sdk.refund.mockResolvedValue(refund);
-    const dispatched = await dispatchWorkspacePayment(repository, f.scope, refundOp.id, secret);
+    const dispatched = await dispatchWorkspacePayment(repository, f.actor, refundOp.id, secret, dispatchBinding);
 
     expect(dispatched.state.refunds[0]!.state).toBe('pending');
     expect(customerPaymentTenderSummary((await listPayments(database, f.scope.appointmentId))[0]!).netCents).toBe(13300);
@@ -273,7 +277,7 @@ describe('independently retrieved payment and refund accounting', () => {
 describe('committed workspace dispatch with mocked Stripe responses', () => {
   it('dispatches the saved amount/account and retains a minimal observation without marking paid', async () => {
     const f = await fixture();
-    const result = await dispatchWorkspacePayment(repository, f.scope, f.operationId, secret);
+    const result = await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding);
 
     expect(result.checkoutUrl).toContain('https://checkout.stripe.com/');
     expect(result.state.operations[0]).toMatchObject({ state: 'open', providerObjectId: `cs_test_${f.operationId.replaceAll('-', '')}` });
@@ -292,17 +296,17 @@ describe('committed workspace dispatch with mocked Stripe responses', () => {
     const f = await fixture();
     sdk.createSession.mockRejectedValueOnce(new Error('connection interrupted'));
 
-    await expect(dispatchWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow('interrupted');
+    await expect(dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding)).rejects.toThrow('interrupted');
     expect((await repository.read(f.actor))!.requests[0]!.state).toBe('uncertain');
 
-    await dispatchWorkspacePayment(repository, f.scope, f.operationId, secret);
+    await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding);
 
     expect(sdk.createSession.mock.calls[1]).toEqual(sdk.createSession.mock.calls[0]);
   });
 
   it('rejects forged, changed and reused permits before issuing another API call', async () => {
     const f = await fixture();
-    const claim = await repository.claimDispatch(f.scope, f.operationId);
+    const claim = await repository.claimDispatch(f.actor, f.operationId, dispatchBinding);
     const provider = createWorkspaceStripeProvider(secret);
 
     await expect(provider.dispatch(JSON.parse(JSON.stringify(claim)))).rejects.toThrow('COMMITTED_DISPATCH_REQUIRED');
@@ -320,7 +324,7 @@ describe('committed workspace dispatch with mocked Stripe responses', () => {
 
   it('refuses an expired permit before networking', async () => {
     const f = await fixture();
-    const claim = await repository.claimDispatch(f.scope, f.operationId);
+    const claim = await repository.claimDispatch(f.actor, f.operationId, dispatchBinding);
     const time = vi.spyOn(Date, 'now').mockReturnValue(claim.operation.dispatchUntil! + 1);
     try {
       await expect(createWorkspaceStripeProvider(secret).dispatch(claim)).rejects.toThrow('COMMITTED_DISPATCH_REQUIRED');
@@ -334,13 +338,13 @@ describe('committed workspace dispatch with mocked Stripe responses', () => {
     const f = await fixture();
     vi.stubEnv('CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'false');
 
-    await expect(dispatchWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow('PROVIDER_DISABLED');
+    await expect(dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding)).rejects.toThrow('PROVIDER_DISABLED');
     expect(sdk.accounts).not.toHaveBeenCalled();
 
     vi.stubEnv('CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED', 'true');
     sdk.balance.mockResolvedValue({ ...response, object: 'balance', livemode: true });
 
-    await expect(dispatchWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow('MODE_MISMATCH');
+    await expect(dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding)).rejects.toThrow('MODE_MISMATCH');
     expect(sdk.createSession).not.toHaveBeenCalled();
     expect((await repository.read(f.actor))!.requests[0]!.state).toBe('uncertain');
   });
@@ -349,7 +353,7 @@ describe('committed workspace dispatch with mocked Stripe responses', () => {
     const f = await fixture();
     const original = sdk.createSession.getMockImplementation()!;
     sdk.createSession.mockImplementation(async (...args) => ({ ...await original(...args), status: 'complete', payment_status: 'paid', url: null }));
-    const result = await dispatchWorkspacePayment(repository, f.scope, f.operationId, secret);
+    const result = await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding);
 
     expect(result.state.operations[0]!.state).toBe('pending');
     expect(result.state.requests[0]!.state).toBe('processing');
@@ -362,9 +366,9 @@ describe('committed workspace dispatch with mocked Stripe responses', () => {
     const original = sdk.createSession.getMockImplementation()!;
     sdk.createSession.mockImplementationOnce(async (...args) => ({ ...await original(...args), amount_total: 1 }));
 
-    await expect(dispatchWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow('SESSION_MISMATCH');
+    await expect(dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding)).rejects.toThrow('SESSION_MISMATCH');
 
-    const claim = await repository.claimDispatch(f.scope, f.operationId);
+    const claim = await repository.claimDispatch(f.actor, f.operationId, dispatchBinding);
     const observation = await createWorkspaceStripeProvider(secret).dispatch(claim);
     await repository.recordUncertain(f.scope, f.operationId, claim.dispatchToken);
     const late = await repository.recordProviderObservation(observation);

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createWorkspaceStripeProvider } from '../liveProvider/workspaceStripe';
 import type { PaymentWorkspaceActor, PaymentWorkspaceScope } from './workspaceContract';
-import type { createPaymentWorkspaceRepository } from './workspaceRepository';
+import type { createPaymentWorkspaceRepository, WorkspaceBindingReader } from './workspaceRepository';
 
 /**
  * Awaited request/job orchestration: no fire-and-forget work on a serverless
@@ -10,11 +10,13 @@ import type { createPaymentWorkspaceRepository } from './workspaceRepository';
  */
 export async function dispatchWorkspacePayment(
   repository: ReturnType<typeof createPaymentWorkspaceRepository>,
-  scope: PaymentWorkspaceScope,
+  actor: PaymentWorkspaceActor,
   operationId: string,
   secretKey: string,
+  readBinding: WorkspaceBindingReader,
 ) {
-  const claim = await repository.claimDispatch(scope, operationId);
+  const scope = { salonId: actor.salonId, appointmentId: actor.appointmentId };
+  const claim = await repository.claimDispatch(actor, operationId, readBinding);
   try {
     const observation = await createWorkspaceStripeProvider(secretKey).dispatch(claim);
     const result = await repository.recordProviderObservation(observation);

@@ -321,7 +321,7 @@ test('Customer payment migration pins accept the new packet and reject changed o
   assert.ok(start >= 0 && end > start);
   const packet = run.slice(start, end);
   const files = [...packet.matchAll(/^(migrations\/\d{4}_[a-z0-9_]+\.sql) [a-f0-9]{40}$/gm)].map(match => match[1]);
-  assert.equal(files.length, 14);
+  assert.equal(files.length, 15);
   assert.ok(files.includes('migrations/0115_customer_payment_preparation.sql'));
   assert.ok(files.includes('migrations/0127_customer_payment_sdk_reservation.sql'));
   assert.ok(files.includes('migrations/0128_customer_payment_workspace.sql'));
@@ -527,8 +527,8 @@ test('uncovered concurrency suites run in isolated PostgreSQL jobs with exact ze
   for (const suite of ['settlement', 'sdkReservation', 'workspace']) {
     assert.ok(payments.run.includes(`src/libs/customerPayments/server/${suite}.concurrency.integration.test.ts`));
   }
-  assert.ok(payments.run.includes('numTotalTests !== 45'));
-  assert.ok(payments.run.includes('numPassedTests !== 45'));
+  assert.ok(payments.run.includes('numTotalTests !== 47'));
+  assert.ok(payments.run.includes('numPassedTests !== 47'));
   assert.ok(payments.run.includes('numPendingTests !== 0'));
   assert.equal(deposits.steps.indexOf(outboxScope) + 1, deposits.steps.indexOf(payments));
   assert.equal(deposits.steps.indexOf(payments) + 1, deposits.steps.indexOf(nextVisit));

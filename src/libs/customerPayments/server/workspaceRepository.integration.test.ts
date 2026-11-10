@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/models/Schema';
 
 import { verifyStripeCustomerPaymentReceipt } from '../liveProvider/stripeReceipt';
-import type { PaymentProviderBinding, PaymentWorkspaceActor } from './workspaceContract';
+import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from './workspaceContract';
 import { createPaymentWorkspaceRepository } from './workspaceRepository';
 
 vi.mock('server-only', () => ({}));
@@ -20,6 +20,8 @@ let database: ReturnType<typeof drizzle<typeof schema>>;
 let repository: ReturnType<typeof createPaymentWorkspaceRepository>;
 const binding: PaymentProviderBinding = { platformAccountId: 'acct_platform', connectedAccountId: 'acct_salon', bindingId: 'binding-one', livemode: false, currency: 'cad', returnOrigin: 'https://example.invalid' };
 const sourceHash = createHash('sha256').update('fixed invoice fixture').digest('hex');
+
+const dispatchBinding = async (_tx: unknown, _appointment: unknown, state: PaymentWorkspaceState) => ({ binding, billSourceHash: state.billSourceHash });
 
 beforeAll(async () => {
   client = new PGlite();
@@ -39,6 +41,8 @@ async function fixture() {
   await database.insert(schema.technicianSchema).values({ id: `tech_${id}`, salonId: scope.salonId, name: 'Fixture tech' });
   await database.insert(schema.appointmentSchema).values({ id: scope.appointmentId, salonId: scope.salonId, technicianId: `tech_${id}`, clientPhone: '4165550111', clientName: 'Synthetic customer', startTime: new Date('2030-01-01T12:00:00Z'), endTime: new Date('2030-01-01T13:00:00Z'), totalPrice: 12000, totalDurationMinutes: 60, status: 'confirmed' });
   const actor: PaymentWorkspaceActor = { ...scope, id: 'owner-fixture', role: 'owner', impersonating: false, canEditItems: true, canRecordPayment: true };
+  await database.insert(schema.adminUserSchema).values({ id: actor.id }).onConflictDoNothing();
+  await database.insert(schema.adminSalonMembershipSchema).values({ salonId: scope.salonId, adminId: actor.id, role: 'owner' });
   const initial = { bill: { ...scope, revision: 0, serviceCents: 12000, taxCents: 0, tipCents: 0 }, billSourceHash: sourceHash, payments: [] };
   const initialize = (requestId = randomUUID()) => repository.initialize(actor, requestId, async () => initial);
   const request = (expectedRevision = 0) => ({ kind: 'request_payment' as const, requestId: randomUUID(), expectedRevision });
@@ -98,12 +102,12 @@ describe('durable appointment payment workspace', () => {
     await f.initialize();
     const saved = await repository.command(f.actor, f.request(), async () => ({ binding, billSourceHash: sourceHash }));
     const id = saved.state.operations[0]!.id;
-    const first = await repository.claimDispatch(f.scope, id);
+    const first = await repository.claimDispatch(f.actor, id, dispatchBinding);
 
-    await expect(repository.claimDispatch(f.scope, id)).rejects.toThrow('DISPATCH_HELD');
+    await expect(repository.claimDispatch(f.actor, id, dispatchBinding)).rejects.toThrow('DISPATCH_HELD');
 
     await repository.recordUncertain(f.scope, id, first.dispatchToken);
-    const retry = await repository.claimDispatch(f.scope, id);
+    const retry = await repository.claimDispatch(f.actor, id, dispatchBinding);
 
     expect(retry.idempotencyKey).toBe(first.idempotencyKey);
     expect(retry.operation.firstDispatchAt).toBe(first.operation.firstDispatchAt);
@@ -124,7 +128,7 @@ describe('durable appointment payment workspace', () => {
       state=jsonb_set(jsonb_set(state,'{revision}',to_jsonb(revision+1)),'{operations,0,firstDispatchAt}',to_jsonb(0::bigint)),
       request_id=$2,request_hash=repeat('e',64),actor_id='system:fixture',action='fixture_old_dispatch' WHERE appointment_id=$1`, [f.scope.appointmentId, randomUUID()]);
 
-    await expect(repository.claimDispatch(f.scope, id)).rejects.toThrow('RECONCILIATION_REQUIRED');
+    await expect(repository.claimDispatch(f.actor, id, dispatchBinding)).rejects.toThrow('RECONCILIATION_REQUIRED');
     expect((await repository.read(f.actor))!.requests[0]!.state).toBe('reserved');
   });
 

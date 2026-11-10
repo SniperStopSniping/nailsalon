@@ -16,16 +16,18 @@ export function OwnerAdminClientBoundary(props: {
   sectionLibraryV1Enabled: boolean;
   aiBusinessSetupEnabled?: boolean;
   customerPaymentDraftsEnabled?: boolean;
+  customerPaymentWorkspaceEnabled?: boolean;
 }) {
   const localePrefix = props.locale === AppConfig.defaultLocale
     ? ''
     : `/${props.locale}`;
   const featureFlags = useMemo(() => ({
     customerPaymentDraftsEnabled: props.customerPaymentDraftsEnabled === true,
+    customerPaymentWorkspaceEnabled: props.customerPaymentWorkspaceEnabled === true,
     aiBusinessSetupEnabled: props.aiBusinessSetupEnabled === true,
     onboardingV1IntegrationEnabled: props.onboardingV1IntegrationEnabled,
     sectionLibraryV1Enabled: props.sectionLibraryV1Enabled,
-  }), [props.onboardingV1IntegrationEnabled, props.sectionLibraryV1Enabled, props.aiBusinessSetupEnabled, props.customerPaymentDraftsEnabled]);
+  }), [props.onboardingV1IntegrationEnabled, props.sectionLibraryV1Enabled, props.aiBusinessSetupEnabled, props.customerPaymentDraftsEnabled, props.customerPaymentWorkspaceEnabled]);
 
   return (
     <ClerkProvider

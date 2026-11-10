@@ -42,6 +42,8 @@ async function fixture(inclusive = false) {
   await database.insert(schema.appointmentSchema).values({ id: scope.appointmentId, salonId: scope.salonId, technicianId: id, clientPhone: '4165550111', clientName: 'PRIVATE_CUSTOMER', notes: 'PRIVATE_NOTE', startTime: new Date('2030-01-01T12:00:00Z'), endTime: new Date('2030-01-01T13:00:00Z'), totalPrice: 10000, subtotalBeforeDiscountCents: 10000, totalDurationMinutes: 60, status: 'confirmed', invoiceCurrency: 'CAD', bookingTaxSnapshot, tipCents: 1000 });
   await database.insert(schema.appointmentServicesSchema).values({ id, appointmentId: scope.appointmentId, serviceId: id, nameSnapshot: 'Gel manicure', priceAtBooking: 10000, durationAtBooking: 60 });
   const actor = { ...scope, id: 'owner', role: 'owner' as const, impersonating: false, canEditItems: true, canRecordPayment: true };
+  await database.insert(schema.adminUserSchema).values({ id: actor.id }).onConflictDoNothing();
+  await database.insert(schema.adminSalonMembershipSchema).values({ salonId: scope.salonId, adminId: actor.id, role: 'owner' });
   const read = () => database.transaction(async (tx) => {
     const [appointment] = await tx.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, scope.appointmentId)).for('update');
     return readWorkspaceInvoice(tx, appointment!);

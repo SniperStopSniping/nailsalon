@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
 import * as schema from '@/models/Schema';
 
-import type { PaymentProviderBinding, PaymentWorkspaceActor } from './workspaceContract';
+import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceState } from './workspaceContract';
+import { createWorkspacePolicyRepository, readWorkspaceBinding } from './workspacePolicyRepository';
 import { createPaymentWorkspaceRepository } from './workspaceRepository';
 
 vi.mock('server-only', () => ({}));
@@ -46,6 +47,8 @@ async function blockedBy(waiter: number, blocker: number) {
   throw new Error('Expected PostgreSQL lock contention was not observed.');
 }
 
+const dispatchBinding = async (_tx: unknown, _appointment: unknown, state: PaymentWorkspaceState) => ({ binding, billSourceHash: state.billSourceHash });
+
 async function fixture() {
   const database = drizzle(clients[0]!, { schema });
   const id = randomUUID();
@@ -54,6 +57,8 @@ async function fixture() {
   await database.insert(schema.technicianSchema).values({ id, salonId: scope.salonId, name: 'Fixture tech' });
   await database.insert(schema.appointmentSchema).values({ id: scope.appointmentId, salonId: scope.salonId, technicianId: id, clientPhone: '4165550111', clientName: 'Synthetic customer', startTime: new Date('2030-01-01T12:00:00Z'), endTime: new Date('2030-01-01T13:00:00Z'), totalPrice: 10000, totalDurationMinutes: 60, status: 'confirmed' });
   const actor: PaymentWorkspaceActor = { ...scope, id: 'owner', role: 'owner', impersonating: false, canEditItems: true, canRecordPayment: true };
+  await database.insert(schema.adminUserSchema).values({ id: actor.id }).onConflictDoNothing();
+  await database.insert(schema.adminSalonMembershipSchema).values({ salonId: scope.salonId, adminId: actor.id, role: 'owner' });
   await repositories[0]!.initialize(actor, randomUUID(), async () => ({ bill: { ...scope, revision: 0, serviceCents: 10000, taxCents: 0, tipCents: 0 }, billSourceHash: sourceHash, payments: [] }));
   const command = { kind: 'request_payment' as const, requestId: randomUUID(), expectedRevision: 0 };
   return { scope, actor, command };
@@ -122,14 +127,14 @@ suite('workspace commands on separate PostgreSQL connections', () => {
     const f = await fixture();
     const saved = await repositories[0]!.command(f.actor, f.command, async () => ({ binding, billSourceHash: sourceHash }));
     const id = saved.state.operations[0]!.id;
-    const results = await Promise.allSettled([repositories[0]!.claimDispatch(f.scope, id), repositories[1]!.claimDispatch(f.scope, id)]);
+    const results = await Promise.allSettled([repositories[0]!.claimDispatch(f.actor, id, dispatchBinding), repositories[1]!.claimDispatch(f.actor, id, dispatchBinding)]);
     const successes = results.filter(item => item.status === 'fulfilled');
 
     expect(successes).toHaveLength(1);
 
     const claim = successes[0]!.value;
     await repositories[2]!.recordUncertain(f.scope, id, claim.dispatchToken);
-    const retry = await repositories[1]!.claimDispatch(f.scope, id);
+    const retry = await repositories[1]!.claimDispatch(f.actor, id, dispatchBinding);
 
     expect(retry.idempotencyKey).toBe(claim.idempotencyKey);
     expect(retry.operation.firstDispatchAt).toBe(claim.operation.firstDispatchAt);
@@ -137,4 +142,52 @@ suite('workspace commands on separate PostgreSQL connections', () => {
     await expect(clients[0]!.query('UPDATE appointment SET total_price=1 WHERE id=$1', [f.scope.appointmentId])).rejects.toThrow('BALANCE_HELD');
     await expect(clients[0]!.query('UPDATE customer_payment_workspace SET revision=revision+1,state=jsonb_set(jsonb_set(state,\'{revision}\',to_jsonb(revision+1)),\'{operations,0,principalCents}\',\'1\'::jsonb),request_id=$2 WHERE appointment_id=$1', [f.scope.appointmentId, randomUUID()])).rejects.toThrow('OPERATION_IMMUTABLE');
   });
+
+  it.each([false, true])('serializes owner disable against dispatch; disable commits first=%s', async (disableFirst) => {
+    const f = await fixture();
+    const database = drizzle(clients[0]!, { schema });
+    const runtime = { executionEnabled: true, platformAccountId: 'acct_platform', livemode: false, returnOrigin: 'https://example.invalid' };
+    const bindingId = randomUUID();
+    await database.insert(schema.salonStripeAccountSchema).values({ id: bindingId, salonId: f.scope.salonId, stripeAccountId: `acct_${bindingId.replaceAll('-', '')}`, livemode: false, chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true });
+    const input = { requestId: randomUUID(), expectedRevision: 0, enabled: true, cancellationPolicy: 'Synthetic cancellation policy' };
+    await createWorkspacePolicyRepository(database).write(f.scope.salonId, f.actor.id, input, runtime);
+    const reader = async (tx: Parameters<typeof readWorkspaceBinding>[0]) => ({ binding: await readWorkspaceBinding(tx, f.scope.salonId, runtime), billSourceHash: sourceHash });
+    const saved = await repositories[0]!.command(f.actor, f.command, reader);
+    const operationId = saved.state.operations[0]!.id;
+
+    if (disableFirst) {
+      await clients[0]!.query('BEGIN');
+      await clients[0]!.query('UPDATE customer_payment_workspace_policy SET enabled=false,revision=revision+1,request_id=$2,request_hash=$3 WHERE salon_id=$1', [f.scope.salonId, randomUUID(), 'b'.repeat(64)]);
+      const claim = repositories[1]!.claimDispatch(f.actor, operationId, reader);
+      const outcome = Promise.allSettled([claim]);
+      try {
+        await blockedBy(pids[1]!, pids[0]!);
+      } finally {
+        await clients[0]!.query('COMMIT');
+      }
+
+      expect(await outcome).toMatchObject([{ status: 'rejected', reason: expect.objectContaining({ code: 'PAYMENT_WORKSPACE_ACTIVATION_CHANGED' }) }]);
+      expect((await repositories[2]!.read(f.actor))?.operations[0]?.firstDispatchAt).toBeNull();
+    } else {
+      const entered = barrier();
+      const release = barrier();
+      const claim = repositories[0]!.claimDispatch(f.actor, operationId, async (tx) => {
+        const material = await reader(tx);
+        entered.release();
+        await release.promise;
+        return material;
+      });
+      await entered.promise;
+      const disable = createWorkspacePolicyRepository(drizzle(clients[1]!, { schema })).write(f.scope.salonId, f.actor.id, { ...input, requestId: randomUUID(), expectedRevision: 1, enabled: false }, runtime);
+      const outcomes = Promise.allSettled([claim, disable]);
+      try {
+        await blockedBy(pids[1]!, pids[0]!);
+      } finally {
+        release.release();
+      }
+
+      expect((await outcomes).every(result => result.status === 'fulfilled')).toBe(true);
+      expect((await repositories[2]!.read(f.actor))?.operations[0]?.firstDispatchAt).not.toBeNull();
+    }
+  }, 20000);
 });

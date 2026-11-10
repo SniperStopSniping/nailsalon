@@ -18,6 +18,7 @@ export const paymentProviderBindingSchema = z.object({
   livemode: z.boolean(),
   currency: z.literal('cad'),
   bindingId: identity,
+  policyRevision: z.number().int().positive().max(2147483646).optional(),
   returnOrigin: z.string().url().max(500).refine((value) => {
     const url = new URL(value);
     return url.origin === value && (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)));

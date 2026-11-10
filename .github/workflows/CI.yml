@@ -639,6 +639,7 @@ jobs:
               migrations/0126_customer_payment_closed_checkout.sql) ;;
               migrations/0127_customer_payment_sdk_reservation.sql) ;;
               migrations/0128_customer_payment_workspace.sql) ;;
+              migrations/0129_customer_payment_owner_activation.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1138,9 +1139,10 @@ jobs:
           migrations/0126_customer_payment_closed_checkout.sql d9b6e4384575fc43328f079ca9c8a1687c15cfb7
           migrations/0127_customer_payment_sdk_reservation.sql 7939454f54a2a491b39c9086867e64da2496f19c
           migrations/0128_customer_payment_workspace.sql 1c35587a0d686c76b70093c35a234a4c84eec05f
+          migrations/0129_customer_payment_owner_activation.sql 4f8930c958520409d6025d936d2d13ead3495830
           CUSTOMER_PAYMENT_MIGRATIONS
-          expected_payment_journal='[{"breakpoints":true,"idx":114,"tag":"0115_customer_payment_preparation","version":"7","when":1794178800000},{"breakpoints":true,"idx":115,"tag":"0116_customer_payment_synthetic_capture","version":"7","when":1794182400000},{"breakpoints":true,"idx":116,"tag":"0117_customer_payment_mutation_guards","version":"7","when":1794186000000},{"breakpoints":true,"idx":117,"tag":"0118_customer_payment_synthetic_refunds","version":"7","when":1794189600000},{"breakpoints":true,"idx":118,"tag":"0119_customer_payment_credit_review","version":"7","when":1794193200000},{"breakpoints":true,"idx":119,"tag":"0120_customer_payment_provider_journal","version":"7","when":1794196800000},{"breakpoints":true,"idx":120,"tag":"0121_customer_payment_provider_correlation","version":"7","when":1794200400000},{"breakpoints":true,"idx":121,"tag":"0122_customer_payment_refund_correlation","version":"7","when":1794204000000},{"breakpoints":true,"idx":122,"tag":"0123_customer_payment_dispute_correlation","version":"7","when":1794207600000},{"breakpoints":true,"idx":123,"tag":"0124_customer_payment_fixture_application","version":"7","when":1794211200000},{"breakpoints":true,"idx":124,"tag":"0125_customer_payment_fixture_movements","version":"7","when":1794214800000},{"breakpoints":true,"idx":125,"tag":"0126_customer_payment_closed_checkout","version":"7","when":1794218400000},{"breakpoints":true,"idx":126,"tag":"0127_customer_payment_sdk_reservation","version":"7","when":1794222000000},{"breakpoints":true,"idx":127,"tag":"0128_customer_payment_workspace","version":"7","when":1794232800000}]'
-          actual_payment_journal="$(jq -cS '[.entries[] | select(.idx >= 114 and .idx <= 127)]' migrations/meta/_journal.json)"
+          expected_payment_journal='[{"breakpoints":true,"idx":114,"tag":"0115_customer_payment_preparation","version":"7","when":1794178800000},{"breakpoints":true,"idx":115,"tag":"0116_customer_payment_synthetic_capture","version":"7","when":1794182400000},{"breakpoints":true,"idx":116,"tag":"0117_customer_payment_mutation_guards","version":"7","when":1794186000000},{"breakpoints":true,"idx":117,"tag":"0118_customer_payment_synthetic_refunds","version":"7","when":1794189600000},{"breakpoints":true,"idx":118,"tag":"0119_customer_payment_credit_review","version":"7","when":1794193200000},{"breakpoints":true,"idx":119,"tag":"0120_customer_payment_provider_journal","version":"7","when":1794196800000},{"breakpoints":true,"idx":120,"tag":"0121_customer_payment_provider_correlation","version":"7","when":1794200400000},{"breakpoints":true,"idx":121,"tag":"0122_customer_payment_refund_correlation","version":"7","when":1794204000000},{"breakpoints":true,"idx":122,"tag":"0123_customer_payment_dispute_correlation","version":"7","when":1794207600000},{"breakpoints":true,"idx":123,"tag":"0124_customer_payment_fixture_application","version":"7","when":1794211200000},{"breakpoints":true,"idx":124,"tag":"0125_customer_payment_fixture_movements","version":"7","when":1794214800000},{"breakpoints":true,"idx":125,"tag":"0126_customer_payment_closed_checkout","version":"7","when":1794218400000},{"breakpoints":true,"idx":126,"tag":"0127_customer_payment_sdk_reservation","version":"7","when":1794222000000},{"breakpoints":true,"idx":127,"tag":"0128_customer_payment_workspace","version":"7","when":1794232800000},{"breakpoints":true,"idx":128,"tag":"0129_customer_payment_owner_activation","version":"7","when":1794272400000}]'
+          actual_payment_journal="$(jq -cS '[.entries[] | select(.idx >= 114 and .idx <= 128)]' migrations/meta/_journal.json)"
           if [ "$actual_payment_journal" != "$expected_payment_journal" ]; then
             echo "::error::Customer payment journal packet differs from its pinned identity."
             exit 1
@@ -1271,6 +1273,7 @@ jobs:
               0126_customer_payment_closed_checkout) ;;
               0127_customer_payment_sdk_reservation) ;;
               0128_customer_payment_workspace) ;;
+              0129_customer_payment_owner_activation) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1371,6 +1374,8 @@ jobs:
         run: npm run security:check-secrets -- --tree
 
       - name: Type checking
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run check-types
 
       - name: Run unit tests
@@ -2482,13 +2487,13 @@ jobs:
           const { readFileSync } = require('node:fs');
           const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
           const assertions = report.testResults?.flatMap(file => file.assertionResults ?? []) ?? [];
-          if (report.success !== true || report.numTotalTests !== 45 || report.numPassedTests !== 45
+          if (report.success !== true || report.numTotalTests !== 47 || report.numPassedTests !== 47
             || report.numFailedTests !== 0 || report.numPendingTests !== 0 || report.numTodoTests !== 0
-            || report.testResults?.length !== 3 || assertions.length !== 45 || assertions.some(test => test.status !== 'passed')) {
-            process.stderr.write('Customer payment PostgreSQL checks must execute all 45 cases with zero skips.\n');
+            || report.testResults?.length !== 3 || assertions.length !== 47 || assertions.some(test => test.status !== 'passed')) {
+            process.stderr.write('Customer payment PostgreSQL checks must execute all 47 cases with zero skips.\n');
             process.exit(1);
           }
-          console.log('CUSTOMER_PAYMENT_POSTGRES_TESTS_EXECUTED=45 CUSTOMER_PAYMENT_POSTGRES_TESTS_SKIPPED=0');
+          console.log('CUSTOMER_PAYMENT_POSTGRES_TESTS_EXECUTED=47 CUSTOMER_PAYMENT_POSTGRES_TESTS_SKIPPED=0');
           NODE
 
       # Next Visit deliberately drops and recreates both schemas, so it is the

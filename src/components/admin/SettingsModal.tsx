@@ -56,6 +56,7 @@ import {
 
 import { useOwnerAdminFeatureFlags } from '@/app/[locale]/admin/OwnerAdminFeatureFlags';
 import { CustomerPaymentDraftSettings } from '@/components/customerPayments/CustomerPaymentDraftSettings';
+import { CustomerPaymentLiveSettings } from '@/components/customerPayments/CustomerPaymentLiveSettings';
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
@@ -4804,7 +4805,9 @@ export function SettingsModal({
               </Section>
             </div>
 
-            {customerPaymentDraftsEnabled && salonSlug && <CustomerPaymentDraftSettings key={salonSlug} salonSlug={salonSlug} onDirtyChange={setCustomerPaymentDraftDirty} />}
+            {ownerFeatureFlags.customerPaymentWorkspaceEnabled && salonSlug
+              ? <CustomerPaymentLiveSettings key={salonSlug} salonSlug={salonSlug} onDirtyChange={setCustomerPaymentDraftDirty} />
+              : customerPaymentDraftsEnabled && salonSlug && <CustomerPaymentDraftSettings key={salonSlug} salonSlug={salonSlug} onDirtyChange={setCustomerPaymentDraftDirty} />}
 
             <div id="payments-deposits" className="scroll-mt-24">
               <Section

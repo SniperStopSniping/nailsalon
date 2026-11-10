@@ -29,8 +29,8 @@ const DATABASE_NAME = 'luster_preview';
 // The reviewed wallet/publication tail adds one direct salon edge. Its account
 // and every salon-owned wallet row prevent fixture reset, like saved AI work.
 // Reviewed deletion recovery is tenant-independent; prior reset fences remain.
-const FINAL_MIGRATION = '0128_customer_payment_workspace';
-const MIGRATION_COUNT = 128;
+const FINAL_MIGRATION = '0129_customer_payment_owner_activation';
+const MIGRATION_COUNT = 129;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -459,6 +459,7 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'daniela_inbound', 'daniela_inbound_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'daniela_send', 'daniela_send_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   // Payment policy/history is application data; reset refuses these incoming rows.
+  ['public', 'customer_payment_workspace_policy', 'customer_payment_workspace_policy_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'RESTRICT'],
   ['public', 'customer_payment_policy', 'customer_payment_policy_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'customer_payment_policy_receipt', 'customer_payment_policy_receipt_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'customer_payment_credit_decision', 'customer_payment_credit_decision_actor_id_fkey', ['actor_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'RESTRICT'],

@@ -1,6 +1,30 @@
-import { boolean, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import type { PaymentWorkspaceState } from '@/libs/customerPayments/server/workspaceContract';
+
+export const customerPaymentWorkspacePolicySchema = pgTable('customer_payment_workspace_policy', {
+  salonId: text('salon_id').primaryKey(),
+  revision: integer('revision').notNull(),
+  enabled: boolean('enabled').notNull().default(false),
+  cancellationPolicy: text('cancellation_policy').notNull(),
+  bindingId: text('binding_id'),
+  platformAccountId: text('platform_account_id'),
+  livemode: boolean('livemode').notNull(),
+  actorId: text('actor_id').notNull(),
+  requestId: uuid('request_id').notNull(),
+  requestHash: text('request_hash').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
+export const customerPaymentWorkspacePolicyAuditSchema = pgTable('customer_payment_workspace_policy_audit', {
+  salonId: text('salon_id').notNull(),
+  revision: integer('revision').notNull(),
+  snapshot: jsonb('snapshot').$type<Record<string, unknown>>().notNull(),
+  actorId: text('actor_id').notNull(),
+  requestId: uuid('request_id').notNull(),
+  requestHash: text('request_hash').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+}, table => ({ version: primaryKey({ columns: [table.salonId, table.revision] }), once: uniqueIndex('customer_payment_workspace_policy_request_once').on(table.salonId, table.requestId) }));
 
 /** Source-of-truth operations; SQL checks parent scope and writes audit atomically. */
 export const customerPaymentWorkspaceSchema = pgTable('customer_payment_workspace', {

@@ -1,5 +1,58 @@
 # Customer payments release work — 2026-11-09
 
+## Current checkpoint: owner activation and authenticated actions
+
+Payments remain **not live**. The following is implemented on the release branch,
+with no production merge, application migration, account activation or real charge.
+Historical sections below describe earlier checkpoints, not the current API inventory.
+
+- Separate owner opt-in (`0129_customer_payment_owner_activation.sql`), immutable
+  revisions and retry receipts; test drafts cannot activate the feature. A saved
+  activation binds the runtime mode, platform and exact connected-account generation.
+- Owner settings UI under Settings -> Payments; explicit enable/save and cancellation
+  policy, stable retry after a lost response, and a fresh read after saving.
+- Authenticated `/api/appointments/[id]/payment-workspace` read and action API:
+  initialize, request payment/refund, owner approve/reject, dispatch, refresh and
+  cancel. It rejects client-supplied amounts/accounts/roles for payment requests,
+  checks same-origin writes, and never treats a redirect or create response as money.
+- Staff assignment, active employment and actual admin/owner membership are checked
+  inside the appointment transaction, including retries. Impersonation is refused.
+- Dispatch rechecks canonical invoice evidence and exact current activation before
+  committing a lease. Disabling first blocks dispatch; a previously committed
+  dispatch remains an existing request and must be reconciled. Undispatched requests
+  can be canceled without assuming anything about Stripe.
+- The API omits provider/account IDs from its browser projection and returns a
+  transient Checkout URL only for the same currently open operation.
+- Feature presentation/management requires `CUSTOMER_PAYMENTS_WORKSPACE_ENABLED`;
+  provider writes separately require `CUSTOMER_PAYMENTS_PROVIDER_EXECUTION_ENABLED`.
+  Neither environment switch nor any owner setting has been enabled by this work.
+
+The a044b07 Preview was READY at
+`https://isla-nail-studio-3ljn13kss-sniperstopsnipings-projects.vercel.app`.
+The homepage returned 200; `/api/health` returned 503 with `gitSha=a044b07`,
+`stripeConnectEnv=false`, and `schemaDrift=not_ready`. This confirms that checkpoint's
+artifact, not payment readiness. Its three GitHub builds, full Vitest aggregate and
+native payment job passed; the Application tests job failed from a TypeScript heap
+OOM. The type-check step now requests the same 6 GiB heap as the successful builds.
+
+Current validation includes 83 focused workspace, invoice, provider, activation,
+API and settings cases plus 12 environment/history-projection cases (95 total),
+28 workflow contracts, 42 migration/fixture checks, and 47 native PostgreSQL cases
+with zero skips (two newly
+added owner-disable/dispatch races). All provider money
+outcomes in these local suites use simulated SDK responses. The native database is
+real, isolated and disposable; its cluster was stopped and removed after the run.
+Full TypeScript, lint (two pre-existing SettingsModal Fast Refresh warnings only),
+commit lint and a 5,782-file tracked-tree secret scan passed for this checkpoint.
+
+Still required before activation/merge: connect the technician action screen and
+customer booking/manage/return journey, integrate canonical invoice edits,
+completion, manual tender/voids and deposit refund changes with workspace revisions,
+add recovery scheduling, finish sandbox account/webhook setup and target migration
+verification, exercise the full provider-backed journey, and pass current-head CI
+and preview/review gates. Browser access remains disabled; a user input request to
+enable it is pending. Backend tests and a READY Preview are not a live payment test.
+
 ## Authorization and source
 
 The user authorized getting the complete customer payment and post-payment

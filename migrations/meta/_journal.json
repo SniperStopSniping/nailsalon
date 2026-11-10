@@ -897,6 +897,13 @@
       "when": 1794232800000,
       "tag": "0128_customer_payment_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1794272400000,
+      "tag": "0129_customer_payment_owner_activation",
+      "breakpoints": true
     }
   ]
 }

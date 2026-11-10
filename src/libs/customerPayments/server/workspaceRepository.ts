@@ -13,6 +13,7 @@ import { assertVerifiedStripeCustomerPaymentReceipt } from '../liveProvider/stri
 import { assertWorkspaceProviderObservation, assertWorkspaceVerifiedOutcome } from '../liveProvider/workspaceStripe';
 import type { CustomerPaymentTransaction } from './preparationRepository';
 import { customerPaymentFingerprint } from './preparationRepository';
+import { authorizeWorkspaceActor } from './workspaceAccess';
 import type { PaymentProviderBinding, PaymentWorkspaceActor, PaymentWorkspaceCommand, PaymentWorkspaceScope, PaymentWorkspaceState, WorkspaceOperation } from './workspaceContract';
 import { paymentProviderBindingSchema, paymentWorkspaceCommandSchema, paymentWorkspaceScopeSchema, paymentWorkspaceStateSchema, workspaceBillChangeSchema, workspaceFailure, workspaceManualPaymentSchema } from './workspaceContract';
 
@@ -20,7 +21,7 @@ type Database = Pick<typeof db, 'transaction'>;
 type WorkspaceRow = typeof customerPaymentWorkspaceSchema.$inferSelect;
 type Appointment = typeof appointmentSchema.$inferSelect;
 /** Recompute from locked invoice/tender/deposit sources, never client-supplied totals. */
-type BindingReader = (tx: CustomerPaymentTransaction, appointment: Appointment) => Promise<{ binding: PaymentProviderBinding | null; billSourceHash: string }>;
+export type WorkspaceBindingReader = (tx: CustomerPaymentTransaction, appointment: Appointment, state: PaymentWorkspaceState) => Promise<{ binding: PaymentProviderBinding | null; billSourceHash: string }>;
 type InitialState = Pick<PaymentWorkspaceState, 'bill' | 'billSourceHash' | 'payments' | 'invoice'>;
 const activeStates = new Set(['awaiting_approval', 'prepared', 'dispatching', 'open', 'pending', 'uncertain', 'review']);
 
@@ -119,6 +120,7 @@ async function clock(tx: CustomerPaymentTransaction) {
 
 async function lockActor(tx: CustomerPaymentTransaction, actor: PaymentWorkspaceActor) {
   const result = await lock(tx, actor);
+  await authorizeWorkspaceActor(tx, actor);
   if (actor.role === 'staff' && result.appointment.technicianId !== actor.id) {
     return workspaceFailure('PAYMENT_WORKSPACE_ACCESS_REQUIRED');
   }
@@ -165,6 +167,14 @@ async function updateCanonicalBalance(tx: CustomerPaymentTransaction, scope: Pay
 /** Every financial command commits its reservation before a separate provider call. */
 export function createPaymentWorkspaceRepository(database: Database) {
   return {
+    async inspect<T>(actor: PaymentWorkspaceActor, inspect: (tx: CustomerPaymentTransaction, appointment: Appointment, state: PaymentWorkspaceState | null) => Promise<T>) {
+      permissions(actor);
+      return database.transaction(async (tx) => {
+        const { row, appointment } = await lockActor(tx, actor);
+        const state = row ? validate(row.state, actor) : null;
+        return { state, context: await inspect(tx, appointment, state) };
+      });
+    },
     async read(actor: PaymentWorkspaceActor) {
       permissions(actor);
       return database.transaction(async (tx) => {
@@ -199,7 +209,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
       });
     },
 
-    async command(actor: PaymentWorkspaceActor, value: PaymentWorkspaceCommand, readBinding: BindingReader) {
+    async command(actor: PaymentWorkspaceActor, value: PaymentWorkspaceCommand, readBinding: WorkspaceBindingReader) {
       const access = permissions(actor);
       const input = paymentWorkspaceCommandSchema.parse(value);
       if ((input.kind === 'request_payment' && !access.canRequestPayment)
@@ -221,7 +231,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
           return workspaceFailure('PAYMENT_WORKSPACE_STALE');
         }
         const state = validate(row.state, actor);
-        const current = await readBinding(tx, appointment);
+        const current = await readBinding(tx, appointment, state);
         if (current.billSourceHash !== state.billSourceHash) {
           return workspaceFailure('PAYMENT_WORKSPACE_BILL_CHANGED');
         }
@@ -481,10 +491,11 @@ export function createPaymentWorkspaceRepository(database: Database) {
     },
 
     /** Claim once per short lease; an unknown result retains the reservation. */
-    async claimDispatch(scope: PaymentWorkspaceScope, operationId: string) {
-      paymentWorkspaceScopeSchema.parse(scope);
+    async claimDispatch(actor: PaymentWorkspaceActor, operationId: string, readBinding: WorkspaceBindingReader) {
+      const access = permissions(actor);
+      const scope = { salonId: actor.salonId, appointmentId: actor.appointmentId };
       const claim = await database.transaction(async (tx) => {
-        const { row } = await lock(tx, scope);
+        const { row, appointment } = await lockActor(tx, actor);
         if (!row) {
           return workspaceFailure('PAYMENT_WORKSPACE_NOT_INITIALIZED');
         }
@@ -497,6 +508,16 @@ export function createPaymentWorkspaceRepository(database: Database) {
           || (op.kind === 'payment' && (op.sessionExpiresAt === null || now + 30 * 60 * 1000 >= op.sessionExpiresAt))
           || (op.dispatchUntil !== null && op.dispatchUntil > now)) {
           return workspaceFailure('PAYMENT_WORKSPACE_DISPATCH_HELD');
+        }
+        if (op.kind === 'payment' ? !access.canRequestPayment : !access.canIssueRefund) {
+          return workspaceFailure('PAYMENT_WORKSPACE_ACTION_FORBIDDEN');
+        }
+        const current = await readBinding(tx, appointment, state);
+        if (current.billSourceHash !== state.billSourceHash) {
+          return workspaceFailure('PAYMENT_WORKSPACE_BILL_CHANGED');
+        }
+        if (op.kind === 'payment' && (!current.binding || customerPaymentFingerprint(current.binding) !== customerPaymentFingerprint(op.binding))) {
+          return workspaceFailure('PAYMENT_WORKSPACE_ACTIVATION_CHANGED');
         }
         // Stripe can prune idempotency keys after 24 hours. Beyond this bound,
         // only reconciliation is permitted; never create with a new key.
@@ -520,6 +541,32 @@ export function createPaymentWorkspaceRepository(database: Database) {
     },
 
     /** Expire the original link before allowing another bill/payment request. */
+    async cancelUndispatched(actor: PaymentWorkspaceActor, value: { requestId: string; expectedRevision: number; operationId: string }) {
+      const access = permissions(actor);
+      const requestHash = customerPaymentFingerprint({ ...value, kind: 'cancel_undispatched', actorId: actor.id });
+      return database.transaction(async (tx) => {
+        const { row } = await lockActor(tx, actor);
+        const existing = await replay(tx, actor, value.requestId, requestHash);
+        if (existing) {
+          return existing;
+        }
+        if (!row || row.revision !== value.expectedRevision) {
+          return workspaceFailure('PAYMENT_WORKSPACE_STALE');
+        }
+        const state = validate(row.state, actor);
+        const op = state.operations.find(item => item.id === value.operationId);
+        if (!op || !['prepared', 'awaiting_approval'].includes(op.state) || op.firstDispatchAt !== null || op.providerObjectId !== null
+          || (op.kind === 'payment' ? !access.canRequestPayment : !access.canIssueRefund)) {
+          return workspaceFailure('PAYMENT_WORKSPACE_CANCELLATION_HELD');
+        }
+        op.state = 'canceled';
+        const fact = op.kind === 'payment' ? state.requests.find(item => item.id === op.id) : state.refunds.find(item => item.id === op.id);
+        fact!.state = 'canceled';
+        return save(tx, row, state, { requestId: value.requestId, requestHash, actorId: actor.id, action: 'cancel_undispatched' });
+      });
+    },
+
+    /** A dispatched request can be canceled only with independent provider proof. */
     async claimCancellation(actor: PaymentWorkspaceActor, expectedRevision: number, operationId: string) {
       if (!permissions(actor).canRequestPayment) {
         return workspaceFailure('PAYMENT_WORKSPACE_ACTION_FORBIDDEN');
