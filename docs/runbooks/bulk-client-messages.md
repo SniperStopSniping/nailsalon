@@ -3,7 +3,7 @@
 Open **Marketing & Messages → Write a message → Message multiple clients**.
 
 - **All clients** selects active clients eligible for promotional SMS.
-- **Last visit** selects clients whose latest completed visit was at least the chosen number of calendar weeks ago, in the salon's time zone. Cancelled, no-show and deleted appointments do not count. Historical merged profiles are included. Clients without completed visits are excluded from this filter.
+- **Last visit** selects clients whose latest completed visit was at least the chosen number of calendar weeks ago, in the salon's time zone. The appointment date is used, even if the visit was marked completed later. Cancelled, no-show and deleted appointments do not count. Historical merged profiles are included. Clients without completed visits are excluded from this filter.
 - Upcoming bookings are excluded by default; owners can clear that option.
 - Search, individual checkboxes, **Select all matching**, and **Clear** adjust the audience. Each send supports up to 1,000 selected client records.
 - Write a custom message, optionally insert the salon booking link, then review the actual recipients, final customer text and credit estimate. Salon attribution and STOP wording use the existing manual SMS template.

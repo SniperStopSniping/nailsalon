@@ -36,9 +36,9 @@ export async function getBulkMessageClients(salonId: string, now = new Date(), d
       WHERE child.salon_id = ${salonId} AND parent.depth < 15
     )
     SELECT c.id, c.full_name, c.phone, c.is_blocked,
-      (SELECT max(COALESCE(a.completed_at, a.end_time)) FROM appointment a
+      (SELECT max(a.start_time) FROM appointment a
        WHERE a.salon_id = ${salonId} AND a.deleted_at IS NULL AND a.status = 'completed'
-         AND COALESCE(a.completed_at, a.end_time) <= ${now}
+         AND a.start_time <= ${now}
          AND (a.salon_client_id IN (SELECT id FROM lineage WHERE root_id = c.id)
            OR (a.salon_client_id IS NULL AND right(regexp_replace(a.client_phone, '[^0-9]', '', 'g'), 10)
              IN (SELECT right(regexp_replace(phone, '[^0-9]', '', 'g'), 10) FROM lineage WHERE root_id = c.id)))

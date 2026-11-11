@@ -38,7 +38,7 @@ async function seed() {
   await db.insert(schema.salonClientSchema).values(ids.map((id, index) => ({ id, salonId, fullName: ['Ava Old', 'Bea Recent', 'Cam New', 'Dee Blocked', 'Eve Booked', 'Fay Optout', 'Gina Duplicate', 'Hana Archived', 'Ivy Merged'][index], phone: index === 6 ? '+14165551000' : `416555${1000 + index}`, isBlocked: index === 3, archivedAt: index === 7 ? now : null })));
   for (const [index, days] of [[8, 30], [1, 7], [3, 35], [4, 28], [5, 33]] as const) {
     const ended = new Date(now.getTime() - days * 86400000);
-    await db.insert(schema.appointmentSchema).values({ id: `${ids[index]}-visit`, salonId, salonClientId: ids[index]!, clientPhone: `416555${1000 + index}`, status: 'completed', completedAt: ended, startTime: new Date(ended.getTime() - 3600000), endTime: ended, totalPrice: 5000, totalDurationMinutes: 60 });
+    await db.insert(schema.appointmentSchema).values({ id: `${ids[index]}-visit`, salonId, salonClientId: ids[index]!, clientPhone: `416555${1000 + index}`, status: 'completed', completedAt: index === 8 ? now : ended, startTime: new Date(ended.getTime() - 3600000), endTime: ended, totalPrice: 5000, totalDurationMinutes: 60 });
   }
   // Reproduce historical merges; new merge creation is intentionally retired.
   await db.execute(sql`ALTER TABLE salon_client DISABLE TRIGGER salon_client_enforce_merge_transition`);
@@ -70,7 +70,7 @@ describe('bulk client messages', () => {
     const clients = await getBulkMessageClients(salonId, now);
 
     expect(clients).toHaveLength(7);
-    expect(clients.find(row => row.id === ids[0])?.lastCompletedAt).toBe(new Date(now.getTime() - 30 * 86400000).toISOString());
+    expect(clients.find(row => row.id === ids[0])?.lastCompletedAt).toBe(new Date(now.getTime() - 30 * 86400000 - 3600000).toISOString());
     expect(clients.find(row => row.id === ids[3])?.eligible).toBe(false);
     expect(clients.find(row => row.id === ids[5])?.eligible).toBe(false);
 
