@@ -559,3 +559,9 @@ uncertain with no payment recorded; the corrected Preview must retry that same
 operation and verify its actual Stripe and ledger results. No charge or refund
 has yet been completed. Current-head CI, financial journeys and production
 release checks remain open; PR #504 is still draft and payments are not live.
+
+Fresh CI then rejected the release-bot 1.152.0 dependency manifest pair inherited
+from main. Both files match main exactly and differ from the previously reviewed
+1.151.2 pair only in the three root version fields. The exact new blob pair was
+registered without changing dependencies or weakening the guard. All 28 workflow
+contract tests passed, including rejection of unreviewed and mixed pairs.

@@ -285,6 +285,9 @@ jobs:
             dependency_manifest_blob="$(git hash-object package.json)"
             dependency_lock_blob="$(git hash-object package-lock.json)"
             case "$dependency_manifest_blob:$dependency_lock_blob" in
+              # 1.152.0 release metadata only: verified against the reviewed
+              # 1.151.2 pair; only the three root version fields changed.
+              de9c218f35a380e0dd40427a20a4f092ec7adba6:a35cac2a174f60c2c90c6266f0c93b5e60aad9d5) ;;
               # 1.151.2 release metadata only: verified against the reviewed
               # 1.151.1 pair; only the three root version fields changed.
               43eb49cfb57f63d0ff00f3d19db90a842d907878:54a63a2c47c70c312d82176844bda9b7aa1f6549) ;;
