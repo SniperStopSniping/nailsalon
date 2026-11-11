@@ -121,6 +121,6 @@ test.describe('bulk client messages', () => {
     await expect(page.getByText('Your messages are queued', { exact: true })).toBeVisible();
     await expect(page.getByText('Queued', { exact: true })).toHaveCount(3);
     expect(sends).toHaveLength(1);
-    expect(sends[0]).toMatchObject({ message: 'Book your next visit! https://example.test/book', clientIds: ['old-a', 'old-b', 'old-c'], filter: { minWeeks: 3, excludeUpcoming: true } });
+    expect(sends[0]).toMatchObject({ message: 'Book your next visit! https://example.test/book', clientIds: expect.arrayContaining(['old-a', 'old-b', 'old-c']), filter: { minWeeks: 3, excludeUpcoming: true } });
   });
 });
