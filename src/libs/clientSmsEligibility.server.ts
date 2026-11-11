@@ -179,7 +179,9 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
   salonId: string;
   phones: string[];
   purpose: ClientSmsPurpose;
+  database?: Pick<typeof db, 'select' | 'selectDistinctOn'>;
 }): Promise<Map<string, boolean>> {
+  const database = input.database ?? db;
   const recipients = [...new Set(input.phones.map(normalizeConsentRecipient).filter(isValidPhone))];
   const result = new Map<string, boolean>();
   if (recipients.length === 0) {
@@ -187,9 +189,9 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
   }
   const recipientSet = new Set(recipients);
   const [connection, choices, explicitChoices, providerEvents, clients] = await Promise.all([
-    db.select({ salonId: salonTwilioConnectionSchema.salonId }).from(salonTwilioConnectionSchema)
+    database.select({ salonId: salonTwilioConnectionSchema.salonId }).from(salonTwilioConnectionSchema)
       .where(eq(salonTwilioConnectionSchema.salonId, input.salonId)).limit(1),
-    db.selectDistinctOn([communicationConsentSchema.recipient, communicationConsentSchema.purpose], {
+    database.selectDistinctOn([communicationConsentSchema.recipient, communicationConsentSchema.purpose], {
       recipient: communicationConsentSchema.recipient,
       purpose: communicationConsentSchema.purpose,
       status: communicationConsentSchema.status,
@@ -204,7 +206,7 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
       sql`${communicationConsentSchema.source} <> 'twilio_inbound'`,
       sql`coalesce(${communicationConsentSchema.metadata} ->> 'bookingSmsMode', '') <> 'disabled'`,
     )).orderBy(communicationConsentSchema.recipient, communicationConsentSchema.purpose, desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)),
-    db.selectDistinctOn([communicationConsentSchema.recipient], {
+    database.selectDistinctOn([communicationConsentSchema.recipient], {
       recipient: communicationConsentSchema.recipient,
       selection: sql<string>`${communicationConsentSchema.metadata} ->> 'selection'`,
       createdAt: communicationConsentSchema.createdAt,
@@ -217,7 +219,7 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
       sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_AUTHORITATIVE_WORDING_VERSIONS[0]}`,
       sql`${communicationConsentSchema.wordingVersion} <> ${BOOKING_SMS_AUTHORITATIVE_WORDING_VERSIONS[1]}`,
     )).orderBy(communicationConsentSchema.recipient, desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)),
-    db.selectDistinctOn([communicationConsentSchema.recipient], {
+    database.selectDistinctOn([communicationConsentSchema.recipient], {
       recipient: communicationConsentSchema.recipient,
       status: communicationConsentSchema.status,
     }).from(communicationConsentSchema).where(and(
@@ -227,14 +229,14 @@ export async function getClientSmsPurposeEligibilityBatch(input: {
       eq(communicationConsentSchema.purpose, 'appointment_transactional'),
       eq(communicationConsentSchema.source, 'twilio_inbound'),
     )).orderBy(communicationConsentSchema.recipient, desc(communicationConsentSchema.createdAt), desc(communicationConsentSchema.id)),
-    db.select({ phone: salonClientSchema.phone }).from(salonClientSchema).where(and(
+    database.select({ phone: salonClientSchema.phone }).from(salonClientSchema).where(and(
       eq(salonClientSchema.salonId, input.salonId),
       isNull(salonClientSchema.archivedAt),
       isNull(salonClientSchema.mergedIntoClientId),
     )),
   ]);
   const globalEvents = connection.length === 0
-    ? await db.selectDistinctOn([smsGlobalConsentEventSchema.recipient], {
+    ? await database.selectDistinctOn([smsGlobalConsentEventSchema.recipient], {
       recipient: smsGlobalConsentEventSchema.recipient,
       state: smsGlobalConsentEventSchema.state,
     }).from(smsGlobalConsentEventSchema).where(and(

@@ -1,8 +1,9 @@
 'use client';
 
-import { LoaderCircle, Search, Star, UserRound } from 'lucide-react';
+import { LoaderCircle, Search, Star, UserRound, Users } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { BulkClientMessageComposer } from '@/components/admin/BulkClientMessageComposer';
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { DEFAULT_REVIEW_MESSAGE, renderReviewMessage } from '@/libs/reviewRequests';
 
@@ -12,7 +13,7 @@ type ComposerClient = {
   phone: string;
 };
 
-type MessageChoice = 'blank' | 'google_review';
+type MessageChoice = 'blank' | 'google_review' | 'bulk';
 type ReviewMessageSettings = {
   googleReviewUrl: string | null;
   messageTemplate: string;
@@ -106,11 +107,26 @@ export function MarketingMessageComposer({
     });
   }
 
+  if (choice === 'bulk') {
+    return <BulkClientMessageComposer salonSlug={salonSlug} salonName={salonName} onBack={() => setChoice('blank')} />;
+  }
+
   return (
     <div className="space-y-4" data-testid="marketing-write-message">
       <section className="rounded-[20px] bg-[var(--owner-surface)] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
         <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Choose what to send</h2>
         <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setChoice('bulk')}
+            className="col-span-2 flex min-h-16 items-center gap-3 rounded-[14px] border border-[var(--owner-line)] bg-rose-50 p-3 text-left text-[var(--owner-ink)]"
+          >
+            <Users className="size-5 shrink-0 text-[var(--owner-accent)]" aria-hidden="true" />
+            <span>
+              <span className="block text-[15px] font-semibold">Message multiple clients</span>
+              <span className="mt-1 block text-[13px] text-[var(--owner-muted)]">Filter by last visit, select clients and send a custom message.</span>
+            </span>
+          </button>
           <button
             type="button"
             aria-pressed={choice === 'blank'}

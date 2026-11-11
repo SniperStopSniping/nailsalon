@@ -218,7 +218,7 @@ async function appointmentStillActive(intent: CommunicationIntent, now = new Dat
 }
 
 /** An intent must still address the same tenant-owned client at send time. */
-async function recipientStillCurrent(intent: CommunicationIntent): Promise<boolean> {
+async function recipientStillCurrent(intent: CommunicationIntent, now = new Date()): Promise<boolean> {
   if (intent.channel !== 'sms') {
     return true;
   }
@@ -272,6 +272,15 @@ async function recipientStillCurrent(intent: CommunicationIntent): Promise<boole
   }
   if (!clientId) {
     return true;
+  }
+  if (intent.eventType === 'manual_text' && intent.variables.bulkRequestId) {
+    return (await import('@/libs/bulkClientMessages.server')).bulkMessageRecipientStillEligible({
+      salonId: intent.salonId,
+      clientId,
+      recipient: intent.recipient,
+      minWeeks: intent.variables.bulkMinWeeks ?? '',
+      excludeUpcoming: intent.variables.bulkExcludeUpcoming ?? 'true',
+    }, now);
   }
   const { ClientLifecycleStabilizationError, resolveOperationalSalonClientContact } = await import('@/libs/clientLifecycleStabilization');
   try {
@@ -453,7 +462,7 @@ export async function dispatchClaimedIntent(
     await transitionIntent(intent.id, { to: 'suppressed', lastError: 'REMINDER_RULE_CHANGED' }, now);
     return 'suppressed';
   }
-  if (!(await recipientStillCurrent(intent))) {
+  if (!(await recipientStillCurrent(intent, now))) {
     await transitionIntent(intent.id, { to: 'suppressed', lastError: 'RECIPIENT_CHANGED' }, now);
     return 'suppressed';
   }
@@ -642,7 +651,7 @@ export async function dispatchClaimedIntent(
     .from(salonSchema).where(eq(salonSchema.id, intent.salonId)).limit(1);
   const finalSettings = resolveSalonCommunicationSettings(freshSalon?.settings, { senderMode: mode, legacySmsEnabled: freshSalon?.smsRemindersEnabled });
   const finalChannels = resolveEventChannels(finalSettings, intent.eventType);
-  const recipientCurrent = await recipientStillCurrent(intent);
+  const recipientCurrent = await recipientStillCurrent(intent, new Date(now.getTime() + Math.max(0, Date.now() - dispatchStartedAt)));
   const [freshConnection] = await db.select().from(salonTwilioConnectionSchema)
     .where(eq(salonTwilioConnectionSchema.salonId, intent.salonId)).limit(1);
   const currentMode = resolveSmsSenderMode({ connection: freshConnection ?? null, perSalonDisabled: finalSettings.killSwitch });
