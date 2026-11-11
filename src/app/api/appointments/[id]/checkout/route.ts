@@ -7,14 +7,14 @@ import {
 import {
   resolveAppointmentDepositFinancials,
 } from '@/libs/appointmentDepositFinancials';
-import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
+import { resolveAppointmentPaymentLedger, resolveAppointmentPaymentLedgerForReconciliation } from '@/libs/appointmentPaymentLedger';
 import {
   resolveCheckoutCurrencyProjection,
   validateAppointmentTaxSnapshotChain,
 } from '@/libs/appointmentTaxSnapshot';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { buildPaymentReference, derivePaymentStatus } from '@/libs/checkoutTotals';
-import { customerPaymentTipFloor, liveCustomerPaymentRefundablePrincipal } from '@/libs/customerPayments/provenance';
+import { customerPaymentTipFloor, customerPaymentTipFloorForReconciliation, liveCustomerPaymentRefundablePrincipal } from '@/libs/customerPayments/provenance';
 import { isPaymentWorkspaceEnabled } from '@/libs/customerPayments/workspacePolicy';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
@@ -170,7 +170,10 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
         || appointment.rescheduleTaxSnapshot !== null
         || appointment.finalTaxSnapshot !== null,
     });
-    const paymentLedger = resolveAppointmentPaymentLedger({
+    // Existing verified money remains readable while another request is open.
+    // The workspace and false mutation permissions retain the collection hold.
+    const workspaceFlag = isPaymentWorkspaceEnabled();
+    const paymentLedger = (workspaceFlag ? resolveAppointmentPaymentLedgerForReconciliation : resolveAppointmentPaymentLedger)({
       cachedAmountPaidCents: appointment.amountPaidCents,
       paymentRows: payments,
       expectedSalonId: appointment.salonId,
@@ -194,7 +197,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       taxAmountCents: hasFinalInvoice
         ? appointment.taxAmountCents
         : activeTaxSnapshot?.taxAmountCents ?? 0,
-      tipCents: hasFinalInvoice ? appointment.tipCents : customerPaymentTipFloor(payments),
+      tipCents: hasFinalInvoice ? appointment.tipCents : (workspaceFlag ? customerPaymentTipFloorForReconciliation(payments) : customerPaymentTipFloor(payments)),
       appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
       appointmentStatus: appointment.status,
       paymentStatus: appointment.paymentStatus,
@@ -248,7 +251,6 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       })),
     ];
 
-    const workspaceFlag = isPaymentWorkspaceEnabled();
     const [workspace, policy] = workspaceFlag
       ? await Promise.all([
         db.select({ revision: customerPaymentWorkspaceSchema.revision }).from(customerPaymentWorkspaceSchema).where(and(eq(customerPaymentWorkspaceSchema.appointmentId, appointmentId), eq(customerPaymentWorkspaceSchema.salonId, appointment.salonId))).limit(1),
@@ -340,13 +342,13 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
         etransfer,
         paymentReference: buildPaymentReference(appointment.id),
         permissions: {
-          canEditItems: true,
-          canApplyDiscount: true,
-          canRecordPayment: true,
-          canTaxExempt: isAdmin,
-          canMarkComp: isAdmin,
-          canVoidPayments: isAdmin,
-          canReopen: isAdmin && appointment.status === 'completed',
+          canEditItems: !paymentLedger.collectionHold,
+          canApplyDiscount: !paymentLedger.collectionHold,
+          canRecordPayment: !paymentLedger.collectionHold,
+          canTaxExempt: isAdmin && !paymentLedger.collectionHold,
+          canMarkComp: isAdmin && !paymentLedger.collectionHold,
+          canVoidPayments: isAdmin && !paymentLedger.collectionHold,
+          canReopen: isAdmin && appointment.status === 'completed' && !paymentLedger.collectionHold,
           canRemovePhotos: isAdmin,
         },
       },

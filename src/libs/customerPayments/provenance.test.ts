@@ -4,7 +4,7 @@ import { resolveAppointmentPaymentLedger, resolveAppointmentPaymentLedgerForReco
 
 import { calculatePaymentSnapshot } from './money';
 import type { OfflineFixtureCaptureEvidence } from './provenance';
-import { customerPaymentCompletionTip, customerPaymentTenderSummary, customerPaymentTipFloor, hasVerifiedCustomerPaymentTender, isCustomerPaymentTender, verifyCustomerPaymentTender, verifyOfflineFixtureCaptureTender } from './provenance';
+import { customerPaymentCompletionTip, customerPaymentTenderSummary, customerPaymentTipFloor, customerPaymentTipFloorForReconciliation, hasVerifiedCustomerPaymentTender, isCustomerPaymentTender, verifyCustomerPaymentTender, verifyOfflineFixtureCaptureTender } from './provenance';
 import { providerCorrelationFingerprint } from './provider/correlation';
 
 const id = '00000000-0000-4000-8000-000000000001';
@@ -57,6 +57,7 @@ describe('reserved customer-payment tender provenance', () => {
     expect(customerPaymentCompletionTip(rows, 3000, 2000)).toBe(3000);
     expect(() => customerPaymentCompletionTip(rows, 0, 2000)).toThrow('PREPAID_TIP_REQUIRED');
     expect(() => customerPaymentCompletionTip([row], undefined, 2000)).toThrow('PROVENANCE_RECONCILIATION');
+    expect(() => customerPaymentTipFloorForReconciliation([row])).toThrow('PROVENANCE_RECONCILIATION');
   });
 
   it('leaves legacy zero-tip default and ordinary tender behavior unchanged', () => {
@@ -142,6 +143,7 @@ describe('distinct offline fixture application proof', () => {
     expect(customerPaymentTenderSummary(proven)).toMatchObject({ grossCents: 12000, netCents: 12000, refundedCents: 0, collectionHold: true });
     expect(resolveAppointmentPaymentLedger({ ...ledger, paymentRows: [proven] }).ok).toBe(false);
     expect(resolveAppointmentPaymentLedgerForReconciliation({ ...ledger, paymentRows: [proven] })).toMatchObject({ ok: true, collectionHold: true, ledgerPaymentsCents: 12000 });
+    expect(customerPaymentTipFloorForReconciliation([proven])).toBe(2000);
     expect(() => customerPaymentCompletionTip([proven], undefined, 2000)).toThrow();
   });
 

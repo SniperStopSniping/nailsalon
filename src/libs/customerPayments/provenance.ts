@@ -171,7 +171,8 @@ export function liveCustomerPaymentRefundablePrincipal(rows: readonly Tender[]):
   }, 0);
 }
 
-export function customerPaymentTipFloor(rows: readonly Tender[]): number {
+/** Read-only recorded tips; callers must retain any collection hold separately. */
+export function customerPaymentTipFloorForReconciliation(rows: readonly Tender[]): number {
   let tip = 0;
   for (const row of rows) {
     if (!isCustomerPaymentTender(row)) {
@@ -181,15 +182,20 @@ export function customerPaymentTipFloor(rows: readonly Tender[]): number {
       throw new Error('CUSTOMER_PAYMENT_PROVENANCE_RECONCILIATION_REQUIRED');
     }
     const summary = customerPaymentTenderSummary(row);
-    if (summary.collectionHold) {
-      throw new Error('CUSTOMER_PAYMENT_REFUND_RECONCILIATION_REQUIRED');
-    }
     tip += (row as ProvenTender)[proof]?.source === 'stripe_verified' ? summary.grossTipCents - summary.refundedTipCents : summary.grossTipCents;
     if (!Number.isSafeInteger(tip)) {
       throw new TypeError('CUSTOMER_PAYMENT_PROVENANCE_RECONCILIATION_REQUIRED');
     }
   }
   return tip;
+}
+
+/** Mutation callers must never treat held money as permission to proceed. */
+export function customerPaymentTipFloor(rows: readonly Tender[]): number {
+  if (rows.some(row => isCustomerPaymentTender(row) && customerPaymentTenderSummary(row).collectionHold)) {
+    throw new Error('CUSTOMER_PAYMENT_REFUND_RECONCILIATION_REQUIRED');
+  }
+  return customerPaymentTipFloorForReconciliation(rows);
 }
 
 export function customerPaymentCompletionTip(rows: readonly Tender[], requestedTip: number | undefined, storedTip: number): number {

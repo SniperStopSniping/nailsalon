@@ -573,6 +573,30 @@ describe('independently retrieved payment and refund accounting', () => {
     expect((await plain.json()).data.paymentWorkspace).toEqual({ enabled: false, initialized: false, refundableOnlinePrincipalCents: 0 });
   });
 
+  it('keeps checkout readable while an additional payment is open and still rejects manual collection', async () => {
+    const f = await capturedFixture(true);
+    await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+    const params = { params: Promise.resolve({ id: f.scope.appointmentId }) };
+    const completed = await completeAppointment(new Request('http://localhost/api/appointments/fixture/complete', { method: 'PATCH', body: JSON.stringify({ finalItems: [{ kind: 'custom', name: 'Service with nail art', quantity: 1, unitPriceCents: 12000, taxable: true }], payments: [], skipPhotoValidation: true }) }), params);
+
+    expect(completed.status).toBe(200);
+
+    const state = (await repository.read(f.actor))!;
+    const requested = await repository.command(f.actor, { kind: 'request_payment', requestId: randomUUID(), expectedRevision: state.revision }, dispatchBinding);
+    const operation = requested.state.operations.at(-1)!;
+    await dispatchWorkspacePayment(repository, f.actor, operation.id, secret, dispatchBinding);
+    const read = await readCheckout(new Request('http://localhost/api/appointments/fixture/checkout'), params);
+
+    expect(read.status).toBe(200);
+    expect((await read.json()).data).toMatchObject({ paymentWorkspace: { enabled: true, initialized: true }, balance: { amountAlreadyPaidCents: 13300, balanceCents: 2260 }, permissions: { canEditItems: false, canRecordPayment: false, canMarkComp: false, canVoidPayments: false, canReopen: false } });
+
+    const manual = await recordPayment(new Request('http://localhost/api/appointments/fixture/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amountCents: 2260, method: 'cash', idempotencyKey: randomUUID() }) }), params);
+
+    expect(manual.status).toBe(409);
+    expect((await repository.read(f.actor))!.operations.at(-1)).toMatchObject({ id: operation.id, state: 'open' });
+    expect(await listPayments(database, f.scope.appointmentId)).toHaveLength(1);
+  });
+
   it.each([8000, 12000])('completes the real checkout route at %i cents after an online payment and preserves retries', async (amount) => {
     const f = await capturedFixture(true);
     await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);

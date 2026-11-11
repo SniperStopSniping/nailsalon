@@ -595,3 +595,27 @@ check with the approved temporary Preview bypass returns the saved review state.
 This is a protected-Preview test limitation, not proof of a working public return
 journey. Fresh hosted payment, service changes, refunds, deposit and permissions
 checks, final CI and the production delivery gates remain outstanding.
+
+## November 11 successful capture and additional-payment checkout
+
+A fresh CAD 50 customer payment on `43d4683f` settled once and remained confirmed.
+The owner checkout displayed paid 50 and remaining 0. The return-status API
+independently reported received. Adding the catalog Simple Nail Art item and
+completing with zero offline tender saved a 60-dollar invoice, retained the
+50-dollar capture and left 10 dollars due; it did not charge automatically.
+
+The owner then created the 10-dollar Stripe payment request. Its normal checkout
+refresh incorrectly rejected the existing paid ledger because the new request
+imposed a collection hold, hiding the otherwise valid link. The read-only checkout
+projection now preserves verified history and tips while a request is held,
+returns false financial-edit permissions and leaves all mutation guards in place.
+Unverified/mismatched ledger evidence still fails closed. The regression failed
+with HTTP 409 before this correction; the fixed actual-route test returns the
+read-only checkout and still rejects manual collection with 409.
+
+Provider/provenance tests pass 85 cases; five existing capture/refund/ledger suites
+pass 49 cases. Scoped lint and full TypeScript pass. The 10-dollar request remains
+open for the corrected hosted UI to recover; it has not been recreated or paid.
+Main `f00aa61d` was merged cleanly as `520a03da`; its payment/automation combination
+passed 82 focused tests, 28 workflow contracts and TypeScript. Production remains
+unchanged by this task, and the release gates above remain open.
