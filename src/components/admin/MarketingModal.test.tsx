@@ -301,7 +301,7 @@ describe('MarketingModal', () => {
     await renderMarketing();
 
     expect(screen.getByText('Write a message')).toBeInTheDocument();
-    expect(screen.getByText('Choose a client, write or use a saved message, then send your way.')).toBeInTheDocument();
+    expect(screen.getByText('Choose clients, filter by last visit, and send a custom message.')).toBeInTheDocument();
     expect(screen.getByTestId('marketing-home-followups')).toHaveTextContent('2 due');
     expect(screen.getByTestId('marketing-home-results')).toHaveTextContent('3 sent · 2 redeemed');
     expect(screen.getByTestId('marketing-home-appointment-messages')).toHaveTextContent('Not available yet');
