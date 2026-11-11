@@ -32,7 +32,9 @@ export type BulkMessageDraft = z.infer<typeof bulkMessageDraftSchema>;
 
 /** Compare salon calendar dates so daylight saving does not move the cutoff. */
 export function matchesBulkMessageFilter(client: BulkMessageClient, filter: BulkMessageFilter, now: Date, timeZone: string): boolean {
-  if (filter.excludeUpcoming && client.hasUpcomingAppointment) {
+  // A last-visit audience is a rebooking invitation, so an existing booking
+  // always excludes the client, including older requests with the switch off.
+  if ((filter.excludeUpcoming || filter.minWeeks !== null) && client.hasUpcomingAppointment) {
     return false;
   }
   if (filter.minWeeks === null) {
@@ -49,7 +51,7 @@ export function matchesBulkMessageFilter(client: BulkMessageClient, filter: Bulk
 export type BulkMessagePreview = {
   fingerprint: string;
   body: string;
-  recipients: Array<{ id: string; fullName: string | null; phone: string }>;
+  recipients: Array<{ id: string; fullName: string | null; phone: string; body: string; message: string; credits: number; hasUpcomingAppointment: boolean }>;
   skipped: number;
   creditsPerText: number;
   totalCredits: number;

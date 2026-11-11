@@ -36,6 +36,8 @@ export function maskRecipient(channel: string, recipient: string | null | undefi
  * leak into a salon's UI.
  */
 const FRIENDLY_FAILURES: Record<string, string> = {
+  UNRESOLVED_MESSAGE_FIELDS: 'Not sent because a name or booking link was not filled in. Review a new message before sending.',
+  BULK_AUDIENCE_CHANGED: 'Not sent because this client no longer matches the message audience. Their booking, contact details or texting eligibility changed.',
   NOT_AFTER_ELAPSED: 'This message expired before it was useful.',
   QUIET_HOURS_STALE: 'This message expired before quiet hours ended.',
   APPOINTMENT_SUPERSEDED: 'The appointment changed, so this message was replaced.',
