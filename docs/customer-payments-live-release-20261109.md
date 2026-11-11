@@ -1,6 +1,54 @@
 # Customer payments release work — 2026-11-09
 
-## Current checkpoint: scheduled recovery and provider ownership
+## Current checkpoint: November 11 sandbox journeys and migration rehearsal
+
+Payments are not yet live. This section supersedes the historical checkpoints
+below. The application changes at `dbec411038cbeddc8df98189cf80eecbf25693f5` were
+exercised through the authenticated owner UI and real Stripe sandbox Checkout.
+Preview `dpl_CSwd9wkTSPRfP8bjvQiZ7LtNebHP` is READY at that SHA. Its health confirms
+database, Redis, Clerk, Stripe, Connect and schema readiness; the aggregate remains
+degraded because unrelated Preview communications/media providers are absent.
+
+Verified against both Stripe and the application ledger, without real money:
+
+- A customer paid CAD 50. Replaying the same Stripe event retained one tender.
+- The owner added CAD 10 of nail art, completed the CAD 60 invoice with zero
+  offline tender, recovered the existing payment link and collected the extra 10.
+- Removing the item restored the invoice to CAD 50. An explicit CAD 10 refund to
+  the original payment succeeded; gross payments stayed immutable and net paid
+  returned to 50 with zero remaining balance.
+- A separate anonymous booking disclosed and collected a CAD 20 deposit against
+  a CAD 50 service. The owner collected the remaining CAD 30 online and completed
+  the appointment without an additional manual tender. The deposit return page
+  confirmed the booking.
+
+The public customer-payment status API was verified separately. Its page request
+omits authentication cookies and encounters the private Preview's Vercel gate;
+the public production return page still needs verification. The sandbox connection
+was an audited fixture using an already-ready test account, not fresh onboarding
+proof. Earlier held test operations remain as immutable failure evidence.
+
+Production's 114-entry migration ledger was inspected read-only. The canonical
+production migration command applied all 15 pending migrations to the isolated
+Neon branch `br-misty-base-a4uthza1`, a copy of `br-lucky-shape-a4fizifo` in project
+`raspy-dust-88266097`. All new hashes match; the original ledger and every row in
+salon, appointment, appointment_payment and appointment_deposit were unchanged.
+Thirty-five legacy hashes differ from current files, which are unchanged from
+main: 33 match historical Git versions; 0011 and 0046 remain unattributed. This
+release preserves that ledger exactly and does not rewrite prior migrations.
+The rehearsal branch expires November 12. Production has not been migrated.
+
+Both task sandbox webhook endpoints are disabled with clean URLs. The temporary
+Vercel bypass was revoked and its local secret removed. Production still needs
+the dedicated customer-payment webhook, scoped configuration, migration and
+protected-main release. Current-head CI, resolved review, a fresh exact-SHA
+Preview and post-release runtime verification remain merge/release gates.
+
+Main's subsequent 1.153.0 release metadata was merged. The manifest pair was
+compared to reviewed 1.152.0: only the three root version fields changed. Its exact
+blob pair is registered; dependencies and protection rules remain unchanged.
+
+## Previous checkpoint: scheduled recovery and provider ownership
 
 Payments remain **not live**. Dispatch now commits a recovery job before any
 Stripe write. The existing scheduled worker retrieves known objects and can
