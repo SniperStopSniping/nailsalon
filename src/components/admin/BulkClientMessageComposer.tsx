@@ -195,6 +195,8 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
 
   if (review) {
     const { preview } = review;
+    const insufficientCredits = audience?.sms.availableCredits !== null && audience?.sms.availableCredits !== undefined
+      && audience.sms.availableCredits < preview.totalCredits;
     return (
       <div className="space-y-4" data-testid="bulk-message-review">
         <section className={card}>
@@ -215,6 +217,7 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
             ))}
           </ul>
           <p className="mt-4 text-sm text-[var(--owner-muted)]">Texts join the delivery queue and may take time to arrive. Opt-outs are checked again before sending.</p>
+          {insufficientCredits && <p role="status" className="mt-3 text-sm text-amber-800">Add credits or choose fewer clients before sending.</p>}
         </section>
         {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
         <div className="sticky bottom-0 grid gap-2 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3 sm:grid-cols-2">
@@ -230,7 +233,7 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
           >
             Edit message or clients
           </Button>
-          <Button type="button" className="min-h-12" disabled={busy || preview.recipients.length === 0} onClick={() => void send()}>{busy ? 'Queuing…' : uncertain ? 'Check this same send' : `Send to ${preview.recipients.length} ${preview.recipients.length === 1 ? 'client' : 'clients'} · ${preview.totalCredits} ${preview.totalCredits === 1 ? 'credit' : 'credits'}`}</Button>
+          <Button type="button" className="min-h-12" disabled={busy || (!uncertain && (preview.recipients.length === 0 || insufficientCredits))} onClick={() => void send()}>{busy ? 'Queuing…' : uncertain ? 'Check this same send' : `Send to ${preview.recipients.length} ${preview.recipients.length === 1 ? 'client' : 'clients'} · ${preview.totalCredits} ${preview.totalCredits === 1 ? 'credit' : 'credits'}`}</Button>
         </div>
       </div>
     );
@@ -348,11 +351,11 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
       </section>
       {audience && <p className="px-1 text-sm text-[var(--owner-muted)]">{audience.sms.availableCredits === null ? audience.sms.senderLabel : `${audience.sms.availableCredits} SMS credits available`}</p>}
       {audience && !audience.sms.manualAvailable && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{audience.sms.detail}</p>}
-      {creditShortfall && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Add credits or select fewer clients before sending.</p>}
+      {creditShortfall && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">This estimate exceeds your balance. Review the final recipients and credit total before sending.</p>}
       {selected.size > MAX_BULK_MESSAGE_CLIENTS && <p role="alert" className="text-sm text-red-800">Choose up to 1,000 clients per send.</p>}
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       <div className="sticky bottom-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3">
-        <Button type="button" className="min-h-12 w-full" disabled={busy || !audience?.sms.manualAvailable || !selected.size || selected.size > MAX_BULK_MESSAGE_CLIENTS || !message.trim() || !validWeeks || creditsPerText > 10 || creditShortfall} onClick={() => void reviewMessage()}>{busy ? 'Preparing review…' : `Review message · ${selected.size} clients · ${estimatedCredits} credits`}</Button>
+        <Button type="button" className="min-h-12 w-full" disabled={busy || !audience?.sms.manualAvailable || !selected.size || selected.size > MAX_BULK_MESSAGE_CLIENTS || !message.trim() || !validWeeks || creditsPerText > 10} onClick={() => void reviewMessage()}>{busy ? 'Preparing review…' : `Review message · ${selected.size} clients · ${estimatedCredits} credits`}</Button>
       </div>
     </div>
   );

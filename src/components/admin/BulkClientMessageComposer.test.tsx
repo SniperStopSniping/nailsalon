@@ -101,6 +101,28 @@ describe('bulk message composer', () => {
     expect(sends[0]).toEqual(sends[1]);
   });
 
+  it('checks the deduplicated credit quote before blocking a send for insufficient credits', async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      clients: [clients[0], { ...clients[0], id: 'same-phone', fullName: 'Zoe Duplicate' }],
+      asOf: '2026-11-11T16:00:00Z',
+      timeZone: 'America/Toronto',
+      bookingUrl: 'https://isla.test/book',
+      sms: { manualAvailable: true, availableCredits: 1, senderLabel: 'Luster', detail: '' },
+    }));
+    fetchMock.mockResolvedValueOnce(response({ preview: { ...preview, skipped: 1 } }));
+    render(<BulkClientMessageComposer {...props} />);
+    await screen.findByLabelText('Select Ava Old');
+    fireEvent.click(screen.getByRole('button', { name: 'All clients' }));
+    fireEvent.change(screen.getByLabelText('Your message'), { target: { value: 'Book your next visit.' } });
+
+    expect(screen.getByRole('button', { name: /Review message/ })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Review message/ }));
+    await screen.findByText('Review your message');
+
+    expect(screen.getByRole('button', { name: 'Send to 1 client · 1 credit' })).toBeEnabled();
+  });
+
   it('does not review with unavailable texting, missing recipients, or an invalid week threshold', async () => {
     render(<BulkClientMessageComposer {...props} />);
     await screen.findByLabelText('Select Ava Old');
