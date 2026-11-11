@@ -108,7 +108,9 @@ export function createWorkspaceStripeProvider(secretKey: string) {
     const platformBalance = await client.balance.retrieve({}, options(binding, false));
     responseScope(platformBalance, binding, false);
     const account = await client.accounts.retrieve(binding.connectedAccountId, {}, options(binding, false));
-    responseScope(account, binding, false);
+    // This lookup authenticates as the platform, but Stripe scopes its response
+    // header to the connected account returned by /v1/accounts/:id.
+    responseScope(account, binding, true);
     const controller = account.controller;
     if (account.id !== binding.connectedAccountId || account.country !== 'CA' || account.default_currency !== 'cad'
       || controller?.stripe_dashboard?.type !== 'full' || controller?.fees?.payer !== 'account'

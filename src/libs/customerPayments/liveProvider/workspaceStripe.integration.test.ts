@@ -93,6 +93,9 @@ beforeEach(() => {
   vi.stubEnv('VERCEL', '');
   sdk.accounts.mockImplementation(async (id: unknown) => ({
     ...response,
+    // Stripe scopes /v1/accounts/:id responses to the returned account even
+    // when the request uses the platform key without a Stripe-Account header.
+    lastResponse: { ...response.lastResponse, stripeAccount: typeof id === 'string' ? binding.connectedAccountId : binding.platformAccountId },
     id: typeof id === 'string' ? binding.connectedAccountId : binding.platformAccountId,
     object: 'account',
     country: 'CA',
@@ -186,6 +189,35 @@ async function capturedFixture(canonicalInvoice = false, depositCents = 0, lostR
   sdk.retrieveCharge.mockResolvedValue(charge);
   return { ...f, dispatched, charge, paymentIntentId, chargeId };
 }
+
+describe('Stripe account response headers', () => {
+  it('accepts the connected account header on a platform-authenticated account lookup', async () => {
+    const f = await fixture();
+
+    const result = await dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding);
+
+    expect(result.state.operations[0]).toMatchObject({ state: 'open' });
+    expect(sdk.accounts).toHaveBeenCalledWith(binding.connectedAccountId, {}, expect.not.objectContaining({ stripeAccount: expect.anything() }));
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['platform', 'connected'])('rejects a mismatched %s account response header before creating checkout', async (scope) => {
+    const original = sdk.accounts.getMockImplementation()!;
+    sdk.accounts.mockImplementation(async (id: unknown) => {
+      const account = await original(id);
+      const connected = typeof id === 'string';
+      return connected === (scope === 'connected')
+        ? { ...account, lastResponse: { ...account.lastResponse, stripeAccount: 'acct_foreign' } }
+        : account;
+    });
+    const f = await fixture();
+
+    await expect(dispatchWorkspacePayment(repository, f.actor, f.operationId, secret, dispatchBinding)).rejects.toThrow('PAYMENT_WORKSPACE_PROVIDER_SCOPE_MISMATCH');
+
+    expect(sdk.createSession).not.toHaveBeenCalled();
+    expect((await repository.read(f.actor))!.payments).toHaveLength(0);
+  });
+});
 
 describe('independently retrieved payment and refund accounting', () => {
   it.each([false, true])('refuses deposit ownership of the same provider intent; workspace first=%s', async (workspaceFirst) => {

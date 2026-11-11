@@ -526,3 +526,36 @@ The invoice and workspace/provider suites total 32 passing cases. Full TypeScrip
 scoped lint and the tracked-tree secret scan pass for this follow-up. The final
 assignment-guard change is additionally covered by the 25-case provider/repository
 rerun. These remain backend checks, not an authenticated customer journey.
+
+## November 11 authenticated sandbox checkpoint
+
+The development owner now signs in through a normal Clerk session. A single-use
+test sign-in token removed the password-reset blocker; organization creation,
+email verification, canonical salon activation and the owner dashboard completed
+through the Preview UI. No production identity or credential changed.
+
+The synthetic salon `luster-payments-test` has an owned, ready Canadian Standard
+test account. A bounded fixture connected the already-onboarded task account
+after checking the exact Preview host and marker, the sole synthetic owner, zero
+appointments and zero records in all 18 customer-payment tables. It retained the
+incomplete UI-created binding as revoked history and added an audit record. This
+is fixture setup, not proof of completing fresh Stripe onboarding end to end.
+The ordinary owner UI independently refreshed Stripe readiness and saved online
+payment activation and the synthetic refund policy.
+
+A normal owner-created $50 Gel Manicure appointment reached checkout. Its first
+payment-link request stopped at `PAYMENT_WORKSPACE_PROVIDER_SCOPE_MISMATCH`.
+Stripe request `req_bfQnK7doK1iKYg` confirms HTTP 200 and API version `2024-06-20`
+for the platform-authenticated connected-account lookup, with `Stripe-Account`
+set to the connected account. The adapter incorrectly expected the platform ID
+on that response. It now validates the connected account response identity while
+keeping platform authentication and all other account/mode checks unchanged.
+
+The positive regression failed before the correction. Afterward all 57 cases in
+the provider, workspace repository and policy repository suites passed, including
+foreign-header rejection before checkout creation. Scoped ESLint and full
+TypeScript checks passed. The saved operation remains
+uncertain with no payment recorded; the corrected Preview must retry that same
+operation and verify its actual Stripe and ledger results. No charge or refund
+has yet been completed. Current-head CI, financial journeys and production
+release checks remain open; PR #504 is still draft and payments are not live.
