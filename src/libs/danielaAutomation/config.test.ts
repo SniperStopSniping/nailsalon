@@ -22,6 +22,8 @@ beforeEach(() => {
   vi.stubEnv('DANIELA_AUTOMATION_CONFIG', JSON.stringify(definition));
   vi.stubEnv('DANIELA_TWILIO_AUTH_TOKEN', 'synthetic');
   vi.stubEnv('DANIELA_N8N_CUTOVER_CONFIRMED', '');
+  vi.stubEnv('DANIELA_CAMPAIGN_ENABLED', '');
+  vi.stubEnv('DANIELA_CAMPAIGN_RESEND_PHONES', '');
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -65,4 +67,23 @@ it('fails closed on corrupt configuration', () => {
   vi.stubEnv('DANIELA_AUTOMATION_CONFIG', 'bad json');
 
   expect(getDanielaConfig()).toBeNull();
+});
+
+it('accepts an explicit ordered one-time resend scope', () => {
+  vi.stubEnv('DANIELA_AUTOMATION_MODE', 'shadow');
+  vi.stubEnv('DANIELA_CAMPAIGN_ENABLED', 'true');
+  vi.stubEnv('DANIELA_CAMPAIGN_RESEND_PHONES', JSON.stringify(['+14165550102', '+14165550103']));
+
+  expect(getDanielaConfig()).toMatchObject({
+    campaignEnabled: true,
+    campaignResendPhones: ['+14165550102', '+14165550103'],
+  });
+});
+
+it.each(['bad json', '[]', '["not-a-phone"]', '["+14165550102","+14165550102"]', JSON.stringify(Array.from({ length: 11 }, (_, i) => `+141655501${String(i).padStart(2, '0')}`))])('pauses only the campaign for an invalid resend scope: %s', (value) => {
+  vi.stubEnv('DANIELA_AUTOMATION_MODE', 'shadow');
+  vi.stubEnv('DANIELA_CAMPAIGN_ENABLED', 'true');
+  vi.stubEnv('DANIELA_CAMPAIGN_RESEND_PHONES', value);
+
+  expect(getDanielaConfig()).toMatchObject({ mode: 'shadow', campaignEnabled: false, campaignResendPhones: [] });
 });

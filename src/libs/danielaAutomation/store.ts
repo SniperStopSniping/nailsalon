@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, ne, notExists, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { danielaAutomationStateSchema as states, danielaContactSchema as contacts, danielaInboundSchema as events, danielaSendSchema as sends, salonSchema } from '@/models/Schema';
@@ -158,7 +158,8 @@ export async function recordInbound(config: DanielaConfig, input: {
 
 export async function queueCampaign(config: DanielaConfig, now = new Date()): Promise<boolean> {
   const slot = campaignSlot(now);
-  if (!slot || !config.campaignEnabled) {
+  const resendPhones = config.campaignResendPhones;
+  if (!slot || !config.campaignEnabled || resendPhones?.length === 0) {
     return false;
   }
   return locked(config, async (tx) => {
@@ -176,12 +177,23 @@ export async function queueCampaign(config: DanielaConfig, now = new Date()): Pr
       eq(contacts.campaignEligible, true),
       eq(contacts.blocked, false),
       eq(contacts.providerOptOut, false),
-      isNull(contacts.promoAttemptedAt),
-      isNull(contacts.promoAcceptedAt),
+      resendPhones
+        ? and(
+          inArray(contacts.phone, resendPhones),
+          eq(contacts.inboundOnly, false),
+          // Explicit historical resends get one new attempt, including uncertain/failed outcomes.
+          notExists(tx.select({ id: sends.id }).from(sends).where(and(
+            eq(sends.salonId, contacts.salonId),
+            eq(sends.phone, contacts.phone),
+            eq(sends.purpose, 'promo'),
+            ne(sends.state, 'shadow'),
+          ))),
+        )
+        : and(isNull(contacts.promoAttemptedAt), isNull(contacts.promoAcceptedAt)),
     )).orderBy(asc(contacts.rowOrder), asc(contacts.phone));
     candidates.sort((a, b) => {
       const rank = (p: string) => {
-        const i = config.preferredPhones.indexOf(p);
+        const i = (resendPhones || config.preferredPhones).indexOf(p);
         return i < 0 ? 100 : i;
       };
       return rank(a.phone) - rank(b.phone);
@@ -190,9 +202,9 @@ export async function queueCampaign(config: DanielaConfig, now = new Date()): Pr
     if (!contact) {
       return false;
     }
-    await tx.insert(sends).values({ id: `ds_${crypto.randomUUID()}`, salonId: config.salonId, phone: contact.phone, purpose: 'promo', body: config.promoMessage, slot, createdAt: now });
+    await tx.insert(sends).values({ id: `ds_${resendPhones ? 'resend_' : ''}${crypto.randomUUID()}`, salonId: config.salonId, phone: contact.phone, purpose: 'promo', body: config.promoMessage, slot, createdAt: now });
     if (config.mode === 'live') {
-      await tx.update(contacts).set({ promoAttemptedAt: now, sheetDirty: true, updatedAt: now }).where(contactWhere(config.salonId, contact.phone));
+      await tx.update(contacts).set({ promoAttemptedAt: contact.promoAttemptedAt || now, sheetDirty: true, updatedAt: now }).where(contactWhere(config.salonId, contact.phone));
     }
     return true;
   });
@@ -212,7 +224,8 @@ export async function claimSend(config: DanielaConfig, now = new Date()): Promis
     }
     const [contact] = await tx.select().from(contacts).where(contactWhere(config.salonId, item.phone));
     const suppressed = !contact || contact.blocked || contact.providerOptOut || config.blockedPhones.includes(item.phone)
-      || (item.purpose === 'promo' && (!config.campaignEnabled || !contact.campaignEligible));
+      || (item.purpose === 'promo' && (!config.campaignEnabled || !contact.campaignEligible
+        || (config.campaignResendPhones !== undefined && !config.campaignResendPhones.includes(item.phone))));
     const expired = now.getTime() - item.createdAt.getTime() > (item.purpose === 'promo' ? 5 * 60_000 : 15 * 60_000);
     if (suppressed || expired) {
       await tx.update(sends).set({ state: 'suppressed', errorCode: expired ? 'EXPIRED' : 'SUPPRESSED' }).where(eq(sends.id, item.id));
@@ -239,7 +252,9 @@ export async function finishSend(config: DanielaConfig, item: Send, result: { si
     await tx.update(sends).set({ state, providerSid: result.sid || current.providerSid, errorCode: result.errorCode || null, ...(accepted ? { acceptedAt: now } : {}) }).where(eq(sends.id, item.id));
     if (accepted) {
       await tx.update(contacts).set({
-        ...(item.purpose === 'booking' ? { lastBookingAt: now } : { promoAcceptedAt: now }),
+        ...(item.purpose === 'booking'
+          ? { lastBookingAt: now }
+          : { promoAcceptedAt: item.id.startsWith('ds_resend_') ? sql`COALESCE(${contacts.promoAcceptedAt}, ${now})` : now }),
         sheetDirty: true,
         updatedAt: now,
       }).where(contactWhere(config.salonId, item.phone));
@@ -270,7 +285,9 @@ export async function recordStatus(config: DanielaConfig, id: string, params: Re
     await tx.update(sends).set({ state: terminal, providerSid: params.MessageSid, acceptedAt: item.acceptedAt || now, errorCode: failed ? params.ErrorCode || 'DELIVERY_FAILED' : null }).where(eq(sends.id, id));
     // Even undelivered means Twilio accepted an attempt; keep the reply cooldown.
     await tx.update(contacts).set({
-      ...(item.purpose === 'booking' ? { lastBookingAt: later(item.acceptedAt || now, (await tx.select().from(contacts).where(contactWhere(config.salonId, item.phone)))[0]!.lastBookingAt) } : { promoAcceptedAt: item.acceptedAt || now }),
+      ...(item.purpose === 'booking'
+        ? { lastBookingAt: later(item.acceptedAt || now, (await tx.select().from(contacts).where(contactWhere(config.salonId, item.phone)))[0]!.lastBookingAt) }
+        : { promoAcceptedAt: item.id.startsWith('ds_resend_') ? sql`COALESCE(${contacts.promoAcceptedAt}, ${item.acceptedAt || now})` : item.acceptedAt || now }),
       ...(params.ErrorCode === '21610' ? { providerOptOut: true, consentUpdatedAt: now } : {}),
       sheetDirty: true,
       updatedAt: now,

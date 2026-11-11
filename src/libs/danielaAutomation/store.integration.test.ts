@@ -185,6 +185,85 @@ it('honors preferred recipients but never bypasses blocked phones', async () => 
   expect((await db.select().from(schema.danielaSendSchema))[0]!.phone).toBe(phone);
 });
 
+it('resends only the approved historical contacts in order, preserves legacy evidence, and stops after one attempt each', async () => {
+  const second = '+14165550102';
+  const originalAttempt = new Date('2026-09-26T20:00:00Z');
+  const originalAccepted = new Date('2026-09-26T20:00:01Z');
+  const rows = [
+    row(phone, { promoAttemptedAt: originalAttempt, promoAcceptedAt: originalAccepted }),
+    row(second, { rowOrder: 20, promoAttemptedAt: originalAttempt, promoAcceptedAt: originalAccepted }),
+    row('+14165550103', { rowOrder: 1 }),
+  ];
+  const scoped = { ...config, campaignResendPhones: [second, phone], preferredPhones: [phone, second] };
+  await importContacts(scoped, rows, now);
+
+  expect(await queueCampaign(scoped, now)).toBe(true);
+  expect(await queueCampaign(scoped, now)).toBe(false);
+
+  const first = (await claimSend(scoped, now))!;
+
+  expect(first.phone).toBe(second);
+
+  const sid = `SM${'b'.repeat(32)}`;
+  await finishSend(scoped, first, { sid }, now);
+  await recordStatus(scoped, first.id, { To: second, From: config.fromNumber, MessageSid: sid, MessageStatus: 'delivered' }, now);
+  const next = new Date(now.getTime() + 30 * 60_000);
+  await importContacts(scoped, rows, next);
+
+  expect(await queueCampaign(scoped, next)).toBe(true);
+
+  const last = (await claimSend(scoped, next))!;
+
+  expect(last.phone).toBe(phone);
+
+  await finishSend(scoped, last, { unknown: true }, next);
+  const laterSlot = new Date(now.getTime() + 60 * 60_000);
+  await importContacts(scoped, rows, laterSlot);
+
+  expect(await queueCampaign(scoped, laterSlot)).toBe(false);
+  expect(await claimSend(scoped, laterSlot)).toBeNull();
+  expect(await db.select().from(schema.danielaSendSchema)).toHaveLength(2);
+
+  const contacts = await db.select().from(schema.danielaContactSchema);
+
+  expect(contacts.filter(c => scoped.campaignResendPhones.includes(c.phone))).toEqual(expect.arrayContaining([
+    expect.objectContaining({ phone, promoAttemptedAt: originalAttempt, promoAcceptedAt: originalAccepted }),
+    expect.objectContaining({ phone: second, promoAttemptedAt: originalAttempt, promoAcceptedAt: originalAccepted }),
+  ]));
+  expect(contacts.find(c => c.phone === '+14165550103')).toMatchObject({ promoAttemptedAt: null, promoAcceptedAt: null });
+});
+
+it.each([{ blocked: true }, { optedOut: true }, { campaignEligible: false }])('keeps historical resends subject to contact suppression: %j', async (restriction) => {
+  const scoped = { ...config, campaignResendPhones: [phone] };
+  await importContacts(scoped, [row(phone, { promoAttemptedAt: new Date(0), ...restriction })], now);
+
+  expect(await queueCampaign(scoped, now)).toBe(false);
+  expect(await db.select().from(schema.danielaSendSchema)).toHaveLength(0);
+});
+
+it('rechecks the explicit recipient scope before claiming a pending promotion', async () => {
+  await importContacts(config, [row()], now);
+  await queueCampaign(config, now);
+
+  expect(await claimSend({ ...config, campaignResendPhones: ['+14165550102'] }, now)).toBeNull();
+  expect((await db.select().from(schema.danielaSendSchema))[0]!.state).toBe('suppressed');
+});
+
+it('does not consume the one-time resend allowance in shadow mode', async () => {
+  const scoped = { ...config, campaignResendPhones: [phone] };
+  const rows = [row(phone, { promoAttemptedAt: new Date(0) })];
+  await importContacts(scoped, rows, now);
+
+  expect(await queueCampaign({ ...scoped, mode: 'shadow' }, now)).toBe(true);
+  expect(await claimSend({ ...scoped, mode: 'shadow' }, now)).toBeNull();
+
+  const next = new Date(now.getTime() + 30 * 60_000);
+  await importContacts(scoped, rows, next);
+
+  expect(await queueCampaign(scoped, next)).toBe(true);
+  expect((await claimSend(scoped, next))?.phone).toBe(phone);
+});
+
 it('requires fresh Sheets state before campaigning and removes eligibility when a row disappears', async () => {
   await importContacts(config, [row()], now);
 
