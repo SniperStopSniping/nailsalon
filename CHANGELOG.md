@@ -1,3 +1,10 @@
+# [1.152.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.151.2...v1.152.0) (2026-11-11)
+
+
+### Features
+
+* **marketing:** send custom messages to selected client groups ([#506](https://github.com/SniperStopSniping/nailsalon/issues/506)) ([2255c94](https://github.com/SniperStopSniping/nailsalon/commit/2255c94ef7f5caa0d830cba58667aed2fb2ae61b))
+
 ## [1.151.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.151.1...v1.151.2) (2026-11-09)
 
 

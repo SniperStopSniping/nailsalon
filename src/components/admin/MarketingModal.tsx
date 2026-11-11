@@ -1119,7 +1119,7 @@ export function MarketingModal({
                           </span>
                           <span>
                             <span className="block text-[18px] font-semibold">Write a message</span>
-                            <span className="mt-1 block text-[13px] leading-relaxed text-white/85">Choose a client, write or use a saved message, then send your way.</span>
+                            <span className="mt-1 block text-[13px] leading-relaxed text-white/85">Choose clients, filter by last visit, and send a custom message.</span>
                           </span>
                         </button>
 
