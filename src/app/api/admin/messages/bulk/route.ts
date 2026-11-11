@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { headers: { 'Cache-Control': 'no-store' } };
 const schema = z.discriminatedUnion('action', [
   bulkMessageDraftSchema.extend({ action: z.literal('preview') }),
-  bulkMessageDraftSchema.extend({ action: z.literal('send'), requestId: z.string().uuid(), previewFingerprint: z.string().regex(/^[a-f0-9]{64}$/) }),
+  bulkMessageDraftSchema.extend({ action: z.literal('send'), requestId: z.string().uuid(), previewFingerprint: z.string().regex(/^[a-f0-9]{64}$/), includeBookedConfirmed: z.boolean().default(false) }),
 ]);
 
 function failure(error: unknown) {

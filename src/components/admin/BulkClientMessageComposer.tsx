@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SmsMessagePreview } from '@/components/admin/SmsMessagePreview';
 import { Button } from '@/components/ui/button';
 import { type BulkMessageClient, type BulkMessageDraft, type BulkMessageFilter, type BulkMessagePreview, type BulkMessageReceipt, matchesBulkMessageFilter, MAX_BULK_MESSAGE_CLIENTS } from '@/libs/bulkClientMessages';
+import { hasUnfilledMessageFields, personalizeClientMessage, unsupportedMessageFields } from '@/libs/clientMessagePersonalization';
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { prepareSmsBody } from '@/libs/smsSegments';
 import type { SmsOperationalHealth } from '@/libs/textingStatus';
@@ -47,6 +48,8 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
   const [receipt, setReceipt] = useState<BulkMessageReceipt | null>(null);
   const [busy, setBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  const [previewClientId, setPreviewClientId] = useState('');
+  const [includeBookedConfirmed, setIncludeBookedConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const requestId = useRef<string | null>(null);
@@ -80,13 +83,19 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
   const query = search.trim().toLocaleLowerCase();
   const visible = matching.filter(client => !query || `${client.fullName ?? ''} ${client.phone}`.toLocaleLowerCase().includes(query));
   const eligibleVisible = visible.filter(client => client.eligible);
-  const finalBody = COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName, message: message.trim() });
-  const creditsPerText = prepareSmsBody(finalBody).segmentation.segments;
-  const estimatedCredits = creditsPerText * selected.size;
+  const selectedClients = audience?.clients.filter(client => selected.has(client.id)) ?? [];
+  const personalizedBodies = (selectedClients.length ? selectedClients : [{ fullName: null }]).map(client => COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName, message: personalizeClientMessage(message.trim(), { fullName: client.fullName, bookingUrl: audience?.bookingUrl ?? '', salonName }) }));
+  const finalBody = personalizedBodies[0] ?? '';
+  const creditsPerText = Math.max(...personalizedBodies.map(body => prepareSmsBody(body).segmentation.segments));
+  const estimatedCredits = selected.size ? personalizedBodies.reduce((sum, body) => sum + prepareSmsBody(body).segmentation.segments, 0) : 0;
+  const invalidFields = unsupportedMessageFields(message) || personalizedBodies.some(hasUnfilledMessageFields);
   const creditShortfall = audience?.sms.availableCredits !== null && audience?.sms.availableCredits !== undefined && audience.sms.availableCredits < estimatedCredits;
   const validWeeks = filter.minWeeks === null || (/^\d+$/.test(weeks) && Number(weeks) >= 1 && Number(weeks) <= 104);
 
   function selectFilter(next: BulkMessageFilter) {
+    if (next.minWeeks !== null) {
+      next = { ...next, excludeUpcoming: true };
+    }
     setFilter(next);
     setError(null);
     setSelected(new Set(audience?.clients.filter(client => client.eligible && matchesBulkMessageFilter(client, next, new Date(audience.asOf), audience.timeZone)).map(client => client.id)));
@@ -107,6 +116,8 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
         throw new Error(payload.error?.message || 'The message could not be reviewed.');
       }
       setReview({ draft, preview: payload.data.preview });
+      setPreviewClientId(payload.data.preview.recipients[0]?.id ?? '');
+      setIncludeBookedConfirmed(false);
       requestId.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The message could not be reviewed.');
@@ -125,7 +136,7 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
     setError(null);
     requestId.current ??= crypto.randomUUID();
     try {
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', ...review.draft, previewFingerprint: review.preview.fingerprint, requestId: requestId.current }) });
+      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send', ...review.draft, previewFingerprint: review.preview.fingerprint, requestId: requestId.current, includeBookedConfirmed }) });
       const payload = await response.json();
       if (!response.ok) {
         setUncertain(response.status >= 500);
@@ -195,6 +206,8 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
 
   if (review) {
     const { preview } = review;
+    const previewClient = preview.recipients.find(client => client.id === previewClientId) ?? preview.recipients[0];
+    const bookedClients = preview.recipients.filter(client => client.hasUpcomingAppointment);
     const insufficientCredits = audience?.sms.availableCredits !== null && audience?.sms.availableCredits !== undefined
       && audience.sms.availableCredits < preview.totalCredits;
     return (
@@ -202,12 +215,24 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
         <section className={card}>
           <h2 className="text-xl font-semibold text-[var(--owner-ink)]">Review your message</h2>
           <p className="mt-2 text-sm text-[var(--owner-muted)]">Each client receives a separate text.</p>
-          <SmsMessagePreview body={preview.body} className="mt-4" />
+          <label className="mt-4 block text-sm font-semibold">
+            Preview for
+            <select value={previewClient?.id ?? ''} onChange={event => setPreviewClientId(event.target.value)} className="mt-2 block min-h-12 w-full rounded-xl border border-[var(--owner-line)] bg-white px-3 text-base">
+              {preview.recipients.map(client => <option key={client.id} value={client.id}>{client.fullName || client.phone}</option>)}
+            </select>
+          </label>
+          <SmsMessagePreview body={previewClient?.body ?? preview.body} className="mt-4" />
           <div className="mt-4 rounded-2xl bg-rose-50 p-4">
             <p className="text-lg font-semibold text-[var(--owner-ink)]">{`${preview.recipients.length} ${preview.recipients.length === 1 ? 'client' : 'clients'} · ${preview.totalCredits} ${preview.totalCredits === 1 ? 'credit' : 'credits'}`}</p>
-            <p className="mt-1 text-sm text-[var(--owner-muted)]">{`${preview.creditsPerText} ${preview.creditsPerText === 1 ? 'credit' : 'credits'} per client`}</p>
+            <p className="mt-1 text-sm text-[var(--owner-muted)]">{`Up to ${preview.creditsPerText} ${preview.creditsPerText === 1 ? 'credit' : 'credits'} per client. The total includes each personalized text.`}</p>
           </div>
           {preview.skipped > 0 && <p className="mt-3 text-sm text-amber-800">{`${preview.skipped} selections were skipped: unavailable clients, changed visit dates, or duplicate mobile numbers.`}</p>}
+          {bookedClients.length > 0 && (
+            <label className="mt-4 flex items-start gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+              <input type="checkbox" className="mt-1 size-4 shrink-0" disabled={busy || uncertain} checked={includeBookedConfirmed} onChange={event => setIncludeBookedConfirmed(event.target.checked)} />
+              <span>{`I want to include ${bookedClients.length} already-booked ${bookedClients.length === 1 ? 'client' : 'clients'}: ${bookedClients.map(client => client.fullName || client.phone).join(', ')}. They will receive any offer in this message.`}</span>
+            </label>
+          )}
           <ul aria-label="Message recipients" className="mt-4 max-h-64 divide-y divide-[var(--owner-line)] overflow-y-auto">
             {preview.recipients.map(client => (
               <li key={client.id} className="flex justify-between gap-3 py-3 text-sm">
@@ -233,7 +258,7 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
           >
             Edit message or clients
           </Button>
-          <Button type="button" className="min-h-12" disabled={busy || (!uncertain && (preview.recipients.length === 0 || insufficientCredits))} onClick={() => void send()}>{busy ? 'Queuing…' : uncertain ? 'Check this same send' : `Send to ${preview.recipients.length} ${preview.recipients.length === 1 ? 'client' : 'clients'} · ${preview.totalCredits} ${preview.totalCredits === 1 ? 'credit' : 'credits'}`}</Button>
+          <Button type="button" className="min-h-12" disabled={busy || (!uncertain && (preview.recipients.length === 0 || insufficientCredits || (bookedClients.length > 0 && !includeBookedConfirmed)))} onClick={() => void send()}>{busy ? 'Queuing…' : uncertain ? 'Check this same send' : `Send to ${preview.recipients.length} ${preview.recipients.length === 1 ? 'client' : 'clients'} · ${preview.totalCredits} ${preview.totalCredits === 1 ? 'credit' : 'credits'}`}</Button>
         </div>
       </div>
     );
@@ -292,10 +317,14 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
                 <span className="mt-2 block text-xs font-normal text-[var(--owner-muted)]">Includes older visits. Clients with no completed visit are excluded.</span>
               </label>
             )}
-            <label className="flex min-h-11 items-center gap-2 text-sm">
-              <input type="checkbox" checked={filter.excludeUpcoming} onChange={event => selectFilter({ ...filter, excludeUpcoming: event.target.checked })} className="size-4 accent-[var(--owner-accent)]" />
-              Exclude clients with upcoming bookings
-            </label>
+            {filter.minWeeks === null
+              ? (
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
+                    <input type="checkbox" checked={filter.excludeUpcoming} onChange={event => selectFilter({ ...filter, excludeUpcoming: event.target.checked })} className="size-4 accent-[var(--owner-accent)]" />
+                    Exclude clients with upcoming bookings
+                  </label>
+                )
+              : <p className="text-sm text-[var(--owner-muted)]">Clients with upcoming bookings are always excluded from a last-visit message.</p>}
             <label className="block text-sm font-semibold" htmlFor="bulk-client-search">Search clients</label>
             <div className="flex min-h-12 items-center gap-2 rounded-xl border border-[var(--owner-line)] bg-white px-3">
               <Search aria-hidden="true" className="size-4 shrink-0 text-[var(--owner-muted)]" />
@@ -346,8 +375,15 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
       <section className={card}>
         <label htmlFor="bulk-custom-message" className="text-lg font-semibold text-[var(--owner-ink)]">Your message</label>
         <textarea id="bulk-custom-message" rows={5} maxLength={1000} value={message} disabled={busy} onChange={event => setMessage(event.target.value)} placeholder="Write a message for your selected clients…" className="mt-3 w-full rounded-2xl border border-[var(--owner-line)] bg-white p-3 text-base outline-none focus:border-[var(--owner-accent)]" />
+        <Button type="button" variant="ghost" disabled={busy || message.length + 15 > 1000} onClick={() => setMessage(current => `${current.trimEnd()}${current.trim() ? ' ' : ''}{{first_name}}`)}>First name</Button>
         <Button type="button" variant="ghost" disabled={busy || !audience || message.length + (audience?.bookingUrl.length ?? 0) + 1 > 1000} onClick={() => setMessage(current => `${current.trimEnd()}${current.trim() ? ' ' : ''}${audience?.bookingUrl ?? ''}`)}>Add booking link</Button>
-        {message.trim() && <SmsMessagePreview body={finalBody} className="mt-3" />}
+        {invalidFields && <p role="alert" className="mt-3 text-sm text-red-800">A message field is unknown or unfinished. Use First name or Add booking link before reviewing.</p>}
+        {message.trim() && !invalidFields && (
+          <>
+            <p className="mt-3 text-xs text-[var(--owner-muted)]">{`Preview for ${selectedClients[0]?.fullName || 'a client'}. Names and booking links are filled in for each recipient.`}</p>
+            <SmsMessagePreview body={finalBody} className="mt-2" />
+          </>
+        )}
       </section>
       {audience && <p className="px-1 text-sm text-[var(--owner-muted)]">{audience.sms.availableCredits === null ? audience.sms.senderLabel : `${audience.sms.availableCredits} SMS credits available`}</p>}
       {audience && !audience.sms.manualAvailable && <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{audience.sms.detail}</p>}
@@ -355,7 +391,7 @@ export function BulkClientMessageComposer({ salonSlug, salonName, onBack }: { sa
       {selected.size > MAX_BULK_MESSAGE_CLIENTS && <p role="alert" className="text-sm text-red-800">Choose up to 1,000 clients per send.</p>}
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       <div className="sticky bottom-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3">
-        <Button type="button" className="min-h-12 w-full" disabled={busy || !audience?.sms.manualAvailable || !selected.size || selected.size > MAX_BULK_MESSAGE_CLIENTS || !message.trim() || !validWeeks || creditsPerText > 10} onClick={() => void reviewMessage()}>{busy ? 'Preparing review…' : `Review message · ${selected.size} clients · ${estimatedCredits} credits`}</Button>
+        <Button type="button" className="min-h-12 w-full" disabled={busy || !audience?.sms.manualAvailable || !selected.size || selected.size > MAX_BULK_MESSAGE_CLIENTS || !message.trim() || !validWeeks || invalidFields || creditsPerText > 10} onClick={() => void reviewMessage()}>{busy ? 'Preparing review…' : `Review message · ${selected.size} clients · ${estimatedCredits} credits`}</Button>
       </div>
     </div>
   );
