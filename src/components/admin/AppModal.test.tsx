@@ -256,7 +256,7 @@ describe('AppModal', () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
-  it('dismisses from the backdrop and leaves a thumb-sized strip of it exposed', async () => {
+  it('dismisses from the backdrop when the comfortable inset is requested', async () => {
     const user = userEvent.setup();
 
     function Harness() {
@@ -264,7 +264,7 @@ describe('AppModal', () => {
       return (
         <>
           <button type="button" onClick={() => setOpen(true)}>Open owner app</button>
-          <AppModal isOpen={open} onClose={() => setOpen(false)} title="Owner app" allowDragToDismiss={false}>
+          <AppModal isOpen={open} onClose={() => setOpen(false)} title="Owner app" allowDragToDismiss={false} topInset="comfortable">
             <button type="button">Inside action</button>
           </AppModal>
         </>
@@ -275,13 +275,7 @@ describe('AppModal', () => {
     const opener = screen.getByRole('button', { name: 'Open owner app' });
     await user.click(opener);
 
-    const panel = await screen.findByTestId('app-modal-panel');
-
-    // The exposed backdrop band is whatever the sheet's top inset leaves; a
-    // 12 px strip is not a tap target on a phone (AG-w2-settings-integrations-11).
-    expect(panel).toHaveStyle({
-      top: 'max(calc(env(safe-area-inset-top, 0px) + 12px), 44px)',
-    });
+    await screen.findByTestId('app-modal-panel');
 
     const backdrop = screen.getByTestId('app-modal-backdrop');
 

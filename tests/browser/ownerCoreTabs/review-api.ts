@@ -35,6 +35,12 @@ export function installReviewApi() {
     if (path === '/api/admin/today') {
       return Response.json({ data: { timeZone: 'America/Toronto', integrationHealth: { google: { readiness: 'ready', status: 'connected' } }, links: { bookingUrl: `${window.location.origin}/book` } } });
     }
+    if (path === '/api/admin/marketing') {
+      return Response.json({ data: { currency: 'CAD', followups: { groups: [], reminders: [] }, results: { windowDays: 30, outreach: [], campaigns: [], automatic: [] } } });
+    }
+    if (path === '/api/integrations/health') {
+      return Response.json({ data: { sms: { manualAvailable: true, availableCredits: 100, senderMode: 'shared_luster', senderLabel: 'Luster SMS' } } });
+    }
     if (path === '/api/admin/clients') {
       const query = url.searchParams.get('search')?.toLowerCase() ?? '';
       return Response.json(clientList(scenario === 'empty' || (query && !'sofia martin'.includes(query)) ? 'empty' : 'default'));
@@ -74,7 +80,8 @@ export function installReviewApi() {
       return Response.json({ data: { client: { id: 'client_browser', phone: '4165550101', fullName: 'Sofia Martin', adminFlags: { isProblemClient: false, flagReason: '' }, isBlocked: false, blockedReason: '', noShowCount: 0, lateCancelCount: 0 } } });
     }
     if (path === '/api/admin/retention/settings') {
-      return Response.json({ data: { settings: { defaultRebookDays: 21, reminderLeadHours: 24, googleReviewUrl: null, parkingInstructions: null } } });
+      const promotion = { enabled: false, name: '', discountType: 'fixed', value: 0, eligibleServiceIds: [], expiryDays: 14, code: '', messageTemplate: '', singleUse: true };
+      return Response.json({ data: { settings: { defaultRebookDays: 21, reminderLeadHours: 24, googleReviewUrl: null, parkingInstructions: null, sixWeekPromotion: promotion, eightWeekPromotion: promotion }, availableServices: [] } });
     }
     if (path === '/api/admin/review-requests/settings') {
       return Response.json({ data: { googleReviewUrl: null, messageTemplate: '', businessName: null } });
