@@ -1,3 +1,10 @@
+# [1.153.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.152.0...v1.153.0) (2026-11-11)
+
+
+### Features
+
+* **automation:** allow scoped one-time promotion resends ([#507](https://github.com/SniperStopSniping/nailsalon/issues/507)) ([f00aa61](https://github.com/SniperStopSniping/nailsalon/commit/f00aa61d5c63d13ea13f643baa3a264fe3dd2129))
+
 # [1.152.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.151.2...v1.152.0) (2026-11-11)
 
 
