@@ -6,6 +6,7 @@ import { hasGoogleCredentials } from './googleAuth';
 import { normalizePhone } from './policy';
 
 const phone = z.string().refine(value => normalizePhone(value) === value);
+const resendScope = z.array(phone).min(1).max(10).refine(values => new Set(values).size === values.length);
 const definition = z.object({
   salonId: z.string().min(1),
   accountSid: z.string().regex(/^AC[\da-f]{32}$/iu),
@@ -31,6 +32,7 @@ export type DanielaConfig = z.infer<typeof definition> & {
   mode: 'shadow' | 'live';
   authToken: string;
   campaignEnabled: boolean;
+  campaignResendPhones?: string[];
 };
 
 /** No defaults for business copy, sender, credentials, or migration identity. */
@@ -50,7 +52,23 @@ export function getDanielaConfig(): DanielaConfig | null {
       || !hasGoogleCredentials() || !process.env.DANIELA_TELEGRAM_BOT_TOKEN)) {
       return null;
     }
-    return { ...parsed.data, mode, authToken, campaignEnabled: process.env.DANIELA_CAMPAIGN_ENABLED === 'true' };
+    let campaignResendPhones: string[] | undefined;
+    const resendInput = process.env.DANIELA_CAMPAIGN_RESEND_PHONES?.trim();
+    if (resendInput) {
+      try {
+        campaignResendPhones = resendScope.parse(JSON.parse(resendInput));
+      } catch {
+        // A bad campaign scope pauses promotions without interrupting booking replies.
+        campaignResendPhones = [];
+      }
+    }
+    return {
+      ...parsed.data,
+      mode,
+      authToken,
+      campaignResendPhones,
+      campaignEnabled: process.env.DANIELA_CAMPAIGN_ENABLED === 'true' && campaignResendPhones?.length !== 0,
+    };
   } catch {
     return null;
   }
