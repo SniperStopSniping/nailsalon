@@ -565,3 +565,33 @@ from main. Both files match main exactly and differ from the previously reviewed
 1.151.2 pair only in the three root version fields. The exact new blob pair was
 registered without changing dependencies or weakening the guard. All 28 workflow
 contract tests passed, including rejection of unreviewed and mixed pairs.
+
+## November 11 first Stripe capture and duplicate delivery correction
+
+The customer appointment page created a real Stripe sandbox Checkout session on
+Preview `346d1ac8`. A 4242 test-card payment for CAD 50 succeeded. Independent
+provider reads posted exactly one immutable settlement, one online tender and
+5000 cents to the appointment's paid cache. No real money moved.
+
+Stripe then redelivered the same `checkout.session.completed` event. Its signed
+payload hash changed while all retained payment facts remained identical. The
+repository incorrectly treated every second raw payload as conflicting evidence,
+putting the already-paid operation into review and preventing checkout. The fix
+retains both deliveries but compares event identity, mode, scope, API version,
+object and payment facts rather than raw payload hashes or local receipt times.
+Ingress, association and settlement now use the same conflict rule. Changed
+amounts and other genuinely conflicting facts still hold the operation.
+
+Both before-settlement and after-settlement redelivery regressions failed before
+the fix. The corrected provider, repository and webhook suites pass 58 tests,
+including exactly-once tender projection and changed-amount rejection. The earlier
+false-conflict sandbox appointment remains held with its immutable evidence; it
+has not been manually rewritten or presented as a passing end-to-end test.
+Scoped ESLint and full TypeScript validation also pass for this correction.
+
+The customer return page also encounters Vercel protection because its public
+status request intentionally omits authentication cookies. A direct status API
+check with the approved temporary Preview bypass returns the saved review state.
+This is a protected-Preview test limitation, not proof of a working public return
+journey. Fresh hosted payment, service changes, refunds, deposit and permissions
+checks, final CI and the production delivery gates remain outstanding.

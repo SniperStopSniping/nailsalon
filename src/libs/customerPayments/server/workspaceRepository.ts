@@ -31,6 +31,25 @@ export type WorkspaceBindingReader = (tx: CustomerPaymentTransaction, appointmen
 type InitialState = Pick<PaymentWorkspaceState, 'bill' | 'billSourceHash' | 'payments' | 'invoice' | 'legacyTenderHash'>;
 const activeStates = new Set(['awaiting_approval', 'prepared', 'dispatching', 'open', 'pending', 'uncertain', 'review']);
 
+/**
+ * Keep every signed delivery, but compare immutable payment facts for conflicts.
+ * Stripe redeliveries can change envelope bookkeeping such as pending_webhooks.
+ * Raw payload hashes and local receipt times therefore are not event identities.
+ */
+function hasConflictingReceipts(rows: readonly Pick<typeof customerPaymentLiveReceiptSchema.$inferSelect, 'eventId' | 'receipt'>[]): boolean {
+  const events = new Map<string, string>();
+  for (const row of rows) {
+    const { payloadDigest: _digest, receivedAt: _receivedAt, endpointId: _endpointId, ...facts } = row.receipt;
+    const fingerprint = customerPaymentFingerprint(facts);
+    const previous = events.get(row.eventId);
+    if (previous !== undefined && previous !== fingerprint) {
+      return true;
+    }
+    events.set(row.eventId, fingerprint);
+  }
+  return false;
+}
+
 export type WorkspaceDispatchClaim = {
   action: 'create' | 'expire';
   scope: PaymentWorkspaceScope;
@@ -604,7 +623,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
             OR ${customerPaymentLiveReceiptSchema.receipt} ->> 'objectId' IN (${value.objectId}, ${value.chargeId}, ${value.paymentIntentId})
             OR ${customerPaymentLiveReceiptSchema.receipt} #>> '{facts,charge}' = ${value.chargeId})`,
         ));
-        if (new Set(receipts.map(item => item.eventId)).size !== receipts.length || receipts.some(item =>
+        if (hasConflictingReceipts(receipts) || receipts.some(item =>
           item.receipt.disposition !== 'candidate' || (item.receipt.objectType === (op.kind === 'payment' ? 'checkout.session' : 'refund')
             && (item.receipt.facts as Record<string, unknown>)?.luster_payment_operation === op.id && item.receipt.objectId !== value.objectId))) {
           return workspaceFailure('PAYMENT_WORKSPACE_RECEIPT_CONFLICT');
@@ -821,7 +840,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
         if (!retained) {
           return workspaceFailure('PAYMENT_WORKSPACE_RECEIPT_NOT_RETAINED');
         }
-        return { receiptId: retained.id, collision: rows.length !== 1 };
+        return { receiptId: retained.id, collision: hasConflictingReceipts(rows) };
       });
     },
 
@@ -867,7 +886,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
         if (op.providerConflict) {
           return { scope, operationId: op.id, held: true };
         }
-        const deliveries = await tx.select({ id: customerPaymentLiveReceiptSchema.id }).from(customerPaymentLiveReceiptSchema).where(and(
+        const deliveries = await tx.select({ eventId: customerPaymentLiveReceiptSchema.eventId, receipt: customerPaymentLiveReceiptSchema.receipt }).from(customerPaymentLiveReceiptSchema).where(and(
           eq(customerPaymentLiveReceiptSchema.platformAccountId, delivery.platformAccountId),
           eq(customerPaymentLiveReceiptSchema.accountId, delivery.accountId),
           eq(customerPaymentLiveReceiptSchema.livemode, delivery.livemode),
@@ -876,7 +895,7 @@ export function createPaymentWorkspaceRepository(database: Database) {
         const matchingObject = (op.kind === 'payment' && receipt.objectType === 'checkout.session') || (op.kind === 'refund' && receipt.objectType === 'refund');
         const objectId = typeof receipt.objectId === 'string' ? receipt.objectId : '';
         const expectedId = op.kind === 'payment' ? /^cs_(?:test_|live_)?[A-Za-z0-9]+$/ : /^re_[A-Za-z0-9]+$/;
-        const conflict = deliveries.length !== 1 || receipt.disposition !== 'candidate'
+        const conflict = hasConflictingReceipts(deliveries) || receipt.disposition !== 'candidate'
           || (matchingObject && (op.providerObjectId !== null && op.providerObjectId !== objectId))
           || op.firstDispatchAt === null;
         if (conflict) {

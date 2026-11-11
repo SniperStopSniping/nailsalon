@@ -220,6 +220,47 @@ describe('Stripe account response headers', () => {
 });
 
 describe('independently retrieved payment and refund accounting', () => {
+  it.each([false, true])('accepts equivalent signed redeliveries without holding or reposting money; settled first=%s', async (settledFirst) => {
+    const f = await capturedFixture();
+    const session = await sdk.retrieveSession();
+    const signingSecret = `whsec_${'redeliveryfixture'.repeat(3)}`;
+    const created = Math.floor(Date.now() / 1000);
+    const deliver = async (pendingWebhooks: number, amount = session.amount_total) => {
+      const payload = JSON.stringify({ id: `evt_${f.operationId.replaceAll('-', '')}`, object: 'event', account: binding.connectedAccountId, api_version: '2024-06-20', livemode: false, type: 'checkout.session.completed', created, pending_webhooks: pendingWebhooks, data: { object: { ...session, amount_total: amount } } });
+      const receipt = verifyStripeCustomerPaymentReceipt(Buffer.from(payload), Stripe.webhooks.generateTestHeaderString({ payload, secret: signingSecret }), { endpointId: 'we_redelivery', platformAccountId: binding.platformAccountId, livemode: false, apiVersion: '2024-06-20', signingSecret });
+      return repository.retainReceipt(receipt);
+    };
+    const first = await deliver(2);
+
+    expect(await repository.associateReceipt(first.receiptId)).toMatchObject({ held: false });
+
+    if (settledFirst) {
+      await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+    }
+    const repeated = await deliver(1);
+
+    expect(repeated.collision).toBe(false);
+    expect(repeated.receiptId).not.toBe(first.receiptId);
+    expect(await repository.associateReceipt(repeated.receiptId)).toMatchObject({ held: false });
+
+    await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+    await reconcileWorkspacePayment(repository, f.scope, f.operationId, secret);
+
+    const payments = await listPayments(database, f.scope.appointmentId);
+
+    expect(payments).toHaveLength(1);
+    expect(customerPaymentTenderSummary(payments[0]!)).toMatchObject({ netCents: 13300, collectionHold: false });
+    expect((await repository.read(f.actor))!.operations[0]).toMatchObject({ state: 'succeeded' });
+
+    const conflicting = await deliver(0, session.amount_total + 1);
+
+    expect(conflicting.collision).toBe(true);
+    expect(await repository.associateReceipt(conflicting.receiptId)).toMatchObject({ held: true });
+    await expect(reconcileWorkspacePayment(repository, f.scope, f.operationId, secret)).rejects.toThrow('PROVIDER_CONFLICT_REVIEW_REQUIRED');
+    expect(await listPayments(database, f.scope.appointmentId)).toHaveLength(1);
+    expect(sdk.createSession).toHaveBeenCalledTimes(1);
+  });
+
   it.each([false, true])('refuses deposit ownership of the same provider intent; workspace first=%s', async (workspaceFirst) => {
     const f = await capturedFixture(true);
     const other = await fixture(true, 0, false);
