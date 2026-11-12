@@ -36,13 +36,35 @@ salon, appointment, appointment_payment and appointment_deposit were unchanged.
 Thirty-five legacy hashes differ from current files, which are unchanged from
 main: 33 match historical Git versions; 0011 and 0046 remain unattributed. This
 release preserves that ledger exactly and does not rewrite prior migrations.
-The rehearsal branch expires November 12. Production has not been migrated.
+The rehearsal branch expires November 12.
+
+After all candidate CI checks passed at `c23ab03b`, the user approved the live
+Stripe connection and production-only signing configuration. The dedicated live
+endpoint `we_1Ualf8POewmPdOibBO4Kl8CY` is created with the same 14-event scope and
+2024-06-20 API version, temporarily disabled until compatible code is deployed.
+Both signing secrets are stored as sensitive Vercel Production variables. The
+existing Connect endpoint `we_1U4rSMPOewmPdOibXM31agql` now uses the current
+`www.lustergel.app` origin because the previous domain's certificate expired;
+its identity, signing secret and seven events are preserved.
+
+Production snapshot `snap-icy-feather-a4181nov` was created and independently
+verified at 00:20 UTC November 12, with the exact source branch and a nonzero
+completed size. The canonical guarded production command applied 0115–0129 at
+00:22 UTC from clean, reviewed `c23ab03b`; migration/guard source was identical to
+the successful rehearsal. The ledger now contains 129 entries, with all new
+hashes exact and the first 114 unchanged. Counts remained 3 salons, 145
+appointments, 41 appointment payments and 5 deposits. Public production health
+remained HTTP 200 at `00f31b1`, reporting the expected schema-ahead state. No
+payment policy was enabled and no real customer payment was initiated.
 
 Both task sandbox webhook endpoints are disabled with clean URLs. The temporary
-Vercel bypass was revoked and its local secret removed. Production still needs
-the dedicated customer-payment webhook, scoped configuration, migration and
-protected-main release. Current-head CI, resolved review, a fresh exact-SHA
-Preview and post-release runtime verification remain merge/release gates.
+Vercel bypass was revoked and its local secret removed. The temporary local copy
+of the new live webhook secret was also removed after its scoped Vercel write
+was verified. Production still needs the current-main integration checks,
+protected-main merge, collection flags and live endpoint activation. Automatic
+production deployment is now enabled, so the additive schema was prepared before
+merge. Current-head CI, resolved review, a fresh exact-SHA Preview and post-release
+runtime verification remain merge/release gates.
 
 Main's subsequent 1.153.0 release metadata was merged. The manifest pair was
 compared to reviewed 1.152.0: only the three root version fields changed. Its exact
