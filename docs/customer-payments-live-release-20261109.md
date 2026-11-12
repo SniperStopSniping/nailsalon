@@ -70,6 +70,12 @@ Main's subsequent 1.153.0 release metadata was merged. The manifest pair was
 compared to reviewed 1.152.0: only the three root version fields changed. Its exact
 blob pair is registered; dependencies and protection rules remain unchanged.
 
+The subsequent bulk-message fix `00f31b14` and its 1.153.1 release metadata
+`e20dfdc5` were merged without conflicts. The combined payment repository/policy,
+message dispatch, bulk audience and personalization suites pass 78 cases, and
+full TypeScript passes. The exact 1.153.1 manifest pair differs only in the three
+root version fields and is registered without weakening the dependency guard.
+
 ## Previous checkpoint: scheduled recovery and provider ownership
 
 Payments remain **not live**. Dispatch now commits a recovery job before any
