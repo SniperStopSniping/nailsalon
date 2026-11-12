@@ -74,7 +74,7 @@ export async function importContacts(config: DanielaConfig, rows: ImportedContac
         set: {
           blocked: sql`${contacts.blocked} OR excluded.blocked`,
           providerOptOut: sql`CASE WHEN ${contacts.consentUpdatedAt} IS NOT NULL THEN ${contacts.providerOptOut} ELSE ${contacts.providerOptOut} OR excluded.provider_opt_out END`,
-          campaignEligible: sql`excluded.campaign_eligible AND NOT ${contacts.inboundOnly}`,
+          campaignEligible: sql`excluded.campaign_eligible AND (${config.campaignIncludeNewContacts === true} OR NOT ${contacts.inboundOnly})`,
           rowOrder: sql`excluded.row_order`,
           lastBookingAt: sql`GREATEST(${contacts.lastBookingAt}, excluded.last_booking_at)`,
           promoAttemptedAt: sql`COALESCE(${contacts.promoAttemptedAt}, excluded.promo_attempted_at)`,
@@ -175,6 +175,7 @@ export async function queueCampaign(config: DanielaConfig, now = new Date()): Pr
     const candidates = await tx.select().from(contacts).where(and(
       eq(contacts.salonId, config.salonId),
       eq(contacts.campaignEligible, true),
+      config.campaignIncludeNewContacts ? undefined : eq(contacts.inboundOnly, false),
       eq(contacts.blocked, false),
       eq(contacts.providerOptOut, false),
       resendPhones
@@ -225,6 +226,7 @@ export async function claimSend(config: DanielaConfig, now = new Date()): Promis
     const [contact] = await tx.select().from(contacts).where(contactWhere(config.salonId, item.phone));
     const suppressed = !contact || contact.blocked || contact.providerOptOut || config.blockedPhones.includes(item.phone)
       || (item.purpose === 'promo' && (!config.campaignEnabled || !contact.campaignEligible
+        || (contact.inboundOnly && !config.campaignIncludeNewContacts)
         || (config.campaignResendPhones !== undefined && !config.campaignResendPhones.includes(item.phone))));
     const expired = now.getTime() - item.createdAt.getTime() > (item.purpose === 'promo' ? 5 * 60_000 : 15 * 60_000);
     if (suppressed || expired) {

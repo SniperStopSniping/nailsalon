@@ -40,6 +40,7 @@ let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 let seq = 0;
 const inbound = (body = 'Hello', from = phone) => ({ kind: 'sms' as const, providerSid: `SM${String(++seq).padStart(32, '0')}`, from, body });
+const caller = (from = phone) => ({ kind: 'call' as const, providerSid: `CA${String(++seq).padStart(32, '0')}`, from, body: '' });
 const row = (p = phone, extra = {}) => ({ phone: p, blocked: false, optedOut: false, campaignEligible: true, rowOrder: 2, lastBookingAt: null, promoAttemptedAt: null, promoAcceptedAt: null, lastInboundAt: null, lastMessage: null, lastInboundSid: null, ...extra });
 
 beforeAll(async () => {
@@ -339,6 +340,76 @@ it('does not enroll an inbound-only lead in the promotion when Sheets mirrors th
   await importContacts(config, [row()], now);
 
   expect(await queueCampaign(config, now)).toBe(false);
+});
+
+it('continues through mirrored new callers once each without restarting historical contacts', async () => {
+  const enrolled = { ...config, campaignIncludeNewContacts: true };
+  const legacyPhone = '+14165550109';
+  const legacyAttempt = new Date('2026-09-26T20:00:00Z');
+  const legacyAccepted = new Date('2026-09-26T20:00:01Z');
+  const legacyRow = row(legacyPhone, { promoAttemptedAt: legacyAttempt, promoAcceptedAt: legacyAccepted });
+  await recordInbound(enrolled, caller(), now);
+  await finishSend(enrolled, (await claimSend(enrolled, now))!, { sid: `SM${String(++seq).padStart(32, '0')}` }, now);
+
+  expect(await queueCampaign(enrolled, now)).toBe(false);
+
+  await importContacts(enrolled, [legacyRow, row(phone, { rowOrder: 3 })], now);
+
+  expect(await queueCampaign(enrolled, now)).toBe(true);
+  expect(await queueCampaign(enrolled, now)).toBe(false);
+
+  const first = (await claimSend(enrolled, now))!;
+
+  expect(first).toMatchObject({ phone, purpose: 'promo' });
+
+  await finishSend(enrolled, first, { unknown: true }, now);
+  const second = '+14165550102';
+  const next = new Date(now.getTime() + 30 * 60_000);
+  await recordInbound(enrolled, caller(second), next);
+  await finishSend(enrolled, (await claimSend(enrolled, next))!, { sid: `SM${String(++seq).padStart(32, '0')}` }, next);
+  await importContacts(enrolled, [legacyRow, row(phone, { rowOrder: 3 }), row(second, { rowOrder: 4 })], next);
+
+  expect(await queueCampaign(enrolled, next)).toBe(true);
+  expect((await claimSend(enrolled, next))?.phone).toBe(second);
+  expect((await db.select().from(schema.danielaSendSchema)).filter(send => send.purpose === 'promo')).toHaveLength(2);
+
+  const contacts = await db.select().from(schema.danielaContactSchema);
+
+  expect(contacts.find(contact => contact.phone === legacyPhone)).toMatchObject({ promoAttemptedAt: legacyAttempt, promoAcceptedAt: legacyAccepted });
+  expect(contacts.find(contact => contact.phone === phone)?.promoAttemptedAt).toEqual(now);
+});
+
+it.each([{ blocked: true }, { optedOut: true }, { campaignEligible: false }])('keeps newly enrolled contacts subject to primary-sheet eligibility and suppressions: %j', async (restriction) => {
+  const enrolled = { ...config, campaignIncludeNewContacts: true };
+  await recordInbound(enrolled, caller(), now);
+  await importContacts(enrolled, [row(phone, restriction)], now);
+
+  expect(await queueCampaign(enrolled, now)).toBe(false);
+});
+
+it('rechecks new-contact enrollment before admission and dispatch despite stale stored eligibility', async () => {
+  const enrolled = { ...config, campaignIncludeNewContacts: true };
+  await recordInbound(enrolled, caller(), now);
+  await finishSend(enrolled, (await claimSend(enrolled, now))!, { sid: `SM${String(++seq).padStart(32, '0')}` }, now);
+  await importContacts(enrolled, [row()], now);
+
+  expect(await queueCampaign(config, now)).toBe(false);
+  expect(await queueCampaign(enrolled, now)).toBe(true);
+  expect(await claimSend(config, now)).toBeNull();
+  expect((await db.select().from(schema.danielaSendSchema)).find(send => send.purpose === 'promo')?.state).toBe('suppressed');
+
+  await importContacts(config, [row()], now);
+
+  expect((await db.select().from(schema.danielaContactSchema))[0]?.campaignEligible).toBe(false);
+});
+
+it('does not let new-contact enrollment fall through an exhausted explicit resend scope', async () => {
+  const enrolled = { ...config, campaignIncludeNewContacts: true, campaignResendPhones: ['+14165550102'] };
+  await recordInbound(enrolled, caller(), now);
+  await importContacts(enrolled, [row(), row('+14165550102', { promoAttemptedAt: new Date(0) })], now);
+  await db.insert(schema.danielaSendSchema).values({ id: 'completed-resend', salonId: config.salonId, phone: '+14165550102', purpose: 'promo', body: 'Synthetic promotion', state: 'delivered', createdAt: now });
+
+  expect(await queueCampaign(enrolled, now)).toBe(false);
 });
 
 it('claims a new call alert directly without waiting behind older pending events', async () => {
