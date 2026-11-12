@@ -1,3 +1,10 @@
+## [1.153.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.153.0...v1.153.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **marketing:** personalize bulk texts and protect booked clients ([#509](https://github.com/SniperStopSniping/nailsalon/issues/509)) ([00f31b1](https://github.com/SniperStopSniping/nailsalon/commit/00f31b142ca1a404bdc4cecc2d5aa8ba6d7a4457))
+
 # [1.153.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.152.0...v1.153.0) (2026-11-11)
 
 
