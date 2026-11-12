@@ -33,6 +33,7 @@ export type DanielaConfig = z.infer<typeof definition> & {
   authToken: string;
   campaignEnabled: boolean;
   campaignResendPhones?: string[];
+  campaignIncludeNewContacts?: boolean;
 };
 
 /** No defaults for business copy, sender, credentials, or migration identity. */
@@ -67,6 +68,7 @@ export function getDanielaConfig(): DanielaConfig | null {
       mode,
       authToken,
       campaignResendPhones,
+      campaignIncludeNewContacts: process.env.DANIELA_CAMPAIGN_INCLUDE_NEW_CONTACTS === 'true',
       campaignEnabled: process.env.DANIELA_CAMPAIGN_ENABLED === 'true' && campaignResendPhones?.length !== 0,
     };
   } catch {

@@ -24,6 +24,7 @@ beforeEach(() => {
   vi.stubEnv('DANIELA_N8N_CUTOVER_CONFIRMED', '');
   vi.stubEnv('DANIELA_CAMPAIGN_ENABLED', '');
   vi.stubEnv('DANIELA_CAMPAIGN_RESEND_PHONES', '');
+  vi.stubEnv('DANIELA_CAMPAIGN_INCLUDE_NEW_CONTACTS', '');
 });
 
 afterEach(() => vi.unstubAllEnvs());
@@ -78,6 +79,23 @@ it('accepts an explicit ordered one-time resend scope', () => {
     campaignEnabled: true,
     campaignResendPhones: ['+14165550102', '+14165550103'],
   });
+});
+
+it.each(['', 'false', 'invalid'])('keeps new-contact campaign enrollment off without an explicit true setting: %s', (value) => {
+  vi.stubEnv('DANIELA_AUTOMATION_MODE', 'shadow');
+  vi.stubEnv('DANIELA_CAMPAIGN_ENABLED', 'true');
+  vi.stubEnv('DANIELA_CAMPAIGN_INCLUDE_NEW_CONTACTS', value);
+
+  expect(getDanielaConfig()).toMatchObject({ campaignEnabled: true, campaignIncludeNewContacts: false });
+});
+
+it('allows explicitly authorized new-contact enrollment without creating a resend scope', () => {
+  vi.stubEnv('DANIELA_AUTOMATION_MODE', 'shadow');
+  vi.stubEnv('DANIELA_CAMPAIGN_ENABLED', 'true');
+  vi.stubEnv('DANIELA_CAMPAIGN_INCLUDE_NEW_CONTACTS', 'true');
+
+  expect(getDanielaConfig()).toMatchObject({ campaignEnabled: true, campaignIncludeNewContacts: true });
+  expect(getDanielaConfig()?.campaignResendPhones).toBeUndefined();
 });
 
 it.each(['bad json', '[]', '["not-a-phone"]', '["+14165550102","+14165550102"]', JSON.stringify(Array.from({ length: 11 }, (_, i) => `+141655501${String(i).padStart(2, '0')}`))])('pauses only the campaign for an invalid resend scope: %s', (value) => {
