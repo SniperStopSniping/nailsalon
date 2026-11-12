@@ -1,3 +1,10 @@
+# [1.154.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.153.1...v1.154.0) (2026-11-12)
+
+
+### Features
+
+* **payments:** connect customer and technician payment flows ([#504](https://github.com/SniperStopSniping/nailsalon/issues/504)) ([95b19aa](https://github.com/SniperStopSniping/nailsalon/commit/95b19aa7b884e2e9874ef63959bac2fc47056431))
+
 ## [1.153.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.153.0...v1.153.1) (2026-11-12)
 
 
