@@ -91,6 +91,8 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  // Isolated PGlite fixture reset; production deletes remain immutable.
+  await client.exec('TRUNCATE appointment_payment CASCADE');
   await db.delete(schema.communicationIntentSchema);
   await db.delete(schema.appointmentAuditLogSchema);
   await db.delete(schema.appointmentSchema);
@@ -101,6 +103,29 @@ afterAll(async () => {
 });
 
 describe('expireApprovalRequest', () => {
+  it('skips expiration when reserved payment history needs reconciliation', async () => {
+    const requestExpiresAt = new Date('2099-06-01T10:00:00.000Z');
+    await seedAppointment({ id: 'appt_paid_expired', status: 'pending', requestExpiresAt });
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: 'cpay_review',
+      salonId: SALON_ID,
+      appointmentId: 'appt_paid_expired',
+      amountCents: 5000,
+      method: 'online',
+      recordedByType: 'system',
+      voidedAt: new Date(),
+    });
+    const outcome = await db.transaction(tx => expireApprovalRequest(tx, {
+      appointmentId: 'appt_paid_expired',
+      transactionNow: new Date('2099-06-01T10:00:01.000Z'),
+    }));
+
+    expect(outcome.outcome).toBe('customer_payment_reconciliation_required');
+    expect((await readAppointment('appt_paid_expired'))?.status).toBe('pending');
+    expect(await readAuditRows('appt_paid_expired')).toEqual([]);
+    expect(await readIntents('appt_paid_expired')).toEqual([]);
+  });
+
   it('transitions an expired explicit pending request to cancelled/request_expired, with an audit row and exactly one notification intent', async () => {
     const requestExpiresAt = new Date('2099-06-01T10:00:00.000Z');
     await seedAppointment({ id: 'appt_expired', status: 'pending', requestExpiresAt });

@@ -10,6 +10,8 @@ import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { buildBookingUrl, parseBookingBasketParam, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { BOOKING_SMS_WORDING_VERSION } from '@/libs/bookingSmsConsent';
 import { getClientSession } from '@/libs/clientAuth';
+import { isCustomerPaymentPreparationEnabled } from '@/libs/customerPayments/preparationGate';
+import { isBookingPaymentAvailable } from '@/libs/customerPayments/server/bookingPaymentAvailability';
 import {
   buildDepositDisclosure,
   buildDepositDisclosureFingerprint,
@@ -476,6 +478,7 @@ export default async function BookConfirmPage(
   const effectiveBookingFlow = resolvedTechnicianContext.shouldAutoSkipTech
     ? bookingFlow.filter(step => step !== 'tech')
     : bookingFlow;
+  const customerPaymentsEnabled = !previewGate.isPreviewingDraftConfig && await isBookingPaymentAvailable(salon.id);
 
   return (
     <PublicSalonPageShell
@@ -490,6 +493,8 @@ export default async function BookConfirmPage(
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
           salonId={salon.id}
+          customerPaymentPreviewEnabled={isCustomerPaymentPreparationEnabled()}
+          customerPaymentsEnabled={customerPaymentsEnabled}
           rebookingSettings={resolveRebookingPromptSettings(salon.settings)}
           services={services}
           addOns={resolvedTechnicianContext.resolvedSelection.addOns.map(addOn => ({

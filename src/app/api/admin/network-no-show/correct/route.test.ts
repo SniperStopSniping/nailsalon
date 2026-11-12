@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { POST } from './route';
 
+vi.mock('server-only', () => ({}));
+
 const { requireAdminSalonFromRequest } = vi.hoisted(() => ({ requireAdminSalonFromRequest: vi.fn() }));
 
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalonFromRequest }));

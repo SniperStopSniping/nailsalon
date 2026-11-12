@@ -3,6 +3,7 @@ import 'server-only';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { logAppointmentChange } from '@/libs/appointmentAudit';
+import { hasCustomerPaymentTenderForAppointment } from '@/libs/appointmentCheckoutServer';
 import {
   AppointmentManageError,
   getAppointmentCalendarEventForSync,
@@ -10,6 +11,7 @@ import {
   runAppointmentManageMutation,
 } from '@/libs/appointmentManage';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
+import { hasCustomerPaymentReservationForAppointment } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import {
   GoogleCalendarConnectionWriteFenceError,
@@ -768,6 +770,10 @@ export async function processGoogleCalendarInboundSync(
             if (!lockedAppointment) {
               return null;
             }
+            if (await hasCustomerPaymentReservationForAppointment(tx, connection.salonId, lockedAppointment.id)
+              || await hasCustomerPaymentTenderForAppointment(tx, connection.salonId, lockedAppointment.id)) {
+              return { reconciliationRequired: true as const };
+            }
             const [lockedSourceEvent] = await tx.select({
               appointmentId: googleCalendarEventSchema.appointmentId,
               calendarId: googleCalendarEventSchema.calendarId,
@@ -855,6 +861,10 @@ export async function processGoogleCalendarInboundSync(
             return { terminalAppointment, previous: lockedAppointment };
           });
           if (!cancellation) {
+            continue;
+          }
+          if ('reconciliationRequired' in cancellation) {
+            summary.conflicts += 1;
             continue;
           }
           const { terminalAppointment: cancelled, previous } = cancellation;

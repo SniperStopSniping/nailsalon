@@ -47,6 +47,17 @@ describe('middleware — host-relative /manage links', () => {
     expect(response.headers.get('location')).toBeNull();
   });
 
+  it('routes the payment return page directly with private headers', async () => {
+    const response = await middleware(request('/payments/result?result=success'), event);
+
+    expect(intlMiddleware).not.toHaveBeenCalled();
+    expect(response.headers.get('x-middleware-rewrite')).toBeNull();
+    expect(response.headers.get('location')).toBeNull();
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive');
+  });
+
   it('lets deeper /manage sub-paths through too', async () => {
     await middleware(request('/manage/TEST_TOKEN_NOT_REAL/reschedule'), event);
 

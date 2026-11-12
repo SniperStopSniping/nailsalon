@@ -259,7 +259,9 @@ describe('PATCH /api/appointments/[id]/complete', () => {
     });
     const appointmentForUpdate = vi.fn(() => ({ limit: appointmentLimit }));
     const appointmentWhere = vi.fn(() => ({ for: appointmentForUpdate }));
-    const appointmentFrom = vi.fn(() => ({ where: appointmentWhere }));
+    const appointmentFrom = vi.fn((table: Record<string, unknown>) => 'executionKind' in table
+      ? { where: vi.fn(() => ({ limit: vi.fn(async () => []) })) }
+      : { where: appointmentWhere });
     const tx = {
       execute: vi.fn(),
       select: vi.fn(() => ({ from: appointmentFrom })),
@@ -333,8 +335,9 @@ describe('PATCH /api/appointments/[id]/complete', () => {
     const tx = {
       execute: vi.fn(),
       select: vi.fn(() => ({
-        from: vi.fn(() => ({
+        from: vi.fn((table: Record<string, unknown>) => ({
           where: vi.fn(() => ({
+            ...('executionKind' in table ? { limit: vi.fn(async () => []) } : {}),
             for: vi.fn(() => ({
               limit: vi.fn(async () => [{ ...STAFF_ACCESS.appointment }]),
             })),
@@ -368,8 +371,9 @@ describe('PATCH /api/appointments/[id]/complete', () => {
     const tx = {
       execute: vi.fn(),
       select: vi.fn(() => ({
-        from: vi.fn(() => ({
+        from: vi.fn((table: Record<string, unknown>) => ({
           where: vi.fn(() => ({
+            ...('executionKind' in table ? { limit: vi.fn(async () => []) } : {}),
             for: vi.fn(() => ({
               limit: vi.fn(async () => [{
                 ...STAFF_ACCESS.appointment,
@@ -410,8 +414,9 @@ describe('PATCH /api/appointments/[id]/complete', () => {
     const tx = {
       execute: vi.fn(),
       select: vi.fn(() => ({
-        from: vi.fn(() => ({
+        from: vi.fn((table: Record<string, unknown>) => ({
           where: vi.fn(() => ({
+            ...('executionKind' in table ? { limit: vi.fn(async () => []) } : {}),
             for: vi.fn(() => ({
               limit: vi.fn(async () => [{ ...STAFF_ACCESS.appointment }]),
             })),

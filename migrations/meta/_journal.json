@@ -799,6 +799,111 @@
       "when": 1793044800000,
       "tag": "0114_daniela_automation",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1794178800000,
+      "tag": "0115_customer_payment_preparation",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1794182400000,
+      "tag": "0116_customer_payment_synthetic_capture",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1794186000000,
+      "tag": "0117_customer_payment_mutation_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1794189600000,
+      "tag": "0118_customer_payment_synthetic_refunds",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1794193200000,
+      "tag": "0119_customer_payment_credit_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1794196800000,
+      "tag": "0120_customer_payment_provider_journal",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1794200400000,
+      "tag": "0121_customer_payment_provider_correlation",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1794204000000,
+      "tag": "0122_customer_payment_refund_correlation",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1794207600000,
+      "tag": "0123_customer_payment_dispute_correlation",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1794211200000,
+      "tag": "0124_customer_payment_fixture_application",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1794214800000,
+      "tag": "0125_customer_payment_fixture_movements",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1794218400000,
+      "tag": "0126_customer_payment_closed_checkout",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1794222000000,
+      "tag": "0127_customer_payment_sdk_reservation",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1794232800000,
+      "tag": "0128_customer_payment_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1794272400000,
+      "tag": "0129_customer_payment_owner_activation",
+      "breakpoints": true
     }
   ]
 }

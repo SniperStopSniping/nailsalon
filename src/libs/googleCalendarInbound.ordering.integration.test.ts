@@ -92,6 +92,8 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  // Isolated PGlite fixture reset; production deletes remain immutable.
+  await client.exec('TRUNCATE appointment_payment CASCADE');
   vi.clearAllMocks();
   await db.delete(schema.notificationDeliverySchema);
   await db.delete(schema.integrationOutboxSchema);
@@ -737,6 +739,41 @@ describe('Google inbound move ordering', () => {
 
     expect(finalJobs.map(job => [job.operation, job.status]))
       .toEqual([['sync_appointment', 'completed']]);
+  });
+
+  it('holds provider-marked appointments when Google sends a cancellation', async () => {
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: 'cpay_review',
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      amountCents: 5000,
+      method: 'online',
+      recordedByType: 'system',
+      voidedAt: new Date(),
+    });
+    boundaries.listGoogleCalendarEventsForSalon.mockResolvedValue([{
+      id: EVENT_ID,
+      calendarId: CALENDAR_ID,
+      status: 'cancelled',
+      summary: null,
+      description: null,
+      location: null,
+      recurringEventId: null,
+      transparency: 'busy',
+      isAllDay: false,
+      startTime: null,
+      endTime: null,
+      updatedAt: new Date('2099-09-07T13:50:00.000Z'),
+      appointmentId: null,
+      salonId: null,
+      attendees: [],
+    }]);
+
+    expect(await processGoogleCalendarInboundSync(1, SALON_ID)).toMatchObject({ cancelledAppointments: 0, conflicts: 1, failedConnections: 0 });
+    expect((await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID)))[0]?.status).toBe('confirmed');
+    expect(await db.select().from(schema.integrationOutboxSchema)).toEqual([]);
+    expect(boundaries.sendAppointmentOperationalEmailOnce).not.toHaveBeenCalled();
+    expect(boundaries.deleteGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
   });
 
   it('uses the exact stored link when a cancelled Google tombstone omits private metadata', async () => {

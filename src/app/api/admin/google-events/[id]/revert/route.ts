@@ -2,6 +2,9 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { hasCustomerPaymentTenderForAppointment } from '@/libs/appointmentCheckoutServer';
+import { CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, hasCustomerPaymentReservationForAppointment } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { acquireGoogleCalendarMutationBarrierInTx } from '@/libs/integrationOutbox';
@@ -50,6 +53,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!lockedAppointment) {
       return { kind: 'conflict' as const };
     }
+    if (await hasCustomerPaymentReservationForAppointment(tx, salon.id, lockedAppointment.id)) {
+      return { kind: 'customer_payment_reservation_required' as const };
+    }
+    if (await hasCustomerPaymentTenderForAppointment(tx, salon.id, lockedAppointment.id)) {
+      return { kind: 'customer_payment_reconciliation_required' as const };
+    }
     const [lockedEvent] = await tx.select()
       .from(googleCalendarEventSchema)
       .where(and(
@@ -94,6 +103,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     ));
     return { kind: 'reverted' as const, appointment: cancelled };
   });
+  if (result.kind === 'customer_payment_reservation_required') {
+    return customerPaymentReservationBlockedResponse();
+  }
+  if (result.kind === 'customer_payment_reconciliation_required') {
+    return customerPaymentLifecycleBlockedResponse(new CustomerPaymentLifecycleBlockedError());
+  }
   if (result.kind === 'calendar_busy') {
     return Response.json({ error: 'Calendar synchronization is still in progress; retry shortly' }, { status: 409 });
   }

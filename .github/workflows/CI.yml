@@ -76,6 +76,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # This application exceeds Node's default heap during compilation.
+          NODE_OPTIONS: --max-old-space-size=6144
       - name: Verify deployed voice WebSocket packaging and masked send
         run: node scripts/verify-voice-websocket-build.mjs
       - name: Scan production client bundles and runtime credentials
@@ -206,7 +209,7 @@ jobs:
           echo 'INSTALLED_DEPENDENCY_GRAPH_VALIDATED=1'
 
       - name: Test CI evidence and cancellation contracts
-        run: node --test scripts/ci-workflow.node-test.mjs scripts/install-playwright.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs
+        run: node --test scripts/ci-workflow.node-test.mjs scripts/install-playwright.node-test.mjs scripts/validate-pr-commits.node-test.mjs scripts/test-changed-source.node-test.mjs scripts/ai-trial-origins.node-test.mjs scripts/custom-site-fonts.node-test.mjs scripts/prepare-customer-payment-sandbox.node-test.mjs
 
       # The deposits ladder is additive by construction. These paths carry the
       # SaaS billing surface, dependency manifests, migration set, deploy
@@ -282,6 +285,9 @@ jobs:
             dependency_manifest_blob="$(git hash-object package.json)"
             dependency_lock_blob="$(git hash-object package-lock.json)"
             case "$dependency_manifest_blob:$dependency_lock_blob" in
+              # 1.153.1 release metadata only: verified against the reviewed
+              # 1.153.0 pair; only the three root version fields changed.
+              8d6131bc2069c319bdb24baa2f5917ee21f9c157:6cf03f4ca202be2c45ab96b57f1e5a2217ed1803) ;;
               # 1.153.0 release metadata only: verified against the reviewed
               # 1.152.0 pair; only the three root version fields changed.
               41a45743314eb021de435770ea6f74bdf759e20b:a2e50ef92785494f4a66d0128bdf95ec929074e6) ;;
@@ -537,8 +543,13 @@ jobs:
               27fd38cdd3e1ae7dbb0b5ec5f4180febb6a50584) ;;
               # Next Visit: tenant-scoped child-before-parent offer cleanup.
               857caed5cee8ee8eabebc820b33ca5d322c6faa5) ;;
+              # Additive parent-first locks, retained payment history, and retryable contention.
+              8665477d989116fe477f59e47914565b4c547bec) ;;
               # Voice call history: tenant-scoped child before appointment.
               06b93e306c1f007d86fa29aaaf9cf511d8493a7b) ;;
+              # Customer payments: retain owner activation history before salon deletion.
+              # Additive only; real migration/purge tests cover the disabled-policy case.
+              59135ac41be17f2cf70545370d9c7958c61cd1e7) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -626,6 +637,21 @@ jobs:
               migrations/0112_ai_operator_expense_budget.sql) ;;
               migrations/0113_salon_deletion_cleanup.sql) ;;
               migrations/0114_daniela_automation.sql) ;;
+              migrations/0115_customer_payment_preparation.sql) ;;
+              migrations/0116_customer_payment_synthetic_capture.sql) ;;
+              migrations/0117_customer_payment_mutation_guards.sql) ;;
+              migrations/0118_customer_payment_synthetic_refunds.sql) ;;
+              migrations/0119_customer_payment_credit_review.sql) ;;
+              migrations/0120_customer_payment_provider_journal.sql) ;;
+              migrations/0121_customer_payment_provider_correlation.sql) ;;
+              migrations/0122_customer_payment_refund_correlation.sql) ;;
+              migrations/0123_customer_payment_dispute_correlation.sql) ;;
+              migrations/0124_customer_payment_fixture_application.sql) ;;
+              migrations/0125_customer_payment_fixture_movements.sql) ;;
+              migrations/0126_customer_payment_closed_checkout.sql) ;;
+              migrations/0127_customer_payment_sdk_reservation.sql) ;;
+              migrations/0128_customer_payment_workspace.sql) ;;
+              migrations/0129_customer_payment_owner_activation.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
               migrations/meta/0082_snapshot.json) ;;
@@ -1099,6 +1125,41 @@ jobs:
             exit 1
           fi
 
+          # Customer payment foundations and durable workspace: exact additive packet.
+          # Existing SQL is immutable; schema admission does not activate collection.
+          while read -r file expected_blob; do
+            if ! git diff --quiet "$base" -- "$file"; then
+              if git cat-file -e "$base:$file" 2>/dev/null \
+                || [ "$(git diff --name-status "$base" -- "$file")" != $'A\t'"$file" ] \
+                || [ "$(git hash-object "$file")" != "$expected_blob" ]; then
+                echo "::error::Customer payment migrations must be new files at their pinned postimages."
+                exit 1
+              fi
+            fi
+          done <<'CUSTOMER_PAYMENT_MIGRATIONS'
+          migrations/0115_customer_payment_preparation.sql c80337496f67670888f2b61e7fbf98f0f42f4116
+          migrations/0116_customer_payment_synthetic_capture.sql f1072519c8d212509826fd04390a34794f548ae6
+          migrations/0117_customer_payment_mutation_guards.sql 9fd8415c6ce152ead6e724f94d6deb5e7340443d
+          migrations/0118_customer_payment_synthetic_refunds.sql 46f0c58ec49be721d9a5770f75a9e8e13db5ee8d
+          migrations/0119_customer_payment_credit_review.sql d528591ef165a6bb7c2f32cf7a37ef08498fa021
+          migrations/0120_customer_payment_provider_journal.sql 6ab212d19482e0da18ce852143873402fe170aeb
+          migrations/0121_customer_payment_provider_correlation.sql 00f088326d2a30104fc4ec902bf4fb21fc436fa7
+          migrations/0122_customer_payment_refund_correlation.sql b5b77d4ed449ca704167f7b5674e471671c03c9a
+          migrations/0123_customer_payment_dispute_correlation.sql 9953c3f4c5838b5dbc7ac63a504d2eafa882fa3e
+          migrations/0124_customer_payment_fixture_application.sql 41d5b3d1e152d97bce79abff521a9864b5e09316
+          migrations/0125_customer_payment_fixture_movements.sql 0ab886357500e4811c25b18c05777e89c7b65af4
+          migrations/0126_customer_payment_closed_checkout.sql d9b6e4384575fc43328f079ca9c8a1687c15cfb7
+          migrations/0127_customer_payment_sdk_reservation.sql 7939454f54a2a491b39c9086867e64da2496f19c
+          migrations/0128_customer_payment_workspace.sql 4e53d461de72780856d82227eef32b8964709190
+          migrations/0129_customer_payment_owner_activation.sql 4f8930c958520409d6025d936d2d13ead3495830
+          CUSTOMER_PAYMENT_MIGRATIONS
+          expected_payment_journal='[{"breakpoints":true,"idx":114,"tag":"0115_customer_payment_preparation","version":"7","when":1794178800000},{"breakpoints":true,"idx":115,"tag":"0116_customer_payment_synthetic_capture","version":"7","when":1794182400000},{"breakpoints":true,"idx":116,"tag":"0117_customer_payment_mutation_guards","version":"7","when":1794186000000},{"breakpoints":true,"idx":117,"tag":"0118_customer_payment_synthetic_refunds","version":"7","when":1794189600000},{"breakpoints":true,"idx":118,"tag":"0119_customer_payment_credit_review","version":"7","when":1794193200000},{"breakpoints":true,"idx":119,"tag":"0120_customer_payment_provider_journal","version":"7","when":1794196800000},{"breakpoints":true,"idx":120,"tag":"0121_customer_payment_provider_correlation","version":"7","when":1794200400000},{"breakpoints":true,"idx":121,"tag":"0122_customer_payment_refund_correlation","version":"7","when":1794204000000},{"breakpoints":true,"idx":122,"tag":"0123_customer_payment_dispute_correlation","version":"7","when":1794207600000},{"breakpoints":true,"idx":123,"tag":"0124_customer_payment_fixture_application","version":"7","when":1794211200000},{"breakpoints":true,"idx":124,"tag":"0125_customer_payment_fixture_movements","version":"7","when":1794214800000},{"breakpoints":true,"idx":125,"tag":"0126_customer_payment_closed_checkout","version":"7","when":1794218400000},{"breakpoints":true,"idx":126,"tag":"0127_customer_payment_sdk_reservation","version":"7","when":1794222000000},{"breakpoints":true,"idx":127,"tag":"0128_customer_payment_workspace","version":"7","when":1794232800000},{"breakpoints":true,"idx":128,"tag":"0129_customer_payment_owner_activation","version":"7","when":1794272400000}]'
+          actual_payment_journal="$(jq -cS '[.entries[] | select(.idx >= 114 and .idx <= 128)]' migrations/meta/_journal.json)"
+          if [ "$actual_payment_journal" != "$expected_payment_journal" ]; then
+            echo "::error::Customer payment journal packet differs from its pinned identity."
+            exit 1
+          fi
+
           # AI setup SQL may be introduced only at these exact postimages.
           # Already-shipped SQL stays immutable, including additive rewrites.
           while read -r file expected_blob; do
@@ -1210,6 +1271,21 @@ jobs:
               0112_ai_operator_expense_budget) ;;
               0113_salon_deletion_cleanup) ;;
               0114_daniela_automation) ;;
+              0115_customer_payment_preparation) ;;
+              0116_customer_payment_synthetic_capture) ;;
+              0117_customer_payment_mutation_guards) ;;
+              0118_customer_payment_synthetic_refunds) ;;
+              0119_customer_payment_credit_review) ;;
+              0120_customer_payment_provider_journal) ;;
+              0121_customer_payment_provider_correlation) ;;
+              0122_customer_payment_refund_correlation) ;;
+              0123_customer_payment_dispute_correlation) ;;
+              0124_customer_payment_fixture_application) ;;
+              0125_customer_payment_fixture_movements) ;;
+              0126_customer_payment_closed_checkout) ;;
+              0127_customer_payment_sdk_reservation) ;;
+              0128_customer_payment_workspace) ;;
+              0129_customer_payment_owner_activation) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1287,6 +1363,8 @@ jobs:
 
       - name: Build Next.js for E2E tests
         run: npm run build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         # PR-controlled builds validate the production bundle without provider
         # upload credentials. Trusted deployment remains responsible for Sentry
         # source-map upload coverage.
@@ -1308,6 +1386,8 @@ jobs:
         run: npm run security:check-secrets -- --tree
 
       - name: Type checking
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run check-types
 
       - name: Run unit tests
@@ -2395,6 +2475,37 @@ jobs:
             process.exit(1);
           }
           console.log('OUTBOX_SCOPE_CLEAN_POSTGRES_TESTS_EXECUTED=2 OUTBOX_SCOPE_CLEAN_POSTGRES_TESTS_SKIPPED=0');
+          NODE
+
+      - name: Verify customer payment reservations and workspace races on PostgreSQL
+        shell: bash
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          CUSTOMER_PAYMENT_PROVIDER_PG_REQUIRED: 'true'
+          CUSTOMER_PAYMENT_LEDGER_PG_REQUIRED: 'true'
+          CUSTOMER_PAYMENT_WORKSPACE_PG_REQUIRED: 'true'
+        run: |
+          set -euo pipefail
+          export CUSTOMER_PAYMENT_PROVIDER_TEST_DATABASE_URL="$CONCURRENCY_TEST_DATABASE_URL"
+          export CUSTOMER_PAYMENT_LEDGER_TEST_DATABASE_URL="$CONCURRENCY_TEST_DATABASE_URL"
+          export CUSTOMER_PAYMENT_WORKSPACE_TEST_DATABASE_URL="$CONCURRENCY_TEST_DATABASE_URL"
+          npx vitest run --no-file-parallelism --reporter=json \
+            --outputFile="$RUNNER_TEMP/customer-payment-postgres.json" \
+            src/libs/customerPayments/server/settlement.concurrency.integration.test.ts \
+            src/libs/customerPayments/server/sdkReservation.concurrency.integration.test.ts \
+            src/libs/customerPayments/server/workspace.concurrency.integration.test.ts
+          node - "$RUNNER_TEMP/customer-payment-postgres.json" <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const report = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+          const assertions = report.testResults?.flatMap(file => file.assertionResults ?? []) ?? [];
+          if (report.success !== true || report.numTotalTests !== 53 || report.numPassedTests !== 53
+            || report.numFailedTests !== 0 || report.numPendingTests !== 0 || report.numTodoTests !== 0
+            || report.testResults?.length !== 3 || assertions.length !== 53 || assertions.some(test => test.status !== 'passed')) {
+            process.stderr.write('Customer payment PostgreSQL checks must execute all 53 cases with zero skips.\n');
+            process.exit(1);
+          }
+          console.log('CUSTOMER_PAYMENT_POSTGRES_TESTS_EXECUTED=53 CUSTOMER_PAYMENT_POSTGRES_TESTS_SKIPPED=0');
           NODE
 
       # Next Visit deliberately drops and recreates both schemas, so it is the

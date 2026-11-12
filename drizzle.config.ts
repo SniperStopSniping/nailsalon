@@ -2,7 +2,7 @@ import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
   out: './migrations',
-  schema: './src/models/Schema.ts',
+  schema: ['./src/models/Schema.ts', './src/models/customerPaymentSchema.ts'],
   dialect: 'postgresql',
   dbCredentials: {
     // Database-bearing Drizzle commands must enter through

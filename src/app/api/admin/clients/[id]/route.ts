@@ -35,6 +35,7 @@ import {
 } from '@/libs/clientLifecycleStabilization';
 import { getClientProfileBookingRisk } from '@/libs/clientProfileBookingRisk.server';
 import { getClientProfileNextVisitOffer } from '@/libs/clientProfileOffer.server';
+import { enrichCustomerPaymentProvenance } from '@/libs/customerPayments/server/provenanceReader';
 import { db } from '@/libs/DB';
 import type { DepositCreditRow } from '@/libs/depositCredit';
 import { buildReportingProvenance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
@@ -733,11 +734,7 @@ export async function GET(
       method: string | null;
       recordedAt: string;
     }[]>();
-    const appointmentPaymentLedgerRowsMap = new Map<string, {
-      salonId: string;
-      amountCents: number;
-      voidedAt: Date | null;
-    }[]>();
+    const appointmentPaymentLedgerRowsMap = new Map<string, (typeof appointmentPaymentSchema.$inferSelect)[]>();
     const appointmentDepositsMap = new Map<string, DepositCreditRow[]>();
     if (allAppointmentIds.length > 0) {
       const [services, addOns, finalItems, paymentRows, depositRows] = await Promise.all([
@@ -813,11 +810,7 @@ export async function GET(
 
       for (const payment of paymentRows) {
         const ledgerRows = appointmentPaymentLedgerRowsMap.get(payment.appointmentId) ?? [];
-        ledgerRows.push({
-          salonId: payment.salonId,
-          amountCents: payment.amountCents,
-          voidedAt: payment.voidedAt,
-        });
+        ledgerRows.push(payment);
         appointmentPaymentLedgerRowsMap.set(payment.appointmentId, ledgerRows);
         if (
           payment.salonId !== salon.id
@@ -834,6 +827,9 @@ export async function GET(
           recordedAt: payment.recordedAt.toISOString(),
         });
         appointmentPaymentsMap.set(payment.appointmentId, existing);
+      }
+      for (const [appointmentId, rows] of appointmentPaymentLedgerRowsMap) {
+        appointmentPaymentLedgerRowsMap.set(appointmentId, await enrichCustomerPaymentProvenance(db, rows));
       }
       for (const deposit of depositRows) {
         const existing = appointmentDepositsMap.get(deposit.appointmentId) ?? [];

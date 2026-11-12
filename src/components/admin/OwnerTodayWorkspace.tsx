@@ -1128,8 +1128,26 @@ export function OwnerTodayWorkspace({
                     = todayPeriod.depositForfeitedCents ?? 0;
                     const forfeitureRefundReversalCents
                     = todayPeriod.depositForfeitureRefundReversalCents ?? 0;
+                    const customerPaymentMetrics = [
+                      ['Customer payments (gross)', todayPeriod.customerPaymentCollectedCents ?? 0],
+                      ['Customer captures under review', todayPeriod.customerPaymentHeldForReviewCents ?? 0],
+                      ['Customer refunds', todayPeriod.customerPaymentRefundedCents ?? 0],
+                      ['Customer refunds with unresolved allocations', todayPeriod.customerPaymentUnallocatedRefundCents ?? 0],
+                      ['Dispute principal withdrawn', todayPeriod.customerPaymentDisputeWithdrawnCents ?? 0],
+                      ['Dispute principal reinstated', todayPeriod.customerPaymentDisputeReinstatedCents ?? 0],
+                      ['Dispute fees (signed)', todayPeriod.customerPaymentDisputeFeeCents ?? 0],
+                      ['Dispute net movement (signed)', todayPeriod.customerPaymentDisputeNetCents ?? 0],
+                      ['Customer refunds under review', todayPeriod.customerPaymentRefundHeldForReviewCents ?? 0],
+                      ...(todayPeriod.customerPaymentNetCashCents === undefined
+                        ? []
+                        : [['Customer payment net cash', todayPeriod.customerPaymentNetCashCents] as const]),
+                      ['Platform fee refunds (separate)', todayPeriod.customerPaymentFeeRefundedCents ?? 0],
+                      ['Platform fee refunds under review', todayPeriod.customerPaymentFeeRefundHeldForReviewCents ?? 0],
+                    ] as const;
+                    const customerPaymentsInUse = todayPeriod.customerPaymentMovementReconciliationRequired || customerPaymentMetrics.some(([, cents]) => cents !== 0);
                     const secondaryMetrics = [
-                      ['Collected today', todayPeriod.cashCollectedCents],
+                      [customerPaymentsInUse ? 'Collected today (gross)' : 'Collected today', todayPeriod.cashCollectedCents],
+                      ...(customerPaymentsInUse ? customerPaymentMetrics : []),
                       [
                         'Remaining-balance payments',
                         todayPeriod.remainingBalancePaymentsCollectedCents
@@ -1303,6 +1321,17 @@ export function OwnerTodayWorkspace({
                                 </div>
                               ))}
                             </div>
+                            {customerPaymentsInUse && (
+                              <p className="text-xs text-stone-500">
+                                Customer net cash is gross captures minus successful customer refunds in this period, including amounts under review. Review amounts are shown separately, not deducted again. Platform fee refunds are separate platform money. These figures are not profit or payouts.
+                              </p>
+                            )}
+                            {(todayPeriod.customerPaymentMovementReconciliationRequired || (todayPeriod.customerPaymentUnallocatedRefundCents ?? 0) > 0 || (todayPeriod.customerPaymentDisputeWithdrawnCents ?? 0) > 0 || (todayPeriod.customerPaymentDisputeReinstatedCents ?? 0) > 0) && (
+                              <p className="text-xs text-amber-700">
+                                {todayPeriod.customerPaymentMovementReconciliationRequired && 'Cash movement reconciliation is required; complete customer net cash is unavailable. '}
+                                Refund allocations and booking credit remain unresolved. Disputes and fee returns are separate cash movements, not booking credit.
+                              </p>
+                            )}
                             {forfeitureTaxBuckets.length > 0 && (
                               <div
                                 className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"

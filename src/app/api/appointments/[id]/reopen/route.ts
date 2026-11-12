@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { getActiveAppointmentsForCanonicalClientWithHandle } from '@/libs/activeAppointments';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
-import { resolveCheckoutActor } from '@/libs/appointmentCheckoutServer';
+import { hasCustomerPaymentTenderForAppointment, resolveCheckoutActor } from '@/libs/appointmentCheckoutServer';
 import {
   lockTechnicianAndAssertSlotFree,
   SlotConflictError,
@@ -16,6 +16,7 @@ import {
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { updateSalonClientStats } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
@@ -153,8 +154,11 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           throw new ReopenConflictError();
         }
 
+        await assertCustomerPaymentReservationMutable(tx, lockedAppointment.salonId, appointmentId);
+
         if (
-          lockedAppointment.bookingTaxSnapshot !== null
+          await hasCustomerPaymentTenderForAppointment(tx, lockedAppointment.salonId, lockedAppointment.id)
+          || lockedAppointment.bookingTaxSnapshot !== null
           || lockedAppointment.rescheduleTaxSnapshot !== null
           || lockedAppointment.finalTaxSnapshot !== null
         ) {
@@ -270,6 +274,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       },
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof InvoiceRevisionUnsupportedError) {
       return errorJson(
         409,

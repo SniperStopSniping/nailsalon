@@ -80,6 +80,7 @@ import { n5 } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
 
 import { ExistingAppointmentOptions } from './ExistingAppointmentOptions';
+import { paymentPreviewHandoffUrl } from './paymentPreviewHandoff';
 import { ReviewAppointmentSummary } from './ReviewAppointmentSummary';
 import { ReviewPolicyAgreement } from './ReviewPolicyAgreement';
 
@@ -126,6 +127,10 @@ type SmsConsentSelection = Exclude<SmsBookingDefault, 'disabled'> | 'explicit_on
 const SMS_CONSENT_WORDING_VERSION = BOOKING_SMS_SEPARATED_WORDING_VERSION;
 
 type BookConfirmClientProps = {
+  /** Server-gated nonproduction navigation only. Does not enable collection. */
+  customerPaymentPreviewEnabled?: boolean;
+  /** Optional post-booking navigation; the private payment API rechecks eligibility. */
+  customerPaymentsEnabled?: boolean;
   rebookingSettings?: RebookingPromptSettings;
   catalogAcknowledgment?: { serviceId: string; resolutionFingerprint: string };
   services: ServiceSummary[];
@@ -1705,6 +1710,8 @@ const SuccessContent = ({
   rebookingSettings,
   onBookNext,
   recoveryError,
+  paymentPreviewUrl,
+  customerPaymentUrl,
 }: {
   bookingStatus: BookingResultStatus;
   services: ServiceSummary[];
@@ -1730,6 +1737,8 @@ const SuccessContent = ({
   rebookingSettings?: RebookingPromptSettings;
   onBookNext?: () => Promise<void>;
   recoveryError?: string | null;
+  paymentPreviewUrl?: string | null;
+  customerPaymentUrl?: string | null;
 }) => {
   const t = useTranslations('BookingConfirmation');
   const isPending = bookingStatus === 'pending';
@@ -1868,6 +1877,22 @@ const SuccessContent = ({
                 )}
           </motion.div>
         </div>
+
+        {customerPaymentUrl && !isPending && (
+          <SectionCard title="Pay online" className="border-[var(--n5-border)] bg-[var(--n5-bg-card)] text-sm" contentClassName="space-y-2">
+            <p>Your booking is confirmed. Review your remaining balance and the salon’s payment policy, then choose whether to pay online.</p>
+            <a href={customerPaymentUrl} referrerPolicy="no-referrer" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">View online payment options</a>
+          </SectionCard>
+        )}
+
+        {paymentPreviewUrl && (
+          <SectionCard title="Test payment quote preview" className="border-[var(--n5-border)] bg-[var(--n5-bg-card)] text-sm" contentClassName="space-y-2">
+            <p>Review a test total and optional tip from your saved appointment. Availability and current amounts are checked on the next page. No payment can be made here; existing deposit requirements and in-person arrangements are unchanged.</p>
+            <a href={paymentPreviewUrl} referrerPolicy="no-referrer" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+              Review test payment quote
+            </a>
+          </SectionCard>
+        )}
 
         {/* Action Buttons */}
         <motion.div
@@ -2033,6 +2058,8 @@ const SuccessContent = ({
 // --- Main Component ---
 
 export function BookConfirmClient({
+  customerPaymentPreviewEnabled = false,
+  customerPaymentsEnabled = false,
   rebookingSettings = DEFAULT_REBOOKING_PROMPT_SETTINGS,
   catalogAcknowledgment,
   services,
@@ -2206,6 +2233,11 @@ export function BookConfirmClient({
     }
   }, [salonSlug]);
   const [manageUrl, setManageUrl] = useState<string | null>(null);
+  // Keep the disabled path's callback/recovery dependencies unchanged.
+  const paymentPreviewContext = customerPaymentPreviewEnabled || customerPaymentsEnabled
+    ? JSON.stringify([salonId, salonSlug, locale, routeSalonSlug, dateStr, timeStr, canonicalStartTime, searchParams.toString()])
+    : '';
+  const [receiptPaymentPreview, setReceiptPaymentPreview] = useState<{ url: string | null; context: string } | null>(null);
   const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
   // Set only by the DEPOSIT_HOLD_ACTIVE branch: the server's authoritative hold
   // expiry, plus a resume URL when (and only when) THIS tab owns the checkout.
@@ -2343,6 +2375,22 @@ export function BookConfirmClient({
     );
     const receiptManageUrl = typeof data?.data?.manageUrl === 'string' ? data.data.manageUrl : null;
     setManageUrl(fromRecovery && receiptManageUrl ? customerBookingRecoveryUrl(receiptManageUrl, 'manage') : receiptManageUrl);
+    // An old receipt is not evidence of current payment eligibility. Fresh
+    // deposit-free confirmations may only link to the existing manage page,
+    // which rechecks the capability, appointment and financial holds itself.
+    if (paymentPreviewContext) {
+      const receiptDeposit = data?.data?.deposit;
+      const receiptHasNoDeposit = receiptDeposit == null
+        || (receiptDeposit.required === false && !receiptDeposit.checkoutUrl
+          && !receiptDeposit.holdExpiresAt && !receiptDeposit.amountCents);
+      setReceiptPaymentPreview({
+        context: paymentPreviewContext,
+        url: !fromRecovery && recoveredStatus === 'confirmed'
+          && receiptHasNoDeposit && !data?.data?.appointment?.depositHoldExpiresAt
+          ? paymentPreviewHandoffUrl(receiptManageUrl, window.location.origin)
+          : null,
+      });
+    }
     setBookingResultStatus(resultStatus);
     setBookingComplete(true);
     setPublicRecoveryPending(false);
@@ -2357,7 +2405,7 @@ export function BookConfirmClient({
         triggerHaptic('success');
       }, 300);
     }
-  }, [navigateToCheckout, salonSlug]);
+  }, [navigateToCheckout, paymentPreviewContext, salonSlug]);
 
   const checkPublicRecovery = useCallback(async () => {
     if (!salonId) {
@@ -3421,6 +3469,16 @@ export function BookConfirmClient({
         smsConsentGranted={smsConsent}
         smsReminderStatus={smsReminderStatus}
         manageUrl={manageUrl}
+        customerPaymentUrl={customerPaymentsEnabled && !displayedDeposit
+        && submittedDepositFingerprint === DEPOSIT_FINGERPRINT_NONE
+        && receiptPaymentPreview?.context === paymentPreviewContext
+          ? receiptPaymentPreview.url?.replace(/#customer-payment-preview$/, '#appointment-payment')
+          : null}
+        paymentPreviewUrl={!customerPaymentsEnabled && customerPaymentPreviewEnabled && !displayedDeposit
+        && submittedDepositFingerprint === DEPOSIT_FINGERPRINT_NONE
+        && receiptPaymentPreview?.context === paymentPreviewContext
+          ? receiptPaymentPreview.url
+          : null}
         findBookingUrl={appendSalonSlug('/find-booking', salonSlug, {
           routeSalonSlug,
           locale,

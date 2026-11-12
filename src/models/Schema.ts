@@ -5986,3 +5986,15 @@ export const danielaSendSchema = pgTable('daniela_send', {
   providerOnce: uniqueIndex('daniela_send_provider_once').on(table.providerSid),
   due: index('daniela_send_due').on(table.salonId, table.state, table.createdAt),
 }));
+
+// Offline provider-fixture journal only. No runtime provider or financial authority.
+export * from './customerPaymentClosedCheckoutSchema';
+export * from './customerPaymentCorrelationSchema';
+export * from './customerPaymentDisputeCorrelationSchema';
+export * from './customerPaymentFixtureApplicationSchema';
+export * from './customerPaymentFixtureMovementSchema';
+export * from './customerPaymentProviderSchema';
+export * from './customerPaymentRefundCorrelationSchema';
+
+// Durable real-provider operation reservations and signed-event retention.
+export * from './customerPaymentWorkspaceSchema';

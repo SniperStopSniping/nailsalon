@@ -1,5 +1,5 @@
 /* eslint-disable import/first */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const forfeitAppointmentDepositInTx = vi.hoisted(() => vi.fn(async () => ({
   disposition: 'no_deposit',
@@ -8,6 +8,8 @@ const forfeitAppointmentDepositInTx = vi.hoisted(() => vi.fn(async () => ({
 })));
 
 const {
+  paymentMarkers,
+  paymentCaptures,
   callOrder,
   requireStaffAppointmentAccess,
   logAppointmentChange,
@@ -25,6 +27,8 @@ const {
   tx,
   db,
 } = vi.hoisted(() => {
+  const paymentMarkers = { rows: [] as Array<{ id: string; reference: string | null } & Record<string, unknown>> };
+  const paymentCaptures = { rows: [] as Array<Record<string, unknown>>, read: vi.fn() };
   const callOrder: string[] = [];
   const capturedUpdates: Array<Record<string, unknown>> = [];
   const requireStaffAppointmentAccess = vi.fn();
@@ -70,17 +74,28 @@ const {
   const tx = {
     execute: vi.fn(),
     select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(async () => []),
-          for: vi.fn(() => ({
-            limit: vi.fn(async () => {
-              callOrder.push('appointment-lock');
-              return lockedAppointment.current ? [lockedAppointment.current] : [];
-            }),
-          })),
-        })),
-      })),
+      from: vi.fn((table: Record<string, unknown>) => 'recordedByType' in table
+        ? { where: vi.fn(() => Object.assign(Promise.resolve(paymentMarkers.rows), {
+            orderBy: vi.fn(async () => paymentMarkers.rows),
+          })) }
+        : 'tenderId' in table
+          ? { where: vi.fn(async () => {
+              paymentCaptures.read();
+              return paymentCaptures.rows;
+            }) }
+          : 'refundId' in table
+            ? { where: vi.fn(async () => []) }
+            : ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                  for: vi.fn(() => ({
+                    limit: vi.fn(async () => {
+                      callOrder.push('appointment-lock');
+                      return lockedAppointment.current ? [lockedAppointment.current] : [];
+                    }),
+                  })),
+                })),
+              })),
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => {
@@ -106,6 +121,8 @@ const {
       callback(tx)),
   };
   return {
+    paymentMarkers,
+    paymentCaptures,
     callOrder,
     requireStaffAppointmentAccess,
     logAppointmentChange,
@@ -203,6 +220,13 @@ function transitionRequest(to: string) {
 describe('POST /api/appointments/:id/transition', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('APP_ENV', '');
+    vi.stubEnv('VERCEL_ENV', undefined);
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('CUSTOMER_PAYMENTS_PREPARATION_ENABLED', 'true');
+    vi.stubEnv('CUSTOMER_PAYMENTS_LEDGER_TEST_ENABLED', 'true');
+    paymentMarkers.rows = [];
+    paymentCaptures.rows = [];
     callOrder.length = 0;
     capturedUpdates.length = 0;
     lockedAppointment.current = { ...appointment };
@@ -215,6 +239,115 @@ describe('POST /api/appointments/:id/transition', () => {
         return [];
       },
     );
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  function postedCapture(from: 'waiting' | 'working' = 'waiting') {
+    const captureId = '1042a478-ad15-45f5-970b-342cb55e584e';
+    paymentMarkers.rows = [{
+      id: `cpay_${captureId}`,
+      reference: `customer_payment_capture:${captureId}`,
+      appointmentId: appointment.id,
+      salonId: appointment.salonId,
+      amountCents: 12000,
+      method: 'online',
+      recordedByType: 'system',
+      voidedAt: null,
+    }];
+    paymentCaptures.rows = [{
+      id: captureId,
+      tenderId: `cpay_${captureId}`,
+      appointmentId: appointment.id,
+      salonId: appointment.salonId,
+      currency: 'cad',
+      amountCents: 12000,
+      principalCents: 10000,
+      tipCents: 2000,
+      applicationFeeCents: 100,
+      quotedApplicationFeeCents: 100,
+      state: 'posted',
+      mode: 'test',
+      source: 'synthetic_test',
+    }];
+    const current = {
+      ...appointment,
+      canvasState: from,
+      status: from === 'waiting' ? 'confirmed' : 'in_progress',
+      amountPaidCents: 12000,
+      tipCents: 2000,
+      paymentStatus: 'paid',
+    };
+    requireStaffAppointmentAccess.mockResolvedValue(makeAccess(current));
+    lockedAppointment.current = current;
+    updateResult.current = { ...current, status: 'in_progress', canvasState: from === 'waiting' ? 'working' : 'wrap_up' };
+  }
+
+  it.each([
+    ['waiting', 'working'],
+    ['working', 'wrap_up'],
+  ] as const)('allows verified posted capture progression from %s to %s without money changes', async (from, to) => {
+    postedCapture(from);
+    const response = await POST(transitionRequest(to), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(200);
+    expect(paymentCaptures.read).toHaveBeenCalledOnce();
+    expect(capturedUpdates[0]).toMatchObject({ canvasState: to, status: 'in_progress' });
+    expect(capturedUpdates[0]).not.toHaveProperty('tipCents');
+    expect(capturedUpdates[0]).not.toHaveProperty('amountPaidCents');
+    expect(forfeitAppointmentDepositInTx).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarDeleteInTx).not.toHaveBeenCalled();
+  });
+
+  it.each(['held', 'orphan', 'flag_off', 'production', 'cache_mismatch', 'tip_below_capture'])('blocks service progression for %s evidence before writes', async (invalid) => {
+    postedCapture();
+    if (invalid === 'held') {
+      paymentCaptures.rows[0]!.state = 'held_review';
+      paymentMarkers.rows[0]!.voidedAt = new Date();
+    } else if (invalid === 'orphan') {
+      paymentCaptures.rows = [];
+    } else if (invalid === 'flag_off') {
+      vi.stubEnv('CUSTOMER_PAYMENTS_LEDGER_TEST_ENABLED', 'false');
+    } else if (invalid === 'production') {
+      vi.stubEnv('NODE_ENV', 'production');
+    } else if (invalid === 'cache_mismatch') {
+      lockedAppointment.current!.amountPaidCents = 11999;
+    } else {
+      lockedAppointment.current!.tipCents = 1999;
+    }
+    const response = await POST(transitionRequest('working'), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(capturedUpdates).toEqual([]);
+    expect(forfeitAppointmentDepositInTx).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarDeleteInTx).not.toHaveBeenCalled();
+
+    if (invalid === 'flag_off' || invalid === 'production') {
+      expect(paymentCaptures.read).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(['cancelled', 'no_show'])('keeps %s blocked even with a verified posted capture', async (to) => {
+    postedCapture();
+    const response = await POST(transitionRequest(to), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(capturedUpdates).toEqual([]);
+    expect(paymentCaptures.read).not.toHaveBeenCalled();
+  });
+
+  it.each(['working', 'cancelled', 'no_show'])('refuses %s on provider-marked appointments before writes', async (to) => {
+    paymentMarkers.rows = [{ id: 'cpay_unresolved', reference: null }];
+    const response = await POST(transitionRequest(to), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(callOrder).toContain('appointment-lock');
+    expect(capturedUpdates).toEqual([]);
+    expect(forfeitAppointmentDepositInTx).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarDeleteInTx).not.toHaveBeenCalled();
   });
 
   it('serializes an active transition behind the terminal client and technician', async () => {
@@ -243,6 +376,7 @@ describe('POST /api/appointments/:id/transition', () => {
     );
     expect(logAppointmentChange).toHaveBeenCalledTimes(1);
     expect(logAppointmentLocked).toHaveBeenCalledTimes(1);
+    expect(paymentCaptures.read).not.toHaveBeenCalled();
   });
 
   it('fails closed before CAS and side effects when the lineage is already active', async () => {

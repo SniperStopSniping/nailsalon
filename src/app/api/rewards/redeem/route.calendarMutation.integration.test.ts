@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { closedCheckoutOperationSchema } from '@/models/Schema';
+
 vi.mock('server-only', () => ({}));
 
 const {
@@ -68,9 +70,11 @@ const pricedAppointment = {
   totalPrice: 4500,
   updatedAt: new Date('2099-01-01T00:00:00.001Z'),
 };
+let paymentMarkers: Array<{ id: string; reference: string | null }> = [];
 let lockedReward = reward;
 let lockedAppointment = appointment;
 let lockedDeposits: Array<{ id: string }> = [];
+let reservationRows: Array<{ id: string }> = [];
 let transactionUpdate = vi.fn();
 
 function limitSelection(rows: unknown[]) {
@@ -98,9 +102,11 @@ function request() {
 describe('reward redemption Calendar mutation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    paymentMarkers = [];
     lockedReward = reward;
     lockedAppointment = appointment;
     lockedDeposits = [];
+    reservationRows = [];
     const selections = [
       limitSelection([reward]),
       limitSelection([appointment]),
@@ -124,20 +130,44 @@ describe('reward redemption Calendar mutation', () => {
         });
       const tx = {
         select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => {
-              const rows = lockedSelections.shift() ?? [];
-              return {
-                for: vi.fn(() => ({ limit: vi.fn(async () => rows) })),
-                limit: vi.fn(async () => rows),
-              };
-            }),
-          })),
+          from: vi.fn((table: object) => table === closedCheckoutOperationSchema
+            ? { where: vi.fn(() => ({ limit: vi.fn(async () => reservationRows) })) }
+            : 'recordedByType' in table
+              ? { where: vi.fn(async () => paymentMarkers) }
+              : ({
+                  where: vi.fn(() => {
+                    const rows = lockedSelections.shift() ?? [];
+                    return {
+                      for: vi.fn(() => ({ limit: vi.fn(async () => rows) })),
+                      limit: vi.fn(async () => rows),
+                    };
+                  }),
+                })),
         })),
         update: transactionUpdate,
       };
       return work(tx);
     });
+  });
+
+  it('blocks reward repricing for a reserved provider marker', async () => {
+    paymentMarkers = [{ id: 'cpay_review', reference: null }];
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
+  });
+
+  it('blocks reward repricing while an SDK checkout reservation is unresolved', async () => {
+    reservationRows = [{ id: 'sdk-operation-1' }];
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RESERVATION_RECONCILIATION_REQUIRED');
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
   });
 
   it('atomically enqueues the winning appointment revision with the price mutation', async () => {

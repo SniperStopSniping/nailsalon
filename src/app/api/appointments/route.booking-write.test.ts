@@ -246,6 +246,7 @@ vi.mock('@/libs/SMS', () => ({
 
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import {
+  closedCheckoutOperationSchema,
   retentionCampaignSchema,
   salonLocationSchema,
   salonSchema,
@@ -399,6 +400,9 @@ function selectionAwareSelect<T>(
   } = DEFAULT_LOCKED_SALON_FINANCIAL_CONFIGURATION,
 ) {
   return (selection?: Record<string, unknown>) => {
+    if (selection && 'reference' in selection && 'id' in selection) {
+      return { from: vi.fn(() => ({ where: vi.fn(async () => []) })) };
+    }
     if (selection && 'isBlocked' in selection) {
       return mockSelectRows([{ isBlocked: false }], selection);
     }
@@ -421,6 +425,9 @@ function selectionAwareSelect<T>(
           || table === retentionCampaignSchema
           || (table === salonSchema && selection && 'businessHours' in selection);
         if (isFreshAuthorityRead) {
+          return mockSelectRows([], selection).from(table);
+        }
+        if (table === closedCheckoutOperationSchema) {
           return mockSelectRows([], selection).from(table);
         }
         const query = fallback(selection) as { from: (table: unknown) => unknown };

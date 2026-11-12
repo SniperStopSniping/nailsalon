@@ -3,6 +3,8 @@
 import { createContext, useContext } from 'react';
 
 export type OwnerAdminFeatureFlags = {
+  customerPaymentDraftsEnabled?: boolean;
+  customerPaymentWorkspaceEnabled?: boolean;
   aiBusinessSetupEnabled?: boolean;
   onboardingV1IntegrationEnabled: boolean;
   /**
@@ -15,6 +17,8 @@ export type OwnerAdminFeatureFlags = {
 };
 
 export const OwnerAdminFeatureFlagsContext = createContext<OwnerAdminFeatureFlags>({
+  customerPaymentDraftsEnabled: false,
+  customerPaymentWorkspaceEnabled: false,
   aiBusinessSetupEnabled: false,
   onboardingV1IntegrationEnabled: false,
   sectionLibraryV1Enabled: false,

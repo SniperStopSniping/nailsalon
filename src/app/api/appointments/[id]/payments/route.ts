@@ -16,6 +16,13 @@ import {
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
+import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
+import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
+import { resolveWorkspaceActor } from '@/libs/customerPayments/server/workspaceAccess';
+import { PaymentWorkspaceError } from '@/libs/customerPayments/server/workspaceContract';
+import { workspaceError } from '@/libs/customerPayments/server/workspaceHttp';
+import { beginCanonicalWorkspaceChange } from '@/libs/customerPayments/server/workspaceRepository';
+import { isPaymentWorkspaceEnabled } from '@/libs/customerPayments/workspacePolicy';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
@@ -95,6 +102,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       return errorJson(400, 'VALIDATION_ERROR', 'Invalid request data', validated.error.flatten());
     }
     const payment = validated.data;
+    if (isCustomerPaymentTender({ reference: payment.reference })) {
+      return errorJson(409, 'CUSTOMER_PAYMENT_RESERVED_REFERENCE', 'Provider capture references cannot be recorded manually.');
+    }
     const actor = resolveCheckoutActor(access);
     const now = new Date();
 
@@ -192,6 +202,11 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           },
         };
       }
+
+      await assertCustomerPaymentReservationMutable(tx, appointment.salonId, appointmentId);
+      const workspaceChange = isPaymentWorkspaceEnabled()
+        ? await beginCanonicalWorkspaceChange(tx, appointment, () => resolveWorkspaceActor(access, appointmentId), 'Payment received at the salon')
+        : null;
 
       // A durable retry above must replay its original response even if this
       // mutable invoice evidence later needs reconciliation. New money may
@@ -362,6 +377,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
         })
         .where(eq(appointmentSchema.id, appointmentId));
 
+      await workspaceChange?.finish();
+
       const auditRows = [
         buildAppointmentAuditRow({
           appointmentId,
@@ -474,6 +491,12 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       },
     });
   } catch (error) {
+    if (error instanceof PaymentWorkspaceError) {
+      return workspaceError(error);
+    }
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     console.error('Error recording payment:', error);
     return errorJson(500, 'INTERNAL_ERROR', 'Failed to record payment');
   }

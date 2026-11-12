@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   verifyAppointmentAccessToken,
+  preparationEnabled,
   describeAppointmentAccessFailure,
   loadBookingEmailFinancialSummary,
   getLocationById,
@@ -19,6 +20,7 @@ const {
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
   return {
+    preparationEnabled: vi.fn(() => false),
     verifyAppointmentAccessToken: vi.fn(),
     describeAppointmentAccessFailure: vi.fn(),
     loadBookingEmailFinancialSummary: vi.fn(),
@@ -27,6 +29,9 @@ const {
     selectResults,
   };
 });
+
+vi.mock('@/libs/customerPayments/preparationGate', () => ({ isCustomerPaymentPreparationEnabled: preparationEnabled }));
+vi.mock('@/components/customerPayments/CustomerPaymentQuotePreview', () => ({ CustomerPaymentQuotePreview: ({ token }: { token: string }) => <div data-testid="test-quote-preview" data-token={token} /> }));
 
 vi.mock('next/font/google', () => ({
   Inter: () => ({ variable: 'font-sans' }),
@@ -117,6 +122,7 @@ async function renderPage(params: { locale: string; slug: string; token: string 
 describe('appointment management page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    preparationEnabled.mockReturnValue(false);
     selectResults.length = 0;
     describeAppointmentAccessFailure.mockResolvedValue('invalid');
     getLocationById.mockResolvedValue(null);
@@ -135,6 +141,33 @@ describe('appointment management page', () => {
       depositBlockedCode: null,
       depositPresentationState: 'none',
     });
+  });
+
+  it.each([false, true])('mounts token-bound preview only with server flag %s', async (enabled) => {
+    preparationEnabled.mockReturnValue(enabled);
+    verifyAppointmentAccessToken.mockResolvedValue(capability({ appointment: { startTime: FUTURE } }));
+    await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
+    if (enabled) {
+      expect(screen.getByTestId('test-quote-preview')).toHaveAttribute('data-token', TOKEN);
+    } else {
+      expect(screen.queryByTestId('test-quote-preview')).not.toBeInTheDocument();
+    }
+  });
+
+  it.each(['pending', 'awaiting_payment', 'completed'])('does not offer quote preview for %s state', async (status) => {
+    preparationEnabled.mockReturnValue(true);
+    verifyAppointmentAccessToken.mockResolvedValue(capability({ appointment: { status, startTime: FUTURE } }));
+    await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
+
+    expect(screen.queryByTestId('test-quote-preview')).not.toBeInTheDocument();
+  });
+
+  it('does not expose preview when token salon and URL salon differ', async () => {
+    preparationEnabled.mockReturnValue(true);
+    verifyAppointmentAccessToken.mockResolvedValue(capability({ appointment: { startTime: FUTURE } }));
+    await renderPage({ locale: 'en', slug: 'different-salon', token: TOKEN });
+
+    expect(screen.queryByTestId('test-quote-preview')).not.toBeInTheDocument();
   });
 
   it('loads the appointment behind a valid token', async () => {

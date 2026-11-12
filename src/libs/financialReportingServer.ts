@@ -23,6 +23,12 @@ import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger
 import {
   validateAppointmentTaxSnapshotChain,
 } from '@/libs/appointmentTaxSnapshot';
+import { customerPaymentTipFloor } from '@/libs/customerPayments/provenance';
+import { readCustomerPaymentCaptureReport } from '@/libs/customerPayments/server/captureReportingReader';
+import { readCustomerPaymentCreditForReporting } from '@/libs/customerPayments/server/creditResolutionReader';
+import { readOfflineFixtureMovementReport } from '@/libs/customerPayments/server/fixtureMovementReportingReader';
+import { enrichCustomerPaymentProvenance } from '@/libs/customerPayments/server/provenanceReader';
+import { readCustomerPaymentRefundReport } from '@/libs/customerPayments/server/refundReportingReader';
 import { db } from '@/libs/DB';
 import {
   buildReportingProvenance,
@@ -49,6 +55,25 @@ export type FinancialReportingRangeSummary = {
   /** Gross inflow: non-voided appointment payments plus dated deposit collections. */
   cashCollectedCents: number;
   appointmentPaymentsCollectedCents: number;
+  /** Immutable test capture cash, including captured funds held for review. */
+  customerPaymentCollectedCents?: number;
+  customerPaymentHeldForReviewCents?: number;
+  customerPaymentRefundedCents?: number;
+  customerPaymentRefundHeldForReviewCents?: number;
+  /** Application-fee cash returns are separate from customer refunded cash. */
+  customerPaymentFeeRefundedCents?: number;
+  customerPaymentFeeRefundHeldForReviewCents?: number;
+  /** Dated gross captures minus successful customer refunds; may be negative. */
+  customerPaymentNetCashCents?: number;
+  /** Offline cash facts only: no principal/tip allocation or booking credit. */
+  customerPaymentUnallocatedRefundCents?: number;
+  customerPaymentDisputeWithdrawnCents?: number;
+  customerPaymentDisputeReinstatedCents?: number;
+  /** Signed provider fixture balance-transaction fee/net amounts. */
+  customerPaymentDisputeFeeCents?: number;
+  customerPaymentDisputeNetCents?: number;
+  /** True suppresses complete customer net cash without erasing known cash. */
+  customerPaymentMovementReconciliationRequired?: boolean;
   /** Event-ledger amounts; missing timestamps are excluded and disclosed below. */
   depositCollectedCents: number;
   depositRefundedCents: number;
@@ -402,6 +427,7 @@ export type FinancialBalanceSqlColumns = {
   paymentsCents: SQL<number>;
   hasPaymentHistory: SQL;
   paymentTenantMismatch?: SQL;
+  customerPaymentMarker?: SQL;
   depositCreditCents: SQL<number>;
   depositUnresolved: SQL;
 };
@@ -673,6 +699,11 @@ export function buildDepositCreditSql(input: {
  * so the exact same eligibility and clamping rules are reused without a
  * correlated payment lookup for every appointment.
  */
+const customerPaymentMarkerSql = sql`(
+  left(${appointmentPaymentSchema.id}, 5) = 'cpay_'
+  OR left(COALESCE(${appointmentPaymentSchema.reference}, ''), 25) = 'customer_payment_capture:'
+)`;
+
 export function buildFinancialBalanceSql(
   asOf: Date,
   suppliedColumns?: FinancialBalanceSqlColumns,
@@ -719,6 +750,11 @@ export function buildFinancialBalanceSql(
     paymentsCents: defaultPaymentsCents,
     hasPaymentHistory: defaultHasPaymentHistory,
     paymentTenantMismatch: defaultPaymentTenantMismatch,
+    customerPaymentMarker: sql`EXISTS (
+      SELECT 1 FROM ${appointmentPaymentSchema}
+      WHERE ${appointmentPaymentSchema.appointmentId} = ${appointmentSchema.id}
+        AND ${customerPaymentMarkerSql}
+    )`,
     depositCreditCents: defaultDeposit.creditCents,
     depositUnresolved: defaultDeposit.unresolved,
   };
@@ -741,6 +777,10 @@ export function buildFinancialBalanceSql(
   const rescheduleTaxSnapshot = columns.rescheduleTaxSnapshot ?? sql`NULL`;
   const finalTaxSnapshot = columns.finalTaxSnapshot ?? sql`NULL`;
   const paymentTenantMismatch = columns.paymentTenantMismatch ?? sql`false`;
+  // Raw SQL cannot carry the server's immutable-capture proof. It must disclose
+  // tagged appointments as unresolved; canonical per-appointment readers below
+  // enrich and validate those rows. Supplied projections must carry the marker.
+  const providerMarker = columns.customerPaymentMarker ?? sql`true`;
   const upcomingInvoice = buildUpcomingInvoiceSql({
     totalPrice,
     bookingTaxSnapshot,
@@ -749,6 +789,7 @@ export function buildFinancialBalanceSql(
   const paymentTrackingKnown
     = sql`(
       NOT (${paymentTenantMismatch})
+      AND NOT (${providerMarker})
       AND (
       (NOT ${hasPaymentHistory} AND COALESCE(${amountPaidCents} = 0, false))
       OR (
@@ -760,6 +801,7 @@ export function buildFinancialBalanceSql(
   const legacyStatusSettled
     = sql`(NOT ${hasPaymentHistory}
       AND NOT (${paymentTenantMismatch})
+      AND NOT (${providerMarker})
       AND ${amountPaidCents} IS NULL
       AND ${paymentStatus} = 'paid')`;
 
@@ -947,6 +989,7 @@ export async function getFinancialReportingRangeSummary(
     actualTaxRows,
     depositApplicationRows,
     depositApplicationPaymentRows,
+    customerPaymentMarkers,
   ] = await Promise.all([
     db
       .select({
@@ -976,6 +1019,7 @@ export async function getFinancialReportingRangeSummary(
         and(
           eq(appointmentSchema.salonId, input.salonId),
           isNull(appointmentPaymentSchema.voidedAt),
+          sql`NOT (${customerPaymentMarkerSql})`,
           gte(appointmentPaymentSchema.recordedAt, input.start),
           lt(appointmentPaymentSchema.recordedAt, input.end),
           sql`${appointmentPaymentSchema.amountCents} > 0`,
@@ -1146,12 +1190,7 @@ export async function getFinancialReportingRangeSummary(
         completedDepositApplicationEligible,
       )),
     db
-      .select({
-        appointmentId: appointmentPaymentSchema.appointmentId,
-        salonId: appointmentPaymentSchema.salonId,
-        amountCents: appointmentPaymentSchema.amountCents,
-        voidedAt: appointmentPaymentSchema.voidedAt,
-      })
+      .select(getTableColumns(appointmentPaymentSchema))
       .from(appointmentPaymentSchema)
       .innerJoin(
         appointmentSchema,
@@ -1164,10 +1203,49 @@ export async function getFinancialReportingRangeSummary(
         lt(appointmentSchema.startTime, input.end),
         completedDepositApplicationEligible,
       )),
+    db.select(getTableColumns(appointmentPaymentSchema))
+      .from(appointmentPaymentSchema)
+      .innerJoin(appointmentSchema, eq(appointmentSchema.id, appointmentPaymentSchema.appointmentId))
+      .where(and(
+        eq(appointmentSchema.salonId, input.salonId),
+        customerPaymentMarkerSql,
+        gte(appointmentPaymentSchema.recordedAt, input.start),
+        lt(appointmentPaymentSchema.recordedAt, input.end),
+      )),
   ]);
 
+  const refundReport = await readCustomerPaymentRefundReport(db, {
+    salonId: input.salonId,
+    currency: reportingCurrency,
+    start: input.start,
+    end: input.end,
+  });
+  const fixtureMovementReport = await readOfflineFixtureMovementReport(db, {
+    hasCustomerPaymentMarker: refundReport.hasCustomerPaymentMarker,
+    salonId: input.salonId,
+    currency: reportingCurrency,
+    start: input.start,
+    end: input.end,
+  });
+  // A refund can arrive after the earlier marker query. Include its immutable
+  // capture anchor when that capture belongs to this same reporting period,
+  // rather than presenting the refund without the corresponding gross inflow.
+  const captureMarkers = new Map(customerPaymentMarkers.map(row => [row.id, row]));
+  for (const marker of [...refundReport.captureMarkers, ...fixtureMovementReport.captureMarkers]) {
+    if (marker.recordedAt >= input.start && marker.recordedAt < input.end) {
+      captureMarkers.set(marker.id, marker);
+    }
+  }
+  const captureReport = await readCustomerPaymentCaptureReport(db, {
+    salonId: input.salonId,
+    currency: reportingCurrency,
+    start: input.start,
+    end: input.end,
+    markers: [...captureMarkers.values()],
+  });
+  const legacyPaymentsCollectedCents = numberValue(cashRows[0]?.cashCollectedCents);
   const appointmentPaymentsCollectedCents
-    = numberValue(cashRows[0]?.cashCollectedCents);
+    = legacyPaymentsCollectedCents + captureReport.collectedCents;
   const depositEvents = depositEventRows[0];
   const depositCollectedCents
     = numberValue(depositEvents?.depositCollectedCents);
@@ -1388,8 +1466,7 @@ export async function getFinancialReportingRangeSummary(
     const appointment = rows[0]!;
     const paymentLedger = resolveAppointmentPaymentLedger({
       cachedAmountPaidCents: appointment.appointmentAmountPaidCents,
-      paymentRows:
-        applicationPaymentsByAppointment.get(appointment.appointmentId) ?? [],
+      paymentRows: await enrichCustomerPaymentProvenance(db, applicationPaymentsByAppointment.get(appointment.appointmentId) ?? []),
       expectedSalonId: input.salonId,
       appointmentStatus: appointment.appointmentStatus,
       paymentStatus: appointment.appointmentPaymentStatus,
@@ -1492,6 +1569,19 @@ export async function getFinancialReportingRangeSummary(
     cashCollectedCents:
       appointmentPaymentsCollectedCents + depositCollectedCents,
     appointmentPaymentsCollectedCents,
+    customerPaymentCollectedCents: captureReport.collectedCents,
+    customerPaymentHeldForReviewCents: captureReport.heldForReviewCents,
+    customerPaymentRefundedCents: refundReport.refundedCents + fixtureMovementReport.refundedCents,
+    customerPaymentRefundHeldForReviewCents: refundReport.heldForReviewCents,
+    customerPaymentFeeRefundedCents: refundReport.feeRefundedCents + fixtureMovementReport.feeRefundedCents,
+    customerPaymentFeeRefundHeldForReviewCents: refundReport.feeHeldForReviewCents,
+    ...(fixtureMovementReport.movementReconciliationRequired ? {} : { customerPaymentNetCashCents: captureReport.collectedCents - refundReport.refundedCents - fixtureMovementReport.refundedCents }),
+    customerPaymentUnallocatedRefundCents: fixtureMovementReport.unallocatedRefundCents,
+    customerPaymentDisputeWithdrawnCents: fixtureMovementReport.disputeWithdrawnCents,
+    customerPaymentDisputeReinstatedCents: fixtureMovementReport.disputeReinstatedCents,
+    customerPaymentDisputeFeeCents: fixtureMovementReport.disputeFeeCents,
+    customerPaymentDisputeNetCents: fixtureMovementReport.disputeNetCents,
+    customerPaymentMovementReconciliationRequired: fixtureMovementReport.movementReconciliationRequired,
     depositCollectedCents,
     depositRefundedCents: numberValue(depositEvents?.depositRefundedCents),
     depositForfeitedCents,
@@ -1502,7 +1592,7 @@ export async function getFinancialReportingRangeSummary(
     depositForfeitureNetReversalCents,
     forfeitureTaxIdentityBuckets: [...forfeitureTaxBuckets.values()],
     depositAppliedCents: canonicalDepositAppliedCents,
-    remainingBalancePaymentsCollectedCents: appointmentPaymentsCollectedCents,
+    remainingBalancePaymentsCollectedCents: legacyPaymentsCollectedCents,
     unattributedPaymentEventCount:
       numberValue(paymentEvents?.unattributedPaymentEventCount),
     unresolvedDepositApplicationCount:
@@ -1517,9 +1607,9 @@ export async function getFinancialReportingRangeSummary(
     excludedForeignCurrencyAppointmentCount:
       numberValue(currencyCounts?.excludedForeignCurrencyAppointmentCount),
     unknownCurrencyPaymentEventCount:
-      numberValue(paymentEvents?.unknownCurrencyPaymentEventCount),
+      numberValue(paymentEvents?.unknownCurrencyPaymentEventCount) + captureReport.unknownCurrencyEventCount,
     excludedForeignCurrencyPaymentEventCount:
-      numberValue(paymentEvents?.excludedForeignCurrencyPaymentEventCount),
+      numberValue(paymentEvents?.excludedForeignCurrencyPaymentEventCount) + captureReport.excludedForeignCurrencyEventCount + refundReport.excludedForeignCurrencyEventCount + fixtureMovementReport.excludedForeignCurrencyEventCount,
     unknownCurrencyDepositEventCount:
       numberValue(depositEvents?.unknownCurrencyDepositEventCount),
     excludedForeignCurrencyDepositEventCount:
@@ -1622,6 +1712,8 @@ async function loadResolvedBalanceRows(input: {
   asOf: Date;
   clientPhoneVariants?: string[];
   technicianId?: string;
+  /** Debt-only consumers understand the adjusted obligation. Spend/receipts do not yet. */
+  creditAwareOutstanding?: boolean;
 }): Promise<ResolvedBalanceRows> {
   const appointments = await db.select({
     id: appointmentSchema.id,
@@ -1797,9 +1889,38 @@ async function loadResolvedBalanceRows(input: {
       }
     }
 
+    const provenPayments = await enrichCustomerPaymentProvenance(db, paymentsByAppointment.get(appointment.id) ?? []);
+    if (input.creditAwareOutstanding && isCompleted && taxSnapshotResolved) {
+      const credit = await readCustomerPaymentCreditForReporting(db, {
+        salonId: input.salonId,
+        appointmentId: appointment.id,
+        paymentRows: provenPayments,
+        asOf: input.asOf,
+      });
+      if (credit && credit.currency === normalizedCurrency
+        && credit.original.serviceCents === finalPriceCents
+        && credit.original.taxCents === taxAmountCents
+        && credit.original.tipCents === appointment.tipCents
+        && credit.actualNetTenderCents === appointment.amountPaidCents) {
+        // This result is used only by debt summaries/segmentation. It must not
+        // silently mark old gross-spend or unadjusted receipt consumers resolved.
+        result.completedRows.push({
+          appointmentId: appointment.id,
+          salonClientId: appointment.salonClientId,
+          clientPhone: appointment.clientPhone,
+          startTime: appointment.startTime,
+          completedOutstandingCents: 0,
+          financialState: 'resolved',
+          source: 'finalized',
+          serviceValueCents: credit.original.serviceCents,
+          financiallySettled: true,
+        });
+        continue;
+      }
+    }
     const paymentLedger = resolveAppointmentPaymentLedger({
       cachedAmountPaidCents: appointment.amountPaidCents,
-      paymentRows: paymentsByAppointment.get(appointment.id) ?? [],
+      paymentRows: provenPayments,
       expectedSalonId: input.salonId,
       appointmentStatus: appointment.status,
       paymentStatus: appointment.paymentStatus,
@@ -1810,7 +1931,7 @@ async function loadResolvedBalanceRows(input: {
         invoiceCurrency: normalizedCurrency,
         finalPriceCents: finalPriceCents ?? appointment.totalPrice,
         taxAmountCents,
-        tipCents: isCompleted ? appointment.tipCents : 0,
+        tipCents: isCompleted ? appointment.tipCents : customerPaymentTipFloor(provenPayments),
         appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
         appointmentStatus: appointment.status,
         paymentStatus: appointment.paymentStatus,
@@ -1873,6 +1994,7 @@ export async function getFinancialBalanceSummary(
     reportingCurrency,
     asOf,
     clientPhoneVariants: input.clientPhoneVariants,
+    creditAwareOutstanding: true,
   });
   const finalizedRows = rows.completedRows.filter(row => row.source === 'finalized');
   const legacyRows = rows.completedRows.filter(row => row.source === 'legacy');
@@ -1917,16 +2039,20 @@ export async function getCompletedOutstandingRows(input: {
   currency: string;
   asOf?: Date;
 }): Promise<CompletedOutstandingRow[]> {
-  const resolution = await getCompletedFinancialResolution(input);
+  assertSalonId(input.salonId);
+  const reportingCurrency = normalizeReportingCurrency(input.currency);
+  const asOf = input.asOf ?? new Date();
+  assertValidDate(asOf, 'asOf');
+  const rows = await loadResolvedBalanceRows({ salonId: input.salonId, reportingCurrency, asOf, creditAwareOutstanding: true });
   return [
-    ...resolution.resolvedRows.map(row => ({
+    ...rows.completedRows.map(row => ({
       appointmentId: row.appointmentId,
       salonClientId: row.salonClientId,
       clientPhone: row.clientPhone,
       completedOutstandingCents: row.completedOutstandingCents,
       financialState: 'resolved' as const,
     })),
-    ...resolution.unresolvedRows.map(row => ({
+    ...rows.completedUnresolvedRows.map(row => ({
       ...row,
       completedOutstandingCents: 0,
       financialState: 'under_review' as const,

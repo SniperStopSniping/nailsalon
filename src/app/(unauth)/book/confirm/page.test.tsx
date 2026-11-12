@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { buildGoogleMapsDirectionsUrl } from '@/libs/directions';
@@ -253,6 +253,26 @@ describe('BookConfirmPage directions fallback', () => {
       effectiveTechnicianSelectionSource: null,
       shouldAutoSkipTech: false,
     });
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    { flag: undefined, appEnv: 'development', vercelEnv: undefined, enabled: false },
+    { flag: 'false', appEnv: 'development', vercelEnv: undefined, enabled: false },
+    { flag: 'true', appEnv: 'development', vercelEnv: undefined, enabled: true },
+    { flag: 'true', appEnv: 'preview', vercelEnv: 'preview', enabled: true },
+    { flag: 'true', appEnv: 'production', vercelEnv: undefined, enabled: false },
+    { flag: 'true', appEnv: 'preview', vercelEnv: 'production', enabled: false },
+  ])('passes only the server preparation gate to booking confirmation: %j', async ({ flag, appEnv, vercelEnv, enabled }) => {
+    vi.stubEnv('CUSTOMER_PAYMENTS_PREPARATION_ENABLED', flag);
+    vi.stubEnv('APP_ENV', appEnv);
+    vi.stubEnv('VERCEL_ENV', vercelEnv);
+    render(await BookConfirmPage({
+      searchParams: Promise.resolve({ salonSlug: 'salon-a', serviceIds: 'srv_1', techId: 'any', date: '2026-03-20', time: '10:00' }),
+    }));
+
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({ customerPaymentPreviewEnabled: enabled }));
   });
 
   it.each([

@@ -4,10 +4,14 @@ import { CalendarDays, Clock, Download, ExternalLink, MapPin, Scissors, Sparkles
 import { NextVisitOfferRebook } from '@/components/appointments/NextVisitOfferRebook';
 import styles from '@/components/customer-booking/customer-booking.module.css';
 import { CustomerBookingShell } from '@/components/customer-booking/CustomerBookingShell';
+import { CustomerAppointmentPayment } from '@/components/customerPayments/CustomerAppointmentPayment';
+import { CustomerPaymentQuotePreview } from '@/components/customerPayments/CustomerPaymentQuotePreview';
 import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import { isCustomerPaymentPreparationEnabled } from '@/libs/customerPayments/preparationGate';
+import { isPaymentWorkspaceEnabled } from '@/libs/customerPayments/workspacePolicy';
 import { db } from '@/libs/DB';
 import { buildDirectionsDestination, buildGoogleMapsDirectionsUrl } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
@@ -514,6 +518,21 @@ export async function ManageAppointmentView({
                   )
                 : null}
         </div>
+
+        {isPaymentWorkspaceEnabled() && ['confirmed', 'in_progress', 'completed'].includes(appointment.status ?? '')
+        && <CustomerAppointmentPayment token={token} />}
+
+        {!isPaymentWorkspaceEnabled() && isCustomerPaymentPreparationEnabled()
+        && appointment.status === 'confirmed'
+        && new Date(appointment.startTime).getTime() > Date.now()
+        && !appointment.depositHoldExpiresAt
+        && !appointment.startedAt && !appointment.completedAt && !appointment.finalTaxSnapshot
+        && !financialDetailsUnavailable
+        && financialSummary?.depositPresentationState === 'none'
+        && financialSummary.collectedDepositCents === 0
+        && financialSummary.refundedDepositCents === 0
+        && financialSummary.appointmentPaymentsCents === 0
+        && <CustomerPaymentQuotePreview key={token} token={token} />}
 
         <section className={styles.section} aria-label="Calendar options">
           <h2 className={styles.sectionTitle}>Keep the date</h2>

@@ -12,6 +12,13 @@ import {
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
+import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
+import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
+import { resolveWorkspaceActor } from '@/libs/customerPayments/server/workspaceAccess';
+import { PaymentWorkspaceError } from '@/libs/customerPayments/server/workspaceContract';
+import { workspaceError } from '@/libs/customerPayments/server/workspaceHttp';
+import { beginCanonicalWorkspaceChange } from '@/libs/customerPayments/server/workspaceRepository';
+import { isPaymentWorkspaceEnabled } from '@/libs/customerPayments/workspacePolicy';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { updateSalonClientStats } from '@/libs/queries';
@@ -76,6 +83,11 @@ export async function POST(
         return { kind: 'error' as const, response: errorJson(404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found') };
       }
 
+      await assertCustomerPaymentReservationMutable(tx, appointment.salonId, appointmentId);
+      const workspaceChange = isPaymentWorkspaceEnabled()
+        ? await beginCanonicalWorkspaceChange(tx, appointment, () => resolveWorkspaceActor(access, appointmentId), 'Corrected a manual payment record', { allowManualVoids: true })
+        : null;
+
       const depositRows = await loadAppointmentDepositCreditRows({
         salonId: appointment.salonId,
         appointmentId,
@@ -97,6 +109,9 @@ export async function POST(
         .limit(1);
       if (!payment) {
         return { kind: 'error' as const, response: errorJson(404, 'PAYMENT_NOT_FOUND', 'Payment not found') };
+      }
+      if (isCustomerPaymentTender(payment)) {
+        return { kind: 'error' as const, response: errorJson(409, 'CUSTOMER_PAYMENT_REFUND_REQUIRED', 'Provider captures cannot be manually voided. Use an audited refund/reconciliation flow.') };
       }
       if (payment.voidedAt) {
         return { kind: 'error' as const, response: errorJson(409, 'ALREADY_VOIDED', 'Payment is already voided') };
@@ -211,6 +226,8 @@ export async function POST(
         .set({ amountPaidCents, paymentStatus: nextStatus, updatedAt: now })
         .where(eq(appointmentSchema.id, appointmentId));
 
+      await workspaceChange?.finish();
+
       const auditRows = [
         buildAppointmentAuditRow({
           appointmentId,
@@ -277,6 +294,12 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (error instanceof PaymentWorkspaceError) {
+      return workspaceError(error);
+    }
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     console.error('Error voiding payment:', error);
     return errorJson(500, 'INTERNAL_ERROR', 'Failed to void payment');
   }

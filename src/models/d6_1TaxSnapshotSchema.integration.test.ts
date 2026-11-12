@@ -334,7 +334,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(114);
+    expect(journal.entries).toHaveLength(129);
     expect(journal.entries.slice(106)).toEqual([
       { idx: 106, version: '7', when: 1792267728000, tag: '0107_ai_credit_wallet', breakpoints: true },
       { idx: 107, version: '7', when: 1792270500000, tag: '0108_ai_request_metering', breakpoints: true },
@@ -344,6 +344,21 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       { idx: 111, version: '7', when: 1792303500000, tag: '0112_ai_operator_expense_budget', breakpoints: true },
       { idx: 112, version: '7', when: 1792449000000, tag: '0113_salon_deletion_cleanup', breakpoints: true },
       { idx: 113, version: '7', when: 1793044800000, tag: '0114_daniela_automation', breakpoints: true },
+      { idx: 114, version: '7', when: 1794178800000, tag: '0115_customer_payment_preparation', breakpoints: true },
+      { idx: 115, version: '7', when: 1794182400000, tag: '0116_customer_payment_synthetic_capture', breakpoints: true },
+      { idx: 116, version: '7', when: 1794186000000, tag: '0117_customer_payment_mutation_guards', breakpoints: true },
+      { idx: 117, version: '7', when: 1794189600000, tag: '0118_customer_payment_synthetic_refunds', breakpoints: true },
+      { idx: 118, version: '7', when: 1794193200000, tag: '0119_customer_payment_credit_review', breakpoints: true },
+      { idx: 119, version: '7', when: 1794196800000, tag: '0120_customer_payment_provider_journal', breakpoints: true },
+      { idx: 120, version: '7', when: 1794200400000, tag: '0121_customer_payment_provider_correlation', breakpoints: true },
+      { idx: 121, version: '7', when: 1794204000000, tag: '0122_customer_payment_refund_correlation', breakpoints: true },
+      { idx: 122, version: '7', when: 1794207600000, tag: '0123_customer_payment_dispute_correlation', breakpoints: true },
+      { idx: 123, version: '7', when: 1794211200000, tag: '0124_customer_payment_fixture_application', breakpoints: true },
+      { idx: 124, version: '7', when: 1794214800000, tag: '0125_customer_payment_fixture_movements', breakpoints: true },
+      { idx: 125, version: '7', when: 1794218400000, tag: '0126_customer_payment_closed_checkout', breakpoints: true },
+      { idx: 126, version: '7', when: 1794222000000, tag: '0127_customer_payment_sdk_reservation', breakpoints: true },
+      { idx: 127, version: '7', when: 1794232800000, tag: '0128_customer_payment_workspace', breakpoints: true },
+      { idx: 128, version: '7', when: 1794272400000, tag: '0129_customer_payment_owner_activation', breakpoints: true },
     ]);
     expect(journal.entries[105]).toMatchObject({ idx: 105, when: 1792105694761, tag: '0106_setup_shared_previews_cap_80' });
     expect(journal.entries[104]).toMatchObject({ idx: 104, when: 1792105694760, tag: '0105_setup_ai_trial_cap_50' });
@@ -395,7 +410,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [78, 'Review 0077'],
     [94, 'phone identity 0094'],
     [106, 'shared previews 0106'],
-  ])('upgrades a %s ledger through AI credits, staff and add-on publication, service categories, bounded operator expenses deletion recovery and private Daniela automation through 0114', async (existingCount) => {
+  ])('upgrades a %s ledger through AI credits, staff and add-on publication, service categories, bounded operator expenses deletion recovery and private Daniela automation through the 0129 owner payment activation', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -413,9 +428,11 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(114);
+      expect(rows.rows).toHaveLength(129);
       expect(rows.rows.map(row => row.hash)).toEqual(migrations.map(migration => migration.hash));
       expect(Number(rows.rows[113]?.created_at)).toBe(1793044800000);
+      expect(Number(rows.rows[127]?.created_at)).toBe(1794232800000);
+      expect(Number(rows.rows[128]?.created_at)).toBe(1794272400000);
 
       const privateTables = await upgradeClient.query<{ name: string }>(
         'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = \'public\' AND table_name LIKE \'daniela_%\' ORDER BY table_name',

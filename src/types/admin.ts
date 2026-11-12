@@ -18,7 +18,22 @@ export type { AppointmentStatus };
 
 export type FinancialPeriodSummary = {
   completedAppointmentRevenueCents: number;
+  /** Gross inflow, not net revenue or payout. */
   cashCollectedCents: number;
+  customerPaymentCollectedCents?: number;
+  customerPaymentHeldForReviewCents?: number;
+  customerPaymentRefundedCents?: number;
+  customerPaymentRefundHeldForReviewCents?: number;
+  customerPaymentFeeRefundedCents?: number;
+  customerPaymentFeeRefundHeldForReviewCents?: number;
+  customerPaymentNetCashCents?: number;
+  customerPaymentUnallocatedRefundCents?: number;
+  customerPaymentDisputeWithdrawnCents?: number;
+  customerPaymentDisputeReinstatedCents?: number;
+  customerPaymentDisputeFeeCents?: number;
+  customerPaymentDisputeNetCents?: number;
+  customerPaymentMovementReconciliationRequired?: boolean;
+
   appointmentPaymentsCollectedCents?: number;
   depositCollectedCents?: number;
   depositRefundedCents?: number;

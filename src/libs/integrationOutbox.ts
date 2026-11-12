@@ -3714,7 +3714,8 @@ export async function processIntegrationOutbox(
         lte(integrationOutboxSchema.availableAt, new Date()),
       ),
     )
-    .orderBy(asc(integrationOutboxSchema.createdAt))
+    // A rescheduled payment poll must yield to older due work from any tenant.
+    .orderBy(asc(integrationOutboxSchema.availableAt), asc(integrationOutboxSchema.createdAt))
     .limit(limit);
   const summary = {
     scanned: jobs.length,
@@ -3826,8 +3827,11 @@ export async function processIntegrationOutbox(
         if (!job.appointmentId) {
           throw new Error('INVALID_CLIENT_STATS_REFRESH');
         }
+        // Creation switches cannot suspend reconciliation of retained money.
+        const { createPaymentWorkspaceRepository } = await import('@/libs/customerPayments/server/workspaceRepository');
+        await createPaymentWorkspaceRepository(db).reconcileDeposits({ salonId: job.salonId, appointmentId: job.appointmentId });
         const [appointment] = await db
-          .select({ clientPhone: appointmentSchema.clientPhone })
+          .select({ clientPhone: appointmentSchema.clientPhone, salonClientId: appointmentSchema.salonClientId, status: appointmentSchema.status, paymentStatus: appointmentSchema.paymentStatus, finalPriceCents: appointmentSchema.finalPriceCents, totalPrice: appointmentSchema.totalPrice })
           .from(appointmentSchema)
           .where(and(
             eq(appointmentSchema.id, job.appointmentId),
@@ -3837,6 +3841,11 @@ export async function processIntegrationOutbox(
         if (appointment) {
           const { updateSalonClientStats } = await import('@/libs/queries');
           await updateSalonClientStats(job.salonId, appointment.clientPhone);
+          if ((job.payload as { source?: string }).source === 'customer_payment_workspace'
+            && appointment.status === 'completed' && appointment.paymentStatus === 'paid' && appointment.salonClientId) {
+            const [{ evaluateAndFlagIfNeeded }, { computeEarnedPointsFromCents }] = await Promise.all([import('@/libs/fraudDetection'), import('@/libs/pointsCalculation')]);
+            await evaluateAndFlagIfNeeded(job.salonId, appointment.salonClientId, job.appointmentId, computeEarnedPointsFromCents(appointment.finalPriceCents ?? appointment.totalPrice));
+          }
         }
         result = { status: 'synced' as const };
       } else if (
@@ -4110,6 +4119,23 @@ export async function processIntegrationOutbox(
         result = delivery.status === 'failed'
           ? { status: 'failed' as const, error: 'STAFF_RESCHEDULE_EMAIL_FAILED' }
           : { status: 'synced' as const };
+      } else if (job.provider === 'internal' && job.operation === 'recover_customer_payment') {
+        const operationId = job.payload.operationId;
+        if (!job.appointmentId || typeof operationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+          throw new Error('INVALID_CUSTOMER_PAYMENT_RECOVERY');
+        }
+        const { recoverWorkspacePayment } = await import('@/libs/customerPayments/server/workspaceRecovery');
+        const recovery = await recoverWorkspacePayment({ salonId: job.salonId, appointmentId: job.appointmentId }, operationId);
+        if (!recovery.complete) {
+          throwIfAborted();
+          const rescheduled = await db.update(integrationOutboxSchema).set({ status: 'retry', availableAt: new Date(Date.now() + 5 * 60_000), lastError: 'PAYMENT_OUTCOME_PENDING' })
+            .where(and(eq(integrationOutboxSchema.id, job.id), eq(integrationOutboxSchema.salonId, job.salonId), eq(integrationOutboxSchema.status, 'processing'), eq(integrationOutboxSchema.attempts, claimedAttempt))).returning();
+          if (rescheduled.length === 1) {
+            summary.retried += 1;
+          }
+          continue;
+        }
+        result = { status: 'synced' as const };
       } else if (job.provider === 'twilio' && job.operation === 'reconcile_message_cost') {
         result = await reconcileTwilioMessageCost(job.salonId, job.payload as TwilioReconcilePayload);
       } else {
@@ -4136,7 +4162,10 @@ export async function processIntegrationOutbox(
       }
     } catch (error) {
       const attempts = claimedAttempt;
-      const final = attempts >= 8;
+      // Unresolved money cannot disappear when a long-lived pending job uses
+      // the ordinary integration attempt budget. Keep bounded hourly retries.
+      const paymentRecovery = job.provider === 'internal' && job.operation === 'recover_customer_payment';
+      const final = paymentRecovery ? error instanceof Error && error.message === 'INVALID_CUSTOMER_PAYMENT_RECOVERY' : attempts >= 8;
       const terminalized = await db
         .update(integrationOutboxSchema)
         .set({

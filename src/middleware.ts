@@ -169,6 +169,16 @@ export default async function middleware(
     return finalized;
   };
 
+  // The payment return capability stays in the browser fragment. Keep this
+  // root route outside tenant/locale rewriting, analytics and shared caches.
+  if (p === '/payments/result') {
+    const response = NextResponse.next();
+    response.headers.set('Referrer-Policy', 'no-referrer');
+    response.headers.set('Cache-Control', 'private, no-store');
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    return response;
+  }
+
   // Wildcard tenant hosts share the same deployment. Public paths are rewritten
   // to the existing locale/slug route tree; APIs and owner/admin routes keep
   // their canonical paths.

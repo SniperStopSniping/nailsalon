@@ -12,26 +12,32 @@ const {
   getAdminSession,
   logAdminOverride,
   logTechReassignment,
+  paymentMarkers,
   selectResults,
   updateResults,
   enqueueGoogleCalendarAppointmentMutation,
   db,
 } = vi.hoisted(() => {
+  const paymentMarkers = { rows: [] as Array<{ id: string; reference: string | null }> };
   const selectResults: unknown[][] = [];
   const updateResults: unknown[][] = [];
 
   const select = vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn(() => {
-        const result = (selectResults.shift() ?? []).map(row => typeof row === 'object' && row && 'status' in row ? { startTime: new Date('2026-03-14T10:00:00Z'), endTime: new Date('2026-03-14T11:00:00Z'), totalDurationMinutes: 60, bufferMinutes: 10, ...row } : row);
-        const limit = vi.fn(async () => result);
-        return {
-          for: vi.fn(() => ({ limit })),
-          limit,
-          then: (resolve: (value: unknown) => void) => resolve(result),
-        };
-      }),
-    })),
+    from: vi.fn((table: Record<string, unknown>) => 'executionKind' in table
+      ? { where: vi.fn(() => ({ limit: vi.fn(async () => []) })) }
+      : 'recordedByType' in table
+        ? { where: vi.fn(async () => paymentMarkers.rows) }
+        : ({
+            where: vi.fn(() => {
+              const result = (selectResults.shift() ?? []).map(row => typeof row === 'object' && row && 'status' in row ? { startTime: new Date('2026-03-14T10:00:00Z'), endTime: new Date('2026-03-14T11:00:00Z'), totalDurationMinutes: 60, bufferMinutes: 10, ...row } : row);
+              const limit = vi.fn(async () => result);
+              return {
+                for: vi.fn(() => ({ limit })),
+                limit,
+                then: (resolve: (value: unknown) => void) => resolve(result),
+              };
+            }),
+          })),
   }));
 
   const update = vi.fn(() => ({
@@ -48,6 +54,7 @@ const {
     logAdminOverride: vi.fn(),
     logTechReassignment: vi.fn(),
     enqueueGoogleCalendarAppointmentMutation: vi.fn(async () => ({ inserted: true })),
+    paymentMarkers,
     selectResults,
     updateResults,
     db: {
@@ -78,6 +85,7 @@ vi.mock('@/libs/integrationOutbox', () => ({
 describe('PUT /api/admin/appointments/[id]/reassign', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    paymentMarkers.rows = [];
     selectResults.length = 0;
     updateResults.length = 0;
   });
@@ -224,6 +232,24 @@ describe('PUT /api/admin/appointments/[id]/reassign', () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({ error: { code: 'HOLD_LOCKED' } });
+    expect(db.update).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
+    expect(logTechReassignment).not.toHaveBeenCalled();
+  });
+
+  it('blocks reassignment when any customer-payment marker exists', async () => {
+    requireAdminSalon.mockResolvedValue({ error: null, salon: { id: 'salon_1' } });
+    getAdminSession.mockResolvedValue({ id: 'admin_1', name: 'Owner' });
+    const appointment = { id: 'appt_1', salonId: 'salon_1', technicianId: 'tech_1', status: 'confirmed', canvasState: 'waiting', lockedAt: null, updatedAt: new Date() };
+    selectResults.push([appointment], [{ id: 'tech_2', salonId: 'salon_1', name: 'New Tech', isActive: true }], [], [{ name: 'Old Tech' }], [appointment]);
+    paymentMarkers.rows = [{ id: 'cpay_review', reference: null }];
+    const response = await PUT(new Request('http://localhost/api/admin/appointments/appt_1/reassign', {
+      method: 'PUT',
+      body: JSON.stringify({ salonSlug: 'salon-a', technicianId: 'tech_2', reason: 'Coverage change' }),
+    }), { params: Promise.resolve({ id: 'appt_1' }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
     expect(db.update).not.toHaveBeenCalled();
     expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
     expect(logTechReassignment).not.toHaveBeenCalled();

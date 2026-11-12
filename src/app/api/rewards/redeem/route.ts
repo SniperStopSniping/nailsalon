@@ -4,7 +4,6 @@
  * POST /api/rewards/redeem
  * Redeems a reward by applying it to an existing appointment
  */
-
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -12,6 +11,8 @@ import {
   requireClientApiSession,
   requireClientSalonFromBody,
 } from '@/libs/clientApiGuards';
+import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
@@ -312,6 +313,7 @@ export async function POST(request: Request): Promise<Response> {
       ) {
         throw new RewardRedemptionConflictError();
       }
+      await assertCustomerPaymentLifecycleMutable(tx, salon.id, appointmentId);
       if (
         lockedAppointment.invoiceCurrency !== null
         || lockedAppointment.bookingTaxSnapshot !== null
@@ -471,6 +473,12 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json(response, { status: 200 });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
+    if (error instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(error);
+    }
     if (error instanceof RewardFinancialRepricingRequiredError) {
       return Response.json(
         {

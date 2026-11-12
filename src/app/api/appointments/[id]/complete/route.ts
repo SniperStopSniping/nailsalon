@@ -9,12 +9,13 @@ import {
   listPayments,
   resolveCheckoutActor,
 } from '@/libs/appointmentCheckoutServer';
-import { completeAppointmentSchema, type CompletePayload, completionValidationIssues } from '@/libs/appointmentCompletionContract';
+import { completeAppointmentSchema, completionValidationIssues } from '@/libs/appointmentCompletionContract';
 import {
   APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED,
   appointmentFinancialOverpayment,
   resolveAppointmentDepositFinancials,
 } from '@/libs/appointmentDepositFinancials';
+import { CompletionCatalogReferenceError, defaultTaxableFor, resolveFinalItems } from '@/libs/appointmentFinalItems.server';
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
@@ -26,7 +27,6 @@ import {
   CheckoutMoneyRangeError,
   computeCheckoutTotals,
   derivePaymentStatus,
-  type ResolvedTaxConfig,
 } from '@/libs/checkoutTotals';
 import {
   ClientLifecycleStabilizationError,
@@ -38,6 +38,13 @@ import {
   resolveTerminalSalonClientWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { customerPaymentCompletionTip, isCustomerPaymentTender, liveCustomerPaymentRefundablePrincipal } from '@/libs/customerPayments/provenance';
+import { assertCustomerPaymentReservationMutable, customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
+import { resolveWorkspaceActor } from '@/libs/customerPayments/server/workspaceAccess';
+import { PaymentWorkspaceError } from '@/libs/customerPayments/server/workspaceContract';
+import { workspaceError } from '@/libs/customerPayments/server/workspaceHttp';
+import { beginCanonicalWorkspaceChange } from '@/libs/customerPayments/server/workspaceRepository';
+import { isPaymentWorkspaceEnabled } from '@/libs/customerPayments/workspacePolicy';
 import { db } from '@/libs/DB';
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
@@ -52,10 +59,10 @@ import { resolveReviewAutomationPolicy } from '@/libs/reviewAutomationPolicy';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import {
   buildFinalTaxSnapshot,
+  buildTaxConfigurationSnapshot,
   resolveTaxConfig,
 } from '@/libs/taxConfig';
 import {
-  addOnSchema,
   appointmentAuditLogSchema,
   appointmentFinalItemSchema,
   appointmentPaymentSchema,
@@ -64,7 +71,6 @@ import {
   salonClientSchema,
   salonRetentionSettingsSchema,
   salonSchema,
-  serviceSchema,
 } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
@@ -258,7 +264,7 @@ async function completedReplayResponse(
     );
   }
   const replayOverpayment = appointmentFinancialOverpayment(replayFinancials);
-  if (replayOverpayment) {
+  if (replayOverpayment && (!isPaymentWorkspaceEnabled() || replayFinancials.financials.tenderExcessCents > liveCustomerPaymentRefundablePrincipal(replayPayments))) {
     return Response.json(
       {
         error: {
@@ -322,143 +328,7 @@ async function completedReplayResponse(
 // CHECKOUT COMPUTATION
 // =============================================================================
 
-type ResolvedFinalItem = {
-  kind: 'service' | 'addon' | 'custom';
-  catalogServiceId: string | null;
-  catalogAddOnId: string | null;
-  name: string;
-  quantity: number;
-  unitPriceCents: number;
-  lineTotalCents: number;
-  durationMinutes: number | null;
-  taxable: boolean;
-};
-
-function defaultTaxableFor(kind: ResolvedFinalItem['kind'], taxConfig: ResolvedTaxConfig): boolean {
-  if (kind === 'service') {
-    return taxConfig.taxServicesByDefault;
-  }
-  if (kind === 'addon') {
-    return taxConfig.taxAddOnsByDefault;
-  }
-  return taxConfig.taxCustomByDefault;
-}
-
-class CompletionCatalogReferenceError extends Error {
-  constructor(readonly issues: Array<{ path: string; message: string }>) {
-    super('One or more services or add-ons are unavailable. Reload the appointment and check Services & items.');
-  }
-}
-
-/**
- * Resolve the final line items from the payload. Three shapes:
- * - `finalItems` (the checkout sheet) — used as sent.
- * - legacy `performedServiceIds`/`performedAddOnIds` — priced from the live
- *   catalog (same semantics as the removed destructive rewrite, minus the
- *   destruction).
- * - neither — legacy completion; no final items are recorded.
- */
-async function resolveFinalItems(
-  database: Pick<typeof db, 'select'>,
-  appointment: typeof appointmentSchema.$inferSelect,
-  payload: CompletePayload,
-  taxConfig: ResolvedTaxConfig,
-): Promise<ResolvedFinalItem[] | null> {
-  if (payload.finalItems) {
-    // Opaque catalog IDs may be longer than legacy UI assumptions. Validate
-    // ownership, not spelling/length; archived booked references remain valid.
-    const serviceIds = [...new Set(payload.finalItems.flatMap(item => item.kind === 'service' && item.catalogServiceId != null ? [item.catalogServiceId] : []))];
-    const addOnIds = [...new Set(payload.finalItems.flatMap(item => item.kind === 'addon' && item.catalogAddOnId != null ? [item.catalogAddOnId] : []))];
-    const services = serviceIds.length
-      ? await database.select({ id: serviceSchema.id }).from(serviceSchema)
-        .where(and(eq(serviceSchema.salonId, appointment.salonId), inArray(serviceSchema.id, serviceIds)))
-      : [];
-    const addOns = addOnIds.length
-      ? await database.select({ id: addOnSchema.id }).from(addOnSchema)
-        .where(and(eq(addOnSchema.salonId, appointment.salonId), inArray(addOnSchema.id, addOnIds)))
-      : [];
-    const validServices = new Set(services.map(item => item.id));
-    const validAddOns = new Set(addOns.map(item => item.id));
-    const invalidPaths = payload.finalItems.flatMap((item, index) => {
-      if (item.kind === 'service' && item.catalogServiceId != null && !validServices.has(item.catalogServiceId)) {
-        return [{ path: ['finalItems', index, 'catalogServiceId'] }];
-      }
-      if (item.kind === 'addon' && item.catalogAddOnId != null && !validAddOns.has(item.catalogAddOnId)) {
-        return [{ path: ['finalItems', index, 'catalogAddOnId'] }];
-      }
-      return [];
-    });
-    if (invalidPaths.length) {
-      throw new CompletionCatalogReferenceError(completionValidationIssues(invalidPaths));
-    }
-    return payload.finalItems.map(item => ({
-      kind: item.kind,
-      catalogServiceId: item.kind === 'service' ? item.catalogServiceId ?? null : null,
-      catalogAddOnId: item.kind === 'addon' ? item.catalogAddOnId ?? null : null,
-      name: item.name,
-      quantity: item.quantity,
-      unitPriceCents: item.unitPriceCents,
-      lineTotalCents: item.unitPriceCents * item.quantity,
-      durationMinutes: item.durationMinutes ?? null,
-      taxable: item.taxable ?? defaultTaxableFor(item.kind, taxConfig),
-    }));
-  }
-
-  const { performedServiceIds, performedAddOnIds } = payload;
-  if (!performedServiceIds?.length && !performedAddOnIds) {
-    return null;
-  }
-
-  const items: ResolvedFinalItem[] = [];
-
-  if (performedServiceIds?.length) {
-    const services = await database
-      .select()
-      .from(serviceSchema)
-      .where(and(
-        eq(serviceSchema.salonId, appointment.salonId),
-        inArray(serviceSchema.id, performedServiceIds),
-      ));
-    for (const service of services) {
-      items.push({
-        kind: 'service',
-        catalogServiceId: service.id,
-        catalogAddOnId: null,
-        name: service.name,
-        quantity: 1,
-        unitPriceCents: service.price,
-        lineTotalCents: service.price,
-        durationMinutes: service.durationMinutes,
-        taxable: defaultTaxableFor('service', taxConfig),
-      });
-    }
-  }
-
-  if (performedAddOnIds?.length) {
-    const addOns = await database
-      .select()
-      .from(addOnSchema)
-      .where(and(
-        eq(addOnSchema.salonId, appointment.salonId),
-        inArray(addOnSchema.id, performedAddOnIds),
-      ));
-    for (const addOn of addOns) {
-      items.push({
-        kind: 'addon',
-        catalogServiceId: null,
-        catalogAddOnId: addOn.id,
-        name: addOn.name,
-        quantity: 1,
-        unitPriceCents: addOn.priceCents,
-        lineTotalCents: addOn.priceCents,
-        durationMinutes: addOn.durationMinutes,
-        taxable: defaultTaxableFor('addon', taxConfig),
-      });
-    }
-  }
-
-  return items;
-}
+class CompletionStagedWriteConflictError extends Error {}
 
 // =============================================================================
 // PATCH /api/appointments/[id]/complete - Complete via checkout
@@ -626,7 +496,6 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     // performed ids + a hand-entered finalPriceCents — its money truth stays
     // the entered price, exactly as before this phase.
     const pricedFromItems = payload.finalItems !== undefined;
-    const tipCents = payload.tipCents ?? 0;
 
     // 6. Payments recorded at checkout: presence of `payments` (even empty)
     // opts into derived payment status; absence keeps legacy 'paid'.
@@ -635,6 +504,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     // transaction below, so a concurrent refund cannot race completion.
     const paymentsProvided = payload.payments !== undefined || payload.paymentStatusIntent !== undefined;
     const paymentEntries = payload.payments ?? [];
+    if (paymentEntries.some(entry => isCustomerPaymentTender({ reference: entry.reference }))) {
+      return Response.json({ error: { code: 'CUSTOMER_PAYMENT_RESERVED_REFERENCE', message: 'Provider capture references cannot be recorded manually.' } }, { status: 409 });
+    }
     const paidSum = paymentEntries.reduce((sum, entry) => sum + entry.amountCents, 0);
     const paymentMethod = payload.paymentMethod
       ?? paymentEntries.find(entry => entry.method)?.method;
@@ -665,6 +537,11 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       ) {
         return { success: false as const, updatedAppointment: null };
       }
+
+      await assertCustomerPaymentReservationMutable(tx, lockedAppointment.salonId, appointmentId);
+      const workspaceChange = isPaymentWorkspaceEnabled()
+        ? await beginCanonicalWorkspaceChange(tx, lockedAppointment, () => resolveWorkspaceActor(access, appointmentId), 'Services finalized at checkout')
+        : null;
 
       // D6 lock order is appointment first, then every terminal-history
       // deposit row. Keeping the credit decision inside this transaction
@@ -761,6 +638,38 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           } }, { status: 409 }),
         };
       }
+      const existingPaymentRows = await listPayments(tx, appointmentId);
+      const existingPaymentLedger = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: lockedAppointment.amountPaidCents,
+        paymentRows: existingPaymentRows,
+        expectedSalonId: lockedAppointment.salonId,
+        appointmentStatus: lockedAppointment.status,
+        paymentStatus: lockedAppointment.paymentStatus,
+      });
+      if (!existingPaymentLedger.ok) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: existingPaymentLedger.code,
+                message: existingPaymentLedger.detail,
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+      let tipCents: number;
+      try {
+        tipCents = customerPaymentCompletionTip(existingPaymentRows, payload.tipCents, lockedAppointment.tipCents);
+      } catch {
+        return { success: false as const, updatedAppointment: null, response: Response.json({ error: {
+          code: 'CUSTOMER_PAYMENT_PREPAID_TIP_REQUIRED',
+          message: 'The recorded prepaid tip cannot be reduced through checkout. Reconcile the payment first.',
+        } }, { status: 409 }) };
+      }
       const legacyFinalPrice = payload.finalPriceCents ?? lockedAppointment.totalPrice;
       let totals: ReturnType<typeof computeCheckoutTotals>;
       try {
@@ -837,6 +746,30 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           ),
         };
       }
+      if (existingPaymentRows.some(isCustomerPaymentTender)) {
+        const frozen = existingTaxChain.active.snapshot;
+        const proposedConfiguration = buildTaxConfigurationSnapshot(taxConfig);
+        const canReviseLiveInvoice = workspaceChange !== null && existingPaymentRows.filter(isCustomerPaymentTender).every((row: { id: string }) => row.id.startsWith('lpay_'));
+        // Only the verified live workspace can retain an invoice revision.
+        // Historical synthetic captures keep their original stricter boundary.
+        if (!frozen
+          || (!canReviseLiveInvoice && (frozen.serviceSubtotalCents !== totals.finalPriceCents
+            || frozen.taxAmountCents !== totals.taxAmountCents
+            || frozen.taxableSubtotalCents !== totals.taxableSubtotalCents
+            || frozen.taxApplied !== totals.taxApplied))
+            || frozen.configuration.configurationIdentity !== proposedConfiguration.configurationIdentity
+            || taxExempt
+            || (payload.taxExemptReason?.trim() || null) !== null) {
+          return {
+            success: false as const,
+            updatedAppointment: null,
+            response: Response.json({ error: {
+              code: 'CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED',
+              message: 'The proposed service amount or tax differs from the captured invoice. Reconcile the customer payment before completing this appointment.',
+            } } satisfies ErrorResponse, { status: 409 }),
+          };
+        }
+      }
       const invoiceCurrency = existingTaxChain.invoiceCurrency
         ?? (depositRows.length === 0 ? fallbackInvoiceCurrency : null);
       if (!invoiceCurrency) {
@@ -848,29 +781,6 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               error: {
                 code: 'DEPOSIT_CURRENCY_MISMATCH',
                 message: 'The historical appointment has no frozen invoice currency.',
-              },
-            } satisfies ErrorResponse,
-            { status: 409 },
-          ),
-        };
-      }
-      const existingPaymentRows = await listPayments(tx, appointmentId);
-      const existingPaymentLedger = resolveAppointmentPaymentLedger({
-        cachedAmountPaidCents: lockedAppointment.amountPaidCents,
-        paymentRows: existingPaymentRows,
-        expectedSalonId: lockedAppointment.salonId,
-        appointmentStatus: lockedAppointment.status,
-        paymentStatus: lockedAppointment.paymentStatus,
-      });
-      if (!existingPaymentLedger.ok) {
-        return {
-          success: false as const,
-          updatedAppointment: null,
-          response: Response.json(
-            {
-              error: {
-                code: existingPaymentLedger.code,
-                message: existingPaymentLedger.detail,
               },
             } satisfies ErrorResponse,
             { status: 409 },
@@ -1009,7 +919,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           ),
         };
       }
-      if (completionFinancials.financials.tenderExcessCents > 0) {
+      if (completionFinancials.financials.tenderExcessCents > (workspaceChange?.onlineRefundablePrincipalCents ?? 0) || (completionFinancials.financials.tenderExcessCents > 0 && paidSum > 0)) {
         return {
           success: false as const,
           updatedAppointment: null,
@@ -1081,6 +991,39 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       const normalizedTaxExemptReason = taxExempt
         ? (payload.taxExemptReason?.trim() || null)
         : null;
+      const insertPaymentEntries = async () => {
+        await tx.insert(appointmentPaymentSchema).values(
+          paymentEntries.map(entry => ({
+            id: `pay_${crypto.randomUUID()}`,
+            appointmentId,
+            salonId: existingAppointment.salonId,
+            amountCents: entry.amountCents,
+            method: entry.method ?? null,
+            reference: entry.reference ?? null,
+            note: entry.note ?? null,
+            recordedByType: actor.recordedByType,
+            recordedById: actor.recordedById,
+            recordedByName: actor.recordedByName,
+            recordedAt: now,
+          })),
+        );
+      };
+      // Captured appointments have an immediate SQL cache/tender invariant.
+      // Stage only the validated tip (not the cache), then insert the new
+      // tender before freezing the final invoice. All writes share this lock
+      // and transaction; any later failure must roll them back.
+      const stagedCapturePayments = paymentEntries.length > 0
+        && existingPaymentRows.some(isCustomerPaymentTender);
+      if (stagedCapturePayments) {
+        const staged = await tx.update(appointmentSchema)
+          .set({ tipCents: totals.tipCents })
+          .where(and(eq(appointmentSchema.id, appointmentId), eq(appointmentSchema.salonId, existingAppointment.salonId)))
+          .returning();
+        if (staged.length !== 1) {
+          throw new CompletionStagedWriteConflictError();
+        }
+        await insertPaymentEntries();
+      }
       const updateResult = await tx
         .update(appointmentSchema)
         .set({
@@ -1144,6 +1087,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         .returning();
 
       if (updateResult.length === 0) {
+        if (stagedCapturePayments) {
+          throw new CompletionStagedWriteConflictError();
+        }
         return { success: false as const, updatedAppointment: null };
       }
 
@@ -1178,23 +1124,10 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         );
       }
 
-      if (paymentEntries.length > 0) {
-        await tx.insert(appointmentPaymentSchema).values(
-          paymentEntries.map(entry => ({
-            id: `pay_${crypto.randomUUID()}`,
-            appointmentId,
-            salonId: existingAppointment.salonId,
-            amountCents: entry.amountCents,
-            method: entry.method ?? null,
-            reference: entry.reference ?? null,
-            note: entry.note ?? null,
-            recordedByType: actor.recordedByType,
-            recordedById: actor.recordedById,
-            recordedByName: actor.recordedByName,
-            recordedAt: now,
-          })),
-        );
+      if (paymentEntries.length > 0 && !stagedCapturePayments) {
+        await insertPaymentEntries();
       }
+      await workspaceChange?.finish();
 
       // Audit trail, atomic with the completion.
       const auditRows = [
@@ -1361,7 +1294,13 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       result.depositCredit,
     );
   } catch (error) {
-    if (error instanceof NextVisitOfferError || postgresErrorCode(error) === '55P03') {
+    if (error instanceof PaymentWorkspaceError) {
+      return workspaceError(error);
+    }
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
+    if (error instanceof CompletionStagedWriteConflictError || error instanceof NextVisitOfferError || postgresErrorCode(error) === '55P03') {
       return Response.json({ error: { code: 'APPOINTMENT_CHANGED', message: 'This appointment or client is being updated. Refresh the appointment and review the totals before trying again.' } }, { status: 409 });
     }
     if (error instanceof CompletionCatalogReferenceError) {
@@ -1728,6 +1667,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           throw new StartAppointmentStateConflictError();
         }
 
+        await assertCustomerPaymentReservationMutable(tx, lockedAppointment.salonId, appointmentId);
+
         const competingAppointments
           = await getActiveAppointmentsForCanonicalClientWithHandle(
             tx as LifecycleSqlHandle,
@@ -1784,6 +1725,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       },
     });
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
     if (error instanceof StartAppointmentStateConflictError) {
       return Response.json(
         {

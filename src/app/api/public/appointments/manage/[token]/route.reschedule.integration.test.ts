@@ -202,6 +202,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  // Isolated PGlite fixture reset; production deletes remain immutable.
+  await client.exec('TRUNCATE appointment_payment CASCADE');
   // Keep the seeded Tuesday slots in the future without freezing PGlite's
   // asynchronous timers or aging these fixtures out on the wall clock.
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -234,6 +236,29 @@ afterAll(async () => {
 });
 
 describe('customer manage-link reschedule', () => {
+  it('blocks moves carrying reserved payment history before schedule or price changes', async () => {
+    const { appointmentId, token } = await seedAppointmentWithToken();
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: `cpay_${appointmentId}`,
+      salonId: SALON_ID,
+      appointmentId,
+      amountCents: 4500,
+      method: 'online',
+      recordedByType: 'system',
+    });
+    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+
+    const [unchanged] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(unchanged?.startTime).toEqual(CURRENT_START);
+    expect(unchanged?.totalPrice).toBe(4500);
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+  });
+
   it('still rejects a past start time under the explicit fixture clock', async () => {
     const { token } = await seedAppointmentWithToken();
     const response = await POST(rescheduleRequest('2026-09-01T11:00:00.000Z'), { params: Promise.resolve({ token }) });

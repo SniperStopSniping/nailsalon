@@ -8,6 +8,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import * as reporting from '@/libs/financialReportingServer';
 import * as schema from '@/models/Schema';
 
 import { GET as GET_INSIGHTS } from '../client-insights/route';
@@ -348,6 +349,34 @@ describe('GET /api/admin/client-insights', () => {
     expect(count('inactive_90')).toBe(1);
     expect(count('completed_outstanding')).toBe(1);
     expect(body.data.reports).toBeUndefined();
+  });
+
+  it('forwards separate customer refund flows without redefining legacy paid money', async () => {
+    const original = reporting.getFinancialReportingRangeSummary;
+    const fields = {
+      customerPaymentCollectedCents: 0,
+      customerPaymentHeldForReviewCents: 0,
+      customerPaymentRefundedCents: 1000,
+      customerPaymentRefundHeldForReviewCents: 200,
+      customerPaymentFeeRefundedCents: 100,
+      customerPaymentFeeRefundHeldForReviewCents: 20,
+      customerPaymentNetCashCents: -1000,
+    };
+    const spy = vi.spyOn(reporting, 'getFinancialReportingRangeSummary')
+      .mockImplementation(async input => ({ ...await original(input), ...fields }));
+    try {
+      const result = await legacyHub();
+
+      expect(result.response.status).toBe(200);
+      expect(result.body.data.reports).toMatchObject({
+        ...fields,
+        amountPaidCents: 4000,
+        serviceRevenueCents: 66000,
+        outstandingCents: 7800,
+      });
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('keeps Client Hub as a deprecated f45e745 contract adapter', async () => {

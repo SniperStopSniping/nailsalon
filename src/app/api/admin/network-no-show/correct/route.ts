@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
+import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import { setNetworkNoShowAuditActorInTx } from '@/libs/networkNoShowAudit.server';
 import { checkEndpointRateLimit, rateLimitResponse } from '@/libs/rateLimit';
@@ -35,6 +37,7 @@ export async function POST(request: Request): Promise<Response> {
       if (appointment.status !== 'no_show' || appointment.deletedAt || appointment.updatedAt.toISOString() !== parsed.data.expectedUpdatedAt) {
         return 'conflict';
       }
+      await assertCustomerPaymentLifecycleMutable(tx, salon.id, appointment.id);
       const now = new Date();
       await setNetworkNoShowAuditActorInTx(tx, admin.id, 'admin');
       await tx.update(appointmentSchema).set({ status: 'cancelled', canvasState: 'cancelled', cancelReason: 'admin_correction', canvasStateUpdatedAt: now, updatedAt: now })
@@ -56,7 +59,13 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ error: 'RECORD_CHANGED_REFRESH_REQUIRED' }, { status: 409, headers });
     }
     return Response.json({ corrected: true }, { headers });
-  } catch {
+  } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
+    if (error instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(error);
+    }
     return Response.json({ error: 'NO_SHOW_CORRECTION_UNAVAILABLE' }, { status: 503, headers });
   }
 }

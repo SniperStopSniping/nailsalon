@@ -8,6 +8,8 @@ import {
   resolveOperationalSalonClientByPhoneWithHandle,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
+import { assertCustomerPaymentLifecycleMutable, CustomerPaymentLifecycleBlockedError, customerPaymentLifecycleBlockedResponse } from '@/libs/customerPayments/server/lifecycleGuard';
+import { customerPaymentReservationBlockedResponse, isCustomerPaymentReservationBlocked } from '@/libs/customerPayments/server/reservationGuard';
 import { db } from '@/libs/DB';
 import {
   DepositForfeitureBlockedError,
@@ -274,6 +276,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           if (!lockedAppointment) {
             return { applied: false, conflictStatus: 'missing', cancelledAt: now };
           }
+          await assertCustomerPaymentLifecycleMutable(tx, appointment.salonId, appointmentId);
           if (!isSameCancellation(lockedAppointment, resolvedStatus, validated.data.cancelReason)) {
             return { applied: false, conflictStatus: lockedAppointment.status, cancelledAt: now };
           }
@@ -344,6 +347,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               cancelledAt: now,
             };
           }
+
+          await assertCustomerPaymentLifecycleMutable(tx, appointment.salonId, appointmentId);
 
           if (isSameCancellation(
             lockedAppointment,
@@ -688,6 +693,12 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     return Response.json(response);
   } catch (error) {
+    if (isCustomerPaymentReservationBlocked(error)) {
+      return customerPaymentReservationBlockedResponse();
+    }
+    if (error instanceof CustomerPaymentLifecycleBlockedError) {
+      return customerPaymentLifecycleBlockedResponse(error);
+    }
     if (error instanceof NoShowReportingError) {
       return Response.json({ error: { code: error.code, message: error.message } }, { status: 400 });
     }

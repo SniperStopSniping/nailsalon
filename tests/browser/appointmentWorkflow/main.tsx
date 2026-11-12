@@ -7,6 +7,8 @@ import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
 import { WalkInModal } from '@/components/admin/WalkInModal';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
+import { CustomerAppointmentPayment } from '@/components/customerPayments/CustomerAppointmentPayment';
+import CustomerPaymentResult from '@/components/customerPayments/CustomerPaymentResult';
 
 const longServiceName = 'Russian Manicure with Structured Builder Gel, Detailed Cuticle Care and Long-Wear Chrome Finish';
 const appointmentDate = new Date(2099, 6, 20);
@@ -111,4 +113,15 @@ export function AppointmentWorkflowFixture() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<AppointmentWorkflowFixture />);
+function BrowserFixture() {
+  const search = new URLSearchParams(window.location.search);
+  if (search.has('paymentReturn')) {
+    return <CustomerPaymentResult />;
+  }
+  if (search.has('customerPayment')) {
+    return <main className="mx-auto min-h-dvh max-w-md bg-stone-50 px-4 py-8"><CustomerAppointmentPayment token="synthetic-browser-private-booking" /></main>;
+  }
+  return <AppointmentWorkflowFixture />;
+}
+
+createRoot(document.getElementById('root')!).render(<BrowserFixture />);

@@ -117,6 +117,20 @@ function buildFinancialSummary(options?: {
   weekRevenueCents?: number;
   monthRevenueCents?: number;
   cashCollectedCents?: number;
+  customerPaymentCollectedCents?: number;
+  customerPaymentHeldForReviewCents?: number;
+  customerPaymentRefundedCents?: number;
+  customerPaymentRefundHeldForReviewCents?: number;
+  customerPaymentFeeRefundedCents?: number;
+  customerPaymentFeeRefundHeldForReviewCents?: number;
+  customerPaymentNetCashCents?: number;
+  customerPaymentUnallocatedRefundCents?: number;
+  customerPaymentDisputeWithdrawnCents?: number;
+  customerPaymentDisputeReinstatedCents?: number;
+  customerPaymentDisputeFeeCents?: number;
+  customerPaymentDisputeNetCents?: number;
+  customerPaymentMovementReconciliationRequired?: boolean;
+
   depositCollectedCents?: number;
   depositRefundedCents?: number;
   depositForfeitedCents?: number;
@@ -147,6 +161,20 @@ function buildFinancialSummary(options?: {
     includeTodayDetails = false,
   ) => ({
     completedAppointmentRevenueCents,
+    customerPaymentCollectedCents: includeTodayDetails ? options?.customerPaymentCollectedCents : undefined,
+    customerPaymentHeldForReviewCents: includeTodayDetails ? options?.customerPaymentHeldForReviewCents : undefined,
+    customerPaymentRefundedCents: includeTodayDetails ? options?.customerPaymentRefundedCents : undefined,
+    customerPaymentRefundHeldForReviewCents: includeTodayDetails ? options?.customerPaymentRefundHeldForReviewCents : undefined,
+    customerPaymentFeeRefundedCents: includeTodayDetails ? options?.customerPaymentFeeRefundedCents : undefined,
+    customerPaymentFeeRefundHeldForReviewCents: includeTodayDetails ? options?.customerPaymentFeeRefundHeldForReviewCents : undefined,
+    customerPaymentNetCashCents: includeTodayDetails ? options?.customerPaymentNetCashCents : undefined,
+    customerPaymentUnallocatedRefundCents: includeTodayDetails ? options?.customerPaymentUnallocatedRefundCents : undefined,
+    customerPaymentDisputeWithdrawnCents: includeTodayDetails ? options?.customerPaymentDisputeWithdrawnCents : undefined,
+    customerPaymentDisputeReinstatedCents: includeTodayDetails ? options?.customerPaymentDisputeReinstatedCents : undefined,
+    customerPaymentDisputeFeeCents: includeTodayDetails ? options?.customerPaymentDisputeFeeCents : undefined,
+    customerPaymentDisputeNetCents: includeTodayDetails ? options?.customerPaymentDisputeNetCents : undefined,
+    customerPaymentMovementReconciliationRequired: includeTodayDetails ? options?.customerPaymentMovementReconciliationRequired : undefined,
+
     cashCollectedCents: includeTodayDetails
       ? (options?.cashCollectedCents ?? 0)
       : 0,
@@ -437,6 +465,99 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     expect(
       screen.queryByTestId('owner-revenue-summary-empty'),
     ).not.toBeInTheDocument();
+  });
+
+  it('does not invent a zero net cash value when an older response omits it', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supportingResponse = supportingWorkspaceResponse(url);
+      if (supportingResponse) {
+        return supportingResponse;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse(buildFinancialSummary({
+          cashCollectedCents: 12000,
+          customerPaymentCollectedCents: 12000,
+          customerPaymentHeldForReviewCents: 2000,
+        }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+    renderWorkspace();
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+    await openRevenueBreakdown();
+    await waitFor(() => expect(revenue).toHaveTextContent('Customer payments (gross)$120.00'));
+
+    expect(revenue).toHaveTextContent('Customer captures under review$20.00');
+    expect(revenue).not.toHaveTextContent('Customer payment net cash');
+  });
+
+  it('shows known fixture movements and unresolved booking credit without fabricating net cash', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supportingResponse = supportingWorkspaceResponse(url);
+      if (supportingResponse) {
+        return supportingResponse;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse(buildFinancialSummary({
+          customerPaymentRefundedCents: 1000,
+          customerPaymentUnallocatedRefundCents: 1000,
+          customerPaymentDisputeWithdrawnCents: 5000,
+          customerPaymentDisputeReinstatedCents: 2000,
+          customerPaymentDisputeFeeCents: -100,
+          customerPaymentDisputeNetCents: -2900,
+          customerPaymentMovementReconciliationRequired: true,
+        }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+    renderWorkspace();
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+    await openRevenueBreakdown();
+    await waitFor(() => expect(revenue).toHaveTextContent('Dispute principal withdrawn$50.00'));
+
+    expect(revenue).toHaveTextContent('Dispute principal reinstated$20.00');
+    expect(revenue).toHaveTextContent('Dispute fees (signed)-$1.00');
+    expect(revenue).toHaveTextContent('Dispute net movement (signed)-$29.00');
+    expect(revenue).toHaveTextContent('complete customer net cash is unavailable');
+    expect(revenue).toHaveTextContent('Refund allocations and booking credit remain unresolved');
+    expect(revenue).not.toHaveTextContent('Customer payment net cash');
+  });
+
+  it('separates refund-only customer cash and platform refunds from gross collections', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supportingResponse = supportingWorkspaceResponse(url);
+      if (supportingResponse) {
+        return supportingResponse;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse(buildFinancialSummary({
+          cashCollectedCents: 2500,
+          depositCollectedCents: 2500,
+          depositRefundedCents: 500,
+          customerPaymentCollectedCents: 0,
+          customerPaymentRefundedCents: 1000,
+          customerPaymentRefundHeldForReviewCents: 200,
+          customerPaymentFeeRefundedCents: 100,
+          customerPaymentFeeRefundHeldForReviewCents: 20,
+          customerPaymentNetCashCents: -1000,
+        }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+    renderWorkspace();
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+    await openRevenueBreakdown();
+    await waitFor(() => expect(revenue).toHaveTextContent('Customer payment net cash-$10.00'));
+
+    expect(revenue).toHaveTextContent('Collected today (gross)$25.00');
+    expect(revenue).toHaveTextContent('Customer refunds$10.00');
+    expect(revenue).toHaveTextContent('Customer refunds under review$2.00');
+    expect(revenue).toHaveTextContent('Platform fee refunds (separate)$1.00');
+    expect(revenue).toHaveTextContent('Platform fee refunds under review$0.20');
+    expect(revenue).toHaveTextContent('Deposit refunds$5.00');
   });
 
   it('shows dated deposit flows separately and discloses unresolved history', async () => {

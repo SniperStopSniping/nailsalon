@@ -63,6 +63,54 @@ describe('Google event revert D5 ordering', () => {
     acquireGoogleCalendarMutationBarrierInTx.mockResolvedValue(false);
   });
 
+  it('blocks reversal with provider payment history after acquiring the appointment lock', async () => {
+    acquireGoogleCalendarMutationBarrierInTx.mockResolvedValue(true);
+    const update = vi.fn();
+    const lock = vi.fn(() => ({ limit: vi.fn(async () => [appointment]) }));
+    db.transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({
+      select: vi.fn(() => ({ from: vi.fn((table: Record<string, unknown>) => ({
+        where: vi.fn(() => 'executionKind' in table
+          ? { limit: vi.fn(async () => []) }
+          : 'recordedByType' in table ? Promise.resolve([{ id: 'cpay_review', reference: null }]) : { for: lock }),
+      })) })),
+      update,
+    }));
+    const response = await POST(new Request(`http://localhost/api/admin/google-events/${event.id}/revert`, {
+      method: 'POST',
+      body: JSON.stringify({ salonSlug: 'google-revert-salon' }),
+    }), { params: Promise.resolve({ id: event.id }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(lock).toHaveBeenCalledWith('update');
+    expect(update).not.toHaveBeenCalled();
+    expect(recordGoogleEventReviewDecision).not.toHaveBeenCalled();
+  });
+
+  it('returns typed reservation conflict before mirror updates or review records', async () => {
+    acquireGoogleCalendarMutationBarrierInTx.mockResolvedValue(true);
+    const update = vi.fn();
+    const lock = vi.fn(() => ({ limit: vi.fn(async () => [appointment]) }));
+    db.transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({
+      select: vi.fn(() => ({ from: vi.fn((table: Record<string, unknown>) => ({
+        where: vi.fn(() => 'executionKind' in table
+          ? { limit: vi.fn(async () => [{ id: 'closed_sdk_reservation' }]) }
+          : { for: lock }),
+      })) })),
+      update,
+    }));
+    const response = await POST(new Request(`http://localhost/api/admin/google-events/${event.id}/revert`, {
+      method: 'POST',
+      body: JSON.stringify({ salonSlug: 'google-revert-salon' }),
+    }), { params: Promise.resolve({ id: event.id }) });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RESERVATION_RECONCILIATION_REQUIRED');
+    expect(lock).toHaveBeenCalledWith('update');
+    expect(update).not.toHaveBeenCalled();
+    expect(recordGoogleEventReviewDecision).not.toHaveBeenCalled();
+  });
+
   it('fails closed without mutating while a Calendar provider attempt is in flight', async () => {
     const response = await POST(new Request(
       `http://localhost/api/admin/google-events/${event.id}/revert`,

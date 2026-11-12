@@ -209,6 +209,27 @@ export type PurgeStep = {
   apply: (tx: PurgeTx, salonId: string) => Promise<void>;
 };
 
+/** These financial authorization records are retained, never cascade-deleted. */
+export const RETAINED_SALON_HISTORY = [
+  { table: 'customer_payment_workspace_policy', column: 'salon_id', constraint: 'customer_payment_workspace_policy_salon_id_fkey' },
+] as const;
+
+async function assertNoRetainedSalonHistory(tx: PurgeTx, salonId: string) {
+  for (const entry of RETAINED_SALON_HISTORY) {
+    // Dark deployments can precede the separately gated payment migration.
+    const exists = await tx.execute(sql`SELECT to_regclass(${`public.${entry.table}`}) AS name`);
+    const existenceRows = (Array.isArray(exists) ? exists : (exists as { rows: unknown[] }).rows) as { name: string | null }[];
+    if (!existenceRows[0]?.name) {
+      continue;
+    }
+    const result = await tx.execute(sql`SELECT count(*)::integer AS count FROM ${sql.identifier(entry.table)} WHERE ${sql.identifier(entry.column)}=${salonId}`);
+    const rows = (Array.isArray(result) ? result : (result as { rows: unknown[] }).rows) as { count: number }[];
+    if (Number(rows[0]?.count) > 0) {
+      throw new CustomerPaymentPurgeBlockedError([{ table: entry.table, column: entry.column, count: Number(rows[0]!.count) }], 'Customer payment authorization history must be retained. No salon data was deleted.');
+    }
+  }
+}
+
 type StepSpec = {
   table: string;
   group: PurgeGroup;
@@ -851,6 +872,56 @@ export async function assertNoUnsettledDeposits(tx: PurgeTx, salonId: string): P
   }
 }
 
+/** Parent-first fencing preserves atomic legacy purge behavior with capture guards. */
+class CustomerPaymentPurgeBlockedError extends SalonPurgeBlockedError {
+  constructor(blockers: { table: string; column: string; count: number }[], message: string) {
+    super(blockers);
+    this.message = message;
+  }
+}
+
+/** Acquire all parent locks without waiting on a writer in the reverse order. */
+async function lockPaymentSafePurge(tx: PurgeTx, salonId: string): Promise<void> {
+  try {
+    // Prevent new salon-owned parents while the ordered existing set is locked.
+    // NOWAIT avoids reversing an active booking/client writer's lock order.
+    await tx.select({ id: salonSchema.id }).from(salonSchema)
+      .where(eq(salonSchema.id, salonId)).for('update', { noWait: true });
+    await tx.select({ id: appointmentSchema.id }).from(appointmentSchema)
+      .where(eq(appointmentSchema.salonId, salonId)).orderBy(appointmentSchema.id)
+      .for('update', { noWait: true });
+    // Booking can hold a client while waiting on this salon. Do not wait back
+    // on that row during staff/client unlinking or full purge.
+    await tx.select({ id: salonClientSchema.id }).from(salonClientSchema)
+      .where(eq(salonClientSchema.salonId, salonId)).orderBy(salonClientSchema.id)
+      .for('update', { noWait: true });
+  } catch (error) {
+    const failure = error as { code?: string; cause?: { code?: string } };
+    if ((failure.cause?.code ?? failure.code) === '55P03') {
+      throw new CustomerPaymentPurgeBlockedError(
+        [{ table: 'appointment', column: 'active_transaction', count: 1 }],
+        'Salon data is being updated. No data was reset or deleted. Try again after the appointment update finishes.',
+      );
+    }
+    throw error;
+  }
+  // Existing canonical rows are sufficient, including orphan/review markers.
+  // No new payment table or enabled feature is required to retain this money.
+  const count = await countWhere(tx, appointmentPaymentSchema, and(
+    or(eq(appointmentPaymentSchema.salonId, salonId), inArray(appointmentPaymentSchema.appointmentId, appointmentIdsOf(tx, salonId))),
+    sql`(left(${appointmentPaymentSchema.id}, 5) = 'cpay_'
+      OR left(${appointmentPaymentSchema.id}, 5) = 'lpay_'
+      OR left(COALESCE(${appointmentPaymentSchema.reference}, ''), 22) = 'customer_payment_live:'
+      OR left(COALESCE(${appointmentPaymentSchema.reference}, ''), 25) = 'customer_payment_capture:')`,
+  ));
+  if (count > 0) {
+    throw new CustomerPaymentPurgeBlockedError(
+      [{ table: 'appointment_payment', column: 'customer_payment_capture', count }],
+      'Customer payment history must be reconciled and retained before this salon data can be reset or deleted.',
+    );
+  }
+}
+
 // =============================================================================
 // PUBLIC API
 // =============================================================================
@@ -861,6 +932,28 @@ export type PurgeResult = {
   totalRows: number;
 };
 
+/** Rethrow contention so the caller rolls back the entire transaction. */
+async function withPurgeContentionHandling(operation: () => Promise<PurgeResult>): Promise<PurgeResult> {
+  try {
+    return await operation();
+  } catch (error) {
+    const failure = error as { code?: string; message?: string; cause?: { code?: string; message?: string } };
+    if ((failure.cause?.message ?? failure.message) === 'PAYMENT_WORKSPACE_HISTORY_IMMUTABLE') {
+      throw new CustomerPaymentPurgeBlockedError(
+        [{ table: 'appointment', column: 'payment_workspace_history', count: 1 }],
+        'Customer payment history must be reconciled and retained before this salon data can be reset or deleted.',
+      );
+    }
+    if (['55P03', '40P01'].includes(failure.cause?.code ?? failure.code ?? '')) {
+      throw new CustomerPaymentPurgeBlockedError(
+        [{ table: 'appointment', column: 'active_transaction', count: 1 }],
+        'Salon data is being updated. No data was reset or deleted. Try again after the update finishes.',
+      );
+    }
+    throw error;
+  }
+}
+
 /**
  * Permanently destroy a salon and everything belonging to it.
  *
@@ -869,6 +962,12 @@ export type PurgeResult = {
  * one; callers should map that to a 409.
  */
 export async function purgeSalonData(tx: PurgeTx, salonId: string): Promise<PurgeResult> {
+  return withPurgeContentionHandling(() => purgeSalonDataInTx(tx, salonId));
+}
+
+async function purgeSalonDataInTx(tx: PurgeTx, salonId: string): Promise<PurgeResult> {
+  await lockPaymentSafePurge(tx, salonId);
+  await assertNoRetainedSalonHistory(tx, salonId);
   await assertNoCrossTenantReferences(tx, salonId);
 
   const counts: Record<string, number> = {};
@@ -895,6 +994,20 @@ export async function purgeSalonGroups(
   salonId: string,
   groups: PurgeGroup[],
 ): Promise<PurgeResult> {
+  return withPurgeContentionHandling(() => purgeSalonGroupsInTx(tx, salonId, groups));
+}
+
+async function purgeSalonGroupsInTx(
+  tx: PurgeTx,
+  salonId: string,
+  groups: PurgeGroup[],
+): Promise<PurgeResult> {
+  if (groups.some(group => ['appointments', 'staff', 'catalog', 'client_records', 'salon'].includes(group))) {
+    await lockPaymentSafePurge(tx, salonId);
+  }
+  if (groups.includes('salon')) {
+    await assertNoRetainedSalonHistory(tx, salonId);
+  }
   await assertNoCrossTenantReferences(tx, salonId);
   await unlinkGroupReferences(tx, salonId, groups);
 

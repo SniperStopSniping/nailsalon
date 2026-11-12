@@ -3,8 +3,9 @@ import { withTransientDatabaseRetry } from '@/libs/databaseRetry';
 import { processGoogleCalendarInboundSync } from '@/libs/googleCalendarInbound';
 import { processIntegrationOutbox } from '@/libs/integrationOutbox';
 
-// Work is aborted at 240 seconds and the route stops waiting at 250. Provider
-// duration configuration is deliberately outside this scope-clean D5 change.
+// The platform budget must outlive the worker's bounded recovery and cleanup.
+export const maxDuration = 300;
+// Work is aborted at 240 seconds and the route stops waiting at 250.
 const WORK_BUDGET_MS = 240_000;
 const HARD_STOP_MS = 250_000;
 

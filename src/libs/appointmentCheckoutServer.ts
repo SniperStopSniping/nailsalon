@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, asc, eq, isNull } from 'drizzle-orm';
 
+import { isCustomerPaymentTender } from '@/libs/customerPayments/provenance';
 import type { Appointment, AuditPerformerRole } from '@/models/Schema';
 import { appointmentPaymentSchema } from '@/models/Schema';
 
@@ -83,11 +84,16 @@ export async function sumNonVoidedPayments(
 }
 
 export async function listPayments(dbClient: DbLike, appointmentId: string) {
-  return dbClient
+  const rows = await dbClient
     .select()
     .from(appointmentPaymentSchema)
     .where(eq(appointmentPaymentSchema.appointmentId, appointmentId))
     .orderBy(asc(appointmentPaymentSchema.recordedAt));
+  if (!rows.some(isCustomerPaymentTender)) {
+    return rows;
+  }
+  const { enrichCustomerPaymentProvenance } = await import('@/libs/customerPayments/server/provenanceReader');
+  return enrichCustomerPaymentProvenance(dbClient, rows);
 }
 
 /**
@@ -102,4 +108,11 @@ export function appointmentMoneySnapshot(appointment: Appointment) {
     amountPaidCents: appointment.amountPaidCents,
     paymentStatus: appointment.paymentStatus,
   };
+}
+
+/** Call under the appointment lock before lifecycle/repricing changes. No new tables. */
+export async function hasCustomerPaymentTenderForAppointment(dbClient: DbLike, salonId: string, appointmentId: string): Promise<boolean> {
+  const rows = await dbClient.select({ id: appointmentPaymentSchema.id, reference: appointmentPaymentSchema.reference })
+    .from(appointmentPaymentSchema).where(and(eq(appointmentPaymentSchema.salonId, salonId), eq(appointmentPaymentSchema.appointmentId, appointmentId)));
+  return rows.some(isCustomerPaymentTender);
 }

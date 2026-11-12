@@ -358,6 +358,8 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  // Isolated PGlite fixture reset; production deletes remain immutable.
+  await client.exec('TRUNCATE appointment_payment CASCADE');
   holder.clientSession = null;
   holder.staffSalonId = null;
   vi.clearAllMocks();
@@ -1430,6 +1432,39 @@ describe('D6.1 — booking tax quote binding', () => {
  * predicate really excluded it rather than the request failing early.
  */
 describe('5 — non-goal exclusions', () => {
+  it('blocks cancel-and-replace when the original carries reserved customer-payment history', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    const phone = freshPhone();
+    const original = await seedExistingAppointment({
+      phone,
+      startTime: at(futureDate(61), '09:00'),
+      endTime: at(futureDate(61), '10:00'),
+    });
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: 'cpay_reschedule_review',
+      salonId: SALON_ID,
+      appointmentId: original,
+      amountCents: 4500,
+      method: 'online',
+      recordedByType: 'system',
+    });
+    setClientSession(phone);
+    const response = await postBooking({
+      startTime: at(futureDate(61), '14:00').toISOString(),
+      originalAppointmentId: original,
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CUSTOMER_PAYMENT_RECONCILIATION_REQUIRED');
+    expect(await appointmentRows()).toHaveLength(1);
+    expect((await appointmentRows())[0]?.status).toBe('confirmed');
+    expect(await depositRows()).toHaveLength(0);
+    expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+  });
+
   it('(a) a reschedule at a deposits-ACTIVE salon takes no deposit and calls no provider', async () => {
     seedPolicy(ACTIVE_POLICY);
     seedChargeReady(true);
