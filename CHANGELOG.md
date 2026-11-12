@@ -1,3 +1,10 @@
+# [1.155.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.154.0...v1.155.0) (2026-11-12)
+
+
+### Features
+
+* **automation:** enroll new contacts in the promotion queue ([#510](https://github.com/SniperStopSniping/nailsalon/issues/510)) ([67e5795](https://github.com/SniperStopSniping/nailsalon/commit/67e579561eec4776163536d3e0c9f397c6f5e62a))
+
 # [1.154.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.153.1...v1.154.0) (2026-11-12)
 
 
