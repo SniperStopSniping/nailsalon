@@ -7,6 +7,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { type BulkMessageDraft, matchesBulkMessageFilter } from '@/libs/bulkClientMessages';
+import { calculateSmsSegments } from '@/libs/smsSegments';
 import type { SmsOperationalHealth } from '@/libs/textingStatus';
 import * as schema from '@/models/Schema';
 
@@ -64,6 +65,90 @@ beforeAll(async () => {
 afterAll(async () => client.close());
 
 describe('bulk client messages', () => {
+  it('reviews and stores the exact personalized body and credits for each recipient', async () => {
+    const { previewBulkClientMessage, queueBulkClientMessage } = await import('./bulkClientMessages.server');
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+    const { salonId, ids } = await seed();
+    await db.update(schema.salonClientSchema).set({ fullName: 'Zoë Client' }).where(eq(schema.salonClientSchema.id, ids[1]!));
+    const input = { ...draft([ids[0]!, ids[1]!], { minWeeks: null, excludeUpcoming: true }), message: `Hi {{first_name}}! ${'a'.repeat(80)} Book: {{booking_link}}` };
+    const preview = await previewBulkClientMessage(salonId, input, now);
+
+    expect(preview.recipients[0]?.body).toContain('Hi Ava!');
+    expect(preview.recipients[1]?.body).toContain('Hi Zoë!');
+
+    for (const recipient of preview.recipients) {
+      expect(recipient.body).toContain(`/${salonId}/book/service`);
+      expect(recipient.body).not.toMatch(/\{\{|\}\}/);
+      expect(recipient.credits).toBe(calculateSmsSegments(recipient.body).segments);
+    }
+
+    expect(preview.totalCredits).toBe(preview.recipients.reduce((sum, client) => sum + client.credits, 0));
+
+    await queueBulkClientMessage({ ...input, salonId, now, sms, requestId: crypto.randomUUID(), previewFingerprint: preview.fingerprint });
+    const intents = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.salonId, salonId));
+
+    expect(intents.map(intent => intent.variables.message).sort()).toEqual(preview.recipients.map(client => client.message).sort());
+
+    await db.insert(schema.smsCreditLedgerSchema).values({ id: `${salonId}-personalized-credit`, salonId, entryType: 'grant', bucket: 'purchased', amount: 1000, idempotencyKey: `${salonId}-personalized-credit`, reason: 'isolated-test' });
+    let sentCount = 0;
+    const provider = vi.fn().mockImplementation(async () => ({ sid: `SM${String(++sentCount).padStart(32, '0')}` }));
+    for (const intent of intents) {
+      const [claimed] = await db.update(schema.communicationIntentSchema).set({ status: 'claimed', attempts: 1 }).where(eq(schema.communicationIntentSchema.id, intent.id)).returning();
+
+      expect(await dispatchClaimedIntent(claimed!, provider, now)).toBe('sent');
+    }
+
+    expect(provider.mock.calls.map(call => call[0].body).sort()).toEqual(preview.recipients.map(client => client.body).sort());
+  });
+
+  it('rejects unknown fields and suppresses a legacy queued message without charging or contacting the provider', async () => {
+    const { previewBulkClientMessage, queueBulkClientMessage } = await import('./bulkClientMessages.server');
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+    const { salonId, ids } = await seed();
+    const input = draft([ids[0]!]);
+
+    await expect(previewBulkClientMessage(salonId, { ...input, message: 'Hi {{unknown}}' }, now)).rejects.toMatchObject({ code: 'UNRESOLVED_MESSAGE_FIELDS' });
+    await expect(previewBulkClientMessage(salonId, { ...input, message: 'Hi {{first_name}' }, now)).rejects.toMatchObject({ code: 'UNRESOLVED_MESSAGE_FIELDS' });
+
+    const preview = await previewBulkClientMessage(salonId, input, now);
+    const queued = await queueBulkClientMessage({ ...input, salonId, now, sms, requestId: crypto.randomUUID(), previewFingerprint: preview.fingerprint });
+    await db.insert(schema.smsCreditLedgerSchema).values({ id: `${salonId}-credits`, salonId, entryType: 'grant', bucket: 'purchased', amount: 100, idempotencyKey: `${salonId}-credits`, reason: 'isolated-test' });
+    const [original] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, queued.messages[0]!.id));
+    const [legacy] = await db.update(schema.communicationIntentSchema).set({ status: 'claimed', attempts: 1, variables: { ...original!.variables, message: 'Hi {{first_name}}, book {{booking_link}}' } }).where(eq(schema.communicationIntentSchema.id, original!.id)).returning();
+    const provider = vi.fn();
+
+    expect(await dispatchClaimedIntent(legacy!, provider, now)).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+    expect(await db.select().from(schema.smsCreditReservationSchema).where(eq(schema.smsCreditReservationSchema.salonId, salonId))).toHaveLength(0);
+
+    const [result] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, legacy!.id));
+
+    expect(result?.lastError).toBe('UNRESOLVED_MESSAGE_FIELDS');
+  });
+
+  it('finds bookings under historical phone aliases and requires explicit approval outside a rebooking audience', async () => {
+    const { getBulkMessageClients, previewBulkClientMessage, queueBulkClientMessage, bulkMessageRecipientStillEligible } = await import('./bulkClientMessages.server');
+    const { salonId, ids } = await seed();
+    await db.insert(schema.salonClientContactAliasSchema).values({ salonId, salonClientId: ids[0]!, kind: 'phone', normalizedValue: '4165558888' });
+    await db.insert(schema.appointmentSchema).values({ id: `${salonId}-alias-booking`, salonId, clientPhone: '+1 (416) 555-8888', status: 'confirmed', startTime: new Date(now.getTime() + 86400000), endTime: new Date(now.getTime() + 90000000), totalPrice: 5000, totalDurationMinutes: 60 });
+
+    expect((await getBulkMessageClients(salonId, now)).find(client => client.id === ids[0])?.hasUpcomingAppointment).toBe(true);
+    expect((await previewBulkClientMessage(salonId, draft([ids[0]!], { minWeeks: 3, excludeUpcoming: false }), now)).recipients).toHaveLength(0);
+
+    const input = draft([ids[0]!], { minWeeks: null, excludeUpcoming: false });
+    const preview = await previewBulkClientMessage(salonId, input, now);
+    const request = { ...input, salonId, now, sms, requestId: crypto.randomUUID(), previewFingerprint: preview.fingerprint };
+
+    await expect(queueBulkClientMessage(request)).rejects.toMatchObject({ code: 'UPCOMING_BOOKINGS_CONFIRMATION_REQUIRED' });
+    expect((await queueBulkClientMessage({ ...request, includeBookedConfirmed: true })).queued).toBe(1);
+
+    const workerInput = { salonId, clientId: ids[0]!, recipient: '4165551000', minWeeks: '', excludeUpcoming: 'false' };
+
+    expect(await bulkMessageRecipientStillEligible(workerInput, now)).toBe(false);
+    expect(await bulkMessageRecipientStillEligible({ ...workerInput, includeBookedConfirmed: 'true' }, now)).toBe(true);
+    expect(await bulkMessageRecipientStillEligible({ ...workerInput, minWeeks: '3', includeBookedConfirmed: 'true' }, now)).toBe(false);
+  });
+
   it('uses completed history including merged records and excludes unsafe recipients', async () => {
     const { getBulkMessageClients, previewBulkClientMessage } = await import('./bulkClientMessages.server');
     const { salonId, ids } = await seed();
@@ -154,6 +239,7 @@ describe('bulk client messages', () => {
 
     expect(await dispatchClaimedIntent(next!, provider, now)).toBe('suppressed');
     expect(provider).toHaveBeenCalledOnce();
+    expect((await getBulkMessageReceipt(salonId, another.requestId)).messages[0]?.failureReason).toContain('booking');
   });
 
   it('compares three full calendar weeks across daylight saving and excludes clients without completed visits', () => {

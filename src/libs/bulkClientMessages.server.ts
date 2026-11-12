@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 import { type BulkMessageClient, type BulkMessageDraft, type BulkMessagePreview, type BulkMessageReceipt, matchesBulkMessageFilter } from '@/libs/bulkClientMessages';
+import { hasUnfilledMessageFields, personalizeClientMessage, unsupportedMessageFields } from '@/libs/clientMessagePersonalization';
 import { ClientMessagingError, serializeSmsHistory } from '@/libs/clientMessaging';
 import { getClientSmsPurposeEligibilityBatch } from '@/libs/clientSmsEligibility.server';
 import type { CommunicationIntentDatabase } from '@/libs/communicationIntent';
@@ -13,6 +14,7 @@ import { resolveCommunicationSettingsFromSettings } from '@/libs/communicationSe
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { db } from '@/libs/DB';
 import { isValidPhone } from '@/libs/phone';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { prepareSmsBody } from '@/libs/smsSegments';
 import type { SmsOperationalHealth } from '@/libs/textingStatus';
@@ -34,6 +36,12 @@ export async function getBulkMessageClients(salonId: string, now = new Date(), d
       SELECT parent.root_id, child.id, child.phone, parent.depth + 1
       FROM salon_client child JOIN lineage parent ON child.merged_into_client_id = parent.id
       WHERE child.salon_id = ${salonId} AND parent.depth < 15
+    ), contacts AS (
+      SELECT root_id, right(regexp_replace(phone, '[^0-9]', '', 'g'), 10) AS phone FROM lineage
+      UNION
+      SELECT l.root_id, right(regexp_replace(a.normalized_value, '[^0-9]', '', 'g'), 10)
+      FROM lineage l JOIN salon_client_contact_alias a ON a.salon_client_id = l.id
+      WHERE a.salon_id = ${salonId} AND a.kind = 'phone'
     )
     SELECT c.id, c.full_name, c.phone, c.is_blocked,
       (SELECT max(a.start_time) FROM appointment a
@@ -41,14 +49,14 @@ export async function getBulkMessageClients(salonId: string, now = new Date(), d
          AND a.start_time <= ${now}
          AND (a.salon_client_id IN (SELECT id FROM lineage WHERE root_id = c.id)
            OR (a.salon_client_id IS NULL AND right(regexp_replace(a.client_phone, '[^0-9]', '', 'g'), 10)
-             IN (SELECT right(regexp_replace(phone, '[^0-9]', '', 'g'), 10) FROM lineage WHERE root_id = c.id)))
+             IN (SELECT phone FROM contacts WHERE root_id = c.id)))
       ) AS last_completed_at,
       EXISTS (SELECT 1 FROM appointment a
         WHERE a.salon_id = ${salonId} AND a.deleted_at IS NULL AND a.end_time > ${now}
           AND a.status IN ('pending', 'confirmed', 'in_progress', 'awaiting_payment')
           AND (a.status <> 'awaiting_payment' OR a.deposit_hold_expires_at > ${now})
           AND (a.salon_client_id IN (SELECT id FROM lineage WHERE root_id = c.id)
-            OR right(regexp_replace(a.client_phone, '[^0-9]', '', 'g'), 10) = right(regexp_replace(c.phone, '[^0-9]', '', 'g'), 10))
+            OR right(regexp_replace(a.client_phone, '[^0-9]', '', 'g'), 10) IN (SELECT phone FROM contacts WHERE root_id = c.id))
       ) AS has_upcoming
     FROM salon_client c
     WHERE c.salon_id = ${salonId} AND c.archived_at IS NULL AND c.merged_into_client_id IS NULL
@@ -77,12 +85,16 @@ export async function getBulkMessageClients(salonId: string, now = new Date(), d
 }
 
 async function prepare(salonId: string, input: BulkMessageDraft, now: Date, database: CommunicationIntentDatabase): Promise<BulkMessagePreview> {
+  if (unsupportedMessageFields(input.message)) {
+    throw new ClientMessagingError('UNRESOLVED_MESSAGE_FIELDS', 'This message has an unknown or unfinished field. Use First name or Add booking link, then review again.');
+  }
   const [salon] = await database.select().from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
   if (!salon?.isActive || salon.deletedAt) {
     throw new ClientMessagingError('SALON_UNAVAILABLE', 'This salon is unavailable.', 404);
   }
   const clients = await getBulkMessageClients(salonId, now, database, input.clientIds);
   const timeZone = salon.settings?.booking?.timezone || DEFAULT_BOOKING_TIME_ZONE;
+  const bookingUrl = buildSalonTenantPublicUrl('/book/service', { slug: salon.slug, customDomain: salon.customDomain });
   const phones = new Set<string>();
   const recipients = clients.filter((client) => {
     const phone = normalizeConsentRecipient(client.phone);
@@ -91,18 +103,25 @@ async function prepare(salonId: string, input: BulkMessageDraft, now: Date, data
     }
     phones.add(phone);
     return true;
-  }).map(({ id, fullName, phone }) => ({ id, fullName, phone }));
-  const { finalBody: body, segmentation } = prepareSmsBody(COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName: salon.name, message: input.message }));
-  if (segmentation.segments > 10) {
-    throw new ClientMessagingError('MESSAGE_TOO_LONG', 'Shorten this message before sending. It uses more than 10 credits per client.');
-  }
+  }).map(({ id, fullName, phone, hasUpcomingAppointment }) => {
+    const message = personalizeClientMessage(input.message, { fullName, bookingUrl, salonName: salon.name });
+    const { finalBody: body, segmentation } = prepareSmsBody(COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName: salon.name, message }));
+    if (hasUnfilledMessageFields(body)) {
+      throw new ClientMessagingError('UNRESOLVED_MESSAGE_FIELDS', 'A client name or link contains an unfinished field. Correct it before sending.');
+    }
+    if (segmentation.segments > 10) {
+      throw new ClientMessagingError('MESSAGE_TOO_LONG', 'Shorten this message before sending. It uses more than 10 credits for a client.');
+    }
+    return { id, fullName, phone, message, body, credits: segmentation.segments, hasUpcomingAppointment };
+  });
+  const body = recipients[0]?.body ?? '';
   return {
     fingerprint: hash({ body, recipients, filter: input.filter }),
     body,
     recipients,
     skipped: input.clientIds.length - recipients.length,
-    creditsPerText: segmentation.segments,
-    totalCredits: segmentation.segments * recipients.length,
+    creditsPerText: Math.max(0, ...recipients.map(client => client.credits)),
+    totalCredits: recipients.reduce((sum, client) => sum + client.credits, 0),
   };
 }
 
@@ -136,7 +155,7 @@ export async function getBulkMessageReceipt(salonId: string, requestId: string) 
 }
 
 /** Commit the entire reviewed audience together. Only the existing worker sends. */
-export async function queueBulkClientMessage(input: BulkMessageDraft & { salonId: string; requestId: string; previewFingerprint: string; sms: SmsOperationalHealth; now?: Date }) {
+export async function queueBulkClientMessage(input: BulkMessageDraft & { salonId: string; requestId: string; previewFingerprint: string; includeBookedConfirmed?: boolean; sms: SmsOperationalHealth; now?: Date }) {
   const now = input.now ?? new Date();
   const payloadFingerprint = hash({ clientIds: [...input.clientIds].sort(), message: input.message, filter: input.filter, previewFingerprint: input.previewFingerprint });
   return db.transaction(async (tx) => {
@@ -169,6 +188,9 @@ export async function queueBulkClientMessage(input: BulkMessageDraft & { salonId
     if (!preview.recipients.length) {
       throw new ClientMessagingError('NO_RECIPIENTS', 'Choose at least one client eligible for promotional texts.', 409);
     }
+    if (preview.recipients.some(client => client.hasUpcomingAppointment) && input.includeBookedConfirmed !== true) {
+      throw new ClientMessagingError('UPCOMING_BOOKINGS_CONFIRMATION_REQUIRED', 'Some clients already have an appointment. Confirm that you want to include them, or exclude upcoming bookings.', 409);
+    }
     if (input.sms.availableCredits !== null && input.sms.availableCredits < preview.totalCredits) {
       throw new ClientMessagingError('INSUFFICIENT_CREDITS', `This message needs ${preview.totalCredits} credits. Add credits or choose fewer clients.`, 409);
     }
@@ -194,7 +216,7 @@ export async function queueBulkClientMessage(input: BulkMessageDraft & { salonId
       templateVersion: 'v1',
       variables: {
         clientId: client.id,
-        message: input.message,
+        message: client.message,
         bulkRequestId: input.requestId,
         bulkFingerprint: payloadFingerprint,
         bulkClientName: client.fullName || 'Client',
@@ -202,6 +224,7 @@ export async function queueBulkClientMessage(input: BulkMessageDraft & { salonId
         bulkSkipped: String(preview.skipped),
         bulkMinWeeks: input.filter.minWeeks === null ? '' : String(input.filter.minWeeks),
         bulkExcludeUpcoming: String(input.filter.excludeUpcoming),
+        bulkIncludeBookedConfirmed: String(input.includeBookedConfirmed === true),
       },
       schedulingRevision,
       scheduledFor: quiet.sendAt,
@@ -213,7 +236,7 @@ export async function queueBulkClientMessage(input: BulkMessageDraft & { salonId
 }
 
 /** The final worker check also respects blocks and bookings made while queued. */
-export async function bulkMessageRecipientStillEligible(input: { salonId: string; clientId: string; recipient: string; minWeeks: string; excludeUpcoming: string }, now = new Date()) {
+export async function bulkMessageRecipientStillEligible(input: { salonId: string; clientId: string; recipient: string; minWeeks: string; excludeUpcoming: string; includeBookedConfirmed?: string }, now = new Date()) {
   const [client] = await getBulkMessageClients(input.salonId, now, db, [input.clientId]);
   const [salon] = await db.select({ settings: salonSchema.settings }).from(salonSchema).where(eq(salonSchema.id, input.salonId)).limit(1);
   const minWeeks = input.minWeeks === '' ? null : Number(input.minWeeks);
@@ -221,5 +244,5 @@ export async function bulkMessageRecipientStillEligible(input: { salonId: string
     return false;
   }
   return Boolean(client?.eligible && normalizeConsentRecipient(client.phone) === normalizeConsentRecipient(input.recipient)
-    && matchesBulkMessageFilter(client, { minWeeks, excludeUpcoming: input.excludeUpcoming !== 'false' }, now, salon?.settings?.booking?.timezone || DEFAULT_BOOKING_TIME_ZONE));
+    && matchesBulkMessageFilter(client, { minWeeks, excludeUpcoming: input.excludeUpcoming !== 'false' || input.includeBookedConfirmed !== 'true' }, now, salon?.settings?.booking?.timezone || DEFAULT_BOOKING_TIME_ZONE));
 }

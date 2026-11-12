@@ -21,6 +21,7 @@ import {
   settleReservationOnAccept,
 } from '@/libs/billing/creditReservation';
 import { getAppointmentSmsDeliveryPreference } from '@/libs/bookingSmsConsent.server';
+import { hasUnfilledMessageFields } from '@/libs/clientMessagePersonalization';
 import { getClientSmsPurposeEligibility } from '@/libs/clientSmsEligibility.server';
 import {
   claimDueIntents,
@@ -280,6 +281,7 @@ async function recipientStillCurrent(intent: CommunicationIntent, now = new Date
       recipient: intent.recipient,
       minWeeks: intent.variables.bulkMinWeeks ?? '',
       excludeUpcoming: intent.variables.bulkExcludeUpcoming ?? 'true',
+      includeBookedConfirmed: intent.variables.bulkIncludeBookedConfirmed,
     }, now);
   }
   const { ClientLifecycleStabilizationError, resolveOperationalSalonClientContact } = await import('@/libs/clientLifecycleStabilization');
@@ -463,7 +465,7 @@ export async function dispatchClaimedIntent(
     return 'suppressed';
   }
   if (!(await recipientStillCurrent(intent, now))) {
-    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'RECIPIENT_CHANGED' }, now);
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: intent.variables.bulkRequestId ? 'BULK_AUDIENCE_CHANGED' : 'RECIPIENT_CHANGED' }, now);
     return 'suppressed';
   }
   let variables = intent.variables;
@@ -528,6 +530,12 @@ export async function dispatchClaimedIntent(
     };
   }
   const { finalBody: body, segmentation } = prepareSmsBody(template.render({ ...variables, ...reminderNames, salonName: salon.name }));
+  // Also stop already-queued custom messages from the older plain-text path.
+  // Never repair an existing campaign silently: its owner must review it again.
+  if (intent.eventType === 'manual_text' && hasUnfilledMessageFields(body)) {
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'UNRESOLVED_MESSAGE_FIELDS' }, now);
+    return 'suppressed';
+  }
 
   // TX1: reserve + delivery(settling) + intent→sending, committed BEFORE the
   // provider call (invariant I1).
@@ -671,7 +679,7 @@ export async function dispatchClaimedIntent(
       : !finalConsent
           ? consentFailure
           : !recipientCurrent
-              ? 'RECIPIENT_CHANGED'
+              ? intent.variables.bulkRequestId ? 'BULK_AUDIENCE_CHANGED' : 'RECIPIENT_CHANGED'
               : finalSettings.killSwitch
                 ? 'COMMUNICATIONS_PAUSED'
                 : !finalChannels.includes('sms')

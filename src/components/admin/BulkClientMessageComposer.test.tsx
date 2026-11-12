@@ -28,6 +28,52 @@ beforeEach(() => {
 });
 
 describe('bulk message composer', () => {
+  it('fills the name and booking link in the draft, blocks unknown fields, and previews each reviewed recipient', async () => {
+    render(<BulkClientMessageComposer {...props} />);
+    fireEvent.click(await screen.findByLabelText('Select Ava Old'));
+    fireEvent.change(screen.getByLabelText('Your message'), { target: { value: 'Hi {{first_name}}! Book {{booking_link}}' } });
+
+    expect(screen.getByTestId('sms-message-preview')).toHaveTextContent('Hi Ava! Book https://isla.test/book');
+
+    fireEvent.change(screen.getByLabelText('Your message'), { target: { value: 'Hi {{missing}}' } });
+
+    expect(screen.getByRole('button', { name: /Review message/ })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('unknown or unfinished');
+
+    fireEvent.change(screen.getByLabelText('Your message'), { target: { value: 'Hi {{first_name}}! Book {{booking_link}}' } });
+    fetchMock.mockResolvedValueOnce(response({ preview: { ...preview, recipients: [
+      { ...clients[0], body: 'Isla via Luster: Hi Ava! Book https://isla.test/book Reply STOP to opt out.' },
+      { ...clients[1], body: 'Isla via Luster: Hi Bea! Book https://isla.test/book Reply STOP to opt out.' },
+    ], totalCredits: 2 } }));
+    fireEvent.click(screen.getByRole('button', { name: /Review message/ }));
+    await screen.findByText('Review your message');
+
+    expect(screen.getByTestId('sms-message-preview')).toHaveTextContent('Hi Ava!');
+
+    fireEvent.change(screen.getByLabelText('Preview for'), { target: { value: 'recent' } });
+
+    expect(screen.getByTestId('sms-message-preview')).toHaveTextContent('Hi Bea!');
+  });
+
+  it('requires an extra confirmation when an all-client message includes an upcoming booking', async () => {
+    render(<BulkClientMessageComposer {...props} />);
+    await screen.findByLabelText('Select Ava Old');
+    fireEvent.click(screen.getByLabelText('Exclude clients with upcoming bookings'));
+    fireEvent.change(screen.getByLabelText('Your message'), { target: { value: 'An offer for you.' } });
+    fetchMock.mockResolvedValueOnce(response({ preview: { ...preview, recipients: [clients[3]] } }));
+    fireEvent.click(screen.getByRole('button', { name: /Review message/ }));
+    await screen.findByText('Review your message');
+
+    expect(screen.getByRole('button', { name: 'Send to 1 client · 1 credit' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /I want to include 1 already-booked client/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send to 1 client · 1 credit' }));
+    await screen.findByText('Your messages are queued');
+    const send = fetchMock.mock.calls.map(call => call[1]?.body && JSON.parse(String(call[1].body))).find(input => input?.action === 'send');
+
+    expect(send.includeBookedConfirmed).toBe(true);
+  });
+
   it('highlights three-or-more-week clients, supports all and individual picks, and keeps opt-outs unavailable', async () => {
     render(<BulkClientMessageComposer {...props} />);
     await screen.findByLabelText('Select Ava Old');

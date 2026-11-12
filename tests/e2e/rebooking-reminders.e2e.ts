@@ -74,7 +74,8 @@ test.describe('bulk client messages', () => {
       const recipients = clients.filter(client => (request.clientIds as string[]).includes(client.id));
       if (request.action === 'preview') {
         reviewedIds = request.clientIds as string[];
-        await route.fulfill({ json: { data: { preview: { fingerprint: 'a'.repeat(64), body: `Demo Studio via Luster: ${request.message} Reply STOP to opt out.`, recipients, skipped: 0, creditsPerText: 1, totalCredits: recipients.length } } } });
+        const personalized = recipients.map(client => ({ ...client, body: `Demo Studio via Luster: ${String(request.message).replaceAll('{{first_name}}', client.fullName.split(' ')[0]!).replaceAll('{{booking_link}}', 'https://example.test/book')} Reply STOP to opt out.` }));
+        await route.fulfill({ json: { data: { preview: { fingerprint: 'a'.repeat(64), body: personalized[0]?.body, recipients: personalized, skipped: 0, creditsPerText: 1, totalCredits: recipients.length } } } });
         return;
       }
       sends.push(request);
@@ -105,13 +106,24 @@ test.describe('bulk client messages', () => {
     await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
 
     await page.getByLabel('Select Bea Chen').check();
-    await page.getByLabel('Your message').fill('Book your next visit!');
-    await page.getByRole('button', { name: 'Add booking link', exact: true }).click();
+
+    await expect(page.getByText('Clients with upcoming bookings are always excluded from a last-visit message.')).toBeVisible();
+
+    await page.getByLabel('Your message').fill('Hi {{missing}}');
+
+    await expect(page.getByRole('button', { name: /^Review message/ })).toBeDisabled();
+
+    await page.getByLabel('Your message').fill('Hi {{first_name}}! Book your next visit! {{booking_link}}');
     await page.getByRole('button', { name: /^Review message/ }).click();
 
     await expect(page.getByText('Review your message', { exact: true })).toBeVisible();
     await expect(page.getByText('3 clients · 3 credits', { exact: true })).toBeVisible();
-    await expect(page.getByTestId('sms-message-preview')).toContainText('Book your next visit! https://example.test/book');
+    await expect(page.getByTestId('sms-message-preview')).toContainText('Hi Ava! Book your next visit! https://example.test/book');
+
+    await page.getByLabel('Preview for').selectOption('old-b');
+
+    await expect(page.getByTestId('sms-message-preview')).toContainText('Hi Bea! Book your next visit! https://example.test/book');
+    await expect(page.getByTestId('sms-message-preview')).not.toContainText('{{');
     expect(reviewedIds.sort()).toEqual(['old-a', 'old-b', 'old-c']);
     expect(sends).toHaveLength(0);
 
@@ -121,6 +133,6 @@ test.describe('bulk client messages', () => {
     await expect(page.getByText('Your messages are queued', { exact: true })).toBeVisible();
     await expect(page.getByText('Queued', { exact: true })).toHaveCount(3);
     expect(sends).toHaveLength(1);
-    expect(sends[0]).toMatchObject({ message: 'Book your next visit! https://example.test/book', clientIds: expect.arrayContaining(['old-a', 'old-b', 'old-c']), filter: { minWeeks: 3, excludeUpcoming: true } });
+    expect(sends[0]).toMatchObject({ message: 'Hi {{first_name}}! Book your next visit! {{booking_link}}', clientIds: expect.arrayContaining(['old-a', 'old-b', 'old-c']), filter: { minWeeks: 3, excludeUpcoming: true } });
   });
 });
