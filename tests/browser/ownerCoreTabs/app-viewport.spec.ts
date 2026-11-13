@@ -124,3 +124,15 @@ test('client details remain inside the shared sheet after its entrance animation
 
   await expect.poll(() => bounds(profile)).toEqual({ top: 10, bottom: 0, width: page.viewportSize()!.width });
 });
+
+test('shared dialogs preserve native fixed bounds at 200% page zoom', async ({ page }) => {
+  await page.goto('/?screen=viewport-dialog');
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = '2';
+    window.dispatchEvent(new Event('resize'));
+  });
+  const overlay = page.getByTestId('dialog-shell-overlay').first();
+
+  await expect.poll(() => overlay.evaluate(element => element.getBoundingClientRect().right <= window.innerWidth + 1)).toBe(true);
+  await expect(page.getByRole('button', { name: 'Save form' })).toBeInViewport();
+});

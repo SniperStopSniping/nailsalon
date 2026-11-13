@@ -10,6 +10,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  document.documentElement.style.zoom = '';
+  document.body.style.zoom = '';
   Object.assign(viewport, { height: 800, width: 390, offsetTop: 0, offsetLeft: 0, scale: 1 });
 });
 
@@ -68,4 +70,24 @@ it('preserves native pinch zoom and measures the new bounds after rotation', () 
   act(() => window.dispatchEvent(new Event('orientationchange')));
 
   expect(result.current).toMatchObject({ height: 390, width: 800 });
+});
+
+it('leaves fixed positioning native at CSS page zoom and resumes measurement when zoom resets', () => {
+  const computedStyle = window.getComputedStyle;
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+    const style = computedStyle(element);
+    // jsdom does not calculate CSS zoom; browsers return its resolved value.
+    Object.defineProperty(style, 'zoom', { value: (element as HTMLElement).style.zoom || '1', configurable: true });
+    return style;
+  });
+  const { result } = setup();
+  document.documentElement.style.zoom = '2';
+  act(() => window.dispatchEvent(new Event('resize')));
+
+  expect(result.current.height).toBe(0);
+
+  document.documentElement.style.zoom = '1';
+  act(() => window.dispatchEvent(new Event('resize')));
+
+  expect(result.current.height).toBe(800);
 });

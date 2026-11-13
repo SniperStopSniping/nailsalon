@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import { AiCreditsMenu } from './AiCreditsMenu';
@@ -246,6 +247,63 @@ it('ignores payment-success text until the server verifies the purchase', async 
   expect(screen.getByRole('button', { name: 'AI credits · $10.00' })).toBeInTheDocument();
   expect(calls[0]).toEqual({ salonSlug: 'synthetic', action: 'reconcile', purchaseId });
   expect(window.location.search).not.toContain('credits=');
+});
+
+it('recovers a checkout after browser Back without return parameters or a second payment', async () => {
+  await open();
+  fireEvent.click(screen.getByRole('button', { name: '$10.00 CAD · one-time Start here' }));
+  await waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+
+  expect(localStorage.getItem('luster-ai-credit-return:synthetic')).toBe(purchaseId);
+
+  payment = 'paid';
+  fireEvent(window, new Event('pageshow'));
+  await screen.findByText('AI credits added');
+
+  expect(calls.map(call => call.action)).toEqual(['checkout', 'reconcile']);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Close AI credits' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+  expect(screen.getByText('AI credits added')).toBeVisible();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Dismiss confirmation' }));
+
+  expect(screen.queryByText('AI credits added')).not.toBeInTheDocument();
+  expect(localStorage.getItem('luster-ai-credit-return:synthetic')).toBeNull();
+});
+
+it('verifies a saved checkout after reload and keeps the confirmation until the owner continues', async () => {
+  localStorage.setItem('luster-ai-credit-return:synthetic', purchaseId);
+  payment = 'paid';
+  render(<StrictMode><AiCreditsMenu salonSlug="synthetic" locale="en" onNavigate={navigate} /></StrictMode>);
+  await screen.findByText('Payment confirmed. Your credit balance is updated.');
+
+  expect(screen.getByRole('button', { name: 'AI credits · $20.00' })).toBeInTheDocument();
+  expect(calls.every(call => call.action === 'reconcile')).toBe(true);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Continue building' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+  expect(localStorage.getItem('luster-ai-credit-return:synthetic')).toBeNull();
+});
+
+it('shows a server-verified payment even if the balance refresh fails', async () => {
+  localStorage.setItem('luster-ai-credit-return:synthetic', purchaseId);
+  vi.mocked(fetch).mockImplementation(async (_url, options) => {
+    if (!options?.body) {
+      throw new TypeError('Connection lost');
+    }
+    const body = JSON.parse(String(options.body));
+    calls.push(body);
+    return Response.json({ data: { status: 'paid', purchaseId } });
+  });
+  render(<AiCreditsMenu salonSlug="synthetic" locale="en" onNavigate={navigate} />);
+  await screen.findByText('AI credits added');
+
+  expect(screen.getByText('Payment confirmed. Check your balance again when you’re connected.')).toBeVisible();
+  expect(screen.queryByText('Payment confirmed. Your credit balance is updated.')).not.toBeInTheDocument();
+  expect(calls.map(call => call.action)).toEqual(['reconcile']);
 });
 
 it('resumes an unfinished purchase from the server on another device and checks it without buying again', async () => {

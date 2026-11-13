@@ -18,9 +18,12 @@ let disconnect: (() => void) | undefined;
 
 function readViewport(): AppViewport {
   const visual = window.visualViewport;
+  const pageZoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+  const bodyZoom = Number.parseFloat(getComputedStyle(document.body).zoom) || 1;
   // Let the browser pan a zoomed page; resizing its dialogs to the zoomed
-  // viewport would make controls jump away from the user's fingers.
-  if (visual && Math.abs((visual.scale ?? 1) - 1) >= 0.01) {
+  // viewport would make controls jump away from the user's fingers. Explicit
+  // pixel bounds also scale twice under CSS zoom, so retain native insets.
+  if (pageZoom !== 1 || bodyZoom !== 1 || (visual && Math.abs((visual.scale ?? 1) - 1) >= 0.01)) {
     return EMPTY_VIEWPORT;
   }
   const height = visual?.height || window.innerHeight;
@@ -75,6 +78,7 @@ function observeViewport() {
   document.addEventListener('visibilitychange', onVisibility);
   document.addEventListener('focusin', settle);
   document.addEventListener('focusout', settle);
+  settle();
   return () => {
     clearTimers();
     visual?.removeEventListener('resize', settle);

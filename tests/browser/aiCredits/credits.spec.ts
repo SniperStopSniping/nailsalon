@@ -94,6 +94,34 @@ test('returning from checkout checks payment and updates the verified balance wi
   expect(new URL(page.url()).searchParams.has('purchase')).toBe(false);
 });
 
+test('Chrome tab restoration recovers the purchase and confirmation survives closing the popup', async ({ page }) => {
+  const requests = await fixture(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'AI credits · $10.00' }).click();
+  await page.getByRole('button', { name: '$10.00 CAD · one-time Start here' }).click();
+
+  await expect(page.getByText(/Verified Stripe checkout redirect/)).toBeVisible();
+
+  await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+
+  await expect(page.getByText('AI credits added')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Close AI credits' }).click();
+
+  await expect(page.getByRole('dialog', { name: 'Bring your ideas to life.' })).toBeHidden();
+  await expect(page.getByText('AI credits added')).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.getByText('Payment confirmed. Your credit balance is updated.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Continue building' }).click();
+
+  await expect(page.getByRole('dialog', { name: 'Bring your ideas to life.' })).toBeHidden();
+  await expect(page.getByText('AI credits added')).toHaveCount(0);
+  expect(requests.filter(request => request.action === 'checkout')).toHaveLength(1);
+});
+
 test('turning purchases off preserves the balance and credit history', async ({ page }) => {
   const requests = await fixture(page, { purchases: false });
   await page.goto('/');
