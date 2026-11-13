@@ -1,3 +1,10 @@
+## [1.155.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.155.0...v1.155.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **app:** recover builder viewport and AI credit checkout confirmation ([#508](https://github.com/SniperStopSniping/nailsalon/issues/508)) ([fc33b31](https://github.com/SniperStopSniping/nailsalon/commit/fc33b31da8c82de239962605b9409b10ded8a51b))
+
 # [1.155.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.154.0...v1.155.0) (2026-11-12)
 
 
