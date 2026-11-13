@@ -19,9 +19,10 @@
 
 import type { PanInfo } from 'framer-motion';
 import { AnimatePresence, motion, useAnimation, useDragControls } from 'framer-motion';
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { appViewportStyle, useAppViewport } from '@/hooks/useAppViewport';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 import { useModalFocusLifecycle } from '@/hooks/useModalFocusLifecycle';
 
@@ -73,7 +74,7 @@ export function AppModal({
   ariaLabel,
   allowDragToDismiss = true,
   returnFocusKey,
-  topInset = 'comfortable',
+  topInset = 'tall',
 }: AppModalProps) {
   const controls = useAnimation();
   const dragControls = useDragControls();
@@ -85,36 +86,8 @@ export function AppModal({
     setPortalReady(true);
   }, []);
 
-  useLayoutEffect(() => {
-    const panel = panelRef.current;
-    const viewport = window.visualViewport;
-    if (!isOpen || !portalReady || !panel || !viewport) {
-      return undefined;
-    }
-
-    const syncViewport = () => {
-      // Browser bars and the keyboard can move the visible edges without
-      // changing the layout viewport used by fixed positioning. Keep native
-      // panning while pinch-zoomed by falling back to the fixed insets.
-      if (viewport.height <= 0 || Math.abs(viewport.scale - 1) >= 0.01) {
-        panel.style.removeProperty('--owner-sheet-viewport-height');
-        panel.style.removeProperty('--owner-sheet-viewport-top');
-        return;
-      }
-      panel.style.setProperty('--owner-sheet-viewport-height', `${viewport.height}px`);
-      panel.style.setProperty('--owner-sheet-viewport-top', `${Math.max(0, viewport.offsetTop)}px`);
-    };
-
-    syncViewport();
-    viewport.addEventListener('resize', syncViewport);
-    viewport.addEventListener('scroll', syncViewport);
-    window.addEventListener('resize', syncViewport);
-    return () => {
-      viewport.removeEventListener('resize', syncViewport);
-      viewport.removeEventListener('scroll', syncViewport);
-      window.removeEventListener('resize', syncViewport);
-    };
-  }, [isOpen, portalReady]);
+  const viewport = useAppViewport(isOpen && portalReady);
+  const viewportStyle = appViewportStyle(viewport);
 
   // Lock body scroll when modal is open
   useBodyScrollLock(isOpen);
@@ -160,6 +133,7 @@ export function AppModal({
             aria-hidden="true"
             data-testid="app-modal-backdrop"
             className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            style={viewportStyle}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -198,9 +172,13 @@ export function AppModal({
             }
             onDragEnd={allowDragToDismiss ? handleDragEnd : undefined}
             style={{
-              top: `calc(${SHEET_TOP_INSET[topInset]} + var(--owner-sheet-viewport-top, 0px))`,
+              ...viewportStyle,
+              top: `calc(${SHEET_TOP_INSET[topInset]} + ${viewport.top}px)`,
               // With no measured height, fixed top and bottom size the panel.
-              height: `calc(var(--owner-sheet-viewport-height) - ${SHEET_TOP_INSET[topInset]})`,
+              height: viewport.height > 0 ? `calc(${viewport.height}px - ${SHEET_TOP_INSET[topInset]})` : undefined,
+              // Full-screen modes inside a sheet stay attached to its bounds,
+              // even after Framer removes the entrance animation's transform.
+              contain: 'layout',
             }}
           >
             {/* Drag Handle — the only surface that starts the dismiss gesture.

@@ -165,7 +165,7 @@ export function NewAppointmentModal({
 }: NewAppointmentModalProps) {
   const { salonSlug: contextSalonSlug, bookingTimeZone } = useSalon();
   const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
-  const viewport = useCustomerViewport();
+  const viewport = useCustomerViewport(isOpen);
   const today = getDateKeyInTimeZone(new Date(), bookingTimeZone);
   const tomorrow = addDaysToDateKey(today, 1);
   const guidedBooking = !googleEventPrefill && !findOpeningFrom;

@@ -9,6 +9,8 @@ import { AI_CREDITS_CHANGED } from '@/features/ai-credits/client';
 import { designBriefSchema } from '@/features/custom-sites/contracts';
 import { CustomDesignStudio } from '@/features/custom-sites/CustomDesignStudio';
 import type { DesignAsset } from '@/features/custom-sites/WebsitePhotoLibrary';
+import { appViewportStyle, useAppViewport } from '@/hooks/useAppViewport';
+import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 import { formatMoney } from '@/libs/formatMoney';
 
 import { addOnReviewValue } from './add-ons';
@@ -167,6 +169,8 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
   creditsEnabled?: boolean;
   manualMode?: boolean;
 }) {
+  const viewport = useAppViewport();
+  useBodyScrollLock(true);
   const [head, setHead] = useState<Head | null>(null);
   const salonSlug = head?.salonSlug ?? initialSalonSlug;
   const [messages, setMessages] = useState<Message[]>([]);
@@ -502,7 +506,12 @@ export function SetupEditor({ salonSlug: initialSalonSlug, locale, existingSalon
     }
   }
   return (
-    <main className="luster-setup setup-chat-first" data-view={tab} data-manual={manualMode ? 'true' : undefined}>
+    <main
+      className="luster-setup setup-chat-first"
+      data-view={tab}
+      data-manual={manualMode ? 'true' : undefined}
+      style={{ position: 'fixed', inset: 0, height: 'auto', ...appViewportStyle(viewport) }}
+    >
       <header className="setup-heading">
         <div className="setup-topbar">
           <a href={`/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`} aria-label="Back to website settings">←</a>

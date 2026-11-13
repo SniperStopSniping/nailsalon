@@ -19,6 +19,8 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [confirmation, setConfirmation] = useState<{ salonSlug: string; purchaseId: string } | null>(null);
+  const [returnPurchase, setReturnPurchase] = useState<{ salonSlug: string; purchaseId: string } | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const lock = useRef(false);
   const controller = useRef<AbortController | null>(null);
@@ -27,6 +29,24 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
   activeSalon.current = salonSlug;
   const loadSequence = useRef(0);
   const storageKey = `luster-ai-credit-purchase:${salonSlug}`;
+  const returnKey = `luster-ai-credit-return:${salonSlug}`;
+  const confirmed = confirmation?.salonSlug === salonSlug;
+  const returnPurchaseId = returnPurchase?.salonSlug === salonSlug ? returnPurchase.purchaseId : null;
+
+  const rememberReturn = useCallback((purchaseId: string) => {
+    setReturnPurchase({ salonSlug, purchaseId });
+    try {
+      localStorage.setItem(returnKey, purchaseId);
+    } catch { /* The return URL and server purchase still provide recovery. */ }
+  }, [returnKey, salonSlug]);
+
+  const forgetReturn = useCallback(() => {
+    setReturnPurchase(null);
+    setConfirmation(null);
+    try {
+      localStorage.removeItem(returnKey);
+    } catch { /* A repeated server verification is safe. */ }
+  }, [returnKey]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const sequence = activeSalon.current === salonSlug ? ++loadSequence.current : -1;
@@ -66,8 +86,20 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
       for (let attempt = 0; attempt < (poll ? 6 : 1); attempt++) {
         setNotice('Checking your payment…');
         const result = await aiCreditRequest<PurchaseResult>(salonSlug, { action: 'reconcile', purchaseId }, request.signal);
-        await load(request.signal);
-        if (request.signal.aborted) {
+        let balanceLoaded = true;
+        try {
+          await load(request.signal);
+        } catch (cause) {
+          if (request.signal.aborted || activeSalon.current !== salonSlug) {
+            return;
+          }
+          if (result.data.status !== 'paid' && result.data.status !== 'expired') {
+            throw cause;
+          }
+          balanceLoaded = false;
+          setError('Your payment result is verified, but the latest balance could not load. Check your balance again.');
+        }
+        if (request.signal.aborted || activeSalon.current !== salonSlug) {
           return;
         }
         if (result.data.status === 'paid' || result.data.status === 'expired') {
@@ -76,7 +108,15 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
             localStorage.removeItem(storageKey);
           } catch { /* Server records still provide recovery. */ }
           clearReturn();
-          setNotice(result.data.status === 'paid' ? 'Payment confirmed. Your credit balance is updated.' : 'That checkout has ended. No credits were added.');
+          if (result.data.status === 'paid') {
+            rememberReturn(purchaseId);
+            setConfirmation({ salonSlug, purchaseId });
+          } else {
+            forgetReturn();
+          }
+          setNotice(result.data.status === 'paid'
+            ? balanceLoaded ? 'Payment confirmed. Your credit balance is updated.' : 'Payment confirmed. Check your balance again when you’re connected.'
+            : 'That checkout has ended. No credits were added.');
           return;
         }
         if (attempt < (poll ? 5 : 0)) {
@@ -107,10 +147,11 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
         lock.current = false;
       }
     }
-  }, [load, salonSlug, storageKey]);
+  }, [forgetReturn, load, rememberReturn, salonSlug, storageKey]);
 
   useEffect(() => {
     const request = new AbortController();
+    setWorking(false);
     try {
       const stored = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
       attempts.current = Object.fromEntries(Object.entries(stored).filter(([key, value]) => isAiCreditPackKey(key) && typeof value === 'string' && uuid.test(value)));
@@ -118,34 +159,61 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
       attempts.current = {};
     }
     const query = new URL(window.location.href).searchParams;
-    const purchaseId = query.get('purchase');
+    let savedReturn: string | null = null;
+    try {
+      savedReturn = localStorage.getItem(returnKey);
+    } catch { /* The URL can still recover this purchase. */ }
+    const candidate = query.get('purchase') ?? savedReturn;
+    const purchaseId = candidate && uuid.test(candidate) ? candidate : null;
     if (query.has('credits')) {
       setOpen(true);
     }
-    void load(request.signal).then((value) => {
-      if (!request.signal.aborted && promptWhenEmpty && value.data.availableMicroCad === 0 && value.data.reservedMicroCad === 0) {
-        setOpen(true);
-      }
-      if (!request.signal.aborted && purchaseId && uuid.test(purchaseId)) {
-        void checkPayment(purchaseId, true);
-      }
-    }).catch((cause) => {
-      if (!request.signal.aborted) {
-        setError(cause instanceof Error ? cause.message : 'Your credits could not be checked.');
-      }
-    });
+    if (purchaseId) {
+      rememberReturn(purchaseId);
+      setOpen(true);
+      void checkPayment(purchaseId, true);
+    } else {
+      void load(request.signal).then((value) => {
+        if (!request.signal.aborted && promptWhenEmpty && value.data.availableMicroCad === 0 && value.data.reservedMicroCad === 0) {
+          setOpen(true);
+        }
+      }).catch((cause) => {
+        if (!request.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : 'Your credits could not be checked.');
+        }
+      });
+    }
     const refresh = () => {
+      let saved: string | null = null;
+      try {
+        saved = localStorage.getItem(returnKey);
+      } catch { /* Keep the last verified balance. */ }
+      if (saved && uuid.test(saved)) {
+        void checkPayment(saved, true);
+        return;
+      }
       void load(request.signal).catch(() => { /* Keep the last verified balance until the next check. */ });
+    };
+    const visible = () => {
+      if (document.visibilityState === 'visible') {
+        refresh();
+      }
     };
     window.addEventListener(AI_CREDITS_CHANGED, refresh);
     window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', refresh);
+    document.addEventListener('visibilitychange', visible);
     return () => {
       request.abort();
       controller.current?.abort();
+      controller.current = null;
+      lock.current = false;
       window.removeEventListener(AI_CREDITS_CHANGED, refresh);
       window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', refresh);
+      document.removeEventListener('visibilitychange', visible);
     };
-  }, [checkPayment, load, storageKey, promptWhenEmpty]);
+  }, [checkPayment, load, rememberReturn, returnKey, storageKey, promptWhenEmpty]);
 
   // After a page refresh, the original request's completion event belongs to
   // the previous document. Check its temporary hold until it settles instead
@@ -210,11 +278,20 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
         if (!url) {
           throw new Error('Secure checkout could not be opened. Your purchase is saved; please try again.');
         }
+        if (result.data.purchaseId && uuid.test(result.data.purchaseId)) {
+          rememberReturn(result.data.purchaseId);
+        }
         onNavigate(url);
       } else {
         await load(request.signal);
         if (result.data.status === 'paid' || result.data.status === 'expired') {
           clearAttempt();
+          if (result.data.status === 'paid' && result.data.purchaseId && uuid.test(result.data.purchaseId)) {
+            rememberReturn(result.data.purchaseId);
+            setConfirmation({ salonSlug, purchaseId: result.data.purchaseId });
+          } else if (result.data.status === 'expired') {
+            forgetReturn();
+          }
         }
         setNotice(result.data.status === 'paid' ? 'That payment is confirmed. Your balance is updated.' : result.data.status === 'expired' ? 'That checkout has ended. Choose a pack to start a new purchase.' : 'An earlier payment is being checked. Please avoid starting another payment.');
       }
@@ -250,6 +327,12 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
       if (result.data.status === 'expired' || result.data.status === 'paid') {
         clearAttempt();
         clearReturn();
+        if (result.data.status === 'paid') {
+          rememberReturn(purchaseId);
+          setConfirmation({ salonSlug, purchaseId });
+        } else {
+          forgetReturn();
+        }
       }
       setNotice(result.data.status === 'expired' ? 'Checkout cancelled. No credits were added.' : result.data.status === 'paid' ? 'Payment was already confirmed. Your balance is updated.' : 'Checkout is still being checked. Please avoid starting another payment.');
     } catch (cause) {
@@ -267,6 +350,11 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
     }
   }
 
+  function acknowledgePayment() {
+    forgetReturn();
+    setOpen(false);
+  }
+
   const pending = wallet?.data.pendingPurchase;
   return (
     <>
@@ -275,6 +363,15 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
         {wallet ? ` · ${formatAiCredits(wallet.data.availableMicroCad)}` : ''}
         {hasReservedCredits ? ` available · ${formatAiCredits(wallet!.data.reservedMicroCad)} set aside` : ''}
       </button>
+      {confirmed && (
+        <section className="ai-credit-confirmation" role="status" aria-live="polite">
+          <div>
+            <strong>AI credits added</strong>
+            <p>Your payment is confirmed. You can keep building your website.</p>
+          </div>
+          <button type="button" onClick={acknowledgePayment}>Dismiss confirmation</button>
+        </section>
+      )}
       <DialogShell isOpen={open} onClose={() => setOpen(false)} initialFocusRef={closeRef} maxWidthClassName="max-w-lg">
         <section role="dialog" aria-modal="true" aria-labelledby="ai-credits-title" className="luster-ai-credits">
           <div className="ai-credit-heading">
@@ -307,7 +404,9 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
           )}
           {error && <p role="alert">{error}</p>}
           {notice && <p role="status" aria-live="polite">{notice}</p>}
+          {confirmed && <button type="button" onClick={acknowledgePayment}>Continue building</button>}
           {!wallet && <button type="button" onClick={() => void load().then(() => setError('')).catch(cause => setError(cause.message))}>Check balance again</button>}
+          {returnPurchaseId && !confirmed && !pending && <button type="button" disabled={working} onClick={() => void checkPayment(returnPurchaseId, true)}>Check payment</button>}
           {pending && (
             <div className="ai-credit-pending">
               <p>You have a credit purchase in progress.</p>
@@ -322,7 +421,7 @@ export function AiCreditsMenu({ salonSlug, locale, onNavigate = navigateToChecko
                 : <p>The owner who started it can continue or cancel checkout.</p>}
             </div>
           )}
-          {wallet?.purchasesEnabled && !pending && (
+          {wallet?.purchasesEnabled && !pending && !confirmed && (
             <div className="ai-credit-packs" aria-label="Choose AI credits">
               {Object.values(AI_CREDIT_PACKS).map(pack => (
                 <button key={pack.key} type="button" disabled={working} onClick={() => void buy(pack.key)}>

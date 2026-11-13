@@ -4,6 +4,7 @@ import type { RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { appViewportStyle, useAppViewport } from '@/hooks/useAppViewport';
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
 import { useModalFocusLifecycle } from '@/hooks/useModalFocusLifecycle';
 import { cn } from '@/utils/Helpers';
@@ -44,6 +45,7 @@ export function DialogShell({
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setPortalReady(true), []);
+  const viewport = useAppViewport(isOpen && portalReady);
   useBodyScrollLock(isOpen);
   useModalFocusLifecycle({
     isOpen: isOpen && portalReady,
@@ -76,21 +78,21 @@ export function DialogShell({
       data-modal-focus-root="true"
       data-testid={overlayTestId}
       className={cn('owner-theme-scope fixed inset-0 z-50 flex min-h-0 bg-black/50', alignClassName, overlayClassName)}
-      style={overlayStyle}
+      style={{ ...appViewportStyle(viewport), ...overlayStyle }}
       onClick={(event) => {
         if (closeOnBackdrop && event.target === event.currentTarget) {
           onClose();
         }
       }}
     >
-      <div data-testid="dialog-shell-container" className={cn('min-h-0 w-full', maxWidthClassName)}>
+      <div data-testid="dialog-shell-container" className={cn('flex max-h-full min-h-0 w-full flex-col', maxWidthClassName)}>
         <div
           ref={contentRef}
           data-dialog-shell-content="true"
           data-modal-focus-content="true"
           data-testid={contentTestId}
           tabIndex={-1}
-          className={contentClassName}
+          className={cn('min-h-0 shrink', contentClassName)}
         >
           {children}
         </div>
