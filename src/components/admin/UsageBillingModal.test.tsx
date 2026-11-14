@@ -394,6 +394,7 @@ describe('message history grouping and net SMS credit clarity (ported from PR #1
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
     await screen.findByText('No top-ups yet.');
     await screen.findByRole('heading', { name: 'Confirmations' });
+    await screen.findByText('No top-ups yet.');
 
     fireEvent.change(screen.getByLabelText('Filter message history'), { target: { value: '24h' } });
 
