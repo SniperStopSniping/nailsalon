@@ -12,6 +12,7 @@ describe('server-generated salon canonical URLs', () => {
   it('uses the final booking step URL on shared English and French paths', () => {
     process.env = { NODE_ENV: 'test', PUBLIC_APP_URL: 'https://www.example.com' };
     const salon = { slug: 'isla-nails' };
+
     expect(buildSalonBookingCanonicalUrl(salon, 'en')).toBe('https://www.example.com/isla-nails/book/service');
     expect(buildSalonBookingCanonicalUrl({ ...salon, bookingFlow: ['tech', 'service', 'time'] }, 'fr'))
       .toBe('https://www.example.com/fr/isla-nails/book/tech');
@@ -19,9 +20,12 @@ describe('server-generated salon canonical URLs', () => {
 
   it('keeps the language on dedicated salon hosts', () => {
     const salon = { slug: 'isla-nails', customDomain: 'booking.example.com' };
+
     expect(buildSalonBookingCanonicalUrl(salon, 'fr')).toBe('https://booking.example.com/fr/book/service');
+
     process.env.LUSTER_ROOT_DOMAIN = 'studio.example.com';
     process.env.TENANT_SUBDOMAINS_ENABLED = 'true';
+
     expect(buildSalonBookingCanonicalUrl({ slug: salon.slug }, 'en'))
       .toBe('https://isla-nails.studio.example.com/book/service');
   });
