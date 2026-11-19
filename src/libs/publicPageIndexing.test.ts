@@ -27,7 +27,7 @@ describe('public salon search indexing policy', () => {
     '/en/isla-nail-studio/appointments/history',
     '/en/isla-nail-studio/manage/token',
     '/en/isla-nail-studio/deposit/return',
-  ])('marks %s as a customer capability page', pathname => {
+  ])('marks %s as a customer capability page', (pathname) => {
     expect(isUnlistedSalonCapabilityPage(pathname)).toBe(true);
   });
 
@@ -38,7 +38,7 @@ describe('public salon search indexing policy', () => {
     '/en/isla-nail-studio/book',
     '/en/isla-nail-studio/book/service',
     '/en/features/booking-website',
-  ])('keeps %s eligible for indexing', pathname => {
+  ])('keeps %s eligible for indexing', (pathname) => {
     expect(isUnlistedSalonCapabilityPage(pathname)).toBe(false);
   });
 
