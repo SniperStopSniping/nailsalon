@@ -6,7 +6,7 @@ import {
   buildPublicSalonMetadata,
   type PublicSalonMetadataInput,
 } from '@/libs/publicSalonMetadata';
-import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
+import { buildSalonBookingCanonicalUrl } from '@/libs/publicUrl';
 import { getSalonBySlug } from '@/libs/queries';
 
 /**
@@ -46,10 +46,7 @@ async function loadPublicSalonMetadataInput(
     state: salon.state ?? null,
     zipCode: salon.zipCode ?? null,
     locationDisplayMode: live.locationDisplayMode,
-    publicUrl: buildSalonTenantPublicUrl('/', {
-      slug: salon.slug,
-      customDomain: salon.customDomain,
-    }, locale),
+    publicUrl: buildSalonBookingCanonicalUrl(salon, locale),
   };
 }
 

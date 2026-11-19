@@ -33,10 +33,10 @@ describe('Luster homepage entry points', () => {
     expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/owner-sign-in');
     expect(screen.getAllByRole('link').filter(link => link.getAttribute('href') === '/owner-sign-in')).toHaveLength(1);
 
-    const shopLinks = screen.getAllByRole('link', { name: 'Shop Luster Gel' });
+    const shopLinks = screen.getAllByRole('link', { name: /Shop Luster Gel/u });
 
     expect(shopLinks).toHaveLength(1);
-    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'Shop Luster Gel' })).toBeVisible();
+    expect(within(screen.getByRole('banner')).getByRole('link', { name: /Shop Luster Gel/u })).toBeVisible();
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Log In' })).toBeVisible();
 
     shopLinks.forEach((link) => {
@@ -52,7 +52,7 @@ describe('Luster homepage entry points', () => {
     expect(screen.queryByRole('link', { name: 'Build Your Booking Page' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open owner dashboard' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/owner-sign-in');
-    expect(screen.getAllByRole('link', { name: 'Shop Luster Gel' })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: /Shop Luster Gel/u })).toHaveLength(1);
     expect(screen.getByRole('link', { name: 'Request an invite' })).toHaveAttribute('href', expect.stringContaining('mailto:'));
   });
 
@@ -69,7 +69,7 @@ describe('Luster homepage entry points', () => {
     expect(screen.queryByRole('link', { name: 'Ouvrir mon tableau de bord' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Se connecter' })).toHaveAttribute('href', '/fr/owner-sign-in');
 
-    const shopLinks = screen.getAllByRole('link', { name: 'Acheter le gel Luster' });
+    const shopLinks = screen.getAllByRole('link', { name: /Acheter le gel Luster/u });
 
     expect(shopLinks).toHaveLength(1);
 
@@ -90,7 +90,7 @@ describe('Luster homepage entry points', () => {
     expect(screen.queryByRole('link', { name: 'Créer ma page de réservation' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Ouvrir mon tableau de bord' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Se connecter' })).toHaveAttribute('href', '/fr/owner-sign-in');
-    expect(screen.getAllByRole('link', { name: 'Acheter le gel Luster' })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: /Acheter le gel Luster/u })).toHaveLength(1);
     expect(screen.getByRole('link', { name: 'Demander une invitation' })).toHaveAttribute('href', expect.stringContaining('mailto:'));
   });
 

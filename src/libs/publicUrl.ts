@@ -1,3 +1,5 @@
+import { getFirstStep } from './bookingFlow';
+
 type SalonPublicUrlInput = {
   customDomain?: string | null;
   slug?: string | null;
@@ -60,17 +62,27 @@ export function buildSalonPublicUrl(path: string, salon?: SalonPublicUrlInput): 
   return `${getSalonPublicBaseUrl(salon)}${normalizedPath}`;
 }
 
+function hasDedicatedSalonHost(salon: SalonPublicUrlInput): boolean {
+  return Boolean(salon.customDomain || (process.env.LUSTER_ROOT_DOMAIN && areTenantSubdomainsEnabled()));
+}
+
+/** A crawler should land on the same first step as a customer, without the entry redirect. */
+export function buildSalonBookingCanonicalUrl(
+  salon: SalonPublicUrlInput & { slug: string; bookingFlow?: string[] | null },
+  locale: string,
+): string {
+  const localePrefix = locale === 'en' ? '' : `/${locale}`;
+  const slugPrefix = hasDedicatedSalonHost(salon) ? '' : `/${salon.slug}`;
+  return buildSalonPublicUrl(`${localePrefix}${slugPrefix}/book/${getFirstStep(salon.bookingFlow)}`, salon);
+}
+
 export function buildSalonTenantPublicUrl(
   path: string,
   salon: SalonPublicUrlInput & { slug: string },
   locale = 'en',
 ): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const hasDedicatedHost = Boolean(
-    salon.customDomain
-    || (process.env.LUSTER_ROOT_DOMAIN && areTenantSubdomainsEnabled()),
-  );
-  const tenantPath = hasDedicatedHost
+  const tenantPath = hasDedicatedSalonHost(salon)
     ? normalizedPath
     : `/${locale}/${salon.slug}${normalizedPath === '/' ? '' : normalizedPath}`;
   return `${getSalonPublicBaseUrl(salon)}${tenantPath}`;

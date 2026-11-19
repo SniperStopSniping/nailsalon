@@ -316,6 +316,7 @@ export function BookServiceClient({
   const [islaExpandedCategory, setIslaExpandedCategory] = useState<string | null>(null);
   const [islaSearchOpen, setIslaSearchOpen] = useState(false);
   const locale = (params?.locale as string) || 'en';
+  const serviceSearchLabel = locale === 'fr' ? 'Rechercher des services' : 'Search services';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
   // A non-secret marker keeps the normal Confirm step on the assistant's
   // durable flow after a customer revisits and edits this normal service UI.
@@ -1705,18 +1706,19 @@ export function BookServiceClient({
                   }}
                 >
                   <Card className="flex items-center px-4 py-0.5 shadow-sm">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="mr-3 text-neutral-400">
+                    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" className="mr-3 text-neutral-400">
                       <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
                       <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                     </svg>
                     <Input
                       type="text"
+                      aria-label={serviceSearchLabel}
                       value={searchQuery}
                       onChange={(e) => {
                         setSearchQuery(e.target.value);
                       }}
                       onFocus={handleSearchFocus}
-                      placeholder="Search services..."
+                      placeholder={`${serviceSearchLabel}...`}
                       className="h-11 flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
                     />
                     {searchQuery && (
@@ -1954,6 +1956,8 @@ export function BookServiceClient({
                         >
                           <div
                             className="flex min-w-max flex-nowrap gap-1.5 md:min-w-0 md:flex-wrap md:justify-center md:gap-2"
+                            role="group"
+                            aria-label={locale === 'fr' ? 'Catégories de services' : 'Service categories'}
                             data-testid="service-category-track"
                           >
                             {availableCategories.map((category) => {

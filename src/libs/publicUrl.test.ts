@@ -1,12 +1,33 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { buildSalonTenantPublicUrl } from './publicUrl';
+import { buildSalonBookingCanonicalUrl, buildSalonTenantPublicUrl } from './publicUrl';
 
 const originalEnv = { ...process.env };
 
 describe('server-generated salon canonical URLs', () => {
   afterEach(() => {
     process.env = { ...originalEnv };
+  });
+
+  it('uses the final booking step URL on shared English and French paths', () => {
+    process.env = { NODE_ENV: 'test', PUBLIC_APP_URL: 'https://www.example.com' };
+    const salon = { slug: 'isla-nails' };
+
+    expect(buildSalonBookingCanonicalUrl(salon, 'en')).toBe('https://www.example.com/isla-nails/book/service');
+    expect(buildSalonBookingCanonicalUrl({ ...salon, bookingFlow: ['tech', 'service', 'time'] }, 'fr'))
+      .toBe('https://www.example.com/fr/isla-nails/book/tech');
+  });
+
+  it('keeps the language on dedicated salon hosts', () => {
+    const salon = { slug: 'isla-nails', customDomain: 'booking.example.com' };
+
+    expect(buildSalonBookingCanonicalUrl(salon, 'fr')).toBe('https://booking.example.com/fr/book/service');
+
+    process.env.LUSTER_ROOT_DOMAIN = 'studio.example.com';
+    process.env.TENANT_SUBDOMAINS_ENABLED = 'true';
+
+    expect(buildSalonBookingCanonicalUrl({ slug: salon.slug }, 'en'))
+      .toBe('https://isla-nails.studio.example.com/book/service');
   });
 
   it('uses a verified custom domain without a slug path', () => {

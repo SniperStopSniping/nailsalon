@@ -48,7 +48,7 @@ export function HomeHeader({ locale }: { locale: MarketingLocale }) {
   const links = sections.map((section, index) => (
     <a key={section} href={`#${section}`} onClick={() => setOpen(false)}>{copy.navigation[index]}</a>
   ));
-  const languageLink = <a href={locale === 'fr' ? '/en' : '/fr'} hrefLang={locale === 'fr' ? 'en' : 'fr'} aria-label={language.languageLabel}>{language.language}</a>;
+  const languageLink = <a href={locale === 'fr' ? '/en' : '/fr'} hrefLang={locale === 'fr' ? 'en' : 'fr'} lang={locale === 'fr' ? 'en' : 'fr'}>{language.language}</a>;
 
   return (
     <header
@@ -65,7 +65,7 @@ export function HomeHeader({ locale }: { locale: MarketingLocale }) {
         <Link href={marketingPath('/', locale)} className={styles.wordmark} aria-label="Luster">LUSTER</Link>
         <nav className={styles.desktopNav} aria-label={locale === 'fr' ? 'Navigation principale' : 'Main navigation'}>{links}</nav>
         <div className={styles.headerActions}>
-          <a href={LUSTER_SHOP_URL} className={styles.shop} aria-label={copy.shop}>
+          <a href={LUSTER_SHOP_URL} className={styles.shop}>
             <ShoppingBag aria-hidden="true" />
             <span className={styles.shopLong}>{copy.shop}</span>
             <span className={styles.shopShort}>{copy.shopShort}</span>

@@ -58,7 +58,6 @@ const {
   checkSalonStatus,
   checkFeatureEnabled,
   buildTenantRedirectPath,
-  getBookingConfigForSalon,
   getClientSession,
   getServicesBySalonId,
   getActiveAddOnsBySalonId,
@@ -81,14 +80,6 @@ const {
   checkSalonStatus: vi.fn(async () => ({})),
   checkFeatureEnabled: vi.fn(async () => ({})),
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
-  getBookingConfigForSalon: vi.fn(async () => ({
-    bufferMinutes: 10,
-    slotIntervalMinutes: 15,
-    currency: 'CAD',
-    timezone: 'America/Toronto',
-    introPriceDefaultLabel: null,
-    firstVisitDiscountEnabled: false,
-  })),
   getClientSession: vi.fn(async () => null),
   getServicesBySalonId: vi.fn(async () => []),
   getActiveAddOnsBySalonId: vi.fn(async () => []),
@@ -172,14 +163,6 @@ vi.mock('@/libs/salonStatus', () => ({
   buildTenantRedirectPath,
   checkFeatureEnabled,
   checkSalonStatus,
-}));
-
-vi.mock('@/libs/bookingConfig', () => ({
-  getBookingConfigForSalon,
-  resolveBookingConfigFromSettings: vi.fn(() => ({
-    timezone: 'America/Toronto',
-  })),
-  resolveIntroPriceLabel: vi.fn(() => null),
 }));
 
 vi.mock('@/libs/clientAuth', () => ({
@@ -288,14 +271,6 @@ describe('Real nested route: [locale]/[slug]/layout.tsx wrapping [locale]/[slug]
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
     buildTenantRedirectPath.mockImplementation((path: string | null) => path);
-    getBookingConfigForSalon.mockResolvedValue({
-      bufferMinutes: 10,
-      slotIntervalMinutes: 15,
-      currency: 'CAD',
-      timezone: 'America/Toronto',
-      introPriceDefaultLabel: null,
-      firstVisitDiscountEnabled: false,
-    });
     getClientSession.mockResolvedValue(null);
     getServicesBySalonId.mockResolvedValue([]);
     getActiveAddOnsBySalonId.mockResolvedValue([]);

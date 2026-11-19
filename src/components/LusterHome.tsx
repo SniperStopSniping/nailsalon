@@ -113,7 +113,7 @@ export function LusterHome({ locale = 'en', websiteSetupEnabled = false }: {
           </div>
         </section>
       </main>
-      <div className={styles.language}><a href={language === 'fr' ? '/en' : '/fr'} hrefLang={language === 'fr' ? 'en' : 'fr'} aria-label={copy.languageLabel}>{copy.language}</a></div>
+      <nav className={styles.language} aria-label={copy.languageNavigation}><a href={language === 'fr' ? '/en' : '/fr'} hrefLang={language === 'fr' ? 'en' : 'fr'} lang={language === 'fr' ? 'en' : 'fr'}>{copy.language}</a></nav>
       <MarketingFooter locale={language} />
     </div>
   );

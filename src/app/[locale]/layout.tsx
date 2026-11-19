@@ -54,12 +54,10 @@ export default async function RootLayout(props: {
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
 }) {
-  setRequestLocale((await props.params).locale);
+  const { locale } = await props.params;
+  setRequestLocale(locale);
 
-  // Fetch messages for internationalization
-  const messages = await getMessages();
-
-  const salon = await getResolvedSalon();
+  const [messages, salon] = await Promise.all([getMessages(), getResolvedSalon()]);
 
   // Check salon status for context
   const salonStatus = (salon?.status || null) as SalonStatus | null;
@@ -89,7 +87,7 @@ export default async function RootLayout(props: {
           status={salonStatus}
         >
           <NextIntlClientProvider
-            locale={(await props.params).locale}
+            locale={locale}
             messages={messages}
           >
             {props.children}
