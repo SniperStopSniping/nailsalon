@@ -9,7 +9,7 @@ import createMiddleware from 'next-intl/middleware';
 import { ADMIN_SESSION_COOKIE } from './libs/adminSessionCookie';
 import { apiPathNeedsClerkContext } from './libs/clerkApiContext';
 import { hasClerkSessionCookie } from './libs/clerkSessionCookie';
-import { isUnlistedAccountPage } from './libs/publicPageIndexing';
+import { isUnlistedAccountPage, isUnlistedSalonCapabilityPage } from './libs/publicPageIndexing';
 import { getCanonicalAppOrigin } from './libs/publicUrl';
 import { hasExactRequestOrigin, shouldRequireApiRequestOrigin } from './libs/requestOriginGuard';
 import {
@@ -95,7 +95,8 @@ export default async function middleware(
     request.nextUrl.searchParams.get('salonSlug'),
   );
   const finalizeResponse = (response: NextResponse) => {
-    if (isUnlistedAccountPage(request.nextUrl.pathname)) {
+    const pathname = request.nextUrl.pathname;
+    if (isUnlistedAccountPage(pathname) || isUnlistedSalonCapabilityPage(pathname, hostnameSalonSlug)) {
       response.headers.set('X-Robots-Tag', 'noindex, follow');
     }
     if (/^\/(?:[a-z]{2}\/)?website-preview\//u.test(request.nextUrl.pathname)) {

@@ -11,7 +11,6 @@ const {
   checkSalonStatus,
   getActiveAddOnsBySalonId,
   getActiveLocationsBySalonId,
-  getBookingConfigForSalon,
   getClientSession,
   getPublicPageContext,
   getPublicBookableServiceIds,
@@ -36,7 +35,6 @@ const {
   })),
   getActiveAddOnsBySalonId: vi.fn(),
   getActiveLocationsBySalonId: vi.fn(),
-  getBookingConfigForSalon: vi.fn(),
   getClientSession: vi.fn(),
   getPublicPageContext: vi.fn(),
   getPublicBookableServiceIds: vi.fn(),
@@ -77,11 +75,6 @@ vi.mock('@/components/PublicSalonPageShell', () => ({
 
 vi.mock('@/libs/bookingFlow', () => ({
   normalizeBookingFlow: vi.fn(() => ['service', 'tech', 'time', 'confirm']),
-}));
-
-vi.mock('@/libs/bookingConfig', () => ({
-  getBookingConfigForSalon,
-  resolveIntroPriceLabel: vi.fn(() => null),
 }));
 
 vi.mock('@/libs/clientAuth', () => ({
@@ -204,19 +197,12 @@ describe('BookServicePage first-visit offer visibility', () => {
       salon: {
         id: 'salon_1',
         slug: 'salon-a',
+        settings: { booking: { firstVisitDiscountEnabled: true } },
         bookingFlow: ['service', 'tech', 'time', 'confirm'],
       },
     });
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
-    getBookingConfigForSalon.mockResolvedValue({
-      bufferMinutes: 10,
-      slotIntervalMinutes: 15,
-      currency: 'CAD',
-      timezone: 'America/Toronto',
-      introPriceDefaultLabel: null,
-      firstVisitDiscountEnabled: true,
-    });
     getServicesBySalonId.mockResolvedValue([]);
     getActiveAddOnsBySalonId.mockResolvedValue([]);
     getServiceAddOnRulesBySalonId.mockResolvedValue([]);
@@ -583,14 +569,6 @@ describe('BookServicePage owner-preview wiring', () => {
     });
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
-    getBookingConfigForSalon.mockResolvedValue({
-      bufferMinutes: 10,
-      slotIntervalMinutes: 15,
-      currency: 'CAD',
-      timezone: 'America/Toronto',
-      introPriceDefaultLabel: null,
-      firstVisitDiscountEnabled: false,
-    });
     getClientSession.mockResolvedValue(null);
     getServicesBySalonId.mockResolvedValue([]);
     getActiveAddOnsBySalonId.mockResolvedValue([]);
@@ -1224,14 +1202,6 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
     });
     checkSalonStatus.mockResolvedValue({});
     checkFeatureEnabled.mockResolvedValue({});
-    getBookingConfigForSalon.mockResolvedValue({
-      bufferMinutes: 10,
-      slotIntervalMinutes: 15,
-      currency: 'CAD',
-      timezone: 'America/Toronto',
-      introPriceDefaultLabel: null,
-      firstVisitDiscountEnabled: false,
-    });
     getClientSession.mockResolvedValue(null);
     getServicesBySalonId.mockResolvedValue([]);
     getActiveAddOnsBySalonId.mockResolvedValue([]);

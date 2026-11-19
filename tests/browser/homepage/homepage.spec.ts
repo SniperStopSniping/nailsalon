@@ -10,7 +10,7 @@ for (const width of [360, 390, 430, 768, 1024, 1440]) {
 
     await expect(build).toHaveAttribute('href', '/onboarding-v1');
     await expect(login).toHaveAttribute('href', '/owner-sign-in');
-    await expect(page.getByRole('link', { name: 'Shop Luster Gel', exact: true })).toHaveAttribute('href', 'https://lustergel.ca/shop');
+    await expect(page.getByRole('link', { name: width < 1100 ? 'Shop Gel' : 'Shop Luster Gel', exact: true })).toHaveAttribute('href', 'https://lustergel.ca/shop');
     await expect(page.locator('h1')).toHaveText('Manage your salon, book clients, and grow your business.');
     await expect(page.locator('h1')).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

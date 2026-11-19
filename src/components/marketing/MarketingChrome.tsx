@@ -15,7 +15,7 @@ export function MarketingHeader({ locale, path = '/' }: { locale: string; path?:
       <nav aria-label={language === 'fr' ? 'Navigation principale' : 'Main navigation'} className="col-span-2 row-start-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-semibold lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:justify-end">
         <Link href={marketingPath('/nail-salon-booking-software', language)} className="inline-flex min-h-11 items-center">{language === 'fr' ? 'Pour les salons' : 'For salons'}</Link>
         <Link href={marketingPath('/free-booking', language)} className="inline-flex min-h-11 items-center">{language === 'fr' ? 'Ce qui est inclus' : 'What’s included'}</Link>
-        <a href={languageHref} hrefLang={language === 'fr' ? 'en' : 'fr'} aria-label={copy.languageLabel} className="inline-flex min-h-11 items-center">{copy.language}</a>
+        <a href={languageHref} hrefLang={language === 'fr' ? 'en' : 'fr'} lang={language === 'fr' ? 'en' : 'fr'} className="inline-flex min-h-11 items-center">{copy.language}</a>
         <Link href={marketingPath('/owner-sign-in', language)} className="inline-flex min-h-11 items-center">{copy.owner}</Link>
       </nav>
       <a href={LUSTER_SHOP_URL} className="col-start-2 row-start-1 inline-flex min-h-11 items-center justify-center justify-self-end rounded-full border border-stone-300 bg-white px-4 py-2.5 text-center text-sm font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a70f3c] lg:col-start-3">{copy.shop}</a>

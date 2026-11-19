@@ -12,7 +12,7 @@ import { CustomWebsiteFrame } from '@/features/custom-sites/CustomWebsiteFrame';
 import { customSiteArtworkPolicy, customSiteDataFromLive } from '@/features/custom-sites/live-data.server';
 import { customSitePayload, customSiteRendererOrigin } from '@/features/custom-sites/payload.server';
 import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
-import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import { resolveBookingConfigFromSettings, resolveIntroPriceLabel } from '@/libs/bookingConfig.shared';
 import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
@@ -202,12 +202,12 @@ export async function renderBookServicePage({
   }
 
   // Fetch services for this salon
-  const bookingConfig = await getBookingConfigForSalon(salon.id);
+  const bookingConfig = resolveBookingConfigFromSettings(salon.settings);
   const merchandising = resolveMerchandisingSettings(
     (salon.settings as SalonSettings | null | undefined) ?? null,
   );
-  const clientSession = await getClientSession();
-  const [dbServices, dbAddOns, dbServiceAddOnRules, dbTechnicians, publicBookableServiceIds] = await Promise.all([
+  const [clientSession, dbServices, dbAddOns, dbServiceAddOnRules, dbTechnicians, publicBookableServiceIds] = await Promise.all([
+    getClientSession(),
     getServicesBySalonId(salon.id),
     getActiveAddOnsBySalonId(salon.id),
     getServiceAddOnRulesBySalonId(salon.id),

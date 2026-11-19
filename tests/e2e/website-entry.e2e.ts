@@ -58,7 +58,7 @@ test('French website entry keeps localized links usable on a short phone', async
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
-  await page.getByRole('link', { name: 'Lire cette page en anglais', exact: true }).click();
+  await page.getByRole('link', { name: 'English', exact: true }).click();
 
   await expect(page).toHaveURL(/\/$/u);
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');

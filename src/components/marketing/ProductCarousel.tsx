@@ -34,10 +34,15 @@ function Laptop({ className = '', priority = false }: { className?: string; prio
 
 export function ProductCarousel({ locale }: { locale: MarketingLocale }) {
   const [active, setActive] = useState(0);
+  const [loadedSlides, setLoadedSlides] = useState<Set<number>>(() => new Set([0]));
   const track = useRef<HTMLDivElement>(null);
   const copy = homeContent[locale];
+  const loadSlide = (index: number) => {
+    setLoadedSlides(current => current.has(index) ? current : new Set(current).add(index));
+  };
   const select = (index: number) => {
     const target = (index + copy.slides.length) % copy.slides.length;
+    loadSlide(target);
     const element = track.current;
     if (element) {
       element.scrollTo({ left: target * element.clientWidth, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
@@ -61,26 +66,28 @@ export function ProductCarousel({ locale }: { locale: MarketingLocale }) {
         ref={track}
         onScroll={(event) => {
           const element = event.currentTarget;
-          setActive(Math.max(0, Math.min(copy.slides.length - 1, Math.round(element.scrollLeft / element.clientWidth))));
+          const next = Math.max(0, Math.min(copy.slides.length - 1, Math.round(element.scrollLeft / element.clientWidth)));
+          loadSlide(next);
+          setActive(next);
         }}
       >
         {copy.slides.map((slide, index) => (
           <div key={slide.title} className={styles.slide} role="group" aria-roledescription="slide" aria-label={`${index + 1} / ${copy.slides.length}: ${slide.title}`} aria-hidden={index !== active}>
             <div className={`${styles.artwork} ${styles[`artwork${index}`]}`}>
-              {index === 0 && (
+              {loadedSlides.has(index) && index === 0 && (
                 <>
                   <Laptop className={styles.heroLaptop} />
                   <Phone src="booking-page.webp" alt={slide.alt} priority className={styles.heroPhone} />
                 </>
               )}
-              {index === 1 && (
+              {loadedSlides.has(index) && index === 1 && (
                 <>
                   <Phone src="services.webp" alt={slide.alt} className={styles.servicePhone} />
                   <Phone src="available-time.webp" alt={locale === 'fr' ? 'Les horaires disponibles dans Luster.' : 'Available appointment times in Luster.'} className={styles.timePhone} />
                 </>
               )}
-              {index === 2 && <Laptop className={styles.calendarLaptop} />}
-              {index === 3 && <Phone src="booking-policy.webp" alt={slide.alt} className={styles.policyPhone} />}
+              {loadedSlides.has(index) && index === 2 && <Laptop className={styles.calendarLaptop} />}
+              {loadedSlides.has(index) && index === 3 && <Phone src="booking-policy.webp" alt={slide.alt} className={styles.policyPhone} />}
             </div>
           </div>
         ))}
